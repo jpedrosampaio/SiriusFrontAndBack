@@ -1,0 +1,18 @@
+# Build settings for Netlify
+# This file configures automatic builds
+
+[build]
+  command = "npm run build"
+  publish = "build"
+
+# Redirect all requests to index.html for SPA
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Cache static assets
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
