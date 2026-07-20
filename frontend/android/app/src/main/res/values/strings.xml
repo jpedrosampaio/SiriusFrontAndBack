@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sirius</string>
+    <string name="title_activity_main">Sirius</string>
+    <string name="package_name">com.sirius.app</string>
+    <string name="custom_url_scheme">com.sirius.app</string>
+    <string name="widget_description">Widget do Sistema Sirius - acompanhe suas tarefas, hábitos e progresso XP</string>
+</resources>

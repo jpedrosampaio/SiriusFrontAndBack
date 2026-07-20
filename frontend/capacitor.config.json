@@ -1,0 +1,14 @@
+{
+  "appId": "com.sirius.app",
+  "appName": "Sirius",
+  "webDir": "build",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true
+  },
+  "linux": {
+    "android": {
+      "allowMixedContent": true
+    }
+  }
+}

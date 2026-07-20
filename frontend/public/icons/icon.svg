@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="wolfGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F0FF"/>
+      <stop offset="50%" stop-color="#007AFF"/>
+      <stop offset="100%" stop-color="#00F0FF"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="starGlow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" fill="#050505" rx="80"/>
+  
+  <!-- Wolf Head - Geometric/Angular Style -->
+  <!-- Ears -->
+  <polygon points="160,100 200,210 120,220" fill="url(#wolfGrad)" opacity="0.9"/>
+  <polygon points="352,100 312,210 392,220" fill="url(#wolfGrad)" opacity="0.9"/>
+  <!-- Inner ears -->
+  <polygon points="165,130 195,210 140,215" fill="#050505" opacity="0.5"/>
+  <polygon points="347,130 317,210 372,215" fill="#050505" opacity="0.5"/>
+  
+  <!-- Head shape -->
+  <path d="M256,420 L180,340 L140,260 L145,210 L190,190 L220,220 L256,200 L292,220 L322,190 L367,210 L372,260 L332,340 Z" 
+        fill="url(#wolfGrad)" filter="url(#glow)"/>
+  
+  <!-- Face dark details - forehead -->
+  <path d="M256,210 L225,240 L200,260 L220,280 L256,270 L292,280 L312,260 L287,240 Z" 
+        fill="#050505" opacity="0.4"/>
+  
+  <!-- Eyes -->
+  <ellipse cx="210" cy="270" rx="22" ry="14" fill="#050505"/>
+  <ellipse cx="302" cy="270" rx="22" ry="14" fill="#050505"/>
+  <!-- Eye glow -->
+  <ellipse cx="215" cy="270" rx="10" ry="8" fill="#00F0FF" opacity="0.9"/>
+  <ellipse cx="307" cy="270" rx="10" ry="8" fill="#00F0FF" opacity="0.9"/>
+  <!-- Eye pupils -->
+  <ellipse cx="217" cy="270" rx="4" ry="6" fill="#050505"/>
+  <ellipse cx="309" cy="270" rx="4" ry="6" fill="#050505"/>
+  
+  <!-- Nose -->
+  <path d="M256,320 L245,335 L256,342 L267,335 Z" fill="#050505"/>
+  
+  <!-- Mouth/Muzzle line -->
+  <line x1="256" y1="342" x2="256" y2="365" stroke="#050505" stroke-width="3"/>
+  <path d="M240,365 Q256,380 272,365" fill="none" stroke="#050505" stroke-width="2.5"/>
+  
+  <!-- Sirius Star - Above the wolf -->
+  <polygon points="256,55 262,75 283,75 266,87 273,108 256,96 239,108 246,87 229,75 250,75" 
+           fill="#00F0FF" filter="url(#starGlow)"/>
+  <!-- Star inner glow -->
+  <circle cx="256" cy="82" r="6" fill="white" opacity="0.7"/>
+  
+  <!-- Subtle fur lines on cheeks -->
+  <line x1="160" y1="280" x2="195" y2="290" stroke="url(#wolfGrad)" stroke-width="1.5" opacity="0.3"/>
+  <line x1="155" y1="295" x2="192" y2="300" stroke="url(#wolfGrad)" stroke-width="1.5" opacity="0.3"/>
+  <line x1="158" y1="310" x2="190" y2="310" stroke="url(#wolfGrad)" stroke-width="1.5" opacity="0.3"/>
+  <line x1="352" y1="280" x2="317" y2="290" stroke="url(#wolfGrad)" stroke-width="1.5" opacity="0.3"/>
+  <line x1="357" y1="295" x2="320" y2="300" stroke="url(#wolfGrad)" stroke-width="1.5" opacity="0.3"/>
+  <line x1="354" y1="310" x2="322" y2="310" stroke="url(#wolfGrad)" stroke-width="1.5" opacity="0.3"/>
+</svg>

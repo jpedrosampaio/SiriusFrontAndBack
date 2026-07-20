@@ -1,0 +1,111 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;900&family=Inter:wght@400;500&family=JetBrains+Mono:wght@500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+    font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+@layer base {
+    :root {
+        --background: 0 0% 2%;
+        --foreground: 0 0% 98%;
+        --card: 0 0% 4%;
+        --card-foreground: 0 0% 98%;
+        --popover: 0 0% 4%;
+        --popover-foreground: 0 0% 98%;
+        --primary: 213 100% 50%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 0 0% 17%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 0 0% 17%;
+        --muted-foreground: 0 0% 63%;
+        --accent: 213 100% 50%;
+        --accent-foreground: 0 0% 98%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 0 0% 15%;
+        --input: 0 0% 15%;
+        --ring: 213 100% 50%;
+        --radius: 0rem;
+        --chart-1: 213 100% 50%;
+        --chart-2: 123 100% 50%;
+        --chart-3: 27 96% 61%;
+        --chart-4: 0 84% 60%;
+        --chart-5: 271 91% 65%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+        background-color: #050505;
+        /* PWA safe area support */
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+    }
+    
+    /* Prevent pull-to-refresh on mobile */
+    html {
+        overscroll-behavior: none;
+    }
+}
+
+/* Safe area utilities for bottom navigation */
+.safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Better touch targets for mobile */
+@media (max-width: 768px) {
+    button, a, input, select, textarea {
+        min-height: 44px;
+    }
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Hide scrollbar on mobile but keep functionality */
+@media (max-width: 768px) {
+    ::-webkit-scrollbar {
+        display: none;
+    }
+    * {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+}
+
+/* Scrollable tabs - prevent tab triggers from shrinking */
+[role="tablist"] > [role="tab"] {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.font-heading {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+}
+
+.font-data {
+    font-family: 'JetBrains Mono', monospace;
+}

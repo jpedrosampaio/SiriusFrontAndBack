@@ -1,0 +1,95 @@
+.App {
+  min-height: 100vh;
+  background-color: #050505;
+}
+
+.App-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+  min-height: 100vh;
+}
+
+.App-link {
+  color: #007AFF;
+  transition: opacity 200ms;
+}
+
+.App-link:hover {
+  opacity: 0.8;
+}
+
+.glass-card {
+  background: rgba(10, 10, 10, 0.4);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glow-primary {
+  box-shadow: 0 0 15px rgba(0, 122, 255, 0.3);
+}
+
+.glow-success {
+  box-shadow: 0 0 15px rgba(57, 255, 20, 0.3);
+}
+
+.glow-danger {
+  box-shadow: 0 0 15px rgba(255, 59, 48, 0.3);
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.task-item {
+  transition: all 200ms;
+}
+
+.task-item:hover {
+  background-color: #121212;
+  border-color: #3F3F46;
+}
+
+.habit-card {
+  transition: all 200ms;
+  cursor: pointer;
+}
+
+.habit-card:hover {
+  transform: translateY(-2px);
+  border-color: #3F3F46;
+}
+
+.rank-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
+.xp-bar {
+  height: 8px;
+  background: #2C2C2E;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.xp-fill {
+  height: 100%;
+  background: #007AFF;
+  transition: width 500ms ease-out;
+  box-shadow: 0 0 10px rgba(0, 122, 255, 0.5);
+}
