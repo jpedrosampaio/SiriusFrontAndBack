@@ -841,7 +841,6 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-      </div>
       <MobileNav user={user} />
     </div>
   );
