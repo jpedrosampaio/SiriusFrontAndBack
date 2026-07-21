@@ -91,17 +91,20 @@ async def call_gemini(prompt: str, system_message: str, api_key: str) -> tuple[O
         
         try:
             resp = requests.post(url, json=payload, timeout=30)
+            logging.info(f"Gemini call (model={model}): status={resp.status_code}")
             if resp.status_code == 200:
                 data = resp.json()
                 text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                 if text:
                     return text, None
-            logging.error(f"Gemini API error (model={model}): {resp.status_code} - {resp.text[:500]}")
+                logging.warning(f"Gemini 200 OK but no text in response (model={model})")
+            else:
+                logging.error(f"Gemini API error (model={model}): {resp.status_code} - {resp.text[:500]}")
             if resp.status_code in (400, 401, 403):
                 return None, "invalid"
             if resp.status_code == 429:
                 last_error = "quota"
-            else:
+            elif resp.status_code != 200:
                 last_error = "other"
         except Exception as e:
             logging.error(f"Gemini error (model={model}): {e}")
