@@ -1848,7 +1848,7 @@ export default function Workouts() {
                 ) : (
                   <>
                     <span className="text-xs text-[#00F0FF] animate-pulse">● Pendente</span>
-                    <Button size="sm" onClick={() => { setActiveTab("log"); }} className="bg-green-600 hover:bg-green-700 text-white text-xs h-8">
+                    <Button size="sm" onClick={() => { const p = plans.find(pl => pl.plan_id === todaySchedule.plan_id); if (p) handleStartWorkout(p, todaySchedule.day_index || 0); else setActiveTab("plans"); }} className="bg-green-600 hover:bg-green-700 text-white text-xs h-8">
                       <Play className="w-3 h-3 mr-1" /> Iniciar
                     </Button>
                   </>
