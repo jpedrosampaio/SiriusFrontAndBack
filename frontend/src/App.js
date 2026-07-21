@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster, toast } from "@/components/ui/sonner";
@@ -12,6 +12,8 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import NotificationManager from "@/components/NotificationManager";
 import { GeminiKeyModal } from "@/components/GeminiKeyModal";
+import AiChatModal from "@/components/AiChatModal";
+import { Brain, X } from "lucide-react";
 
 // Lazy-loaded pages — keeps initial bundle small
 const Dashboard = React.lazy(() => import("@/pages/Dashboard"));
@@ -78,6 +80,28 @@ function AnimatedRoutes() {
   );
 }
 
+function AiFloatingButton() {
+  const [open, setOpen] = useState(false);
+  const location = useLocation();
+  const isPublicPage = ['/', '/login', '/register'].includes(location.pathname);
+  if (isPublicPage) return null;
+  return (
+    <>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`fixed bottom-20 right-4 z-50 w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-300 ${
+          open
+            ? 'bg-[#FFD700] text-black rotate-45 scale-110'
+            : 'bg-gradient-to-br from-[#FFD700] to-[#FF8C00] text-black hover:scale-105'
+        }`}
+      >
+        {open ? <X className="w-5 h-5" /> : <Brain className="w-5 h-5" />}
+      </button>
+      <AiChatModal open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
 function App() {
   useEffect(() => {
     const handler = (e) => {
@@ -94,6 +118,7 @@ function App() {
         <NotificationManager />
         <Toaster position="top-right" richColors />
         <GeminiKeyModal />
+        <AiFloatingButton />
       </BrowserRouter>
     </div>
   );

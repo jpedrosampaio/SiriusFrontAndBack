@@ -1,5 +1,6 @@
 // craco.config.js
 const path = require("path");
+const webpack = require("webpack");
 require("dotenv").config();
 
 // Check if we're in development/preview mode (not production build)
@@ -60,6 +61,27 @@ const webpackConfig = {
             '**/public/**',
         ],
       };
+
+      // Polyfills for @xenova/transformers (browser compatibility)
+      webpackConfig.resolve = {
+        ...webpackConfig.resolve,
+        fallback: {
+          path: require.resolve("path-browserify"),
+          buffer: require.resolve("buffer"),
+          fs: false,
+          crypto: false,
+          stream: false,
+          os: false,
+          assert: false,
+          util: false,
+          url: false,
+        },
+      };
+      webpackConfig.plugins.push(
+        new webpack.ProvidePlugin({
+          Buffer: ["buffer", "Buffer"],
+        })
+      );
 
       // Add health check plugin to webpack if enabled
       if (config.enableHealthCheck && healthPluginInstance) {
