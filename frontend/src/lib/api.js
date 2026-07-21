@@ -56,13 +56,16 @@ axios.interceptors.response.use(
         window.location.href = '/login';
       }
     }
-    // Detect missing Gemini API key errors and trigger modal
+    // Detect Gemini API key errors
     const errMsg = error.response?.data?.detail || "";
     if (
       errMsg.includes("Configure sua chave") &&
       errMsg.includes("Gemini")
     ) {
       window.dispatchEvent(new CustomEvent("open-gemini-key-modal"));
+    }
+    if (errMsg.includes("cota da API Gemini esgotou") || errMsg.includes("chave de API Gemini é inválida")) {
+      window.dispatchEvent(new CustomEvent("gemini-api-error", { detail: errMsg }));
     }
     return Promise.reject(error);
   }

@@ -54,37 +54,34 @@ async def get_freellm_api_key(user_id: str) -> Optional[str]:
 # ========== LLM CALLS ==========
 
 async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None) -> str:
-    """Call Gemini API - tries user key first, then server key as fallback"""
+    """Call Gemini API - user must configure their own API key"""
     
     if not user_id:
         return "⚠️ Serviço de IA indisponível. Faça login e configure sua chave Gemini no perfil."
     
     user_api_key = await get_user_api_key(user_id)
-    
-    # Try with user's key if available
-    if user_api_key:
-        result = await call_gemini(prompt, system_message, user_api_key)
-        if result:
-            return result
-    
-    # Fallback to server key for quota issues
-    if GOOGLE_GEMINI_API_KEY:
-        logging.info("Falling back to server Gemini API key")
-        result = await call_gemini(prompt, system_message, GOOGLE_GEMINI_API_KEY)
-        if result:
-            return result
-    
     if not user_api_key:
         return "⚠️ Configure sua chave de API Gemini nas configurações do perfil para usar IA."
-    return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida e tem quota disponível em https://makersuite.google.com/app/apikey"
+    
+    result, error_type = await call_gemini(prompt, system_message, user_api_key)
+    if result:
+        return result
+    
+    if error_type == "quota":
+        return "⚠️ Sua cota da API Gemini esgotou. Acesse https://makersuite.google.com/app/apikey para verificar seu plano ou crie uma nova chave."
+    if error_type == "invalid":
+        return "⚠️ Sua chave de API Gemini é inválida. Verifique em https://makersuite.google.com/app/apikey"
+    return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida em https://makersuite.google.com/app/apikey"
 
-async def call_gemini(prompt: str, system_message: str, api_key: str) -> Optional[str]:
-    """Call Gemini API, returns response text or None"""
+async def call_gemini(prompt: str, system_message: str, api_key: str) -> tuple[Optional[str], Optional[str]]:
+    """Call Gemini API, returns (response_text, error_type).
+    error_type: None on success, 'quota' on 429, 'invalid' on 400/401/403, 'other' otherwise."""
     from urllib.parse import quote
     models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
     if GEMINI_MODEL not in models_to_try:
         models_to_try.insert(0, GEMINI_MODEL)
     
+    last_error = None
     for model in models_to_try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -97,14 +94,18 @@ async def call_gemini(prompt: str, system_message: str, api_key: str) -> Optiona
                 data = resp.json()
                 text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                 if text:
-                    return text
+                    return text, None
             logging.error(f"Gemini API error (model={model}): {resp.status_code} - {resp.text[:500]}")
             if resp.status_code in (400, 401, 403):
-                break  # key issue, no point trying other models
-            # 404 (model not found), 429 (quota), 5xx: continue to next model
+                return None, "invalid"
+            if resp.status_code == 429:
+                last_error = "quota"
+            else:
+                last_error = "other"
         except Exception as e:
             logging.error(f"Gemini error (model={model}): {e}")
-    return None
+            last_error = "other"
+    return None, last_error
 
 
 

@@ -1,7 +1,7 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster, toast } from "@/components/ui/sonner";
 import { AnimatePresence } from "framer-motion";
 import PageTransition from "@/components/PageTransition";
 import Landing from "@/pages/Landing";
@@ -79,6 +79,14 @@ function AnimatedRoutes() {
 }
 
 function App() {
+  useEffect(() => {
+    const handler = (e) => {
+      toast.error(e.detail, { duration: 8000 });
+    };
+    window.addEventListener("gemini-api-error", handler);
+    return () => window.removeEventListener("gemini-api-error", handler);
+  }, []);
+
   return (
     <div className="App">
       <BrowserRouter>
