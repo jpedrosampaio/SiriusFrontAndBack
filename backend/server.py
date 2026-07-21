@@ -72,7 +72,7 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
 async def call_gemini(prompt: str, system_message: str, api_key: str) -> Optional[str]:
     """Call Gemini API, returns response text or None"""
     from urllib.parse import quote
-    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
+    models_to_try = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
     if GEMINI_MODEL not in models_to_try:
         models_to_try.insert(0, GEMINI_MODEL)
     
@@ -90,9 +90,9 @@ async def call_gemini(prompt: str, system_message: str, api_key: str) -> Optiona
                 if text:
                     return text
             logging.error(f"Gemini API error (model={model}): {resp.status_code} - {resp.text[:500]}")
-            if resp.status_code in (400, 401, 403, 404):
-                break  # key or model issue, no point trying other models
-            # 429 (quota) or 5xx: continue to next model
+            if resp.status_code in (400, 401, 403):
+                break  # key issue, no point trying other models
+            # 404 (model not found), 429 (quota), 5xx: continue to next model
         except Exception as e:
             logging.error(f"Gemini error (model={model}): {e}")
     return None
