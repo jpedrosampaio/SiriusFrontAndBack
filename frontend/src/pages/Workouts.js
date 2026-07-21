@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -64,6 +65,9 @@ export default function Workouts() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [savedInsights, setSavedInsights] = useState([]);
   const [showInsightsDialog, setShowInsightsDialog] = useState(false);
+
+  // Today's schedule
+  const [todaySchedule, setTodaySchedule] = useState(null);
 
   // AI Generation
   const [openAiGenerate, setOpenAiGenerate] = useState(false);
@@ -264,6 +268,13 @@ export default function Workouts() {
       setMotivationalQuote(quoteRes.data || null);
       
       // Load daily status for each plan
+      // Fetch today's schedule
+      try {
+        const scheduleRes = await axios.get(`${API}/workouts/today-schedule`, { withCredentials: true });
+        if (scheduleRes.data.scheduled) setTodaySchedule(scheduleRes.data);
+        else setTodaySchedule(null);
+      } catch {}
+
       const plansData = Array.isArray(plansRes.data) ? plansRes.data : [];
       const statusPromises = plansData.map(plan => 
         axios.get(`${API}/daily-workout-status/${plan.plan_id}`, { withCredentials: true })
@@ -792,6 +803,9 @@ export default function Workouts() {
       setActiveSession(res.data);
       setSessionElapsed(0);
       setActiveTab("session");
+      setWarmupExercises({});
+      setExerciseHistory({});
+      fetchNextLoads(plan.plan_id);
       toast.success("Treino iniciado! Bora! 💪");
     } catch (error) {
       toast.error(error.response?.data?.detail || "Erro ao iniciar treino");
@@ -828,6 +842,10 @@ export default function Workouts() {
 
   const [setInputIdx, setSetInputIdx] = useState(null); // index of exercise awaiting set weight input
   const [setInputWeight, setSetInputWeight] = useState("");
+  const [setInputRpe, setSetInputRpe] = useState(""); // RPE for current set
+  const [warmupExercises, setWarmupExercises] = useState({}); // {exerciseIdx: warmupSets}
+  const [nextLoads, setNextLoads] = useState(null); // suggested next weights
+  const [exerciseHistory, setExerciseHistory] = useState({}); // {exerciseIdx: history}
 
   const handleIncrementSets = async (idx) => {
     if (!activeSession) return;
@@ -835,6 +853,7 @@ export default function Workouts() {
     // Show weight input before completing the set
     setSetInputIdx(idx);
     setSetInputWeight(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.weight || ex.weight || "" : ex.weight || "");
+    setSetInputRpe(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.rpe || "" : "");
   };
 
   const confirmSet = async (idx) => {
@@ -844,7 +863,8 @@ export default function Workouts() {
     const newSet = {
       weight: setInputWeight,
       reps: ex.reps,
-      completed: true
+      completed: true,
+      rpe: setInputRpe || ""
     };
     setsData.push(newSet);
     const newSetsCompleted = setsData.length;
@@ -859,6 +879,7 @@ export default function Workouts() {
       setActiveSession(res.data);
       setSetInputIdx(null);
       setSetInputWeight("");
+      setSetInputRpe("");
       
       if (allSetsCompleted) {
         toast.success(`${ex.name} - Todas as séries concluídas! ✅`);
@@ -870,6 +891,34 @@ export default function Workouts() {
     } catch (error) {
       toast.error("Erro ao atualizar série");
     }
+  };
+
+  const fetchWarmup = async (idx, weight) => {
+    if (!weight || weight <= 0) {
+      toast.error("Defina uma carga primeiro");
+      return;
+    }
+    try {
+      const res = await axios.post(`${API}/workouts/calculate-warmup`, { weight: parseFloat(weight) }, { withCredentials: true });
+      setWarmupExercises(prev => ({ ...prev, [idx]: res.data.warmup_sets }));
+    } catch {
+      toast.error("Erro ao calcular aquecimento");
+    }
+  };
+
+  const fetchNextLoads = async (planId) => {
+    try {
+      const res = await axios.get(`${API}/workouts/next-loads`, { params: { plan_id: planId }, withCredentials: true });
+      setNextLoads(res.data);
+    } catch {}
+  };
+
+  const fetchExerciseHistory = async (exerciseName, idx) => {
+    if (!exerciseName) return;
+    try {
+      const res = await axios.get(`${API}/workouts/exercise-history`, { params: { exercise_name: exerciseName }, withCredentials: true });
+      setExerciseHistory(prev => ({ ...prev, [idx]: res.data.history }));
+    } catch {}
   };
 
   const startRestManual = (seconds) => {
@@ -1777,6 +1826,34 @@ export default function Workouts() {
                   </div>
                 </>
               )}
+            </div>
+          )}
+
+          {/* Today's Schedule Banner */}
+          {todaySchedule && (
+            <div className="bg-gradient-to-r from-green-900/20 via-black/50 to-green-900/20 border border-green-800/50 rounded-lg p-4 mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
+                  <Dumbbell className="w-5 h-5 text-green-400" />
+                </div>
+                <div>
+                  <p className="text-xs text-[#A1A1AA] uppercase tracking-wider">{todaySchedule.plan_name}</p>
+                  <p className="text-sm font-medium text-white">{todaySchedule.day_label || "Treino do dia"}</p>
+                  <p className="text-xs text-[#71717A]">{todaySchedule.exercise_count} exercícios · Semana {todaySchedule.week}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {todaySchedule.already_completed ? (
+                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Concluído</Badge>
+                ) : (
+                  <>
+                    <span className="text-xs text-[#00F0FF] animate-pulse">● Pendente</span>
+                    <Button size="sm" onClick={() => { setActiveTab("log"); }} className="bg-green-600 hover:bg-green-700 text-white text-xs h-8">
+                      <Play className="w-3 h-3 mr-1" /> Iniciar
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
@@ -2779,6 +2856,22 @@ export default function Workouts() {
                       );
                     })()}
                   </Card>
+                  
+                  {/* Next Load Suggestions */}
+                  {nextLoads && nextLoads.suggestions && nextLoads.suggestions.some(s => s.next_weight) && (
+                    <Card className="bg-[#0A0A0A] border-[#A855F7]/30 p-4">
+                      <p className="text-xs text-[#A855F7] uppercase flex items-center gap-1 mb-2">
+                        <TrendingUp className="w-3 h-3" /> Próximas cargas sugeridas
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {nextLoads.suggestions.filter(s => s.next_weight).map((s, i) => (
+                          <Badge key={i} className="bg-[#A855F7]/10 text-[#A855F7] border-[#A855F7]/30 text-[10px]">
+                            {s.name}: {s.next_weight}kg
+                          </Badge>
+                        ))}
+                      </div>
+                    </Card>
+                  )}
 
                   {/* Rest Timer */}
                   {isResting && (
@@ -2861,8 +2954,16 @@ export default function Workouts() {
                                           value={setInputWeight}
                                           onChange={(e) => setSetInputWeight(e.target.value)}
                                           placeholder="carga"
-                                          className="w-16 h-7 px-1 text-xs bg-[#18181B] border border-[#00F0FF] rounded text-white text-center"
+                                          className="w-14 h-7 px-1 text-xs bg-[#18181B] border border-[#00F0FF] rounded text-white text-center"
                                           autoFocus
+                                          onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
+                                        />
+                                        <input
+                                          type="text"
+                                          value={setInputRpe}
+                                          onChange={(e) => setSetInputRpe(e.target.value)}
+                                          placeholder="RPE"
+                                          className="w-10 h-7 px-1 text-xs bg-[#18181B] border border-[#A855F7] rounded text-white text-center"
                                           onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
                                         />
                                         <Button 
@@ -2885,6 +2986,28 @@ export default function Workouts() {
                                   </div>
                                 )}
                                 
+                                {/* Warmup button */}
+                                {!ex.completed && (
+                                  <Button 
+                                    variant="ghost" size="sm" 
+                                    onClick={() => fetchWarmup(idx, setInputWeight || ex.weight || 0)}
+                                    className="h-7 px-2 text-xs text-[#F59E0B] hover:bg-[#F59E0B]/10"
+                                  >
+                                    <Flame className="w-3 h-3" /> Aquecer
+                                  </Button>
+                                )}
+                                
+                                {/* Previous workout comparison */}
+                                {!ex.completed && (
+                                  <Button 
+                                    variant="ghost" size="sm" 
+                                    onClick={() => fetchExerciseHistory(ex.name, idx)}
+                                    className={`h-7 px-2 text-xs ${exerciseHistory[idx]?.length > 0 ? 'text-[#00F0FF]' : 'text-[#52525B]'}`}
+                                  >
+                                    <TrendingUp className="w-3 h-3" /> Anterior
+                                  </Button>
+                                )}
+                                
                                 {hasTutorial && (
                                   <Button 
                                     variant="ghost" size="sm" 
@@ -2897,7 +3020,7 @@ export default function Workouts() {
                               </div>
                             </div>
 
-                            {/* Sets indicator dots with weight */}
+                            {/* Sets indicator dots with weight and RPE */}
                             {!ex.completed && ex.sets > 1 && (
                               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 ml-11">
                                 {Array.from({ length: ex.sets }).map((_, sIdx) => {
@@ -2911,9 +3034,57 @@ export default function Workouts() {
                                       {isDone && setData?.weight && (
                                         <span className="text-[10px] text-[#A1A1AA]">{setData.weight}</span>
                                       )}
+                                      {isDone && setData?.rpe && (
+                                        <span className="text-[9px] text-[#A855F7]">RPE {setData.rpe}</span>
+                                      )}
                                     </div>
                                   );
                                 })}
+                              </div>
+                            )}
+
+                            {/* Warmup Sets Display */}
+                            {warmupExercises[idx] && (
+                              <div className="mt-2 ml-11 bg-[#F59E0B]/5 border border-[#F59E0B]/20 rounded p-2">
+                                <p className="text-[10px] text-[#F59E0B] uppercase flex items-center gap-1 mb-1">
+                                  <Flame className="w-3 h-3" /> Aquecimento
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {warmupExercises[idx].map((ws, wi) => (
+                                    <span key={wi} className={`text-[10px] ${ws.label === "Trabalho" ? "text-green-400" : "text-[#A1A1AA]"}`}>
+                                      {ws.weight}kg x {ws.reps}{ws.label !== "Trabalho" && ` (${ws.percentage})`}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Previous workout comparison */}
+                            {exerciseHistory[idx] && exerciseHistory[idx].length > 0 && (
+                              <div className="mt-2 ml-11 bg-[#00F0FF]/5 border border-[#00F0FF]/20 rounded p-2">
+                                <p className="text-[10px] text-[#00F0FF] uppercase flex items-center gap-1 mb-1">
+                                  <TrendingUp className="w-3 h-3" /> Último treino
+                                </p>
+                                {exerciseHistory[idx].slice(0, 3).map((h, hi) => (
+                                  <div key={hi} className="text-[10px] text-[#A1A1AA] flex items-center gap-2">
+                                    <span>{h.date?.slice(5)}</span>
+                                    {h.sets_data?.length > 0 ? (
+                                      h.sets_data.map((sd, si) => (
+                                        <span key={si} className="text-[#71717A]">
+                                          {sd.weight}kg{sd.rpe ? ` @${sd.rpe}` : ""}
+                                        </span>
+                                      ))
+                                    ) : (
+                                      <span>{h.weight}kg x {h.reps}</span>
+                                    )}
+                                  </div>
+                                ))}
+                                <div 
+                                  className="text-[10px] text-[#00F0FF] mt-1 cursor-pointer"
+                                  onClick={() => setActiveTab("evolution")}
+                                >
+                                  Ver evolução completa →
+                                </div>
                               </div>
                             )}
                           </div>
