@@ -4258,12 +4258,8 @@ IMPORTANTE:
             raise HTTPException(status_code=500, detail="Resposta vazia da IA. Tente novamente.")
         
         response_text = response_text.strip()
-        # Verify response looks like JSON before parsing
-        if not response_text.startswith("{"):
-            logging.error(f"Non-JSON response from LLM (first 200 chars): {response_text[:200]}")
-            if response_text.startswith("⚠"):
-                raise HTTPException(status_code=500, detail=response_text)
-            raise HTTPException(status_code=500, detail="IA retornou formato inválido. Tente novamente.")
+        if response_text.startswith("⚠"):
+            raise HTTPException(status_code=500, detail=response_text)
         
         plan_data = _clean_and_parse_json(response_text)
         logging.info("Successfully parsed workout plan")
