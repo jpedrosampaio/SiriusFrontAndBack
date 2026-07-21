@@ -5480,7 +5480,6 @@ Responda APENAS com a frase, sem explicações."""
             prompt=prompt,
             session_id=f"motivation_{user.user_id}_{motivational_date}",
             system_message="Você é um mestre motivacional que combina sabedoria filosófica, mentalidade de elite atlética e coaching de alta performance. Suas frases são impactantes, únicas e memoráveis.",
-            raise_on_error=True,
             user_id=user.user_id
         )
         
@@ -13713,8 +13712,7 @@ async def handle_telegram_message(chat_id: int, text: str, telegram_name: str = 
             quote_resp = await call_llm(
                 "Gere UMA frase motivacional curta, impactante e única. Use 1-2 emojis. Máximo 2 linhas. Responda APENAS com a frase.",
                 f"tg_motivation_{user_id}",
-                "Você é um mestre motivacional.",
-                raise_on_error=True
+                "Você é um mestre motivacional."
             )
             await send_telegram_message(chat_id, quote_resp.strip())
         except:
@@ -13736,13 +13734,13 @@ Se NÃO for uma transação, responda EXATAMENTE: NOT_TRANSACTION
 Responda APENAS com o JSON array ou NOT_TRANSACTION, sem explicações."""
 
     try:
-        ai_response = await call_llm(prompt, f"tg_parse_{user_id}", "Você é um parser de transações financeiras. Extraia dados com precisão.", raise_on_error=True)
+        ai_response = await call_llm(prompt, f"tg_parse_{user_id}", "Você é um parser de transações financeiras. Extraia dados com precisão.")
         ai_response = ai_response.strip()
         
         if "NOT_TRANSACTION" in ai_response:
             # General chat response
             chat_prompt = f"O usuário disse: '{text}'. Responda de forma breve e útil como assistente financeiro do Sirius. Máximo 3 linhas."
-            chat_resp = await call_llm(chat_prompt, f"tg_chat_{user_id}", "Você é o assistente do Sirius, focado em finanças, produtividade e saúde.", raise_on_error=True)
+            chat_resp = await call_llm(chat_prompt, f"tg_chat_{user_id}", "Você é o assistente do Sirius, focado em finanças, produtividade e saúde.")
             await send_telegram_message(chat_id, chat_resp.strip())
             return
         
