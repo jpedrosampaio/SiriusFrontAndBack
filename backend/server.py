@@ -53,23 +53,20 @@ async def get_freellm_api_key(user_id: str) -> Optional[str]:
 # ========== LLM CALLS ==========
 
 async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None) -> str:
-    """Call Gemini API - tries user key first, then server key"""
+    """Call Gemini API - requires user's own API key"""
     
-    # Try user's Gemini key first
-    if user_id:
-        user_api_key = await get_user_api_key(user_id)
-        if user_api_key:
-            result = await call_gemini(prompt, system_message, user_api_key)
-            if result:
-                return result
+    if not user_id:
+        return "⚠️ Serviço de IA indisponível. Faça login e configure sua chave Gemini no perfil."
     
-    # Fallback to server's Gemini key
-    if GOOGLE_GEMINI_API_KEY:
-        result = await call_gemini(prompt, system_message, GOOGLE_GEMINI_API_KEY)
-        if result:
-            return result
+    user_api_key = await get_user_api_key(user_id)
+    if not user_api_key:
+        return "⚠️ Configure sua chave de API Gemini nas configurações do perfil para usar IA."
     
-    return "⚠️ Serviço de IA indisponível. Configure uma chave Gemini nas configurações do perfil."
+    result = await call_gemini(prompt, system_message, user_api_key)
+    if result:
+        return result
+    
+    return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida."
 
 async def call_gemini(prompt: str, system_message: str, api_key: str) -> str:
     """Call Gemini API"""
