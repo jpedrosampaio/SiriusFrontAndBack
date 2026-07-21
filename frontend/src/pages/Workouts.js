@@ -3230,6 +3230,7 @@ export default function Workouts() {
             </DialogContent>
           </Dialog>
         </div>
+      </div>
       </PullToRefresh>
       <MobileNav user={user} />
     </div>
