@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
+import PullToRefresh from "@/components/PullToRefresh";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -163,6 +164,7 @@ export default function Dashboard() {
     <div className="flex min-h-screen bg-[#050505]">
       <Onboarding />
       <Sidebar user={user} />
+      <PullToRefresh onRefresh={fetchData}>
       <div className="flex-1 ml-0 md:ml-64 page-container pt-[72px] md:pt-0 pb-24 md:pb-8 page-enter">
           <div className="mb-6 md:mb-8 pt-12 md:pt-0">
             <div className="flex items-center justify-between flex-wrap gap-4">
@@ -841,6 +843,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </PullToRefresh>
       <MobileNav user={user} />
     </div>
   );

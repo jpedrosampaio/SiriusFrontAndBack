@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
+import PullToRefresh from "@/components/PullToRefresh";
 import { getLocalDateStr } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1058,6 +1059,7 @@ export default function Workouts() {
   return (
     <div className="flex min-h-screen bg-[#050505]">
       <Sidebar user={user} />
+      <PullToRefresh onRefresh={loadData}>
       <div className="flex-1 ml-0 md:ml-64 page-container pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
         <div className="max-w-6xl mx-auto">
           {/* Motivational Quote */}
@@ -3228,7 +3230,7 @@ export default function Workouts() {
             </DialogContent>
           </Dialog>
         </div>
-      </div>
+      </PullToRefresh>
       <MobileNav user={user} />
     </div>
   );
