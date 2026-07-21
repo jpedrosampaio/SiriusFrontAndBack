@@ -15,6 +15,7 @@ import bcrypt
 import aiofiles
 import base64
 
+import random
 import requests
 
 ROOT_DIR = Path(__file__).parent
@@ -5499,6 +5500,20 @@ REGRAS:
 
 Responda APENAS com a frase, sem explicações."""
 
+    # Fallback quotes used when AI is unavailable
+    fallback_quotes = [
+        "🔥 A dor do treino é temporária. A dor do arrependimento é permanente.",
+        "⚔️ Guerreiros não nascem. São forjados no fogo da disciplina diária.",
+        "🦁 Seja a pessoa que você precisava quando era mais novo.",
+        "💎 Diamantes são apenas pedras que não desistiram sob pressão.",
+        "🎯 Enquanto outros dormem, você constrói seu império.",
+        "⚡ Sua única competição é quem você era ontem.",
+        "🏆 Champions são feitos quando ninguém está olhando.",
+        "🚀 Conforto é a morte lenta dos seus sonhos. Acorde!",
+        "💪 Seu corpo pode quase tudo. É sua mente que você precisa convencer.",
+        "🌟 A excelência não é um ato, é um hábito. Que hábito você está construindo?"
+    ]
+
     try:
         response = await call_llm(
             prompt=prompt,
@@ -5508,6 +5523,15 @@ Responda APENAS com a frase, sem explicações."""
         )
         
         quote_text = response.strip()
+        
+        # If LLM returned an error message, don't cache it — use fallback
+        if quote_text.startswith("⚠"):
+            await db.daily_quotes.delete_one({"user_id": user.user_id, "motivational_date": motivational_date})
+            return {
+                "quote": random.choice(fallback_quotes),
+                "motivational_date": motivational_date,
+                "fallback": True
+            }
         
         # Cache the quote for this motivational day
         await db.daily_quotes.update_one(
@@ -5538,20 +5562,6 @@ Responda APENAS com a frase, sem explicações."""
         
     except Exception as e:
         logging.error(f"Quote generation failed: {e}")
-        # Fallback quotes - mais impactantes e variadas
-        fallback_quotes = [
-            "🔥 A dor do treino é temporária. A dor do arrependimento é permanente.",
-            "⚔️ Guerreiros não nascem. São forjados no fogo da disciplina diária.",
-            "🦁 Seja a pessoa que você precisava quando era mais novo.",
-            "💎 Diamantes são apenas pedras que não desistiram sob pressão.",
-            "🎯 Enquanto outros dormem, você constrói seu império.",
-            "⚡ Sua única competição é quem você era ontem.",
-            "🏆 Champions são feitos quando ninguém está olhando.",
-            "🚀 Conforto é a morte lenta dos seus sonhos. Acorde!",
-            "💪 Seu corpo pode quase tudo. É sua mente que você precisa convencer.",
-            "🌟 A excelência não é um ato, é um hábito. Que hábito você está construindo?"
-        ]
-        import random
         return {
             "quote": random.choice(fallback_quotes),
             "motivational_date": motivational_date,
