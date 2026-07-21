@@ -14225,23 +14225,6 @@ async def trigger_daily_summaries(request: Request, session_token: Optional[str]
     return {"sent": sent, "total": len(links)}
 
 
-# Include router AFTER all endpoints are defined
-app.include_router(api_router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
 class AiChatRequest(BaseModel):
     message: str
     system_message: str = "Você é um assistente fitness especializado em treinos, nutrição e saúde."
@@ -14253,7 +14236,7 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
     try:
         prompt = f"{body.system_message}\n\nUser: {body.message}\nAssistant:"
         headers = {"Content-Type": "application/json"}
-        user_hf_key = getattr(user, 'hf_api_key', None) or user.get('hf_api_key')
+        user_hf_key = getattr(user, 'hf_api_key', None)
         hf_token = user_hf_key or HF_API_TOKEN
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
@@ -14275,6 +14258,24 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
     except Exception as e:
         logging.error(f"AI chat error: {e}")
         return {"reply": "⚠️ Erro ao contactar serviço de IA. Tente novamente."}
+
+
+# Include router AFTER all endpoints are defined
+app.include_router(api_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_setup():
