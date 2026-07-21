@@ -11,7 +11,7 @@ import {
   Dumbbell, Utensils, BookOpen, Droplets, Flame, Clock, Brain,
   ClipboardList, BarChart3, Trophy, ListChecks, Hash, Percent,
   Search, AlertTriangle, ChevronRight, Bell, Sparkles, X,
-  Activity, Calendar
+  Activity, Calendar, Play
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
