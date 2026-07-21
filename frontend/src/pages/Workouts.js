@@ -1060,7 +1060,7 @@ export default function Workouts() {
     <div className="flex min-h-screen bg-[#050505]">
       <Sidebar user={user} />
       <PullToRefresh onRefresh={loadData}>
-      <div className="flex-1 ml-0 md:ml-64 page-container pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
+      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
         <div className="max-w-6xl mx-auto">
           {/* Motivational Quote */}
           {motivationalQuote && (
