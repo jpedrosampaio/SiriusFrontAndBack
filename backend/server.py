@@ -54,19 +54,28 @@ async def get_freellm_api_key(user_id: str) -> Optional[str]:
 # ========== LLM CALLS ==========
 
 async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None) -> str:
-    """Call Gemini API - requires user's own API key"""
+    """Call Gemini API - tries user key first, then server key as fallback"""
     
     if not user_id:
         return "⚠️ Serviço de IA indisponível. Faça login e configure sua chave Gemini no perfil."
     
     user_api_key = await get_user_api_key(user_id)
+    
+    # Try with user's key if available
+    if user_api_key:
+        result = await call_gemini(prompt, system_message, user_api_key)
+        if result:
+            return result
+    
+    # Fallback to server key for quota issues
+    if GOOGLE_GEMINI_API_KEY:
+        logging.info("Falling back to server Gemini API key")
+        result = await call_gemini(prompt, system_message, GOOGLE_GEMINI_API_KEY)
+        if result:
+            return result
+    
     if not user_api_key:
         return "⚠️ Configure sua chave de API Gemini nas configurações do perfil para usar IA."
-    
-    result = await call_gemini(prompt, system_message, user_api_key)
-    if result:
-        return result
-    
     return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida e tem quota disponível em https://makersuite.google.com/app/apikey"
 
 async def call_gemini(prompt: str, system_message: str, api_key: str) -> Optional[str]:
