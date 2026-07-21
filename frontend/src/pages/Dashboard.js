@@ -165,8 +165,8 @@ export default function Dashboard() {
       <Onboarding />
       <Sidebar user={user} />
       <PullToRefresh onRefresh={fetchData}>
-      <div className="flex-1 ml-0 md:ml-64 pt-[72px] md:pt-0 pb-24 md:pb-8 page-enter">
-        <div className="page-container">
+      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pt-[72px] md:pt-0 pb-24 md:pb-8 page-enter">
+        <div className="max-w-7xl mx-auto">
           <div className="mb-6 md:mb-8 pt-12 md:pt-0">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
