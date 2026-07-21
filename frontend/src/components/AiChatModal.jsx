@@ -18,8 +18,11 @@ export default function AiChatModal({ open, onClose }) {
   useEffect(() => {
     if (open) {
       inputRef.current?.focus();
+      if (aiState.status === 'idle') {
+        localAi.loadModel();
+      }
     }
-  }, [open]);
+  }, [open, aiState.status]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -110,17 +113,27 @@ export default function AiChatModal({ open, onClose }) {
                 <p className="text-sm text-[#52525B] max-w-[200px]">
                   IA local rodando 100% no seu navegador. Pergunte sobre treinos, nutrição e saúde.
                 </p>
-                <div className="flex flex-wrap gap-2 mt-4 justify-center">
-                  {['Melhor treino para peito', 'Dieta para ganho de massa', 'Aquecimento ideal'].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => { setInput(s); inputRef.current?.focus(); }}
-                      className="text-xs bg-[#1A1A1A] hover:bg-[#27272A] text-[#A1A1AA] px-3 py-1.5 rounded-full border border-[#27272A] transition-colors"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+                {aiState.status === 'idle' && (
+                  <button
+                    onClick={() => localAi.loadModel()}
+                    className="mt-3 text-xs bg-[#FFD700] text-black px-4 py-2 rounded-xl font-medium hover:bg-[#FFC300] transition-colors"
+                  >
+                    Carregar IA
+                  </button>
+                )}
+                {aiState.status !== 'error' && (
+                  <div className="flex flex-wrap gap-2 mt-4 justify-center">
+                    {['Melhor treino para peito', 'Dieta para ganho de massa', 'Aquecimento ideal'].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => { setInput(s); inputRef.current?.focus(); }}
+                        className="text-xs bg-[#1A1A1A] hover:bg-[#27272A] text-[#A1A1AA] px-3 py-1.5 rounded-full border border-[#27272A] transition-colors"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -193,28 +206,39 @@ export default function AiChatModal({ open, onClose }) {
           )}
 
           <div className="flex items-center gap-2 p-3 border-t border-[#27272A] shrink-0">
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                aiState.status === 'downloading'
-                  ? 'Aguardando download do modelo...'
-                  : aiState.status === 'idle'
-                  ? 'Clique para carregar a IA...'
-                  : 'Pergunte sobre treinos...'
-              }
-              disabled={sending}
-              className="flex-1 bg-[#1A1A1A] border border-[#27272A] rounded-xl px-3.5 py-2 text-sm text-white placeholder-[#52525B] outline-none focus:border-[#FFD700]/50 transition-colors disabled:opacity-50"
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || sending}
-              className="w-9 h-9 rounded-xl bg-[#FFD700] hover:bg-[#FFC300] disabled:bg-[#27272A] flex items-center justify-center transition-all disabled:text-[#52525B] text-black shrink-0"
-            >
-              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            </button>
+            {aiState.status === 'idle' ? (
+              <button
+                onClick={() => localAi.loadModel()}
+                className="flex-1 bg-[#FFD700] text-black text-sm font-medium py-2 rounded-xl hover:bg-[#FFC300] transition-colors"
+              >
+                Carregar IA (download ~800MB)
+              </button>
+            ) : (
+              <>
+                <input
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={
+                    aiState.status === 'downloading'
+                      ? 'Aguardando download do modelo...'
+                      : aiState.status === 'error'
+                      ? 'Tente recarregar a IA'
+                      : 'Pergunte sobre treinos...'
+                  }
+                  disabled={sending || aiState.status === 'downloading'}
+                  className="flex-1 bg-[#1A1A1A] border border-[#27272A] rounded-xl px-3.5 py-2 text-sm text-white placeholder-[#52525B] outline-none focus:border-[#FFD700]/50 transition-colors disabled:opacity-50"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!input.trim() || sending || aiState.status === 'downloading'}
+                  className="w-9 h-9 rounded-xl bg-[#FFD700] hover:bg-[#FFC300] disabled:bg-[#27272A] flex items-center justify-center transition-all disabled:text-[#52525B] text-black shrink-0"
+                >
+                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
