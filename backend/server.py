@@ -29,11 +29,6 @@ GOOGLE_GEMINI_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY', '')
 GEMINI_MODEL = "gemini-2.0-flash"
 GEMINI_FALLBACK_MODEL = "gemini-2.0-flash-lite"
 
-FREE_LLM_BASE_URL = os.environ.get('FREE_LLM_BASE_URL', 'https://api.freellm.xyz/v1')
-FREE_LLM_API_KEY = os.environ.get('FREE_LLM_API_KEY', '')
-OPENAI_FREE_KEY = os.environ.get('OPENAI_FREE_KEY', '')
-TORGPT_URL = os.environ.get('TORGPT_URL', 'https://torgpt.space/api/v1/chat')
-
 FREETTS_URL = os.environ.get('FREETTS_URL', 'https://api.freetts.org')
 FREE_TTS_VOICE = os.environ.get('FREE_TTS_VOICE', 'pt-BR-FranciscaNeural')
 
@@ -58,18 +53,23 @@ async def get_freellm_api_key(user_id: str) -> Optional[str]:
 # ========== LLM CALLS ==========
 
 async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None) -> str:
-    """Main LLM function - Gemini first, then TorGPT fallback"""
+    """Call Gemini API - tries user key first, then server key"""
     
     # Try user's Gemini key first
     if user_id:
         user_api_key = await get_user_api_key(user_id)
         if user_api_key:
             result = await call_gemini(prompt, system_message, user_api_key)
-            if result and not result.startswith("⚠️"):
+            if result:
                 return result
     
-    # Fallback to TorGPT
-    return await call_torgpt(prompt, system_message)
+    # Fallback to server's Gemini key
+    if GOOGLE_GEMINI_API_KEY:
+        result = await call_gemini(prompt, system_message, GOOGLE_GEMINI_API_KEY)
+        if result:
+            return result
+    
+    return "⚠️ Serviço de IA indisponível. Configure uma chave Gemini nas configurações do perfil."
 
 async def call_gemini(prompt: str, system_message: str, api_key: str) -> str:
     """Call Gemini API"""
@@ -88,27 +88,7 @@ async def call_gemini(prompt: str, system_message: str, api_key: str) -> str:
         logging.error(f"Gemini error: {e}")
     return None
 
-# ========== TORGPT ==========
 
-async def call_torgpt(prompt: str, system_message: str = "Você é um assistente útil.") -> str:
-    """TorGPT fallback - no API key needed"""
-    try:
-        payload = {
-            "message": f"{system_message}\n\n{prompt}",
-            "model": "auto"
-        }
-        
-        resp = requests.post(TORGPT_URL, json=payload, timeout=30)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            return data.get("response", data.get("message", ""))
-        else:
-            logging.error(f"TorGPT error: {resp.status_code} - {resp.text}")
-            return "⚠️ Services temporariamente indisponíveis. Tente novamente mais tarde."
-    except Exception as e:
-        logging.error(f"TorGPT exception: {e}")
-        return "⚠️ Services temporariamente indisponíveis. Tente novamente mais tarde."
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
