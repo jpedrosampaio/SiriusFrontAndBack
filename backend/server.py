@@ -4019,9 +4019,6 @@ async def generate_workout_plan(request: Request, gen_data: WorkoutPlanGenerate,
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not gemini_client:
-        raise HTTPException(status_code=503, detail="Serviço de IA indisponível")
-    
     # Build health condition text if provided
     health_text = ""
     if gen_data.health_condition and gen_data.health_condition.strip():
@@ -4238,47 +4235,31 @@ IMPORTANTE:
         cleaned = re.sub(r',\s*]', ']', cleaned)
         return json.loads(cleaned)
 
-    # Try with primary model, then fallback
-    models_to_try = [GEMINI_MODEL, GEMINI_FALLBACK_MODEL]
-    last_error = None
+    # Call LLM (Gemini via HTTP + TorGPT fallback)
     plan_data = None
-    
-    for model_name in models_to_try:
-        try:
-            logging.info(f"Generating workout plan with model: {model_name}")
-            response = gemini_client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction="Você é um personal trainer profissional certificado. Sempre responda SOMENTE em JSON válido, sem nenhum texto adicional.",
-                    max_output_tokens=65536,
-                    temperature=0.7
-                )
-            )
-            
-            response_text = response.text
-            if not response_text or not response_text.strip():
-                logging.warning(f"Empty response from model {model_name}")
-                last_error = "Resposta vazia da IA"
-                continue
-            
-            plan_data = _clean_and_parse_json(response_text)
-            logging.info(f"Successfully parsed workout plan from {model_name}")
-            break  # Success, exit retry loop
-            
-        except json.JSONDecodeError as e:
-            logging.error(f"JSON parse error with model {model_name}: {e}")
-            logging.error(f"Response text length: {len(response_text) if response_text else 0}")
-            logging.error(f"Response text (first 500 chars): {response_text[:500] if response_text else 'N/A'}")
-            last_error = f"Erro ao processar resposta do modelo {model_name}"
-            continue
-        except Exception as e:
-            logging.error(f"Workout generation failed with model {model_name}: {e}")
-            last_error = str(e)
-            continue
-    
-    if plan_data is None:
-        raise HTTPException(status_code=500, detail=f"Erro ao gerar treino: {last_error}. Tente novamente.")
+    try:
+        logging.info("Generating workout plan via LLM")
+        response_text = await call_llm(
+            prompt,
+            f"workout_{user.user_id}",
+            "Você é um personal trainer profissional certificado. Sempre responda SOMENTE em JSON válido, sem nenhum texto adicional.",
+            user_id=user.user_id
+        )
+        
+        if not response_text or not response_text.strip():
+            raise HTTPException(status_code=500, detail="Resposta vazia da IA. Tente novamente.")
+        
+        plan_data = _clean_and_parse_json(response_text)
+        logging.info("Successfully parsed workout plan")
+        
+    except json.JSONDecodeError as e:
+        logging.error(f"JSON parse error: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao processar resposta da IA. Tente novamente.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Workout generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar treino: {str(e)}. Tente novamente.")
     
     try:
         # Create the plan document
