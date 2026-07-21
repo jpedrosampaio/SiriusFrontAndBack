@@ -28,6 +28,7 @@ GOOGLE_GEMINI_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY', '')
 
 GEMINI_MODEL = "gemini-2.0-flash"
 GEMINI_FALLBACK_MODEL = "gemini-2.0-flash-lite"
+gemini_client = None
 
 FREETTS_URL = os.environ.get('FREETTS_URL', 'https://api.freetts.org')
 FREE_TTS_VOICE = os.environ.get('FREE_TTS_VOICE', 'pt-BR-FranciscaNeural')
@@ -4233,6 +4234,8 @@ IMPORTANTE:
         # Verify response looks like JSON before parsing
         if not response_text.startswith("{"):
             logging.error(f"Non-JSON response from LLM (first 200 chars): {response_text[:200]}")
+            if response_text.startswith("⚠"):
+                raise HTTPException(status_code=500, detail=response_text)
             raise HTTPException(status_code=500, detail="IA retornou formato inválido. Tente novamente.")
         
         plan_data = _clean_and_parse_json(response_text)
@@ -12378,18 +12381,23 @@ O score deve refletir o progresso do dia (0 = nada feito, 100 = tudo feito)."""
 
     summary_data = None
     
-    if gemini_client:
-        try:
-            response = gemini_client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                )
-            )
-            summary_data = json.loads(response.text)
-        except Exception as e:
-            logging.error(f"Daily summary AI error: {e}")
+    try:
+        resp_text = await call_llm(
+            prompt + "\n\nResponda APENAS com JSON puro, sem markdown, sem texto extra.",
+            f"daily_summary_{user.user_id}",
+            "Você é um assistente motivacional que gera resumos diários em JSON.",
+            user_id=user.user_id
+        )
+        if resp_text and not resp_text.startswith("⚠"):
+            first_brace = resp_text.find("{")
+            if first_brace >= 0:
+                resp_text = resp_text[first_brace:]
+                last_brace = resp_text.rfind("}")
+                if last_brace >= 0:
+                    resp_text = resp_text[:last_brace + 1]
+                summary_data = json.loads(resp_text)
+    except Exception as e:
+        logging.error(f"Daily summary AI error: {e}")
     
     # Fallback if AI fails
     if not summary_data:
