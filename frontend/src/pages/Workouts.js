@@ -803,7 +803,6 @@ export default function Workouts() {
       setActiveSession(res.data);
       setSessionElapsed(0);
       setActiveTab("session");
-      setWarmupExercises({});
       setExerciseHistory({});
       fetchNextLoads(plan.plan_id);
       toast.success("Treino iniciado! Bora! 💪");
@@ -843,7 +842,6 @@ export default function Workouts() {
   const [setInputIdx, setSetInputIdx] = useState(null); // index of exercise awaiting set weight input
   const [setInputWeight, setSetInputWeight] = useState("");
   const [setInputRpe, setSetInputRpe] = useState(""); // RPE for current set
-  const [warmupExercises, setWarmupExercises] = useState({}); // {exerciseIdx: warmupSets}
   const [nextLoads, setNextLoads] = useState(null); // suggested next weights
   const [exerciseHistory, setExerciseHistory] = useState({}); // {exerciseIdx: history}
 
@@ -890,19 +888,6 @@ export default function Workouts() {
       }
     } catch (error) {
       toast.error("Erro ao atualizar série");
-    }
-  };
-
-  const fetchWarmup = async (idx, weight) => {
-    if (!weight || weight <= 0) {
-      toast.error("Defina uma carga primeiro");
-      return;
-    }
-    try {
-      const res = await axios.post(`${API}/workouts/calculate-warmup`, { weight: parseFloat(weight) }, { withCredentials: true });
-      setWarmupExercises(prev => ({ ...prev, [idx]: res.data.warmup_sets }));
-    } catch {
-      toast.error("Erro ao calcular aquecimento");
     }
   };
 
@@ -2986,17 +2971,6 @@ export default function Workouts() {
                                   </div>
                                 )}
                                 
-                                {/* Warmup button */}
-                                {!ex.completed && (
-                                  <Button 
-                                    variant="ghost" size="sm" 
-                                    onClick={() => fetchWarmup(idx, setInputWeight || ex.weight || 0)}
-                                    className="h-7 px-2 text-xs text-[#F59E0B] hover:bg-[#F59E0B]/10"
-                                  >
-                                    <Flame className="w-3 h-3" /> Aquecer
-                                  </Button>
-                                )}
-                                
                                 {/* Previous workout comparison */}
                                 {!ex.completed && (
                                   <Button 
@@ -3040,22 +3014,6 @@ export default function Workouts() {
                                     </div>
                                   );
                                 })}
-                              </div>
-                            )}
-
-                            {/* Warmup Sets Display */}
-                            {warmupExercises[idx] && (
-                              <div className="mt-2 ml-11 bg-[#F59E0B]/5 border border-[#F59E0B]/20 rounded p-2">
-                                <p className="text-[10px] text-[#F59E0B] uppercase flex items-center gap-1 mb-1">
-                                  <Flame className="w-3 h-3" /> Aquecimento
-                                </p>
-                                <div className="flex flex-wrap gap-2">
-                                  {warmupExercises[idx].map((ws, wi) => (
-                                    <span key={wi} className={`text-[10px] ${ws.label === "Trabalho" ? "text-green-400" : "text-[#A1A1AA]"}`}>
-                                      {ws.weight}kg x {ws.reps}{ws.label !== "Trabalho" && ` (${ws.percentage})`}
-                                    </span>
-                                  ))}
-                                </div>
                               </div>
                             )}
 
