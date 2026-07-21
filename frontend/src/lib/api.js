@@ -56,6 +56,14 @@ axios.interceptors.response.use(
         window.location.href = '/login';
       }
     }
+    // Detect missing Gemini API key errors and trigger modal
+    const errMsg = error.response?.data?.detail || "";
+    if (
+      errMsg.includes("Configure sua chave") &&
+      errMsg.includes("Gemini")
+    ) {
+      window.dispatchEvent(new CustomEvent("open-gemini-key-modal"));
+    }
     return Promise.reject(error);
   }
 );

@@ -11,6 +11,7 @@ import AuthCallback from "@/pages/AuthCallback";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import NotificationManager from "@/components/NotificationManager";
+import { GeminiKeyModal } from "@/components/GeminiKeyModal";
 
 // Lazy-loaded pages — keeps initial bundle small
 const Dashboard = React.lazy(() => import("@/pages/Dashboard"));
@@ -84,6 +85,7 @@ function App() {
         <AnimatedRoutes />
         <NotificationManager />
         <Toaster position="top-right" richColors />
+        <GeminiKeyModal />
       </BrowserRouter>
     </div>
   );
