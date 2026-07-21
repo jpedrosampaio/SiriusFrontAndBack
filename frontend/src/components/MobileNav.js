@@ -100,10 +100,10 @@ function MobileNav({ user }) {
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
-                className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all duration-200 min-w-[56px] ${
+                className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all duration-200 min-w-[56px] tab-bounce ${
                   isActive
                     ? "text-white"
-                    : "text-[#71717A] active:scale-95"
+                    : "text-[#71717A]"
                 }`}
               >
                 <div className={`relative p-1.5 rounded-lg transition-all duration-200 ${
@@ -128,7 +128,7 @@ function MobileNav({ user }) {
                 <span className="text-[10px] mt-0.5 font-medium">Mais</span>
               </button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="bg-[#0A0A0A] border-t border-[#1A1A1A] rounded-t-3xl px-4 pb-8">
+            <SheetContent side="bottom" className="bg-[#0A0A0A] border-t border-[#1A1A1A] rounded-t-3xl px-4 pb-8 sheet-content">
               <div className="w-10 h-1 bg-[#27272A] rounded-full mx-auto mb-5" />
               
               {/* User info */}

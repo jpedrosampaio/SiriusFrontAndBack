@@ -139,14 +139,16 @@ export default function Dashboard() {
     return (
       <div className="flex min-h-screen bg-[#050505]">
         <Sidebar user={user} />
-        <div className="flex-1 p-4 md:p-8 md:ml-72">
-          <div className="mb-8 pt-12 md:pt-0">
-            <div className="h-8 bg-[#27272A] rounded w-64 animate-pulse mb-4" />
-            <div className="h-4 bg-[#1a1a1a] rounded w-40 animate-pulse" />
+        <div className="flex-1 page-container md:ml-64 pt-[72px] md:pt-0">
+          <div className="mb-8 pt-8 md:pt-0">
+            <div className="skeleton h-8 w-64 mb-4" />
+            <div className="skeleton h-4 w-40" />
           </div>
-          <LoadingSkeleton type="stats" count={4} />
-          <div className="mt-6">
-            <LoadingSkeleton type="card" count={2} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            {[...Array(4)].map((_, i) => <div key={i} className="skeleton-card h-24" />)}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {[...Array(2)].map((_, i) => <div key={i} className="skeleton-card h-48" />)}
           </div>
         </div>
       </div>
@@ -161,8 +163,7 @@ export default function Dashboard() {
     <div className="flex min-h-screen bg-[#050505]">
       <Onboarding />
       <Sidebar user={user} />
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-8 pt-[72px] md:pt-8 pb-24 md:pb-8">
-        <div className="max-w-7xl mx-auto">
+      <div className="flex-1 ml-0 md:ml-64 page-container pt-[72px] md:pt-0 pb-24 md:pb-8 page-enter">
           <div className="mb-6 md:mb-8 pt-12 md:pt-0">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>

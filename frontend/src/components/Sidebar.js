@@ -100,7 +100,16 @@ function Sidebar({ user }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "true");
   const { timeStr, dateStr } = useBrasiliaTime();
+
+  const toggleCollapse = () => {
+    setCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem("sidebar_collapsed", String(next));
+      return next;
+    });
+  };
 
   const handleLogout = async () => {
     try {
@@ -140,16 +149,31 @@ function Sidebar({ user }) {
   return (
     <>
       {/* Sidebar - desktop only, no mobile hamburger needed (MobileNav handles it) */}
-      <div className={`w-64 bg-[#0A0A0A] border-r border-[#27272A] flex flex-col h-screen fixed left-0 top-0 z-40 hidden md:flex`}>
-        <div className="p-6 border-b border-[#27272A]">
-          <div className="flex items-center space-x-3 mb-4">
-            <SiriusLogo />
-            <div>
-              <span className="font-heading text-2xl bg-gradient-to-r from-[#00F0FF] to-[#007AFF] bg-clip-text text-transparent">SIRIUS</span>
-              <p className="text-[8px] text-[#52525B] uppercase tracking-widest">Discipline System</p>
+      <div className={`bg-[#0A0A0A] border-r border-[#27272A] flex flex-col h-screen fixed left-0 top-0 z-40 hidden md:flex transition-all duration-300 ${
+        collapsed ? 'w-16' : 'w-64'
+      }`}>
+        <div className="p-4 border-b border-[#27272A] flex items-center justify-between">
+          {collapsed ? (
+            <SiriusLogo size="w-8 h-8" />
+          ) : (
+            <div className="flex items-center space-x-3 mb-2">
+              <SiriusLogo />
+              <div>
+                <span className="font-heading text-2xl bg-gradient-to-r from-[#00F0FF] to-[#007AFF] bg-clip-text text-transparent">SIRIUS</span>
+                <p className="text-[8px] text-[#52525B] uppercase tracking-widest">Discipline System</p>
+              </div>
             </div>
-          </div>
-          {user && (
+          )}
+          <button
+            onClick={toggleCollapse}
+            className="p-1 rounded-lg hover:bg-[#121212] text-[#52525B] hover:text-white transition-colors"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {!collapsed && user && (
+          <div className="px-4 pb-4 border-b border-[#27272A]">
             <div className="flex items-center space-x-3">
               <Avatar className="w-10 h-10 border-2 border-[#007AFF]">
                 <AvatarImage src={user.picture} />
@@ -167,8 +191,8 @@ function Sidebar({ user }) {
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <nav className="flex-1 overflow-y-auto py-4">
           {menuItems.map((item) => {
@@ -177,40 +201,40 @@ function Sidebar({ user }) {
             return (
               <button
                 key={item.path}
-                data-testid={`sidebar-${item.label.toLowerCase()}-link`}
                 onClick={() => handleNavigate(item.path)}
-                className={`w-full flex items-center space-x-3 px-6 py-3 transition-colors ${
+                className={`w-full flex items-center ${collapsed ? 'justify-center px-2' : 'space-x-3 px-6'} py-3 transition-colors relative ${
                   isActive
-                    ? "bg-[#007AFF]/10 border-l-2 border-[#007AFF] text-[#007AFF]"
+                    ? "bg-[#007AFF]/10 text-[#007AFF]"
                     : "text-[#A1A1AA] hover:bg-[#121212] hover:text-white"
                 }`}
               >
-                <Icon className="w-5 h-5" />
-                <span className="uppercase text-xs tracking-wider font-medium">{item.label}</span>
+                {isActive && !collapsed && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-[#007AFF] rounded-r" />}
+                <Icon className={`${collapsed ? 'w-5 h-5' : 'w-5 h-5'} flex-shrink-0`} />
+                {!collapsed && <span className="uppercase text-xs tracking-wider font-medium">{item.label}</span>}
               </button>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-[#27272A]">
-          {/* Brasilia Clock */}
-          <div className="mb-3 flex items-center space-x-2 px-2 py-2 rounded-md bg-[#121212] border border-[#27272A]">
-            <Clock className="w-4 h-4 text-[#00F0FF] flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="font-data text-sm text-[#00F0FF] tracking-wider tabular-nums leading-none">{timeStr}</p>
-              <p className="text-[10px] text-[#52525B] mt-0.5 capitalize">{dateStr} — Brasília</p>
+        {!collapsed && (
+          <div className="p-4 border-t border-[#27272A]">
+            <div className="mb-3 flex items-center space-x-2 px-2 py-2 rounded-md bg-[#121212] border border-[#27272A]">
+              <Clock className="w-4 h-4 text-[#00F0FF] flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-data text-sm text-[#00F0FF] tracking-wider tabular-nums leading-none">{timeStr}</p>
+                <p className="text-[10px] text-[#52525B] mt-0.5 capitalize">{dateStr} — Brasília</p>
+              </div>
             </div>
+            <Button
+              variant="outline"
+              onClick={handleLogout}
+              className="w-full border-[#27272A] hover:bg-[#121212] uppercase text-xs tracking-wider"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Sair
+            </Button>
           </div>
-          <Button
-            data-testid="sidebar-logout-btn"
-            variant="outline"
-            onClick={handleLogout}
-            className="w-full border-[#27272A] hover:bg-[#121212] uppercase text-xs tracking-wider"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Sair
-          </Button>
-        </div>
+        )}
       </div>
 
     </>
