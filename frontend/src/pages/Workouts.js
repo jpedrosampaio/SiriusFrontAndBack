@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { Dumbbell, Plus, Trash2, Play, Check, X, Timer, Flame, TrendingUp, Calendar, FileText, Activity, Edit2, ChevronDown, ChevronUp, Scale, Upload, Sparkles, Target, Ruler, BarChart3, RefreshCw, Loader2, Save, BookOpen, XCircle, Zap, BookOpenCheck, Star, Pause, RotateCcw, Square, Clock, Trophy, ChevronRight, Heart, ShieldCheck } from "lucide-react";
+import { Dumbbell, Plus, Trash2, Play, Check, X, Timer, Flame, TrendingUp, Calendar, FileText, Activity, Edit2, ChevronDown, ChevronUp, Scale, Upload, Sparkles, Target, Ruler, BarChart3, RefreshCw, Loader2, Save, BookOpen, XCircle, Zap, BookOpenCheck, Star, Pause, RotateCcw, Square, Clock, Trophy, ChevronRight, Heart, ShieldCheck, Search } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import axios from "axios";
 import { toast } from "sonner";
@@ -186,6 +186,10 @@ export default function Workouts() {
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
   const [feedbackData, setFeedbackData] = useState({ difficulty: 3, feeling: "bom", notes: "" });
   const [expandedTutorials, setExpandedTutorials] = useState({});
+  const [exerciseEvoData, setExerciseEvoData] = useState(null);
+  const [exerciseFilter, setExerciseFilter] = useState("");
+  const [evoLoading, setEvoLoading] = useState(false);
+  const [evoError, setEvoError] = useState("");
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [improvingPlan, setImprovingPlan] = useState(null);
@@ -634,6 +638,20 @@ export default function Workouts() {
     } catch { toast.error("Erro ao remover"); }
   };
 
+  const fetchExerciseEvolution = async (exerciseName) => {
+    setEvoLoading(true);
+    setEvoError("");
+    try {
+      const params = exerciseName ? `?exercise_name=${encodeURIComponent(exerciseName)}` : "";
+      const res = await axios.get(`${API}/workout-stats/exercise-evolution${params}`, { withCredentials: true });
+      setExerciseEvoData(res.data.exercises || {});
+    } catch {
+      setEvoError("Erro ao buscar evolução");
+    } finally {
+      setEvoLoading(false);
+    }
+  };
+
   // === AI GENERATION ===
   const handleGenerateWithAI = async () => {
     setGeneratingPlan(true);
@@ -808,24 +826,43 @@ export default function Workouts() {
     }
   };
 
+  const [setInputIdx, setSetInputIdx] = useState(null); // index of exercise awaiting set weight input
+  const [setInputWeight, setSetInputWeight] = useState("");
+
   const handleIncrementSets = async (idx) => {
     if (!activeSession) return;
     const ex = activeSession.exercises[idx];
-    const newSetsCompleted = Math.min((ex.sets_completed || 0) + 1, ex.sets);
-    const allSetsCompleted = newSetsCompleted >= ex.sets;
+    // Show weight input before completing the set
+    setSetInputIdx(idx);
+    setSetInputWeight(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.weight || ex.weight || "" : ex.weight || "");
+  };
+
+  const confirmSet = async (idx) => {
+    if (!activeSession) return;
+    const ex = activeSession.exercises[idx];
+    const setsData = [...(ex.sets_data || [])];
+    const newSet = {
+      weight: setInputWeight,
+      reps: ex.reps,
+      completed: true
+    };
+    setsData.push(newSet);
+    const newSetsCompleted = setsData.length;
+    const allSetsCompleted = newSetsCompleted >= (ex.sets || 1);
     
     try {
       const res = await axios.patch(
         `${API}/workout-sessions/${activeSession.session_id}/exercise/${idx}`,
-        { sets_completed: newSetsCompleted, completed: allSetsCompleted },
+        { sets_data: setsData, completed: allSetsCompleted },
         { withCredentials: true }
       );
       setActiveSession(res.data);
+      setSetInputIdx(null);
+      setSetInputWeight("");
       
       if (allSetsCompleted) {
         toast.success(`${ex.name} - Todas as séries concluídas! ✅`);
       } else {
-        // Start rest timer between sets
         setRestTimer(ex.rest_seconds || restDuration);
         setIsResting(true);
         toast.info(`Série ${newSetsCompleted}/${ex.sets} concluída. Descanse!`);
@@ -2592,6 +2629,78 @@ export default function Workouts() {
                     </div>
                   )}
                 </Card>
+
+                {/* Exercise Evolution Section */}
+                <Card className="bg-[#0A0A0A] border-[#27272A] p-6">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
+                    <div>
+                      <h3 className="font-heading text-lg">EVOLUÇÃO DOS EXERCÍCIOS</h3>
+                      <p className="text-xs text-[#A1A1AA]">Progresso de carga e repetições ao longo do tempo</p>
+                    </div>
+                    <div className="flex gap-2 w-full md:w-auto">
+                      <input
+                        type="text"
+                        placeholder="Filtrar exercício..."
+                        value={exerciseFilter}
+                        onChange={(e) => { setExerciseFilter(e.target.value); setExerciseEvoData(null); }}
+                        className="flex-1 md:w-48 h-9 px-3 text-sm bg-[#18181B] border border-[#27272A] rounded text-white"
+                      />
+                      <Button size="sm" onClick={() => fetchExerciseEvolution(exerciseFilter)} className="bg-[#00F0FF] hover:bg-[#00D4E5] text-black">
+                        <Search className="w-4 h-4 mr-1" /> Buscar
+                      </Button>
+                    </div>
+                  </div>
+
+                  {evoLoading && (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-[#00F0FF]" />
+                    </div>
+                  )}
+
+                  {evoError && (
+                    <p className="text-sm text-red-400 text-center py-4">{evoError}</p>
+                  )}
+
+                  {exerciseEvoData && !evoLoading && (
+                    <div className="space-y-4">
+                      {Object.keys(exerciseEvoData).length === 0 ? (
+                        <p className="text-sm text-[#52525B] text-center py-4">Nenhum dado encontrado para este exercício</p>
+                      ) : (
+                        Object.entries(exerciseEvoData).map(([exName, entries]) => (
+                          <div key={exName} className="border border-[#27272A] rounded-lg p-3">
+                            <h4 className="font-medium text-sm text-[#00F0FF] mb-2">{exName}</h4>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-[#27272A]">
+                                    <th className="text-left p-1 text-[#52525B]">Data</th>
+                                    <th className="text-right p-1 text-[#52525B]">Carga</th>
+                                    <th className="text-right p-1 text-[#52525B]">Repetições</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {entries.map((entry, ei) => (
+                                    <tr key={ei} className="border-b border-[#27272A]/30">
+                                      <td className="p-1 text-[#A1A1AA]">{entry.date}</td>
+                                      <td className="text-right p-1 text-white">{entry.weight || "-"}</td>
+                                      <td className="text-right p-1 text-white">{entry.reps || "-"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {!exerciseEvoData && !evoLoading && (
+                    <p className="text-sm text-[#52525B] text-center py-4">
+                      Digite o nome de um exercício e clique em "Buscar" para ver sua evolução
+                    </p>
+                  )}
+                </Card>
               </div>
             </TabsContent>
 
@@ -2745,13 +2854,34 @@ export default function Workouts() {
                                 {!ex.completed && (
                                   <div className="flex items-center gap-1">
                                     <span className="text-xs text-[#A1A1AA]">{setsProgress}/{ex.sets}</span>
-                                    <Button 
-                                      variant="outline" size="sm"
-                                      onClick={() => handleIncrementSets(idx)}
-                                      className="h-7 px-2 text-xs border-[#00F0FF] text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black"
-                                    >
-                                      +1 série
-                                    </Button>
+                                    {setInputIdx === idx ? (
+                                      <div className="flex items-center gap-1">
+                                        <input
+                                          type="text"
+                                          value={setInputWeight}
+                                          onChange={(e) => setSetInputWeight(e.target.value)}
+                                          placeholder="carga"
+                                          className="w-16 h-7 px-1 text-xs bg-[#18181B] border border-[#00F0FF] rounded text-white text-center"
+                                          autoFocus
+                                          onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
+                                        />
+                                        <Button 
+                                          variant="outline" size="sm"
+                                          onClick={() => confirmSet(idx)}
+                                          className="h-7 px-2 text-xs border-green-500 text-green-400 hover:bg-green-500 hover:text-black"
+                                        >
+                                          <Check className="w-3 h-3" />
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <Button 
+                                        variant="outline" size="sm"
+                                        onClick={() => handleIncrementSets(idx)}
+                                        className="h-7 px-2 text-xs border-[#00F0FF] text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black"
+                                      >
+                                        +1 série
+                                      </Button>
+                                    )}
                                   </div>
                                 )}
                                 
@@ -2767,17 +2897,23 @@ export default function Workouts() {
                               </div>
                             </div>
 
-                            {/* Sets indicator dots */}
+                            {/* Sets indicator dots with weight */}
                             {!ex.completed && ex.sets > 1 && (
-                              <div className="flex gap-1 mt-2 ml-11">
-                                {Array.from({ length: ex.sets }).map((_, sIdx) => (
-                                  <div 
-                                    key={sIdx} 
-                                    className={`w-3 h-3 rounded-full transition-all ${
-                                      sIdx < setsProgress ? 'bg-[#00F0FF]' : 'bg-[#27272A]'
-                                    }`}
-                                  />
-                                ))}
+                              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 ml-11">
+                                {Array.from({ length: ex.sets }).map((_, sIdx) => {
+                                  const setData = ex.sets_data?.[sIdx];
+                                  const isDone = sIdx < setsProgress;
+                                  return (
+                                    <div key={sIdx} className="flex items-center gap-1">
+                                      <div className={`w-2.5 h-2.5 rounded-full transition-all ${
+                                        isDone ? 'bg-[#00F0FF]' : 'bg-[#27272A]'
+                                      }`} />
+                                      {isDone && setData?.weight && (
+                                        <span className="text-[10px] text-[#A1A1AA]">{setData.weight}</span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>

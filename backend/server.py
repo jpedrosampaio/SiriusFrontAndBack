@@ -3945,6 +3945,89 @@ async def get_detailed_workout_stats(request: Request, session_token: Optional[s
         "weekly_consistency": weekly_consistency
     }
 
+@api_router.get("/workout-stats/exercise-evolution")
+async def get_exercise_evolution(request: Request, exercise_name: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
+    """Get weight/reps evolution history per exercise"""
+    auth_header = request.headers.get("Authorization")
+    user = await get_current_user(authorization=auth_header, session_token=session_token)
+    
+    # Aggregate from completed workout sessions
+    sessions = await db.workout_sessions.find({
+        "user_id": user.user_id,
+        "status": "completed"
+    }, {"_id": 0, "exercises": 1, "completed_at": 1, "plan_name": 1}).sort("completed_at", 1).to_list(500)
+    
+    # Aggregate from workout logs as well
+    logs = await db.workout_logs.find({
+        "user_id": user.user_id,
+        "completed": True
+    }, {"_id": 0, "exercises_completed": 1, "date": 1, "name": 1}).sort("date", 1).to_list(500)
+    
+    # Collect per-exercise data
+    evolution = {}
+    
+    for s in sessions:
+        date = s.get("completed_at", "")[:10]
+        for ex in s.get("exercises", []):
+            name = ex.get("name", "").strip()
+            if not name:
+                continue
+            if exercise_name and exercise_name.lower() not in name.lower():
+                continue
+            if name not in evolution:
+                evolution[name] = []
+            
+            # Get per-set data or use top-level values
+            sets_data = ex.get("sets_data")
+            if sets_data and isinstance(sets_data, list):
+                for sd in sets_data:
+                    if sd.get("completed"):
+                        evolution[name].append({
+                            "date": date,
+                            "weight": sd.get("weight", ""),
+                            "reps": sd.get("reps", 0),
+                            "source": "session",
+                            "plan_name": s.get("plan_name", "")
+                        })
+            else:
+                evolution[name].append({
+                    "date": date,
+                    "weight": ex.get("weight", ""),
+                    "reps": ex.get("reps", 0),
+                    "sets": ex.get("sets_completed", 0),
+                    "source": "session",
+                    "plan_name": s.get("plan_name", "")
+                })
+    
+    for w in logs:
+        date = w.get("date", "")
+        for ex in w.get("exercises_completed", []):
+            name = ex.get("name", "").strip()
+            if not name:
+                continue
+            if exercise_name and exercise_name.lower() not in name.lower():
+                continue
+            if name not in evolution:
+                evolution[name] = []
+            evolution[name].append({
+                "date": date,
+                "weight": ex.get("weight", ""),
+                "reps": ex.get("reps", 0),
+                "sets": ex.get("sets_completed", 0),
+                "source": "log",
+                "plan_name": w.get("name", "")
+            })
+    
+    # Sort each exercise's data by date
+    for name in evolution:
+        evolution[name].sort(key=lambda x: x["date"])
+    
+    return {
+        "exercises": evolution,
+        "exercise_names": sorted(evolution.keys()) if not exercise_name else [exercise_name]
+    }
+
+
 @api_router.post("/workout-suggestions")
 async def get_ai_workout_suggestions(request: Request, session_token: Optional[str] = Cookie(None)):
     """Get AI-powered workout suggestions based on user's history and goals"""
@@ -4788,6 +4871,11 @@ async def update_session_exercise(request: Request, session_id: str, exercise_id
         exercises[exercise_idx]["completed"] = body["completed"]
     if "sets_completed" in body:
         exercises[exercise_idx]["sets_completed"] = body["sets_completed"]
+    if "sets_data" in body:
+        exercises[exercise_idx]["sets_data"] = body["sets_data"]
+        # Auto-calculate sets_completed from sets_data
+        completed_sets = sum(1 for s in body["sets_data"] if s.get("completed"))
+        exercises[exercise_idx]["sets_completed"] = completed_sets
     if "time_spent_seconds" in body:
         exercises[exercise_idx]["time_spent_seconds"] = body["time_spent_seconds"]
     if "weight" in body:
