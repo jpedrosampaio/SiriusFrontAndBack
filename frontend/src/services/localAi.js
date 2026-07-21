@@ -1,9 +1,13 @@
 import { pipeline, env } from '@xenova/transformers';
 
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+
 env.allowWasm = true;
 env.allowRemoteModels = true;
 env.backends.onnx.wasm.proxy = false;
 env.backends.onnx.wasm.numThreads = 1;
+env.remoteHost = BACKEND_URL;
+env.remotePathTemplate = '/api/hf/{model}/resolve/main/{file}';
 
 class LocalAIService {
   constructor() {
@@ -44,7 +48,7 @@ class LocalAIService {
     this.error = null;
     this._notify();
     try {
-      this.generator = await pipeline('text-generation', 'Xenova/LaMini-GPT-774M', {
+      this.generator = await pipeline('text-generation', 'Xenova/LaMini-GPT-124M', {
         progress_callback: (p) => {
           if (p.status === 'download' && typeof p.progress === 'number') {
             this.loadingProgress = p.progress;

@@ -14260,6 +14260,22 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
         return {"reply": "⚠️ Erro ao contactar serviço de IA. Tente novamente."}
 
 
+@api_router.get("/hf/{path:path}")
+async def hf_proxy(path: str):
+    hf_url = f"https://huggingface.co/{path}"
+    try:
+        resp = requests.get(hf_url, stream=True, timeout=300)
+        return StreamingResponse(
+            resp.iter_content(chunk_size=8192),
+            media_type=resp.headers.get("content-type", "application/octet-stream"),
+            status_code=resp.status_code,
+        )
+    except Exception as e:
+        logging.error(f"HF proxy error: {e}")
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "Proxy error"}, status_code=502)
+
+
 # Include router AFTER all endpoints are defined
 app.include_router(api_router)
 
