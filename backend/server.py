@@ -26,7 +26,7 @@ db = client[os.environ['DB_NAME']]
 
 GOOGLE_GEMINI_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY', '')
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
 GEMINI_FALLBACK_MODEL = "gemini-2.0-flash-lite"
 
 FREE_LLM_BASE_URL = os.environ.get('FREE_LLM_BASE_URL', 'https://api.freellm.xyz/v1')
@@ -80,7 +80,10 @@ async def call_gemini(prompt: str, system_message: str, api_key: str) -> str:
         resp = requests.post(url, json=payload, timeout=30)
         if resp.status_code == 200:
             data = resp.json()
-            return data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            if text:
+                return text
+        logging.error(f"Gemini API error: {resp.status_code} - {resp.text[:500]}")
     except Exception as e:
         logging.error(f"Gemini error: {e}")
     return None
@@ -4240,7 +4243,7 @@ IMPORTANTE:
     try:
         logging.info("Generating workout plan via LLM")
         response_text = await call_llm(
-            prompt,
+            prompt + "\n\nResponda APENAS com JSON puro, sem markdown, sem texto extra.",
             f"workout_{user.user_id}",
             "Você é um personal trainer profissional certificado. Sempre responda SOMENTE em JSON válido, sem nenhum texto adicional.",
             user_id=user.user_id
@@ -4249,11 +4252,18 @@ IMPORTANTE:
         if not response_text or not response_text.strip():
             raise HTTPException(status_code=500, detail="Resposta vazia da IA. Tente novamente.")
         
+        response_text = response_text.strip()
+        # Verify response looks like JSON before parsing
+        if not response_text.startswith("{"):
+            logging.error(f"Non-JSON response from LLM (first 200 chars): {response_text[:200]}")
+            raise HTTPException(status_code=500, detail="IA retornou formato inválido. Tente novamente.")
+        
         plan_data = _clean_and_parse_json(response_text)
         logging.info("Successfully parsed workout plan")
         
     except json.JSONDecodeError as e:
         logging.error(f"JSON parse error: {e}")
+        logging.error(f"Response text (first 500 chars): {response_text[:500] if response_text else 'N/A'}")
         raise HTTPException(status_code=500, detail="Erro ao processar resposta da IA. Tente novamente.")
     except HTTPException:
         raise
