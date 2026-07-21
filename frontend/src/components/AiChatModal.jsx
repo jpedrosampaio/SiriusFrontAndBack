@@ -208,9 +208,9 @@ export default function AiChatModal({ open, onClose }) {
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
-              <p className="text-[10px] text-[#52525B] mt-1">
-                ~800MB — apenas uma vez. Funciona offline depois.
-              </p>
+                <p className="text-[10px] text-[#52525B] mt-1">
+                  ~250MB — funciona offline depois de baixado.
+                </p>
             </div>
           )}
 
