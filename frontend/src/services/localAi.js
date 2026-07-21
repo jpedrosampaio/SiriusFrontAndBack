@@ -44,7 +44,7 @@ class LocalAIService {
     this.error = null;
     this._notify();
     try {
-      this.generator = await pipeline('text-generation', 'Xenova/Qwen2-0.5B-Instruct', {
+      this.generator = await pipeline('text-generation', 'Xenova/LaMini-GPT-774M', {
         progress_callback: (p) => {
           if (p.status === 'download' && typeof p.progress === 'number') {
             this.loadingProgress = p.progress;
@@ -58,8 +58,13 @@ class LocalAIService {
       this.isLoading = false;
       this._notify();
     } catch (err) {
-      console.error('Failed to load local AI model:', err);
-      this.error = err.message || 'Erro ao carregar modelo';
+      console.error('Failed to load local AI model:', err.message, err.cause);
+      const msg = err.message || '';
+      if (msg.includes('<!doctype') || msg.includes('<html')) {
+        this.error = 'Falha ao baixar modelo do Hugging Face. Verifique sua conexão ou tente mais tarde.';
+      } else {
+        this.error = msg;
+      }
       this.status = 'error';
       this.isLoading = false;
       this._notify();
@@ -73,7 +78,7 @@ class LocalAIService {
         throw new Error(this.error || 'Modelo não carregado');
       }
     }
-    const formattedPrompt = `<|im_start|>system\n${systemMessage}<|im_end|>\n<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n`;
+    const formattedPrompt = `${systemMessage}\n\nUser: ${prompt}\nAssistant:`;
     const result = await this.generator(formattedPrompt, {
       max_new_tokens: 512,
       temperature: 0.7,
@@ -83,7 +88,7 @@ class LocalAIService {
       signal,
     });
     const raw = result[0]?.generated_text || '';
-    const answer = raw.split('<|im_start|>assistant\n').pop() || raw;
+    const answer = raw.split('Assistant:').pop() || raw;
     return answer.trim();
   }
 
