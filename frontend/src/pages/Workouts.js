@@ -1067,8 +1067,8 @@ export default function Workouts() {
   return (
     <div className="flex min-h-screen bg-[#050505]">
       <Sidebar user={user} />
-      <PullToRefresh onRefresh={loadData}>
       <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter`}>
+        <PullToRefresh onRefresh={loadData}>
         <div className="max-w-6xl mx-auto">
           {/* Motivational Quote */}
           {motivationalQuote && (
@@ -3238,8 +3238,8 @@ export default function Workouts() {
             </DialogContent>
           </Dialog>
         </div>
-      </div>
       </PullToRefresh>
+      </div>
       <MobileNav user={user} />
     </div>
   );
