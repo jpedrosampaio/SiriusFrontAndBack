@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Send, User, Brain, Loader2, AlertCircle } from 'lucide-react';
+import { X, Send, User, Brain, Loader2, AlertCircle, Wifi, WifiOff } from 'lucide-react';
 import localAi from '@/services/localAi';
+import api from '@/lib/api';
 
 export default function AiChatModal({ open, onClose }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [aiState, setAiState] = useState({ status: 'idle', progress: 0 });
+  const [mode, setMode] = useState('local');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -36,10 +38,24 @@ export default function AiChatModal({ open, onClose }) {
     setSending(true);
     setMessages((prev) => [...prev, { role: 'assistant', content: '', loading: true }]);
     try {
-      if (aiState.status === 'idle') {
+      let reply;
+      if (aiState.status === 'ready') {
+        reply = await localAi.generate(text);
+      } else if (aiState.status === 'idle') {
         localAi.loadModel();
+        try {
+          reply = await localAi.generate(text);
+          setMode('local');
+        } catch {
+          const res = await api.post('/api/ai/chat', { message: text });
+          reply = res.data.reply;
+          setMode('cloud');
+        }
+      } else {
+        const res = await api.post('/api/ai/chat', { message: text });
+        reply = res.data.reply;
+        setMode('cloud');
       }
-      const reply = await localAi.generate(text);
       setMessages((prev) => {
         const copy = [...prev];
         copy[copy.length - 1] = { role: 'assistant', content: reply };
@@ -50,7 +66,7 @@ export default function AiChatModal({ open, onClose }) {
         const copy = [...prev];
         copy[copy.length - 1] = {
           role: 'assistant',
-          content: err.name === 'AbortError' ? 'Geração cancelada.' : `Erro: ${err.message}`,
+          content: err.response?.data?.reply || err.message || 'Erro ao gerar resposta.',
           error: true,
         };
         return copy;
@@ -89,7 +105,7 @@ export default function AiChatModal({ open, onClose }) {
               </div>
               <span className="text-sm font-semibold text-white">IA Sirius</span>
               {aiState.status === 'ready' && (
-                <span className="w-2 h-2 rounded-full bg-green-500" />
+                <span className="w-2 h-2 rounded-full bg-green-500" title="Local (offline)" />
               )}
               {aiState.status === 'downloading' && (
                 <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
@@ -97,9 +113,14 @@ export default function AiChatModal({ open, onClose }) {
               {aiState.status === 'error' && (
                 <span className="w-2 h-2 rounded-full bg-red-500" />
               )}
-              {aiState.status === 'idle' && (
+              {aiState.status === 'idle' && mode === 'cloud' && (
+                <span className="w-2 h-2 rounded-full bg-blue-500" title="Servidor (online)" />
+              )}
+              {aiState.status === 'idle' && mode !== 'cloud' && (
                 <span className="w-2 h-2 rounded-full bg-[#52525B]" />
               )}
+              {mode === 'cloud' && <Wifi className="w-3 h-3 text-blue-400 ml-1" title="Modo servidor" />}
+              {aiState.status === 'ready' && <WifiOff className="w-3 h-3 text-green-400 ml-1" title="Modo offline" />}
             </div>
             <button onClick={onClose} className="text-[#52525B] hover:text-white transition-colors p-1">
               <X className="w-4 h-4" />
@@ -113,12 +134,12 @@ export default function AiChatModal({ open, onClose }) {
                 <p className="text-sm text-[#52525B] max-w-[200px]">
                   IA local rodando 100% no seu navegador. Pergunte sobre treinos, nutrição e saúde.
                 </p>
-                {aiState.status === 'idle' && (
+                {aiState.status === 'idle' && mode !== 'cloud' && (
                   <button
                     onClick={() => localAi.loadModel()}
                     className="mt-3 text-xs bg-[#FFD700] text-black px-4 py-2 rounded-xl font-medium hover:bg-[#FFC300] transition-colors"
                   >
-                    Carregar IA
+                    Carregar IA (offline)
                   </button>
                 )}
                 {aiState.status !== 'error' && (
@@ -194,25 +215,36 @@ export default function AiChatModal({ open, onClose }) {
             <div className="px-4 py-2 border-t border-[#27272A] bg-[#1A0A0A]">
               <div className="flex items-center gap-2 text-xs text-red-400">
                 <AlertCircle className="w-3 h-3 shrink-0" />
-                <span>Erro ao carregar modelo: {aiState.error}</span>
+                <span>Erro: {aiState.error}</span>
               </div>
-              <button
-                onClick={() => localAi.loadModel()}
-                className="text-xs text-[#FFD700] hover:underline mt-1"
-              >
-                Tentar novamente
-              </button>
+              <div className="flex gap-2 mt-1">
+                <button onClick={() => localAi.loadModel()} className="text-xs text-[#FFD700] hover:underline">
+                  Tentar novamente
+                </button>
+                <span className="text-[#52525B] text-xs">ou</span>
+                <button onClick={() => setMode('cloud')} className="text-xs text-blue-400 hover:underline">
+                  Usar servidor
+                </button>
+              </div>
             </div>
           )}
 
           <div className="flex items-center gap-2 p-3 border-t border-[#27272A] shrink-0">
-            {aiState.status === 'idle' ? (
-              <button
-                onClick={() => localAi.loadModel()}
-                className="flex-1 bg-[#FFD700] text-black text-sm font-medium py-2 rounded-xl hover:bg-[#FFC300] transition-colors"
-              >
-                Carregar IA (download ~800MB)
-              </button>
+            {aiState.status === 'idle' && mode !== 'cloud' ? (
+              <div className="flex flex-1 gap-2">
+                <button
+                  onClick={() => localAi.loadModel()}
+                  className="flex-1 bg-[#FFD700] text-black text-sm font-medium py-2 rounded-xl hover:bg-[#FFC300] transition-colors"
+                >
+                  Carregar IA (offline)
+                </button>
+                <button
+                  onClick={() => setMode('cloud')}
+                  className="flex-1 bg-[#1A1A1A] text-[#A1A1AA] text-sm font-medium py-2 rounded-xl border border-[#27272A] hover:bg-[#27272A] transition-colors"
+                >
+                  Usar servidor
+                </button>
+              </div>
             ) : (
               <>
                 <input
@@ -224,7 +256,7 @@ export default function AiChatModal({ open, onClose }) {
                     aiState.status === 'downloading'
                       ? 'Aguardando download do modelo...'
                       : aiState.status === 'error'
-                      ? 'Tente recarregar a IA'
+                      ? 'Tente recarregar ou use o servidor'
                       : 'Pergunte sobre treinos...'
                   }
                   disabled={sending || aiState.status === 'downloading'}

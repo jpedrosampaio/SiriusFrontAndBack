@@ -14236,6 +14236,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class AiChatRequest(BaseModel):
+    message: str
+    system_message: str = "Você é um assistente fitness especializado em treinos, nutrição e saúde."
+
+@api_router.post("/ai/chat")
+async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional[str] = Cookie(None)):
+    auth_header = request.headers.get("Authorization")
+    user = await get_current_user(authorization=auth_header, session_token=session_token)
+    try:
+        prompt = f"{body.system_message}\n\nUser: {body.message}\nAssistant:"
+        resp = requests.post(
+            "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct",
+            json={"inputs": prompt, "parameters": {"max_new_tokens": 512, "temperature": 0.7, "return_full_text": False}},
+            headers={"Content-Type": "application/json"},
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            text = ""
+            if isinstance(data, list) and len(data) > 0:
+                text = data[0].get("generated_text", "")
+            elif isinstance(data, dict):
+                text = data.get("generated_text", "")
+            return {"reply": text.strip() if text else "Modelo não gerou resposta."}
+        return {"reply": f"⚠️ Serviço de IA temporariamente indisponível (HTTP {resp.status_code}). Tente novamente mais tarde."}
+    except Exception as e:
+        logging.error(f"AI chat error: {e}")
+        return {"reply": "⚠️ Erro ao contactar serviço de IA. Tente novamente."}
+
 @app.on_event("startup")
 async def startup_setup():
     """Auto-setup Telegram webhook on startup"""
