@@ -67,23 +67,34 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
     if result:
         return result
     
-    return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida."
+    return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida e tem quota disponível em https://makersuite.google.com/app/apikey"
 
-async def call_gemini(prompt: str, system_message: str, api_key: str) -> str:
-    """Call Gemini API"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "systemInstruction": {"parts": [{"text": system_message}]}}
+async def call_gemini(prompt: str, system_message: str, api_key: str) -> Optional[str]:
+    """Call Gemini API, returns response text or None"""
+    from urllib.parse import quote
+    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
+    if GEMINI_MODEL not in models_to_try:
+        models_to_try.insert(0, GEMINI_MODEL)
     
-    try:
-        resp = requests.post(url, json=payload, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json()
-            text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            if text:
-                return text
-        logging.error(f"Gemini API error: {resp.status_code} - {resp.text[:500]}")
-    except Exception as e:
-        logging.error(f"Gemini error: {e}")
+    for model in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        if system_message:
+            payload["systemInstruction"] = {"parts": [{"text": system_message}]}
+        
+        try:
+            resp = requests.post(url, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                if text:
+                    return text
+            logging.error(f"Gemini API error (model={model}): {resp.status_code} - {resp.text[:500]}")
+            if resp.status_code in (400, 401, 403, 404):
+                break  # key or model issue, no point trying other models
+            # 429 (quota) or 5xx: continue to next model
+        except Exception as e:
+            logging.error(f"Gemini error (model={model}): {e}")
     return None
 
 
