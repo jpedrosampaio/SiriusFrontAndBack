@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Send, User, Brain, Loader2, AlertCircle, Wifi, WifiOff } from 'lucide-react';
 import localAi from '@/services/localAi';
-import api from '@/lib/api';
+import axios from 'axios';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
 export default function AiChatModal({ open, onClose }) {
   const [messages, setMessages] = useState([]);
@@ -30,6 +32,11 @@ export default function AiChatModal({ open, onClose }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const callCloud = useCallback(async (message) => {
+    const res = await axios.post(`${BACKEND_URL}/api/ai/chat`, { message }, { withCredentials: true });
+    return res.data.reply;
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -39,21 +46,20 @@ export default function AiChatModal({ open, onClose }) {
     setMessages((prev) => [...prev, { role: 'assistant', content: '', loading: true }]);
     try {
       let reply;
-      if (aiState.status === 'ready') {
+      if (mode === 'cloud') {
+        reply = await callCloud(text);
+      } else if (aiState.status === 'ready') {
         reply = await localAi.generate(text);
       } else if (aiState.status === 'idle') {
         localAi.loadModel();
         try {
           reply = await localAi.generate(text);
-          setMode('local');
         } catch {
-          const res = await api.post('/api/ai/chat', { message: text });
-          reply = res.data.reply;
+          reply = await callCloud(text);
           setMode('cloud');
         }
       } else {
-        const res = await api.post('/api/ai/chat', { message: text });
-        reply = res.data.reply;
+        reply = await callCloud(text);
         setMode('cloud');
       }
       setMessages((prev) => {
@@ -62,19 +68,16 @@ export default function AiChatModal({ open, onClose }) {
         return copy;
       });
     } catch (err) {
+      const errMsg = err.response?.data?.reply || err.message || 'Erro ao gerar resposta.';
       setMessages((prev) => {
         const copy = [...prev];
-        copy[copy.length - 1] = {
-          role: 'assistant',
-          content: err.response?.data?.reply || err.message || 'Erro ao gerar resposta.',
-          error: true,
-        };
+        copy[copy.length - 1] = { role: 'assistant', content: errMsg, error: true };
         return copy;
       });
     } finally {
       setSending(false);
     }
-  }, [input, sending, aiState.status]);
+  }, [input, sending, aiState.status, mode, callCloud]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -211,18 +214,18 @@ export default function AiChatModal({ open, onClose }) {
             </div>
           )}
 
-          {aiState.status === 'error' && (
+          {aiState.status === 'error' && mode !== 'cloud' && (
             <div className="px-4 py-2 border-t border-[#27272A] bg-[#1A0A0A]">
               <div className="flex items-center gap-2 text-xs text-red-400">
                 <AlertCircle className="w-3 h-3 shrink-0" />
-                <span>Erro: {aiState.error}</span>
+                <span>Erro ao carregar modelo local: {aiState.error}</span>
               </div>
               <div className="flex gap-2 mt-1">
                 <button onClick={() => localAi.loadModel()} className="text-xs text-[#FFD700] hover:underline">
                   Tentar novamente
                 </button>
                 <span className="text-[#52525B] text-xs">ou</span>
-                <button onClick={() => setMode('cloud')} className="text-xs text-blue-400 hover:underline">
+                <button onClick={() => { setMode('cloud'); localAi.reset(); }} className="text-xs text-blue-400 hover:underline">
                   Usar servidor
                 </button>
               </div>
@@ -239,7 +242,7 @@ export default function AiChatModal({ open, onClose }) {
                   Carregar IA (offline)
                 </button>
                 <button
-                  onClick={() => setMode('cloud')}
+                  onClick={() => { setMode('cloud'); localAi.reset(); }}
                   className="flex-1 bg-[#1A1A1A] text-[#A1A1AA] text-sm font-medium py-2 rounded-xl border border-[#27272A] hover:bg-[#27272A] transition-colors"
                 >
                   Usar servidor
