@@ -107,6 +107,7 @@ function Sidebar({ user }) {
     setCollapsed(prev => {
       const next = !prev;
       localStorage.setItem("sidebar_collapsed", String(next));
+      window.dispatchEvent(new Event("sidebar-toggle"));
       return next;
     });
   };

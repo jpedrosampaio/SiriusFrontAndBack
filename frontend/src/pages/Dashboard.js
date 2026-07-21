@@ -43,10 +43,18 @@ export default function Dashboard() {
   const [dailySummary, setDailySummary] = useState(null);
   const [globalStreaks, setGlobalStreaks] = useState(null);
   const [todayWorkout, setTodayWorkout] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "true");
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    const check = () => setSidebarCollapsed(localStorage.getItem("sidebar_collapsed") === "true");
+    window.addEventListener("sidebar-toggle", check);
+    window.addEventListener("storage", check);
+    return () => { window.removeEventListener("sidebar-toggle", check); window.removeEventListener("storage", check); };
   }, []);
 
   const fetchData = async () => {
@@ -165,7 +173,7 @@ export default function Dashboard() {
       <Onboarding />
       <Sidebar user={user} />
       <PullToRefresh onRefresh={fetchData}>
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pt-[72px] md:pt-0 pb-24 md:pb-8 page-enter">
+      <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pt-[72px] md:pt-0 pb-24 md:pb-8 page-enter`}>
         <div className="max-w-7xl mx-auto">
           <div className="mb-6 md:mb-8 pt-12 md:pt-0">
             <div className="flex items-center justify-between flex-wrap gap-4">

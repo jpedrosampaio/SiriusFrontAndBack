@@ -69,6 +69,7 @@ export default function Workouts() {
 
   // Today's schedule
   const [todaySchedule, setTodaySchedule] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "true");
 
   // AI Generation
   const [openAiGenerate, setOpenAiGenerate] = useState(false);
@@ -295,6 +296,13 @@ export default function Workouts() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const check = () => setSidebarCollapsed(localStorage.getItem("sidebar_collapsed") === "true");
+    window.addEventListener("sidebar-toggle", check);
+    window.addEventListener("storage", check);
+    return () => { window.removeEventListener("sidebar-toggle", check); window.removeEventListener("storage", check); };
+  }, []);
 
   const refreshQuote = async () => {
     try {
@@ -1060,7 +1068,7 @@ export default function Workouts() {
     <div className="flex min-h-screen bg-[#050505]">
       <Sidebar user={user} />
       <PullToRefresh onRefresh={loadData}>
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
+      <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter`}>
         <div className="max-w-6xl mx-auto">
           {/* Motivational Quote */}
           {motivationalQuote && (
