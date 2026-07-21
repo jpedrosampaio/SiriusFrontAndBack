@@ -83,15 +83,17 @@ async def call_gemini(prompt: str, system_message: str, api_key: str) -> tuple[O
         models_to_try.insert(0, GEMINI_MODEL)
     
     last_error = None
+    import time
     for model in models_to_try:
+        timeout = 90 if "2.5" in model else 30
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         if system_message:
             payload["systemInstruction"] = {"parts": [{"text": system_message}]}
         
         try:
-            resp = requests.post(url, json=payload, timeout=30)
-            logging.info(f"Gemini call (model={model}): status={resp.status_code}")
+            resp = requests.post(url, json=payload, timeout=timeout)
+            logging.info(f"Gemini call (model={model} timeout={timeout}s): status={resp.status_code}")
             if resp.status_code == 200:
                 data = resp.json()
                 text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
@@ -5440,12 +5442,16 @@ async def get_motivational_quote(request: Request, session_token: Optional[str] 
     }, {"_id": 0})
     
     if cached_quote:
-        return {
-            "quote": cached_quote.get("quote", ""),
-            "motivational_date": motivational_date,
-            "cached": True,
-            "context": cached_quote.get("context", {})
-        }
+        cached_text = cached_quote.get("quote", "")
+        if cached_text.startswith("⚠"):
+            await db.daily_quotes.delete_one({"user_id": user.user_id, "motivational_date": motivational_date})
+        else:
+            return {
+                "quote": cached_text,
+                "motivational_date": motivational_date,
+                "cached": True,
+                "context": cached_quote.get("context", {})
+            }
     
     # Generate a new quote for today
     today = datetime.now().strftime("%Y-%m-%d")
