@@ -14264,16 +14264,32 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
 async def hf_proxy(path: str):
     hf_url = f"https://huggingface.co/{path}"
     try:
-        resp = requests.get(hf_url, stream=True, timeout=300)
+        resp = requests.get(hf_url, stream=True, timeout=300, headers={"User-Agent": "Mozilla/5.0"})
+        content_type = resp.headers.get("content-type", "")
+        if "text/html" in content_type and resp.status_code >= 400:
+            return {"error": f"Hugging Face returned {resp.status_code}", "path": path}
         return StreamingResponse(
             resp.iter_content(chunk_size=8192),
-            media_type=resp.headers.get("content-type", "application/octet-stream"),
+            media_type=content_type or "application/octet-stream",
             status_code=resp.status_code,
         )
     except Exception as e:
         logging.error(f"HF proxy error: {e}")
-        from fastapi.responses import JSONResponse
-        return JSONResponse({"error": "Proxy error"}, status_code=502)
+        return {"error": f"Proxy error: {e}"}
+
+
+@api_router.get("/hf-api/{path:path}")
+async def hf_api_proxy(path: str):
+    """Proxy para a API do Hugging Face (ex: models/Xenova/...)"""
+    hf_url = f"https://huggingface.co/api/{path}"
+    try:
+        resp = requests.get(hf_url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": f"HF API returned {resp.status_code}", "path": path}
+    except Exception as e:
+        logging.error(f"HF API proxy error: {e}")
+        return {"error": str(e)}
 
 
 # Include router AFTER all endpoints are defined

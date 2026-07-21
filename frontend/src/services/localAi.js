@@ -9,6 +9,15 @@ env.backends.onnx.wasm.numThreads = 1;
 env.remoteHost = BACKEND_URL;
 env.remotePathTemplate = '/api/hf/{model}/resolve/main/{file}';
 
+const origFetch = window.fetch.bind(window);
+window.fetch = (url, opts) => {
+  const urlStr = typeof url === 'string' ? url : url?.url || '';
+  if (urlStr.includes('huggingface.co/api/')) {
+    url = urlStr.replace('https://huggingface.co/api/', `${BACKEND_URL}/api/hf-api/`);
+  }
+  return origFetch(url, opts);
+};
+
 class LocalAIService {
   constructor() {
     this.generator = null;
@@ -62,13 +71,8 @@ class LocalAIService {
       this.isLoading = false;
       this._notify();
     } catch (err) {
-      console.error('Failed to load local AI model:', err.message, err.cause);
-      const msg = err.message || '';
-      if (msg.includes('<!doctype') || msg.includes('<html')) {
-        this.error = 'Falha ao baixar modelo do Hugging Face. Verifique sua conexão ou tente mais tarde.';
-      } else {
-        this.error = msg;
-      }
+      console.error('Failed to load local AI model:', err);
+      this.error = err.message || 'Erro ao carregar modelo';
       this.status = 'error';
       this.isLoading = false;
       this._notify();
