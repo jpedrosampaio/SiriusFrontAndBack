@@ -37,6 +37,8 @@ FREE_TTS_VOICE = os.environ.get('FREE_TTS_VOICE', 'pt-BR-FranciscaNeural')
 EIDOS_URL = os.environ.get('EIDOS_URL', 'https://eidosspeech.xyz/api/v1/tts')
 EIDOS_API_KEY = os.environ.get('EIDOS_API_KEY', '')
 
+HF_API_TOKEN = os.environ.get('HF_API_TOKEN', '')
+
 async def get_user_api_key(user_id: str) -> Optional[str]:
     try:
         user_doc = await db.users.find_one({"user_id": user_id}, {"gemini_api_key": 1})
@@ -14246,10 +14248,13 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     try:
         prompt = f"{body.system_message}\n\nUser: {body.message}\nAssistant:"
+        headers = {"Content-Type": "application/json"}
+        if HF_API_TOKEN:
+            headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
         resp = requests.post(
             "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct",
             json={"inputs": prompt, "parameters": {"max_new_tokens": 512, "temperature": 0.7, "return_full_text": False}},
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             timeout=60,
         )
         if resp.status_code == 200:
