@@ -26,8 +26,8 @@ db = client[os.environ['DB_NAME']]
 
 GOOGLE_GEMINI_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY', '')
 
-GEMINI_MODEL = "gemini-2.0-flash"
-GEMINI_FALLBACK_MODEL = "gemini-2.0-flash-lite"
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_FALLBACK_MODEL = "gemini-2.0-flash"
 gemini_client = None
 
 FREETTS_URL = os.environ.get('FREETTS_URL', 'https://api.freetts.org')
@@ -81,7 +81,7 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
 async def call_gemini(prompt: str, system_message: str, api_key: str) -> Optional[str]:
     """Call Gemini API, returns response text or None"""
     from urllib.parse import quote
-    models_to_try = ["gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
     if GEMINI_MODEL not in models_to_try:
         models_to_try.insert(0, GEMINI_MODEL)
     
