@@ -205,6 +205,7 @@ class User(BaseModel):
     birth_date: Optional[str] = None
     bio: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    hf_api_key: Optional[str] = None
     created_at: datetime
 
 class UserCreate(BaseModel):
@@ -577,6 +578,7 @@ async def get_current_user(authorization: Optional[str] = None, session_token: O
     user_doc.setdefault("birth_date", None)
     user_doc.setdefault("bio", None)
     user_doc.setdefault("gemini_api_key", None)
+    user_doc.setdefault("hf_api_key", None)
     
     if isinstance(user_doc['created_at'], str):
         user_doc['created_at'] = datetime.fromisoformat(user_doc['created_at'])
@@ -670,6 +672,7 @@ async def register(user_data: UserCreate, response: Response):
         "xp": 0,
         "rank": "Recruta",
         "gemini_api_key": user_data.gemini_api_key,
+        "hf_api_key": None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(user_doc)
@@ -846,7 +849,7 @@ async def update_profile(request: Request, data: dict, session_token: Optional[s
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
     update_fields = {}
-    for field in ["name", "birth_date", "bio", "health_condition", "gemini_api_key"]:
+    for field in ["name", "birth_date", "bio", "health_condition", "gemini_api_key", "hf_api_key"]:
         if field in data:
             update_fields[field] = data[field]
     
@@ -861,6 +864,7 @@ async def update_profile(request: Request, data: dict, session_token: Optional[s
     updated_user = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password": 0})
     updated_user = updated_user or {}
     updated_user.setdefault("gemini_api_key", None)
+    updated_user.setdefault("hf_api_key", None)
     return updated_user
 
 @api_router.get("/auth/birthday-check")
@@ -14249,8 +14253,10 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
     try:
         prompt = f"{body.system_message}\n\nUser: {body.message}\nAssistant:"
         headers = {"Content-Type": "application/json"}
-        if HF_API_TOKEN:
-            headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
+        user_hf_key = getattr(user, 'hf_api_key', None) or user.get('hf_api_key')
+        hf_token = user_hf_key or HF_API_TOKEN
+        if hf_token:
+            headers["Authorization"] = f"Bearer {hf_token}"
         resp = requests.post(
             "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct",
             json={"inputs": prompt, "parameters": {"max_new_tokens": 512, "temperature": 0.7, "return_full_text": False}},
