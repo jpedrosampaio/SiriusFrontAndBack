@@ -20,7 +20,10 @@ import random
 import requests
 import httpx
 import secrets
-from google.genai import types
+try:
+    from google.genai import types
+except ImportError:
+    types = None
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -10560,6 +10563,46 @@ def _parse_json_lenient(s: str) -> Optional[dict]:
         return _try_repair_json(s)
 
 
+def _normalize_disciplinas(discs) -> List[dict]:
+    """Coage disciplinas ao formato esperado (respostas sem responseSchema variam de shape)."""
+    out: List[dict] = []
+    for d in discs or []:
+        if isinstance(d, str):
+            d = {"nome": d}
+        if not isinstance(d, dict) or not d.get("nome"):
+            continue
+        top = d.get("topicos")
+        if isinstance(top, str):
+            d["topicos"] = [t.strip() for t in top.replace(";", "\n").splitlines() if t.strip()]
+        cp = d.get("conteudo_programatico")
+        if isinstance(cp, str):
+            d["conteudo_programatico"] = [{"assunto": cp.strip(), "subtopicos": []}] if cp.strip() else []
+        elif isinstance(cp, list):
+            d["conteudo_programatico"] = [
+                {"assunto": x, "subtopicos": []} if isinstance(x, str) else x
+                for x in cp if isinstance(x, (str, dict))
+            ]
+        for f, default in (("peso", 1), ("num_questoes", 0)):
+            v = d.get(f)
+            if not isinstance(v, int):
+                try:
+                    d[f] = int(float(v))
+                except (TypeError, ValueError):
+                    d[f] = default
+        out.append(d)
+    return out
+
+
+def _fill_cp_from_topicos(cargos_list: List[dict]) -> List[dict]:
+    """Se o modelo deixou conteudo_programatico vazio mas preencheu topicos, sintetiza o CP a partir deles."""
+    for c in cargos_list:
+        for d in (c.get("disciplinas") or []):
+            if not d.get("conteudo_programatico") and d.get("topicos"):
+                d["conteudo_programatico"] = [{"assunto": t, "subtopicos": []} for t in d["topicos"] if t]
+    return cargos_list
+
+
+
 def _merge_hydrated_disciplinas(cargos_list: List[dict], parsed: dict) -> int:
     """Merge disciplinas_comuns + específicas (parsed) into cargos without disciplinas. Returns nº hidratado."""
     comuns = parsed.get("disciplinas_comuns") or []
@@ -10585,9 +10628,9 @@ def _merge_hydrated_disciplinas(cargos_list: List[dict], parsed: dict) -> int:
                 if r > best_r:
                     best_k, best_r = k, r
             especificas = por_cargo.get(best_k, []) if best_r >= 0.6 else []
-        merged = [dict(d) for d in comuns]
+        merged = [dict(d) for d in _normalize_disciplinas(comuns)]
         nomes_vistos = {(d.get("nome") or "").strip().lower() for d in merged}
-        for d in especificas:
+        for d in _normalize_disciplinas(especificas):
             nm = (d.get("nome") or "").strip().lower()
             if nm and nm not in nomes_vistos:
                 merged.append(d)
@@ -10609,9 +10652,11 @@ Já sabemos que os cargos/perfis abaixo existem neste edital. Sua ÚNICA tarefa 
 REGRAS:
 1) Se o edital tiver disciplinas COMUNS a todos os cargos (ex: "Conhecimentos Básicos", "Língua Portuguesa para todos os cargos"), coloque-as em "disciplinas_comuns" (com conteúdo programático COMPLETO) e NÃO as repita dentro de cada cargo.
 2) Em "cargos", inclua APENAS as disciplinas ESPECÍFICAS de cada cargo (conhecimentos específicos). Se um cargo não tiver disciplinas específicas próprias, retorne "disciplinas": [] para ele.
-3) Para cada disciplina preencha: "nome", "peso" (inteiro; 1 se não informado), "num_questoes" (inteiro; 0 se não informado), "topicos" (resumo, até 10 itens) e "conteudo_programatico" (lista COMPLETA e FIEL do conteúdo oficial, por assunto/subtópicos).
-4) NUNCA retorne tudo vazio: todo edital tem conteúdo programático. Procure nas seções "DOS CONTEÚDOS PROGRAMÁTICOS", "DO CONTEÚDO PROGRAMÁTICO", "DAS PROVAS", "ANEXO" e tabelas.
-5) Não invente nada que não esteja no edital. Português brasileiro em todos os campos."""
+3) Para cada disciplina preencha: "nome", "peso" (inteiro; 1 se não informado), "num_questoes" (inteiro; 0 se não informado), "topicos" (resumo, até 10 itens) e "conteudo_programatico".
+4) "conteudo_programatico" é OBRIGATÓRIO e NUNCA pode ser vazio: copie FIELMENTE a lista oficial de assuntos/subtópicos daquela disciplina, exatamente como está na seção de conteúdo programático do edital (geralmente em "DOS CONTEÚDOS PROGRAMÁTICOS", "DO CONTEÚDO PROGRAMÁTICO", "DAS PROVAS" ou em ANEXO).
+5) NUNCA retorne tudo vazio: todo edital tem conteúdo programático.
+6) Se o edital agrupar várias matérias sob "Conhecimentos Específicos", liste CADA matéria como uma disciplina SEPARADA (ex: "Direito Constitucional", "Direito Administrativo"), nunca uma única disciplina genérica chamada "Conhecimentos Específicos".
+7) Não invente nada que não esteja no edital. Português brasileiro em todos os campos."""
 
 
 _HYDRATION_SYSTEM_MSG = (
@@ -10639,27 +10684,106 @@ _HYDRATION_SCHEMA = {
 }
 
 
-async def _hydrate_missing_disciplinas_pdf(pdf_content: bytes, cargos_list: List[dict], api_key: str, user_id: str) -> int:
-    """2º passo do pipeline: extrai disciplinas dos cargos que vieram sem, via PDF. Returns nº hidratado."""
+async def _hydrate_missing_disciplinas_pdf(pdf_content: bytes, cargos_list: List[dict], api_key: str, user_id: str, chunk_size: int = 6) -> int:
+    """2º passo do pipeline: extrai disciplinas dos cargos que vieram sem, via PDF (em lotes). Returns nº hidratado."""
     missing = [c for c in cargos_list if not c.get("disciplinas")]
     if not missing:
         return 0
-    nomes = [c.get("nome", "") for c in missing]
     logging.info(f"analyze-edital: {len(missing)} cargo(s) sem disciplinas — iniciando hidratação (passo 2)")
+    total_hydrated = 0
+    for start in range(0, len(missing), chunk_size):
+        chunk = missing[start:start + chunk_size]
+        nomes = [c.get("nome", "") for c in chunk]
+        for tentativa in range(2):
+            result, err = await call_gemini_with_pdf(
+                pdf_content, _build_hydration_prompt(nomes), _HYDRATION_SYSTEM_MSG, api_key,
+                timeout=180, response_schema=_HYDRATION_SCHEMA, user_id=user_id,
+            )
+            parsed = _parse_json_lenient(result) if result else None
+            if not parsed:
+                logging.warning(f"analyze-edital: hidratação (lote {start//chunk_size + 1}, tentativa {tentativa+1}) falhou (err={err})")
+                continue
+            total_disc = len(parsed.get("disciplinas_comuns") or []) + sum(
+                len(c.get("disciplinas") or []) for c in (parsed.get("cargos") or [])
+            )
+            if total_disc < 2 and tentativa == 0:
+                logging.warning(f"analyze-edital: hidratação (lote {start//chunk_size + 1}) retornou só {total_disc} disciplina(s) — repetindo lote")
+                continue
+            total_hydrated += _merge_hydrated_disciplinas(chunk, parsed)
+            break
+    logging.info(f"analyze-edital: hidratação preencheu disciplinas de {total_hydrated}/{len(missing)} cargo(s)")
+    return total_hydrated
+
+
+_CARGO_TEXT_FIELDS = ("vagas", "remuneracao", "escolaridade")
+
+
+def _sanitize_cargos(cargos_list: List[dict]) -> List[dict]:
+    """Trunca campos textuais degenerados (loops de repetição do modelo) e nomes gigantes."""
+    for c in cargos_list:
+        if isinstance(c.get("nome"), str) and len(c["nome"]) > 160:
+            c["nome"] = c["nome"][:160].rstrip()
+        if c.get("disciplinas"):
+            c["disciplinas"] = _normalize_disciplinas(c["disciplinas"])
+        for f in _CARGO_TEXT_FIELDS:
+            v = c.get(f)
+            if isinstance(v, str) and len(v) > 200:
+                c[f] = v[:200].rstrip() + "…"
+    return cargos_list
+
+
+def _detect_min_cargos(pdf_text: str) -> int:
+    """Detecta heuristicamente o nº mínimo de perfis numerados ("PERFIL: 1.", "PERFIL 2)"...) no edital."""
+    import re as _re
+    nums = {int(m.group(1)) for m in _re.finditer(r"(?i)PERFIL\s*[:\-–]?\s*(\d{1,2})\s*[\.\)]", pdf_text or "")}
+    return len(nums) if len(nums) >= 2 else 0
+
+
+_ENUM_CARGOS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "cargos": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "nome": {"type": "string"},
+                    "vagas": {"type": "string"},
+                    "remuneracao": {"type": "string"},
+                    "escolaridade": {"type": "string"},
+                },
+                "required": ["nome"],
+            },
+        },
+    },
+    "required": ["cargos"],
+}
+
+
+async def _enumerate_cargos_pdf(pdf_content: bytes, api_key: str, user_id: str, min_cargos: int, hint_block: str) -> List[dict]:
+    """Retry focado: enumera SOMENTE os cargos/perfis (sem disciplinas) — resposta curta e confiável."""
+    prompt = f"""Você recebeu o PDF de um edital de concurso público brasileiro.
+
+TAREFA ÚNICA: liste TODOS os cargos / perfis / especialidades / áreas de atuação oferecidos, sem omitir nenhum. NÃO extraia disciplinas nem conteúdo programático agora.
+
+REGRAS:
+1) Cada perfil/especialidade numerado ou nomeado no edital é UM item independente em "cargos".
+2) Foram detectados automaticamente PELO MENOS {min_cargos} perfis numerados no texto (ex: "PERFIL: 1.", "PERFIL: 2." ...). Seu array "cargos" DEVE ter no mínimo {min_cargos} itens.
+3) "nome" = nome oficial completo (cargo + perfil). "vagas", "remuneracao", "escolaridade" = strings CURTAS (máx 1 linha cada); use "" se não houver.
+4) Não invente cargos. Português brasileiro.
+{hint_block}"""
     result, err = await call_gemini_with_pdf(
-        pdf_content, _build_hydration_prompt(nomes), _HYDRATION_SYSTEM_MSG, api_key,
-        timeout=180, response_schema=_HYDRATION_SCHEMA, user_id=user_id,
+        pdf_content, prompt,
+        "Você é um extrator determinístico de cargos e perfis de editais de concursos públicos brasileiros. Nunca omita um perfil.",
+        api_key, timeout=180, response_schema=_ENUM_CARGOS_SCHEMA, user_id=user_id,
     )
     if not result:
-        logging.warning(f"analyze-edital: hidratação de disciplinas via PDF falhou (err={err})")
-        return 0
+        logging.warning(f"analyze-edital: enumeração de cargos (retry) falhou (err={err})")
+        return []
     parsed = _parse_json_lenient(result)
     if not parsed:
-        logging.warning("analyze-edital: hidratação retornou JSON inválido/irreparável")
-        return 0
-    hydrated = _merge_hydrated_disciplinas(cargos_list, parsed)
-    logging.info(f"analyze-edital: hidratação preencheu disciplinas de {hydrated}/{len(missing)} cargo(s)")
-    return hydrated
+        return []
+    return parsed.get("cargos") or []
 
 
 async def _hydrate_disciplinas_from_text(pdf_text: str, cargo_nome: str, api_key: str, user_id: str) -> List[dict]:
@@ -10727,8 +10851,12 @@ async def analyze_edital_cargos(
         {"user_id": user.user_id, "pdf_hash": pdf_hash},
         {"_id": 0}
     )
-    if cached and cached.get("cargos") and any(c.get("disciplinas") for c in cached["cargos"]):
-        # Refresh expiry and return cached (só usa cache se houver disciplinas extraídas)
+    if (
+        cached and cached.get("cargos")
+        and any(c.get("disciplinas") for c in cached["cargos"])
+        and len(cached["cargos"]) >= _detect_min_cargos(cached.get("pdf_text", ""))
+    ):
+        # Refresh expiry and return cached (só usa cache se houver disciplinas e nº de cargos plausível)
         new_analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
         cached_copy = {
             "analysis_id": new_analysis_id,
@@ -10781,6 +10909,14 @@ async def analyze_edital_cargos(
             "\n\nLINHAS SUSPEITAS DETECTADAS AUTOMATICAMENTE NO PDF (use-as APENAS como pistas "
             "para não deixar nenhum cargo/perfil de fora — não copie literalmente):\n"
             + "\n".join(f"- {h}" for h in hints[:60])
+        )
+
+    # Heurística: nº mínimo de perfis numerados detectados no texto (ex: "PERFIL: 1." ... "PERFIL: 12.")
+    min_cargos_detectados = _detect_min_cargos(pdf_text)
+    if min_cargos_detectados:
+        hint_block += (
+            f"\n\nATENÇÃO: o texto do edital contém PELO MENOS {min_cargos_detectados} perfis numerados "
+            f"(padrão \"PERFIL: N.\"). O array \"cargos\" DEVE ter no mínimo {min_cargos_detectados} itens."
         )
 
     # ---- JSON Schema estrito (Gemini Structured Output) ----
@@ -10913,6 +11049,20 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         # (item 3) — dedup fuzzy para proteger contra o modelo emitir cargos duplicados
         # com grafias ligeiramente diferentes ("Analista TI - Redes" e "Analista de TI Redes").
         cargos_list = dedup_cargos_fuzzy(cargos_list, threshold=0.92)
+
+        # Passo 1b: se o modelo enumerou MENOS cargos que os perfis numerados detectados no texto,
+        # refaz a enumeração com uma chamada focada só em cargos (resposta curta = muito mais confiável).
+        if min_cargos_detectados and len(cargos_list) < min_cargos_detectados:
+            logging.warning(
+                f"analyze-edital: modelo retornou {len(cargos_list)} cargo(s), mas heurística detectou "
+                f">= {min_cargos_detectados} perfis. Re-enumerando cargos..."
+            )
+            enum_cargos = await _enumerate_cargos_pdf(content, user_api_key, user.user_id, min_cargos_detectados, hint_block)
+            if enum_cargos:
+                cargos_list = dedup_cargos_fuzzy(cargos_list + enum_cargos, threshold=0.92)
+                logging.info(f"analyze-edital: após re-enumeração, {len(cargos_list)} cargo(s)")
+
+        cargos_list = _sanitize_cargos(cargos_list)
         parsed["multiple_cargos"] = len(cargos_list) > 1
 
         # Passo 2 do pipeline: se o modelo enumerou cargos mas não extraiu disciplinas
@@ -10920,6 +11070,8 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         # focada apenas em disciplinas/conteúdo programático.
         if cargos_list and any(not c.get("disciplinas") for c in cargos_list):
             await _hydrate_missing_disciplinas_pdf(content, cargos_list, user_api_key, user.user_id)
+
+        _fill_cp_from_topicos(cargos_list)
 
         analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
         # (item 6) — guardamos o texto extraído do PDF para alimentar o chat sobre este edital
@@ -11217,7 +11369,31 @@ async def import_edital_with_cargo(
     
     disciplinas = selected_cargo.get("disciplinas", [])
     if not disciplinas:
-        raise HTTPException(status_code=400, detail="Nenhuma disciplina encontrada para este cargo")
+        # Fallback 1: outro cargo da mesma análise com disciplinas (editais com conteúdo comum)
+        donor = next((c for c in cargos if c.get("disciplinas")), None)
+        if donor:
+            disciplinas = donor["disciplinas"]
+            logging.info(f"import-edital: cargo '{selected_cargo.get('nome')}' sem disciplinas — reutilizando as do cargo '{donor.get('nome')}'")
+        else:
+            # Fallback 2: hidratar via texto do PDF armazenado na análise
+            user_api_key = await get_user_api_key(user.user_id)
+            if user_api_key:
+                logging.info(f"import-edital: hidratando disciplinas do cargo '{selected_cargo.get('nome')}' via texto do PDF")
+                disciplinas = await _hydrate_disciplinas_from_text(
+                    analysis.get("pdf_text", ""), selected_cargo.get("nome", ""), user_api_key, user.user_id
+                )
+        if disciplinas:
+            selected_cargo["disciplinas"] = disciplinas
+            _fill_cp_from_topicos([selected_cargo])
+            await db.edital_analyses.update_one(
+                {"analysis_id": analysis_id, "user_id": user.user_id},
+                {"$set": {f"cargos.{cargo_index}.disciplinas": disciplinas}}
+            )
+    if not disciplinas:
+        raise HTTPException(
+            status_code=400,
+            detail="Não foi possível extrair as disciplinas deste cargo. Reenvie o edital e analise novamente — se persistir, envie um PDF contendo as páginas do conteúdo programático."
+        )
     
     try:
         disc_list = json.dumps(disciplinas, ensure_ascii=False)
