@@ -402,98 +402,123 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
     # gemini-2.0-flash / 2.0-flash-lite often hit 429 (very low free-tier daily quota).
     # We prefer 2.5-flash (best quality) and the "latest" aliases which Google keeps updated
     # (gemini-flash-lite-latest has the highest free-tier daily quota).
+    #
+    # IMPORTANTE: `thinkingConfig` só é aceito por modelos da família 2.5 (gemini-2.5-flash,
+    # gemini-2.5-pro). Enviar esse campo para `flash-latest`/`flash-lite-latest` retorna
+    # 400 INVALID_ARGUMENT. Por isso montamos o payload por modelo.
     models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
+
+    def _build_payload(model: str, include_schema: bool, include_thinking: bool) -> Dict[str, Any]:
+        gc: Dict[str, Any] = {
+            "temperature": 0,
+            "maxOutputTokens": 65536,
+        }
+        if include_thinking and model.startswith("gemini-2.5"):
+            # thinkingBudget=0 desliga o "thinking" no 2.5-flash → ~3-5x mais rápido
+            gc["thinkingConfig"] = {"thinkingBudget": 0}
+        if include_schema and response_schema is not None:
+            gc["responseMimeType"] = "application/json"
+            gc["responseSchema"] = response_schema
+        p: Dict[str, Any] = {
+            "contents": [{"parts": [{"text": prompt_text}, pdf_part]}],
+            "generationConfig": gc,
+        }
+        if system_message:
+            p["systemInstruction"] = {"parts": [{"text": system_message}]}
+        return p
+
+    def _extract_text_and_finish(resp_json: dict) -> tuple[str, str, int]:
+        candidate = (resp_json.get("candidates") or [{}])[0]
+        finish = candidate.get("finishReason", "?")
+        parts = ((candidate.get("content") or {}).get("parts") or [])
+        text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+        return text, finish, len(parts)
 
     for i, model in enumerate(models_to_try):
         model_timeout = timeout
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
-            # generationConfig:
-            #  - temperature=0 → determinístico (mesmo edital = mesma extração)
-            #  - thinkingConfig.thinkingBudget=0 → desliga "thinking" no 2.5-flash → ~3-5x mais rápido
-            #  - responseMimeType/responseSchema → JSON estruturado garantido (sem fences ```)
-            #  - maxOutputTokens=65536 → limite do 2.5-flash. Editais grandes com 30+ perfis
-            #    e conteúdo programático completo estouram fácil 32k tokens.
-            generation_config: Dict[str, Any] = {
-                "temperature": 0,
-                "maxOutputTokens": 65536,
-                "thinkingConfig": {"thinkingBudget": 0},
-            }
-            if response_schema is not None:
-                generation_config["responseMimeType"] = "application/json"
-                generation_config["responseSchema"] = response_schema
-            payload = {
-                "contents": [{
-                    "parts": [
-                        {"text": prompt_text},
-                        pdf_part,
-                    ]
-                }],
-                "generationConfig": generation_config,
-            }
-            if system_message:
-                payload["systemInstruction"] = {"parts": [{"text": system_message}]}
-
-            resp = requests.post(url, json=payload, timeout=model_timeout)
-            logging.info(f"Gemini PDF call (model={model}, timeout={model_timeout}s): status={resp.status_code}")
-
-            if resp.status_code == 200:
-                data = resp.json()
-                candidate = (data.get("candidates") or [{}])[0]
-                finish_reason = candidate.get("finishReason", "?")
-                parts = ((candidate.get("content") or {}).get("parts") or [])
-                text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
-                # Log crucial diagnostics
+        # Cada modelo tem até 2 tentativas: (1) payload completo; (2) sem schema/thinking se der 400.
+        for attempt in range(2):
+            include_schema = (attempt == 0)
+            include_thinking = (attempt == 0)
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
+                payload = _build_payload(model, include_schema, include_thinking)
+                resp = requests.post(url, json=payload, timeout=model_timeout)
                 logging.info(
-                    f"Gemini PDF 200: model={model} finish={finish_reason} "
-                    f"text_len={len(text)} parts={len(parts)}"
+                    f"Gemini PDF call (model={model}, attempt={attempt+1}, schema={include_schema}, "
+                    f"thinking={include_thinking}, timeout={model_timeout}s): status={resp.status_code}"
                 )
-                if finish_reason == "MAX_TOKENS":
-                    # Truncated → JSON provavelmente inválido. Aborta este modelo e tenta o próximo
-                    logging.warning(f"Gemini PDF response TRUNCATED (MAX_TOKENS) model={model}, trying next model...")
+
+                if resp.status_code == 200:
+                    text, finish_reason, n_parts = _extract_text_and_finish(resp.json())
+                    logging.info(f"Gemini PDF 200: model={model} finish={finish_reason} text_len={len(text)} parts={n_parts}")
+                    if finish_reason == "MAX_TOKENS":
+                        logging.warning(f"Gemini PDF response TRUNCATED (MAX_TOKENS) model={model}, trying next model...")
+                        if i == len(models_to_try) - 1:
+                            if text:
+                                if user_id: await track_gemini_usage(user_id, model)
+                                return text, "truncated"
+                            return None, "truncated"
+                        break  # sai do loop de attempts e tenta o próximo modelo
+                    if text:
+                        if user_id: await track_gemini_usage(user_id, model)
+                        return text, None
+                    # 200 sem texto (safety filter). Tenta próximo modelo.
+                    logging.warning(f"Gemini PDF 200 but empty text (model={model}, finish={finish_reason}). Body: {resp.text[:400]}")
                     if i == len(models_to_try) - 1:
-                        # Última tentativa: devolve mesmo assim para o caller tentar parsear
-                        if text:
-                            if user_id:
-                                await track_gemini_usage(user_id, model)
-                            return text, "truncated"
-                        return None, "truncated"
-                    continue
-                if text:
-                    if user_id:
-                        await track_gemini_usage(user_id, model)
-                    return text, None
-                # 200 mas sem texto: safety filter provavelmente. Loga e tenta próximo.
-                logging.warning(f"Gemini PDF 200 but empty text (model={model}, finish={finish_reason}). Body snippet: {resp.text[:400]}")
+                        return None, "empty"
+                    break
+
+                elif resp.status_code == 400:
+                    # INVALID_ARGUMENT — geralmente causado por campo não suportado no generationConfig
+                    # (ex: thinkingConfig em flash-latest ou responseSchema muito complexo).
+                    body = resp.text[:500]
+                    logging.warning(f"Gemini PDF 400 (model={model}, attempt={attempt+1}): {body}")
+                    if attempt == 0:
+                        # Retry sem thinkingConfig e sem responseSchema no mesmo modelo
+                        logging.info(f"Gemini PDF: retry model={model} sem thinkingConfig/responseSchema...")
+                        continue
+                    # Segunda tentativa também deu 400 → chave inválida ou modelo indisponível
+                    if i == len(models_to_try) - 1:
+                        logging.error(f"Gemini PDF: todos os modelos rejeitaram (última: {model}). Último body: {body}")
+                        return None, "invalid"
+                    break  # próximo modelo
+
+                elif resp.status_code in (401, 403):
+                    logging.error(f"Gemini PDF auth error (model={model}): {resp.status_code} - {resp.text[:300]}")
+                    return None, "invalid"
+
+                elif resp.status_code == 404:
+                    # Modelo não disponível para essa chave/região — tenta o próximo modelo
+                    logging.warning(f"Gemini PDF 404 model={model} (indisponível p/ esta chave), trying next...")
+                    if i == len(models_to_try) - 1:
+                        return None, "invalid"
+                    break
+
+                elif resp.status_code == 429:
+                    if i == len(models_to_try) - 1:
+                        return None, "quota"
+                    logging.warning(f"Gemini PDF quota model={model}, trying next...")
+                    break
+
+                else:
+                    if i == len(models_to_try) - 1:
+                        logging.error(f"Gemini PDF API error (model={model}): {resp.status_code} - {resp.text[:500]}")
+                        return None, "other"
+                    logging.warning(f"Gemini PDF fail model={model}: {resp.status_code}, trying next...")
+                    break
+            except requests.exceptions.Timeout:
                 if i == len(models_to_try) - 1:
-                    return None, "empty"
-                continue
-            elif resp.status_code in (400, 401, 403):
-                logging.error(f"Gemini PDF auth/bad-request (model={model}): {resp.status_code} - {resp.text[:300]}")
-                return None, "invalid"
-            elif resp.status_code == 429:
+                    logging.error("Gemini PDF timeout for all models")
+                    return None, "timeout"
+                logging.warning(f"Gemini PDF timeout model={model}, trying next...")
+                break
+            except Exception as e:
                 if i == len(models_to_try) - 1:
-                    return None, "quota"
-                logging.warning(f"Gemini PDF quota model={model}, trying next...")
-                continue
-            else:
-                if i == len(models_to_try) - 1:
-                    logging.error(f"Gemini PDF API error (model={model}): {resp.status_code} - {resp.text[:500]}")
+                    logging.error(f"Gemini PDF call error (model={model}): {e}", exc_info=True)
                     return None, "other"
-                logging.warning(f"Gemini PDF fail model={model}: {resp.status_code}, trying next...")
-                continue
-        except requests.exceptions.Timeout:
-            if i == len(models_to_try) - 1:
-                logging.error(f"Gemini PDF timeout for all models")
-                return None, "timeout"
-            logging.warning(f"Gemini PDF timeout model={model}, trying next...")
-            continue
-        except Exception as e:
-            if i == len(models_to_try) - 1:
-                logging.error(f"Gemini PDF call error (model={model}): {e}", exc_info=True)
-                return None, "other"
-            logging.warning(f"Gemini PDF error model={model}: {e}, trying next...")
-            continue
+                logging.warning(f"Gemini PDF error model={model}: {e}, trying next...")
+                break
 
     return None, "other"
 
