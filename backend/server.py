@@ -128,6 +128,81 @@ async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_ov
             last_error = "other"
     return None, last_error
 
+async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
+    """Upload a PDF to Gemini's file API and return the file URI."""
+    import uuid
+    from urllib.parse import quote
+    upload_url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={quote(api_key)}"
+    
+    boundary = f"---{uuid.uuid4().hex}"
+    
+    # Build multipart body
+    metadata = b'{"file":{"display_name":"edital.pdf","mime_type":"application/pdf"}}'
+    body_parts = []
+    body_parts.append(f"--{boundary}\r\n".encode())
+    body_parts.append(b'Content-Type: application/json; charset=UTF-8\r\n\r\n')
+    body_parts.append(metadata)
+    body_parts.append(b'\r\n')
+    body_parts.append(f"--{boundary}\r\n".encode())
+    body_parts.append(b'Content-Type: application/pdf\r\n\r\n')
+    body_parts.append(pdf_content)
+    body_parts.append(f"\r\n--{boundary}--\r\n".encode())
+    
+    body = b"".join(body_parts)
+    
+    try:
+        resp = requests.post(
+            upload_url,
+            data=body,
+            headers={"Content-Type": f"multipart/related; boundary={boundary}"},
+            timeout=120
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            file_uri = data.get("file", {}).get("uri")
+            logging.info(f"Gemini file upload success: {file_uri}")
+            return file_uri
+        logging.error(f"Gemini file upload failed: {resp.status_code} - {resp.text[:500]}")
+    except Exception as e:
+        logging.error(f"Gemini file upload error: {e}")
+    return None
+
+async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 180) -> tuple[Optional[str], Optional[str]]:
+    """Upload a PDF and call Gemini with the file. Returns (response_text, error_type)."""
+    from urllib.parse import quote
+    file_uri = await upload_to_gemini(pdf_content, api_key)
+    if not file_uri:
+        return None, "other"
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={quote(api_key)}"
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt_text},
+                {"fileData": {"mimeType": "application/pdf", "fileUri": file_uri}}
+            ]
+        }]
+    }
+    if system_message:
+        payload["systemInstruction"] = {"parts": [{"text": system_message}]}
+    
+    try:
+        resp = requests.post(url, json=payload, timeout=timeout)
+        logging.info(f"Gemini PDF call (timeout={timeout}s): status={resp.status_code}")
+        if resp.status_code == 200:
+            data = resp.json()
+            text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            if text:
+                return text, None
+        if resp.status_code in (400, 401, 403):
+            return None, "invalid"
+        if resp.status_code == 429:
+            return None, "quota"
+        logging.error(f"Gemini PDF API error: {resp.status_code} - {resp.text[:500]}")
+        return None, "other"
+    except Exception as e:
+        logging.error(f"Gemini PDF call error: {e}")
+        return None, "other"
 
 
 app = FastAPI()
@@ -7434,108 +7509,31 @@ async def import_edital(
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
     
     try:
-        pdf_text = extract_pdf_text(content)
-        if not pdf_text.strip():
-            raise HTTPException(status_code=400, detail="Não foi possível extrair texto do PDF. Verifique se o arquivo é um PDF com texto selecionável.")
+        user_api_key = await get_user_api_key(user.user_id)
+        if not user_api_key:
+            raise HTTPException(status_code=400, detail="Configure sua chave Gemini no perfil para usar este recurso.")
         
-        text_limit = 100000
-        if len(pdf_text) > text_limit:
-            pdf_text = pdf_text[:text_limit] + "\n\n[Conteúdo truncado por limite de tamanho]"
-        
-        pdf_text = pdf_text.replace("{", "{{").replace("}", "}}")
-        
-        prompt = f"""Analise o edital de concurso abaixo (extraído de PDF) e retorne APENAS JSON válido.
+        prompt_text = f"""Analise este edital de concurso e retorne APENAS JSON válido.
 
-Conteúdo do edital:
----
-{pdf_text}
----
-
-Com base no texto acima, extraia todas as informações relevantes para criar um programa de estudos completo.
-
+Gere um programa de estudos completo com base neste edital.
 O aluno tem {hours_per_day} horas disponíveis por dia, {days_per_week} dias por semana para estudar.
-{"A data da prova é: " + target_date + ". Considere o tempo disponível até a prova para o cronograma." if target_date else "Não há data definida para a prova."}
+{"A data da prova é: " + target_date + "." if target_date else "Não há data definida para a prova."}
 
-Responda APENAS com JSON válido no formato abaixo. NÃO inclua texto antes ou depois do JSON.
-
-{{
-  "concurso": {{
-    "nome": "Nome completo do concurso",
-    "orgao": "Órgão/instituição",
-    "banca": "Banca organizadora",
-    "cargo": "Cargo(s) principal(is)",
-    "vagas": "Número de vagas se informado",
-    "remuneracao": "Remuneração se informada",
-    "escolaridade": "Nível de escolaridade exigido",
-    "data_prova": "Data da prova se informada no edital"
-  }},
-  "disciplinas": [
-    {{
-      "nome": "Nome da Disciplina/Matéria",
-      "peso": 3,
-      "num_questoes": 10,
-      "topicos": ["Tópico resumido 1", "Tópico resumido 2"],
-      "conteudo_programatico": [
-        {{
-          "assunto": "Nome do assunto/tópico principal",
-          "subtopicos": ["Subtópico 1", "Subtópico 2", "Subtópico 3"]
-        }}
-      ],
-      "dificuldade": "alta",
-      "dicas_estudo": "Dica específica para esta matéria",
-      "recursos_recomendados": "Livros, materiais recomendados"
-    }}
-  ],
-  "cronograma_semanal": [
-    {{
-      "dia": "Segunda",
-      "blocos": [
-        {{
-          "disciplina": "Nome da Disciplina",
-          "duracao_minutos": 120,
-          "tipo_estudo": "Teoria + Questões",
-          "prioridade": "alta",
-          "assuntos_foco": ["Assunto principal a estudar neste bloco"]
-        }}
-      ]
-    }}
-  ],
-  "estrategia": {{
-    "resumo": "Resumo da estratégia de estudo recomendada",
-    "fase_1": "Descrição da primeira fase de estudo (base teórica)",
-    "fase_2": "Descrição da segunda fase (aprofundamento + questões)",
-    "fase_3": "Descrição da terceira fase (revisão + simulados)",
-    "dicas_gerais": ["Dica 1", "Dica 2", "Dica 3"],
-    "materias_prioritarias": ["Matéria com maior peso/importância"],
-    "horas_semanais_total": {hours_per_day * days_per_week}
-  }}
-}}
-
-REGRAS IMPORTANTES:
-- Extraia TODAS as disciplinas/matérias mencionadas no edital
-- O campo "peso" deve refletir a importância relativa (1-5, sendo 5 o mais importante) baseado no número de questões e peso na nota
-- "num_questoes" é o número de questões da disciplina conforme o edital
-- O cronograma deve distribuir as matérias pela semana priorizando as de maior peso
-- A soma dos minutos por dia deve respeitar o limite de {int(hours_per_day * 60)} minutos
-- Inclua APENAS {days_per_week} dias no cronograma (ex: Segunda a Sexta se 5 dias)
-- Alterne matérias pesadas com leves no mesmo dia
-- Reserve tempo para revisão e questões
-- CONTEÚDO PROGRAMÁTICO: Extraia FIELMENTE todos os assuntos do conteúdo programático de cada disciplina
-- "topicos" é um RESUMO (máximo 10 itens). "conteudo_programatico" é a LISTA COMPLETA E DETALHADA
-- "assuntos_foco" nos blocos do cronograma deve indicar quais assuntos específicos focar
-- Tudo em português brasileiro
-- "dificuldade" deve ser: "baixa", "media" ou "alta"
-- Os dias devem ser: "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"
+Responda APENAS com JSON no formato:
+{{"concurso":{{"nome":"","orgao":"","banca":"","cargo":"","vagas":"","remuneracao":"","escolaridade":"","data_prova":""}},"disciplinas":[{{"nome":"","peso":3,"num_questoes":10,"topicos":[],"conteudo_programatico":[{{"assunto":"","subtopicos":[]}}],"dificuldade":"media","dicas_estudo":"","recursos_recomendados":""}}],"cronograma_semanal":[{{"dia":"Segunda","blocos":[{{"disciplina":"","duracao_minutos":120,"tipo_estudo":"Teoria","prioridade":"alta","assuntos_foco":[]}}]}}],"estrategia":{{"resumo":"","fase_1":"","fase_2":"","fase_3":"","dicas_gerais":[],"materias_prioritarias":[],"horas_semanais_total":0}}}}
 """
 
         system_msg = "Você é um especialista em concursos públicos brasileiros e planejamento de estudos."
-
-        response_text = await call_llm(prompt, f"import_edital_{user.user_id}_{uuid.uuid4().hex[:6]}", system_msg, user_id=user.user_id, timeout_override=180)
         
-        if "Configure sua chave" in response_text or "Sua cota" in response_text or "Erro ao contactar" in response_text:
-            raise HTTPException(status_code=500, detail=response_text)
+        result, error_type = await call_gemini_with_pdf(content, prompt_text, system_msg, user_api_key)
+        if not result:
+            if error_type == "quota":
+                raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou.")
+            if error_type == "invalid":
+                raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida.")
+            raise HTTPException(status_code=500, detail="Erro ao contactar API Gemini.")
         
-        json_str = response_text.strip()
+        json_str = result.strip()
         if json_str.startswith("```json"):
             json_str = json_str[7:]
         if json_str.startswith("```"):
@@ -10139,55 +10137,14 @@ async def analyze_edital_cargos(
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
     
     try:
-        pdf_text = extract_pdf_text(content)
-        if not pdf_text.strip():
-            raise HTTPException(status_code=400, detail="Não foi possível extrair texto do PDF. Verifique se o arquivo é um PDF com texto selecionável.")
+        user_api_key = await get_user_api_key(user.user_id)
+        if not user_api_key:
+            raise HTTPException(status_code=400, detail="Configure sua chave Gemini no perfil para usar este recurso.")
         
-        text_limit = 100000
-        if len(pdf_text) > text_limit:
-            pdf_text = pdf_text[:text_limit] + "\n\n[Conteúdo truncado por limite de tamanho]"
-        
-        pdf_text = pdf_text.replace("{", "{{").replace("}", "}}")
-        
-        prompt = f"""Analise o edital de concurso abaixo (extraído de PDF) e retorne APENAS JSON válido.
+        prompt_text = """Analise este edital de concurso e retorne APENAS JSON válido.
 
-Conteúdo do edital:
----
-{pdf_text}
----
-
-Com base no texto acima, extraia as informações do concurso e retorne UM JSON válido (sem texto extra) neste formato exato:
-{{
-  "concurso": {{
-    "nome": "Nome completo do concurso",
-    "orgao": "Órgão/instituição",
-    "banca": "Banca organizadora"
-  }},
-  "multiple_cargos": true,
-  "cargos": [
-    {{
-      "nome": "Nome do Cargo",
-      "vagas": "Número de vagas",
-      "remuneracao": "Remuneração",
-      "escolaridade": "Nível exigido",
-      "disciplinas": [
-        {{
-          "nome": "Nome da Disciplina",
-          "peso": 3,
-          "num_questoes": 10,
-          "grupo": "Conhecimentos Gerais",
-          "topicos": ["Tópico resumido 1", "Tópico resumido 2"],
-          "conteudo_programatico": [
-            {{
-              "assunto": "Nome do assunto principal",
-              "subtopicos": ["Subtópico 1", "Subtópico 2"]
-            }}
-          ]
-        }}
-      ]
-    }}
-  ]
-}}
+Extraia as informações do concurso e retorne UM JSON válido (sem texto extra) neste formato exato:
+{"concurso":{"nome":"","orgao":"","banca":""},"multiple_cargos":true,"cargos":[{"nome":"","vagas":"","remuneracao":"","escolaridade":"","disciplinas":[{"nome":"","peso":3,"num_questoes":10,"grupo":"","topicos":[],"conteudo_programatico":[{"assunto":"","subtopicos":[]}]}]}]}
 
 REGRAS:
 - Se o edital tem APENAS UM CARGO, defina "multiple_cargos" como false e coloque apenas 1 cargo no array
@@ -10199,12 +10156,15 @@ REGRAS:
 
         system_msg = "Você é um especialista em concursos públicos brasileiros. Extraia informações estruturadas de editais com precisão."
         
-        response_text = await call_llm(prompt, f"edital_{user.user_id}_{uuid.uuid4().hex[:6]}", system_msg, user_id=user.user_id, timeout_override=180)
+        result, error_type = await call_gemini_with_pdf(content, prompt_text, system_msg, user_api_key)
+        if not result:
+            if error_type == "quota":
+                raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou.")
+            if error_type == "invalid":
+                raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida.")
+            raise HTTPException(status_code=500, detail="Erro ao contactar API Gemini.")
         
-        if "Configure sua chave" in response_text or "Sua cota" in response_text or "Erro ao contactar" in response_text:
-            raise HTTPException(status_code=500, detail=response_text)
-        
-        json_str = response_text.strip()
+        json_str = result.strip()
         if json_str.startswith("```json"):
             json_str = json_str[7:]
         if json_str.startswith("```"):
