@@ -865,7 +865,7 @@ export default function Studies() {
       formData.append("days_per_week", editalForm.days_per_week.toString());
 
       const res = await axios.post(`${API}/study/programs/import-edital`, formData, {
-        withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 120000
+        withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 300000
       });
       toast.success(res.data.message || "Programa criado com sucesso!");
       setEditalResult(res.data);
@@ -986,7 +986,7 @@ export default function Studies() {
       formData.append("file", editalFile);
 
       const res = await axios.post(`${API}/study/programs/analyze-edital`, formData, {
-        withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 120000
+        withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 300000
       });
       setEditalAnalysis(res.data);
       
@@ -1014,7 +1014,7 @@ export default function Studies() {
         target_date: editalForm.target_date || null,
         hours_per_day: editalForm.hours_per_day,
         days_per_week: editalForm.days_per_week
-      }, { withCredentials: true, timeout: 120000 });
+      }, { withCredentials: true, timeout: 300000 });
       
       toast.success(res.data.message || "Programa criado com sucesso!");
       setEditalResult(res.data);
@@ -1737,7 +1737,7 @@ export default function Studies() {
                           </div>
                           <Button onClick={handleAnalyzeEdital} disabled={!editalFile || editalImporting || editalAnalyzing} className="w-full bg-purple-600 hover:bg-purple-700">
                             {(editalImporting || editalAnalyzing) ? (
-                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analisando edital... (pode levar até 1 min)</>
+                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analisando edital... (pode levar até 3 min)</>
                             ) : (
                               <><Sparkles className="w-4 h-4 mr-2" />Gerar Programa de Estudos</>
                             )}
