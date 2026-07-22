@@ -192,42 +192,68 @@ async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
         logging.error(f"Gemini file upload error: {e}")
     return None
 
-async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 180) -> tuple[Optional[str], Optional[str]]:
-    """Upload a PDF and call Gemini with the file. Returns (response_text, error_type)."""
+async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 300) -> tuple[Optional[str], Optional[str]]:
+    """Upload a PDF and call Gemini with the file. Returns (response_text, error_type).
+    Tries models in order: gemini-1.5-flash (fast, free), then 2.0-flash, then 2.5-flash."""
     from urllib.parse import quote
     file_uri = await upload_to_gemini(pdf_content, api_key)
     if not file_uri:
         return None, "other"
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={quote(api_key)}"
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt_text},
-                {"fileData": {"mimeType": "application/pdf", "fileUri": file_uri}}
-            ]
-        }]
-    }
-    if system_message:
-        payload["systemInstruction"] = {"parts": [{"text": system_message}]}
+    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"]
     
-    try:
-        resp = requests.post(url, json=payload, timeout=timeout)
-        logging.info(f"Gemini PDF call (timeout={timeout}s): status={resp.status_code}")
-        if resp.status_code == 200:
-            data = resp.json()
-            text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            if text:
-                return text, None
-        if resp.status_code in (400, 401, 403):
-            return None, "invalid"
-        if resp.status_code == 429:
-            return None, "quota"
-        logging.error(f"Gemini PDF API error: {resp.status_code} - {resp.text[:500]}")
-        return None, "other"
-    except Exception as e:
-        logging.error(f"Gemini PDF call error: {e}")
-        return None, "other"
+    for i, model in enumerate(models_to_try):
+        model_timeout = timeout if i == 0 else timeout - 60
+        if model_timeout < 30:
+            model_timeout = 30
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": prompt_text},
+                        {"fileData": {"mimeType": "application/pdf", "fileUri": file_uri}}
+                    ]
+                }]
+            }
+            if system_message:
+                payload["systemInstruction"] = {"parts": [{"text": system_message}]}
+            
+            resp = requests.post(url, json=payload, timeout=model_timeout)
+            logging.info(f"Gemini PDF call (model={model}, timeout={model_timeout}s): status={resp.status_code}")
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                if text:
+                    return text, None
+            elif resp.status_code in (400, 401, 403):
+                return None, "invalid"
+            elif resp.status_code == 429:
+                if i == len(models_to_try) - 1:
+                    return None, "quota"
+                logging.warning(f"Gemini PDF quota model={model}, trying next...")
+                continue
+            else:
+                if i == len(models_to_try) - 1:
+                    logging.error(f"Gemini PDF API error (model={model}): {resp.status_code} - {resp.text[:500]}")
+                    return None, "other"
+                logging.warning(f"Gemini PDF fail model={model}: {resp.status_code}, trying next...")
+                continue
+        except requests.exceptions.Timeout:
+            if i == len(models_to_try) - 1:
+                logging.error(f"Gemini PDF timeout for all models")
+                return None, "other"
+            logging.warning(f"Gemini PDF timeout model={model}, trying next...")
+            continue
+        except Exception as e:
+            if i == len(models_to_try) - 1:
+                logging.error(f"Gemini PDF call error (model={model}): {e}")
+                return None, "other"
+            logging.warning(f"Gemini PDF error model={model}: {e}, trying next...")
+            continue
+    
+    return None, "other"
 
 
 app = FastAPI()
