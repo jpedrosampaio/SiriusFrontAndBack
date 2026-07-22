@@ -121,7 +121,7 @@ function AiFloatingButton() {
     <>
       <button
         onClick={() => setOpen(!open)}
-        className={`fixed bottom-20 right-4 z-50 flex items-center justify-center w-12 h-12 rounded-2xl border shadow-xl backdrop-blur-xl transition-all duration-300 ${
+        className={`fixed bottom-6 right-6 z-50 flex items-center justify-center w-12 h-12 rounded-2xl border shadow-xl backdrop-blur-xl transition-all duration-300 ${
           open
             ? 'bg-[#0A0A0A] border-[#27272A] text-white scale-95'
             : 'bg-[#0A0A0A]/90 border-[#FFD700]/30 text-white hover:border-[#FFD700]/60 hover:shadow-[#FFD700]/10'

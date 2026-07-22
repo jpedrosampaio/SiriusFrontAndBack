@@ -111,7 +111,7 @@ export default function AiChatModal({ open, onClose }) {
   return (
     <>
       <div
-        className={`fixed bottom-24 right-4 z-50 w-[380px] max-w-[calc(100vw-32px)] transition-all duration-300 ${
+        className={`fixed bottom-24 right-6 z-50 w-[380px] max-w-[calc(100vw-32px)] transition-all duration-300 ${
           open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-95 pointer-events-none'
         }`}
       >
