@@ -797,17 +797,48 @@ function GeminiStatusPill({ status }) {
     error:           { color: "text-red-400    border-red-400/30   bg-red-400/5",     Icon: X },
   }[s] || { color: "text-[#A1A1AA] border-[#27272A] bg-[#121212]", Icon: Info };
   const { Icon } = cfg;
+
+  // (item 5) — usage per model today (from backend `usage_today`)
+  const usage = status.usage_today || {};
+  const usageEntries = Object.entries(usage);
+
   return (
-    <div data-testid="gemini-status-pill" className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-sm border text-xs ${cfg.color}`}>
-      <Icon className="w-4 h-4 shrink-0 mt-0.5" />
-      <div className="flex-1">
-        <p className="font-medium">{status.message}</p>
-        {status.latency_ms !== undefined && (
-          <p className="text-[10px] opacity-70 mt-0.5">
-            Latência: {status.latency_ms} ms {status.model ? `• Modelo: ${status.model}` : ""}
-          </p>
-        )}
+    <div data-testid="gemini-status-pill" className={`mt-3 flex flex-col gap-2 px-3 py-2 rounded-sm border text-xs ${cfg.color}`}>
+      <div className="flex items-start gap-2">
+        <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="font-medium">{status.message}</p>
+          {status.latency_ms !== undefined && (
+            <p className="text-[10px] opacity-70 mt-0.5">
+              Latência: {status.latency_ms} ms {status.model ? `• Modelo: ${status.model}` : ""}
+            </p>
+          )}
+        </div>
       </div>
+      {usageEntries.length > 0 && (
+        <div className="pl-6 space-y-1.5">
+          <p className="text-[10px] uppercase tracking-wider opacity-70">Consumo de hoje (UTC)</p>
+          {usageEntries.map(([model, u]) => {
+            const limit = u.limit || 0;
+            const used = u.used || 0;
+            const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+            const barColor = pct >= 90 ? "bg-red-400" : pct >= 70 ? "bg-amber-400" : "bg-green-400";
+            return (
+              <div key={model} data-testid={`quota-row-${model}`}>
+                <div className="flex justify-between text-[10px] opacity-80">
+                  <span className="font-mono">{model}</span>
+                  <span>{used}/{limit || "∞"} req {limit ? `(${u.remaining} restantes)` : ""}</span>
+                </div>
+                {limit > 0 && (
+                  <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div className={`h-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

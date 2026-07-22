@@ -24,7 +24,8 @@ import {
   MessageSquare, ChevronDown, ChevronUp, Hash, Award, TrendingUp,
   Upload, ListChecks, ClipboardList, Eye, EyeOff, ChevronLeft, CircleDot,
   SkipForward, Flag, StopCircle, FileUp, Scale, LayoutGrid,
-  Download, Image, BellRing, Paperclip, Network
+  Download, Image, BellRing, Paperclip, Network, GitCompareArrows,
+  MessageCircle, Bot, ArrowUp, PlusCircle, MinusCircle, RefreshCw
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, PieChart, Pie, Cell } from 'recharts';
 import html2canvas from 'html2canvas';
@@ -496,6 +497,22 @@ export default function Studies() {
   const [editalAnalyzePhase, setEditalAnalyzePhase] = useState(""); // "upload" | "extract" | "cargos" | "done"
   const [editalAnalyzeStartedAt, setEditalAnalyzeStartedAt] = useState(null);
   const [editalAnalyzeElapsed, setEditalAnalyzeElapsed] = useState(0);
+
+  // ========== EDITAL: LIST / COMPARE / CHAT (itens 4 e 6) ==========
+  const [showCompareEditais, setShowCompareEditais] = useState(false);
+  const [editaisList, setEditaisList] = useState([]);
+  const [editaisLoading, setEditaisLoading] = useState(false);
+  const [compareA, setCompareA] = useState("");
+  const [compareB, setCompareB] = useState("");
+  const [compareResult, setCompareResult] = useState(null);
+  const [comparing, setComparing] = useState(false);
+
+  const [showEditalChat, setShowEditalChat] = useState(false);
+  const [chatAnalysisId, setChatAnalysisId] = useState(null);
+  const [chatAnalysisMeta, setChatAnalysisMeta] = useState(null); // { concurso, num_cargos, pdf_filename }
+  const [chatHistory, setChatHistory] = useState([]); // [{role:'user'|'assistant', content}]
+  const [chatInput, setChatInput] = useState("");
+  const [chatSending, setChatSending] = useState(false);
   const [showCargoSelection, setShowCargoSelection] = useState(false);
   const [selectedCargoIndex, setSelectedCargoIndex] = useState(0);
   const [creatingFromCargo, setCreatingFromCargo] = useState(false);
@@ -1032,6 +1049,91 @@ export default function Studies() {
       setEditalAnalyzeStartedAt(null);
     }
   };
+
+  // ========== EDITAL: LIST / COMPARE / CHAT handlers ==========
+
+  const refreshEditaisList = async () => {
+    setEditaisLoading(true);
+    try {
+      const res = await axios.get(`${API}/study/programs/editais`, { withCredentials: true });
+      setEditaisList(res.data.editais || []);
+    } catch (err) {
+      toast.error("Falha ao carregar editais salvos");
+    } finally {
+      setEditaisLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showCompareEditais) {
+      refreshEditaisList();
+      setCompareResult(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCompareEditais]);
+
+  const handleCompareEditais = async () => {
+    if (!compareA || !compareB) { toast.error("Selecione dois editais para comparar"); return; }
+    if (compareA === compareB) { toast.error("Escolha editais diferentes"); return; }
+    setComparing(true);
+    setCompareResult(null);
+    try {
+      const res = await axios.post(
+        `${API}/study/programs/editais/compare`,
+        { analysis_id_a: compareA, analysis_id_b: compareB },
+        { withCredentials: true }
+      );
+      setCompareResult(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Erro ao comparar editais");
+    } finally {
+      setComparing(false);
+    }
+  };
+
+  const openEditalChat = async (analysisId) => {
+    setChatAnalysisId(analysisId);
+    setChatHistory([]);
+    setChatInput("");
+    // Look up meta from editaisList (may need to refresh)
+    let meta = editaisList.find(e => e.analysis_id === analysisId);
+    if (!meta) {
+      try {
+        const r = await axios.get(`${API}/study/programs/editais`, { withCredentials: true });
+        setEditaisList(r.data.editais || []);
+        meta = (r.data.editais || []).find(e => e.analysis_id === analysisId);
+      } catch (_e) { /* noop */ }
+    }
+    setChatAnalysisMeta(meta || null);
+    setShowEditalChat(true);
+  };
+
+  const sendChatMessage = async () => {
+    const q = (chatInput || "").trim();
+    if (!q || chatSending || !chatAnalysisId) return;
+    const userTurn = { role: "user", content: q };
+    setChatHistory(h => [...h, userTurn]);
+    setChatInput("");
+    setChatSending(true);
+    try {
+      const res = await axios.post(
+        `${API}/study/programs/edital-chat`,
+        {
+          analysis_id: chatAnalysisId,
+          question: q,
+          history: chatHistory.map(h => ({ role: h.role === "assistant" ? "model" : "user", content: h.content })),
+        },
+        { withCredentials: true, timeout: 60000 }
+      );
+      setChatHistory(h => [...h, { role: "assistant", content: res.data.answer, model: res.data.model }]);
+    } catch (err) {
+      const msg = err.response?.data?.detail || "Erro ao consultar a IA.";
+      setChatHistory(h => [...h, { role: "assistant", content: `⚠️ ${msg}`, error: true }]);
+    } finally {
+      setChatSending(false);
+    }
+  };
+
 
   const handleCreateFromCargo = async (analysisId, cargoIdx) => {
     setCreatingFromCargo(true);
@@ -1780,6 +1882,15 @@ export default function Studies() {
                         </div>
                       </DialogContent>
                     </Dialog>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-testid="compare-editais-btn"
+                      onClick={() => setShowCompareEditais(true)}
+                      className="h-8 text-xs border-purple-500/40 text-purple-300 hover:bg-purple-500/10"
+                    >
+                      <GitCompareArrows className="w-3 h-3 mr-1" />Comparar Editais
+                    </Button>
                     <Dialog open={showProgramDialog} onOpenChange={setShowProgramDialog}>
                       <DialogTrigger asChild><Button size="sm" className="bg-[#007AFF] h-8 text-xs"><Plus className="w-3 h-3 mr-1" />Novo Programa</Button></DialogTrigger>
                       <DialogContent className="bg-[#0A0A0A] border-[#27272A]">
@@ -3277,6 +3388,16 @@ export default function Studies() {
                   <Button variant="outline" onClick={() => { setShowEditalResultDialog(false); if (editalResult.program) handleViewCronograma(editalResult.program.program_id); }} className="w-full border-[#27272A]">
                     <LayoutGrid className="w-4 h-4 mr-2" />Ver Cronograma Atual
                   </Button>
+                  {editalAnalysis?.analysis_id && (
+                    <Button
+                      variant="outline"
+                      data-testid="ask-edital-btn"
+                      onClick={() => { setShowEditalResultDialog(false); openEditalChat(editalAnalysis.analysis_id); }}
+                      className="w-full border-purple-500/40 text-purple-300 hover:bg-purple-500/10"
+                    >
+                      <Bot className="w-4 h-4 mr-2" />Perguntar sobre este edital
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
@@ -3983,6 +4104,184 @@ export default function Studies() {
           </DialogContent>
         </Dialog>
 
+
+        {/* ========== COMPARAR EDITAIS DIALOG (item 4) ========== */}
+        <Dialog open={showCompareEditais} onOpenChange={setShowCompareEditais}>
+          <DialogContent className="bg-[#0A0A0A] border-[#27272A] max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <GitCompareArrows className="w-5 h-5 text-purple-400" />
+                Comparar Editais
+              </DialogTitle>
+              <DialogDescription>
+                Útil quando sai retificação. Escolha duas análises e veja cargos adicionados, removidos e disciplinas alteradas.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {editaisLoading && (
+                <div className="flex items-center gap-2 text-sm text-[#A1A1AA]"><Loader2 className="w-4 h-4 animate-spin" />Carregando editais salvos...</div>
+              )}
+              {!editaisLoading && editaisList.length < 2 && (
+                <div className="text-sm text-amber-300 bg-amber-500/5 border border-amber-500/30 rounded-sm p-3">
+                  Você precisa ter pelo menos <strong>2 editais analisados</strong> para comparar. Faça upload de outro edital em <em>Importar Edital</em>.
+                </div>
+              )}
+              {editaisList.length >= 2 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs uppercase tracking-wider text-[#A1A1AA]">Edital A (anterior)</Label>
+                    <Select value={compareA} onValueChange={setCompareA}>
+                      <SelectTrigger data-testid="compare-a-select" className="bg-[#121212] border-[#27272A] mt-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                      <SelectContent className="bg-[#0A0A0A] border-[#27272A] max-w-md">
+                        {editaisList.map(e => (
+                          <SelectItem key={e.analysis_id} value={e.analysis_id}>
+                            <span className="truncate">{e.pdf_filename} — {e.num_cargos} cargo(s)</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs uppercase tracking-wider text-[#A1A1AA]">Edital B (novo)</Label>
+                    <Select value={compareB} onValueChange={setCompareB}>
+                      <SelectTrigger data-testid="compare-b-select" className="bg-[#121212] border-[#27272A] mt-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                      <SelectContent className="bg-[#0A0A0A] border-[#27272A] max-w-md">
+                        {editaisList.map(e => (
+                          <SelectItem key={e.analysis_id} value={e.analysis_id}>
+                            <span className="truncate">{e.pdf_filename} — {e.num_cargos} cargo(s)</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleCompareEditais}
+                  data-testid="compare-run-btn"
+                  disabled={!compareA || !compareB || comparing}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  {comparing ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Comparando...</> : <><GitCompareArrows className="w-4 h-4 mr-2" />Comparar</>}
+                </Button>
+                <Button variant="outline" onClick={refreshEditaisList} disabled={editaisLoading} className="border-[#27272A]">
+                  <RefreshCw className={`w-4 h-4 mr-2 ${editaisLoading ? "animate-spin" : ""}`} />Atualizar lista
+                </Button>
+              </div>
+
+              {compareResult && (
+                <div data-testid="compare-result" className="mt-2 space-y-3">
+                  <div className="grid grid-cols-4 gap-2">
+                    <StatCard label="Adicionados" value={compareResult.summary.added} color="text-green-400" Icon={PlusCircle} />
+                    <StatCard label="Removidos"   value={compareResult.summary.removed} color="text-red-400"   Icon={MinusCircle} />
+                    <StatCard label="Alterados"   value={compareResult.summary.changed} color="text-amber-400" Icon={Edit3} />
+                    <StatCard label="Mantidos"    value={compareResult.summary.unchanged} color="text-[#A1A1AA]" Icon={CheckCircle2} />
+                  </div>
+                  <CompareGroup title="Cargos ADICIONADOS no edital B" color="green" items={compareResult.cargos_added.map(c => c.nome)} />
+                  <CompareGroup title="Cargos REMOVIDOS (só existiam no A)" color="red"  items={compareResult.cargos_removed.map(c => c.nome)} />
+                  {compareResult.cargos_changed.length > 0 && (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                      <p className="text-xs uppercase tracking-wider text-amber-300 mb-2">Cargos com disciplinas alteradas</p>
+                      <ul className="space-y-2">
+                        {compareResult.cargos_changed.map((c, i) => (
+                          <li key={i} className="text-sm">
+                            <p className="font-medium text-amber-200">{c.nome}</p>
+                            {c.disciplinas_added.length > 0 && (
+                              <p className="text-xs text-green-300 ml-2">+ {c.disciplinas_added.join(", ")}</p>
+                            )}
+                            {c.disciplinas_removed.length > 0 && (
+                              <p className="text-xs text-red-300 ml-2">− {c.disciplinas_removed.join(", ")}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <CompareGroup title="Cargos MANTIDOS" color="gray" items={compareResult.cargos_unchanged} collapsedByDefault />
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ========== CHAT SOBRE ESTE EDITAL (item 6) ========== */}
+        <Dialog open={showEditalChat} onOpenChange={setShowEditalChat}>
+          <DialogContent className="bg-[#0A0A0A] border-[#27272A] max-w-2xl h-[80vh] flex flex-col">
+            <DialogHeader className="shrink-0">
+              <DialogTitle className="flex items-center gap-2">
+                <Bot className="w-5 h-5 text-purple-400" />
+                Assistente do Edital
+              </DialogTitle>
+              <DialogDescription className="truncate">
+                {chatAnalysisMeta?.concurso?.nome || chatAnalysisMeta?.pdf_filename || "Pergunte qualquer coisa sobre este edital."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto space-y-3 py-2 pr-1">
+              {chatHistory.length === 0 && (
+                <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
+                  <p className="text-xs text-purple-300 mb-2">Sugestões:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {["Quais cargos exigem OAB?",
+                      "Quantas questões tem a prova?",
+                      "Qual o cargo com maior remuneração?",
+                      "Lista todas as disciplinas de Português."].map(sug => (
+                      <button key={sug}
+                              onClick={() => setChatInput(sug)}
+                              className="text-xs px-2 py-1 rounded-full border border-purple-500/30 text-purple-200 hover:bg-purple-500/10 transition-colors">
+                        {sug}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {chatHistory.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
+                    m.role === "user"
+                      ? "bg-purple-600 text-white"
+                      : m.error
+                        ? "bg-red-500/10 text-red-300 border border-red-500/30"
+                        : "bg-[#121212] text-[#E4E4E7] border border-[#27272A]"
+                  }`}>
+                    {m.content}
+                    {m.role === "assistant" && m.model && (
+                      <div className="text-[10px] opacity-50 mt-1 font-mono">{m.model}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {chatSending && (
+                <div className="flex justify-start">
+                  <div className="bg-[#121212] border border-[#27272A] rounded-lg px-3 py-2 text-sm text-[#A1A1AA] flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />pensando...
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="shrink-0 pt-2 border-t border-[#27272A] flex gap-2">
+              <Input
+                data-testid="edital-chat-input"
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
+                placeholder="Pergunte sobre este edital..."
+                disabled={chatSending}
+                className="bg-[#121212] border-[#27272A]"
+              />
+              <Button
+                data-testid="edital-chat-send-btn"
+                onClick={sendChatMessage}
+                disabled={!chatInput.trim() || chatSending}
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                <ArrowUp className="w-4 h-4" />
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+
       </main>
       <MobileNav user={user} />
     </div>
@@ -4048,6 +4347,41 @@ function EditalAnalyzeProgress({ phase, elapsed }) {
     </div>
   );
 }
+
+
+// ========== Compare-editais UI helpers (item 4) ==========
+
+function StatCard({ label, value, color, Icon }) {
+  return (
+    <div className="rounded-lg border border-[#27272A] bg-[#121212] p-3 text-center">
+      <Icon className={`w-4 h-4 mx-auto mb-1 ${color}`} />
+      <p className={`text-xl font-bold ${color}`}>{value}</p>
+      <p className="text-[10px] uppercase tracking-wider text-[#A1A1AA]">{label}</p>
+    </div>
+  );
+}
+
+function CompareGroup({ title, color, items, collapsedByDefault = false }) {
+  const [open, setOpen] = useState(!collapsedByDefault);
+  if (!items || items.length === 0) return null;
+  const borderColor = { green: "border-green-500/30 bg-green-500/5 text-green-300",
+                        red:   "border-red-500/30   bg-red-500/5   text-red-300",
+                        gray:  "border-[#27272A]    bg-[#121212]   text-[#A1A1AA]" }[color] || "";
+  return (
+    <div className={`rounded-lg border ${borderColor} p-3`}>
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between text-xs uppercase tracking-wider">
+        <span>{title} ({items.length})</span>
+        {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      </button>
+      {open && (
+        <ul className="mt-2 space-y-1 text-sm">
+          {items.map((it, i) => <li key={i} className="pl-2 truncate">• {it}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 
 
 

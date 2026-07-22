@@ -52,6 +52,110 @@ def extract_pdf_text(content: bytes) -> str:
         logging.warning(f"Failed to extract PDF text: {e}")
         return ""
 
+
+# ==================== FUZZY DEDUP DE CARGOS ====================
+
+def _normalize_cargo_name(name: str) -> str:
+    """Normalize a cargo name for fuzzy comparison:
+    - lowercase
+    - strip accents
+    - remove common noise words (junior, senior, pleno, i, ii, iii, etc.)
+    - collapse whitespace/punctuation
+    """
+    import unicodedata, re as _re
+    if not name:
+        return ""
+    s = unicodedata.normalize("NFD", name).encode("ascii", "ignore").decode("ascii").lower()
+    # remove punctuation
+    s = _re.sub(r"[^a-z0-9\s]", " ", s)
+    # remove noise
+    NOISE = {"junior", "jr", "senior", "sr", "pleno", "i", "ii", "iii", "iv",
+             "a", "de", "do", "da", "das", "dos", "e", "para", "com"}
+    tokens = [t for t in s.split() if t and t not in NOISE]
+    return " ".join(tokens).strip()
+
+
+def dedup_cargos_fuzzy(cargos: List[dict], threshold: float = 0.90) -> List[dict]:
+    """Merge cargos whose normalized names have SequenceMatcher.ratio >= threshold.
+    When merging, we keep the FIRST cargo's fields and merge disciplinas by name (union).
+    Returns the deduped list AND logs the merges.
+    """
+    from difflib import SequenceMatcher
+    if not cargos:
+        return cargos
+    out: List[dict] = []
+    norms: List[str] = []
+    merges: List[tuple[str, str]] = []
+    for c in cargos:
+        cname = (c.get("nome") or "").strip()
+        cnorm = _normalize_cargo_name(cname)
+        if not cnorm:
+            out.append(c); norms.append(cnorm); continue
+        matched_idx = -1
+        for i, existing in enumerate(norms):
+            if not existing:
+                continue
+            if existing == cnorm or SequenceMatcher(None, existing, cnorm).ratio() >= threshold:
+                matched_idx = i; break
+        if matched_idx == -1:
+            out.append(c); norms.append(cnorm)
+        else:
+            # merge disciplinas by name
+            base = out[matched_idx]
+            base_disc_names = {(d.get("nome") or "").strip().lower() for d in (base.get("disciplinas") or [])}
+            for d in (c.get("disciplinas") or []):
+                nm = (d.get("nome") or "").strip().lower()
+                if nm and nm not in base_disc_names:
+                    base.setdefault("disciplinas", []).append(d)
+                    base_disc_names.add(nm)
+            merges.append((cname, base.get("nome") or ""))
+    if merges:
+        logging.info(f"dedup_cargos_fuzzy merged {len(merges)} cargo(s): {merges}")
+    return out
+
+
+# ==================== GEMINI USAGE TRACKING ====================
+# Rate limits documented by Google (free tier, subject to change):
+GEMINI_FREE_TIER_RPD = {
+    "gemini-2.5-flash":          250,
+    "gemini-flash-latest":       250,
+    "gemini-flash-lite-latest": 1000,
+    "gemini-2.5-flash-lite":    1000,
+    "gemini-2.0-flash":          200,
+}
+
+def _today_str_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+async def track_gemini_usage(user_id: str, model: str, delta: int = 1) -> None:
+    """Increment daily Gemini usage counter for a user/model (best-effort)."""
+    if not user_id:
+        return
+    try:
+        await db.gemini_usage.update_one(
+            {"user_id": user_id, "date": _today_str_utc(), "model": model},
+            {"$inc": {"count": delta}, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+    except Exception as e:
+        logging.warning(f"track_gemini_usage failed: {e}")
+
+async def get_gemini_usage_today(user_id: str) -> dict:
+    """Return dict {model: {used, limit, remaining}} for the current UTC day."""
+    result: Dict[str, dict] = {}
+    try:
+        cursor = db.gemini_usage.find({"user_id": user_id, "date": _today_str_utc()}, {"_id": 0})
+        docs = await cursor.to_list(length=50)
+        for d in docs:
+            m = d.get("model", "unknown")
+            used = int(d.get("count", 0))
+            limit = GEMINI_FREE_TIER_RPD.get(m, 0)
+            result[m] = {"used": used, "limit": limit, "remaining": max(0, limit - used) if limit else None}
+    except Exception as e:
+        logging.warning(f"get_gemini_usage_today failed: {e}")
+    return result
+
+
 async def get_user_api_key(user_id: str) -> Optional[str]:
     try:
         user_doc = await db.users.find_one({"user_id": user_id}, {"gemini_api_key": 1})
@@ -89,9 +193,10 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
         return "⚠️ Sua chave de API Gemini é inválida. Verifique em https://makersuite.google.com/app/apikey"
     return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida em https://makersuite.google.com/app/apikey"
 
-async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None) -> tuple[Optional[str], Optional[str]]:
+async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None, user_id: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
     """Call Gemini API, returns (response_text, error_type).
-    error_type: None on success, 'quota' on 429, 'invalid' on 400/401/403, 'other' otherwise."""
+    error_type: None on success, 'quota' on 429, 'invalid' on 400/401/403, 'other' otherwise.
+    If `user_id` is provided, successful calls are counted in `db.gemini_usage` for quota tracking."""
     from urllib.parse import quote
     # Free-tier friendly cascade. Older 1.5/2.0 models often hit 429 quota or 404 (deprecated),
     # so we prefer 2.5-flash and the "latest" aliases which Google keeps updated.
@@ -115,6 +220,8 @@ async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_ov
                 data = resp.json()
                 text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                 if text:
+                    if user_id:
+                        await track_gemini_usage(user_id, model)
                     return text, None
                 logging.warning(f"Gemini 200 OK but no text in response (model={model})")
             else:
@@ -194,10 +301,11 @@ async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
         logging.error(f"Gemini file upload error: {e}")
     return None
 
-async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 120, response_schema: Optional[dict] = None) -> tuple[Optional[str], Optional[str]]:
+async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 120, response_schema: Optional[dict] = None, user_id: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
     """Upload a PDF and call Gemini with the file. Returns (response_text, error_type).
     Tries current free-tier models in order (2.5-flash preferred; 2.5-flash-lite has largest daily free quota).
-    When `response_schema` is passed, Gemini is forced to return JSON matching that schema (Structured Output)."""
+    When `response_schema` is passed, Gemini is forced to return JSON matching that schema (Structured Output).
+    If `user_id` is provided, successful calls are counted in `db.gemini_usage`."""
     from urllib.parse import quote
     file_uri = await upload_to_gemini(pdf_content, api_key)
     if not file_uri:
@@ -244,6 +352,8 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
                 data = resp.json()
                 text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                 if text:
+                    if user_id:
+                        await track_gemini_usage(user_id, model)
                     return text, None
             elif resp.status_code in (400, 401, 403):
                 return None, "invalid"
@@ -1063,20 +1173,24 @@ async def test_gemini_key(request: Request, data: Optional[dict] = None, session
 
     if r.status_code == 200:
         # Try to also list quota-relevant model info
+        usage_today = await get_gemini_usage_today(user.user_id)
         return {
             "valid": True,
             "status": "ok",
             "model": "gemini-2.5-flash",
             "latency_ms": latency_ms,
             "message": f"Chave válida ({latency_ms} ms). Modelo respondeu.",
+            "usage_today": usage_today,
         }
     if r.status_code == 429:
+        usage_today = await get_gemini_usage_today(user.user_id)
         return {
             "valid": True,
             "status": "quota_exceeded",
             "model": "gemini-2.5-flash",
             "latency_ms": latency_ms,
             "message": "Chave válida, mas a cota diária/minuto está esgotada. Aguarde ou crie outra chave.",
+            "usage_today": usage_today,
         }
     if r.status_code in (400, 401, 403):
         return {
@@ -10314,8 +10428,9 @@ async def analyze_edital_cargos(
             "multiple_cargos": cached.get("multiple_cargos", False),
             "cargos": cached.get("cargos", []),
             "pdf_filename": file.filename,
+            "pdf_text": cached.get("pdf_text", ""),
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
             "from_cache": True,
         }
         await db.edital_analyses.insert_one(cached_copy)
@@ -10443,7 +10558,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
     try:
         result, error_type = await call_gemini_with_pdf(
             content, prompt_text, system_msg, user_api_key,
-            timeout=180, response_schema=response_schema,
+            timeout=180, response_schema=response_schema, user_id=user.user_id,
         )
         if not result:
             if error_type == "quota":
@@ -10464,10 +10579,14 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         parsed = json.loads(json_str.strip())
 
         cargos_list = parsed.get("cargos") or []
-        # Sanidade: força multiple_cargos = (len > 1)
+        # (item 3) — dedup fuzzy para proteger contra o modelo emitir cargos duplicados
+        # com grafias ligeiramente diferentes ("Analista TI - Redes" e "Analista de TI Redes").
+        cargos_list = dedup_cargos_fuzzy(cargos_list, threshold=0.92)
         parsed["multiple_cargos"] = len(cargos_list) > 1
 
         analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
+        # (item 6) — guardamos o texto extraído do PDF para alimentar o chat sobre este edital
+        # sem precisar re-uploadar o PDF a cada mensagem (Gemini File URIs expiram em 48h).
         analysis_doc = {
             "analysis_id": analysis_id,
             "user_id": user.user_id,
@@ -10476,8 +10595,10 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             "multiple_cargos": parsed["multiple_cargos"],
             "cargos": cargos_list,
             "pdf_filename": file.filename,
+            "pdf_text": (pdf_text or "")[:200_000],  # limite defensivo (~200 KB)
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            # (item 4) — expiração longa para permitir comparação futura de editais
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
             "from_cache": False,
         }
         await db.edital_analyses.insert_one(analysis_doc)
@@ -10500,6 +10621,222 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao analisar edital: {str(e)}")
+
+
+# ========== EDITAIS: LIST / COMPARE / CHAT ==========
+# (itens 4 e 6 do backlog)
+
+def _project_edital_summary(doc: dict) -> dict:
+    """Return a lightweight summary of an edital_analysis document for list responses."""
+    return {
+        "analysis_id": doc.get("analysis_id"),
+        "pdf_filename": doc.get("pdf_filename"),
+        "pdf_hash": doc.get("pdf_hash"),
+        "concurso": doc.get("concurso") or {},
+        "num_cargos": len(doc.get("cargos") or []),
+        "cargos_names": [c.get("nome", "") for c in (doc.get("cargos") or [])],
+        "created_at": doc.get("created_at"),
+        "expires_at": doc.get("expires_at"),
+    }
+
+
+@api_router.get("/study/programs/editais")
+async def list_editais(request: Request, session_token: Optional[str] = Cookie(None)):
+    """List all edital analyses saved for the current user (for comparison / chat)."""
+    auth_header = request.headers.get("Authorization")
+    user = await get_current_user(authorization=auth_header, session_token=session_token)
+
+    cursor = db.edital_analyses.find(
+        {"user_id": user.user_id, "cargos": {"$exists": True, "$ne": []}},
+        {"_id": 0, "pdf_text": 0},   # pdf_text pode ser grande, não trazer aqui
+    ).sort("created_at", -1).limit(200)
+    docs = await cursor.to_list(length=200)
+
+    # Deduplicate by pdf_hash (mesmo edital sub-analisado várias vezes)
+    seen = set()
+    unique = []
+    for d in docs:
+        h = d.get("pdf_hash")
+        if h and h in seen:
+            continue
+        if h:
+            seen.add(h)
+        unique.append(_project_edital_summary(d))
+    return {"editais": unique, "total": len(unique)}
+
+
+@api_router.post("/study/programs/editais/compare")
+async def compare_editais(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
+    """Diff two edital analyses.
+
+    Body: { "analysis_id_a": "...", "analysis_id_b": "..." }
+    Returns:
+      {
+        "concurso_a": {...}, "concurso_b": {...},
+        "cargos_added":   [{...cargo B not in A}],
+        "cargos_removed": [{...cargo A not in B}],
+        "cargos_changed": [{ "nome":"...", "disciplinas_added":[], "disciplinas_removed":[] }],
+        "cargos_unchanged": [names]
+      }
+    """
+    auth_header = request.headers.get("Authorization")
+    user = await get_current_user(authorization=auth_header, session_token=session_token)
+
+    aid_a = (data or {}).get("analysis_id_a")
+    aid_b = (data or {}).get("analysis_id_b")
+    if not aid_a or not aid_b:
+        raise HTTPException(status_code=400, detail="Informe analysis_id_a e analysis_id_b.")
+    if aid_a == aid_b:
+        raise HTTPException(status_code=400, detail="Selecione dois editais diferentes.")
+
+    doc_a = await db.edital_analyses.find_one({"analysis_id": aid_a, "user_id": user.user_id}, {"_id": 0})
+    doc_b = await db.edital_analyses.find_one({"analysis_id": aid_b, "user_id": user.user_id}, {"_id": 0})
+    if not doc_a or not doc_b:
+        raise HTTPException(status_code=404, detail="Uma das análises não foi encontrada.")
+
+    def _norm(s: str) -> str:
+        return _normalize_cargo_name(s or "")
+
+    cargos_a = doc_a.get("cargos") or []
+    cargos_b = doc_b.get("cargos") or []
+
+    by_a = {_norm(c.get("nome", "")): c for c in cargos_a}
+    by_b = {_norm(c.get("nome", "")): c for c in cargos_b}
+
+    added_keys = [k for k in by_b if k not in by_a]
+    removed_keys = [k for k in by_a if k not in by_b]
+    common_keys = [k for k in by_a if k in by_b]
+
+    def _disc_names(cargo: dict) -> set:
+        return {(d.get("nome") or "").strip() for d in (cargo.get("disciplinas") or []) if d.get("nome")}
+
+    changed = []
+    unchanged = []
+    for k in common_keys:
+        da = _disc_names(by_a[k])
+        db_ = _disc_names(by_b[k])
+        added_d = sorted(db_ - da)
+        removed_d = sorted(da - db_)
+        if added_d or removed_d:
+            changed.append({
+                "nome": by_b[k].get("nome") or by_a[k].get("nome"),
+                "disciplinas_added": added_d,
+                "disciplinas_removed": removed_d,
+            })
+        else:
+            unchanged.append(by_a[k].get("nome"))
+
+    return {
+        "concurso_a": doc_a.get("concurso") or {},
+        "concurso_b": doc_b.get("concurso") or {},
+        "pdf_filename_a": doc_a.get("pdf_filename"),
+        "pdf_filename_b": doc_b.get("pdf_filename"),
+        "cargos_added":   [by_b[k] for k in added_keys],
+        "cargos_removed": [by_a[k] for k in removed_keys],
+        "cargos_changed": changed,
+        "cargos_unchanged": unchanged,
+        "summary": {
+            "total_a": len(cargos_a),
+            "total_b": len(cargos_b),
+            "added":   len(added_keys),
+            "removed": len(removed_keys),
+            "changed": len(changed),
+            "unchanged": len(unchanged),
+        },
+    }
+
+
+@api_router.post("/study/programs/edital-chat")
+async def edital_chat(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
+    """Ask a question about a previously analyzed edital.
+
+    Body: { "analysis_id": "...", "question": "...", "history": [{role, content}, ...] (optional) }
+    Uses the extracted PDF text as context so we don't re-upload the PDF every time.
+    """
+    auth_header = request.headers.get("Authorization")
+    user = await get_current_user(authorization=auth_header, session_token=session_token)
+
+    aid = (data or {}).get("analysis_id")
+    question = ((data or {}).get("question") or "").strip()
+    history = (data or {}).get("history") or []
+    if not aid or not question:
+        raise HTTPException(status_code=400, detail="Informe analysis_id e question.")
+    if len(question) > 2000:
+        raise HTTPException(status_code=400, detail="Pergunta muito longa (máx 2000 caracteres).")
+
+    doc = await db.edital_analyses.find_one({"analysis_id": aid, "user_id": user.user_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Análise não encontrada.")
+
+    api_key = await get_user_api_key(user.user_id)
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Configure sua chave Gemini no perfil para usar o chat.")
+
+    concurso = doc.get("concurso") or {}
+    cargos = doc.get("cargos") or []
+    pdf_text = (doc.get("pdf_text") or "")[:120_000]  # ~120 KB é seguro pra 2.5-flash
+    cargos_brief = "\n".join(
+        f"- {c.get('nome','?')} (vagas={c.get('vagas','')}, disciplinas={len(c.get('disciplinas') or [])})"
+        for c in cargos[:60]
+    )
+
+    # Build multi-turn history in Gemini format
+    contents: List[Dict[str, Any]] = []
+    for turn in history[-12:]:
+        role = "user" if turn.get("role") == "user" else "model"
+        text = str(turn.get("content", ""))[:2000]
+        if text:
+            contents.append({"role": role, "parts": [{"text": text}]})
+    contents.append({"role": "user", "parts": [{"text": question}]})
+
+    system_msg = (
+        f"Você é um assistente especialista no edital '{concurso.get('nome','concurso')}' "
+        f"do órgão '{concurso.get('orgao','')}' (banca {concurso.get('banca','')}). "
+        f"Responda EXCLUSIVAMENTE com base no CONTEXTO abaixo. Se a informação não estiver no edital, "
+        f"diga isso claramente. Use português brasileiro, seja objetivo e cite trechos quando útil.\n\n"
+        f"=== RESUMO DOS CARGOS DETECTADOS ===\n{cargos_brief}\n\n"
+        f"=== TRECHO DO EDITAL (extraído do PDF) ===\n{pdf_text}"
+    )
+
+    from urllib.parse import quote
+    models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
+    last_error = None
+    for model in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
+        payload = {
+            "contents": contents,
+            "systemInstruction": {"parts": [{"text": system_msg}]},
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 2048,
+                "thinkingConfig": {"thinkingBudget": 0},
+            },
+        }
+        try:
+            r = requests.post(url, json=payload, timeout=45)
+        except requests.exceptions.Timeout:
+            last_error = "timeout"; continue
+        except Exception as e:
+            logging.error(f"edital-chat network error ({model}): {e}"); last_error = "network"; continue
+        if r.status_code == 200:
+            js = r.json()
+            answer = (
+                js.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            ).strip()
+            if answer:
+                await track_gemini_usage(user.user_id, model)
+                return {"answer": answer, "model": model}
+            last_error = "empty"; continue
+        if r.status_code == 429:
+            last_error = "quota"; continue
+        if r.status_code in (400, 401, 403):
+            raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida.")
+        last_error = f"http_{r.status_code}"
+        logging.warning(f"edital-chat non-200 ({model}): {r.status_code} {r.text[:200]}")
+    if last_error == "quota":
+        raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou.")
+    raise HTTPException(status_code=500, detail=f"Erro ao contactar a IA ({last_error}).")
+
 
 
 
