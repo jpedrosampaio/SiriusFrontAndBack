@@ -69,7 +69,7 @@ async def get_freellm_api_key(user_id: str) -> Optional[str]:
 
 # ========== LLM CALLS ==========
 
-async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None) -> str:
+async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None, timeout_override: Optional[int] = None) -> str:
     """Call Gemini API - user must configure their own API key"""
     
     if not user_id:
@@ -79,7 +79,7 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
     if not user_api_key:
         return "⚠️ Configure sua chave de API Gemini nas configurações do perfil para usar IA."
     
-    result, error_type = await call_gemini(prompt, system_message, user_api_key)
+    result, error_type = await call_gemini(prompt, system_message, user_api_key, timeout_override)
     if result:
         return result
     
@@ -89,7 +89,7 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
         return "⚠️ Sua chave de API Gemini é inválida. Verifique em https://makersuite.google.com/app/apikey"
     return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida em https://makersuite.google.com/app/apikey"
 
-async def call_gemini(prompt: str, system_message: str, api_key: str) -> tuple[Optional[str], Optional[str]]:
+async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None) -> tuple[Optional[str], Optional[str]]:
     """Call Gemini API, returns (response_text, error_type).
     error_type: None on success, 'quota' on 429, 'invalid' on 400/401/403, 'other' otherwise."""
     from urllib.parse import quote
@@ -98,13 +98,13 @@ async def call_gemini(prompt: str, system_message: str, api_key: str) -> tuple[O
         models_to_try.insert(0, GEMINI_MODEL)
     
     last_error = None
-    import time
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    if system_message:
+        payload["systemInstruction"] = {"parts": [{"text": system_message}]}
+    
     for model in models_to_try:
-        timeout = 90 if "2.5" in model else 30
+        timeout = timeout_override or (90 if "2.5" in model else 30)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        if system_message:
-            payload["systemInstruction"] = {"parts": [{"text": system_message}]}
         
         try:
             resp = requests.post(url, json=payload, timeout=timeout)
@@ -10199,9 +10199,9 @@ REGRAS:
 
         system_msg = "Você é um especialista em concursos públicos brasileiros. Extraia informações estruturadas de editais com precisão."
         
-        response_text = await call_llm(prompt, f"edital_{user.user_id}_{uuid.uuid4().hex[:6]}", system_msg, user_id=user.user_id)
+        response_text = await call_llm(prompt, f"edital_{user.user_id}_{uuid.uuid4().hex[:6]}", system_msg, user_id=user.user_id, timeout_override=180)
         
-        if "Configure sua chave" in response_text:
+        if "Configure sua chave" in response_text or "Sua cota" in response_text or "Erro ao contactar" in response_text:
             raise HTTPException(status_code=500, detail=response_text)
         
         json_str = response_text.strip()
