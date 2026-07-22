@@ -29,7 +29,7 @@ db = client[os.environ['DB_NAME']]
 GOOGLE_GEMINI_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY', '')
 
 GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_FALLBACK_MODEL = "gemini-2.0-flash"
+GEMINI_FALLBACK_MODEL = "gemini-flash-latest"
 gemini_client = None
 
 FREETTS_URL = os.environ.get('FREETTS_URL', 'https://api.freetts.org')
@@ -93,7 +93,9 @@ async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_ov
     """Call Gemini API, returns (response_text, error_type).
     error_type: None on success, 'quota' on 429, 'invalid' on 400/401/403, 'other' otherwise."""
     from urllib.parse import quote
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    # Free-tier friendly cascade. Older 1.5/2.0 models often hit 429 quota or 404 (deprecated),
+    # so we prefer 2.5-flash and the "latest" aliases which Google keeps updated.
+    models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
     if GEMINI_MODEL not in models_to_try:
         models_to_try.insert(0, GEMINI_MODEL)
     
@@ -192,20 +194,22 @@ async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
         logging.error(f"Gemini file upload error: {e}")
     return None
 
-async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 300) -> tuple[Optional[str], Optional[str]]:
+async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 120) -> tuple[Optional[str], Optional[str]]:
     """Upload a PDF and call Gemini with the file. Returns (response_text, error_type).
-    Tries models in order: gemini-1.5-flash (fast, free), then 2.0-flash, then 2.5-flash."""
+    Tries current free-tier models in order (2.5-flash preferred; 2.5-flash-lite has largest daily free quota)."""
     from urllib.parse import quote
     file_uri = await upload_to_gemini(pdf_content, api_key)
     if not file_uri:
         return None, "other"
     
-    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"]
+    # gemini-1.5-flash was retired by Google and now returns 404.
+    # gemini-2.0-flash / 2.0-flash-lite often hit 429 (very low free-tier daily quota).
+    # We prefer 2.5-flash (best quality) and the "latest" aliases which Google keeps updated
+    # (gemini-flash-lite-latest has the highest free-tier daily quota).
+    models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
     
     for i, model in enumerate(models_to_try):
-        model_timeout = timeout if i == 0 else timeout - 60
-        if model_timeout < 30:
-            model_timeout = 30
+        model_timeout = timeout
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
             payload = {
