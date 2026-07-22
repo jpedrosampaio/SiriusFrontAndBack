@@ -7921,25 +7921,32 @@ async def import_edital(
         if not user_api_key:
             raise HTTPException(status_code=400, detail="Configure sua chave Gemini no perfil para usar este recurso.")
         
-        prompt_text = f"""Analise este edital de concurso e retorne APENAS JSON válido.
+        pdf_text = extract_pdf_text(content) or ""
+        if not pdf_text.strip():
+            raise HTTPException(status_code=400, detail="Não foi possível extrair texto do PDF.")
+        text_clip = pdf_text[:100_000].replace("{", "{{").replace("}", "}}")
+        
+        prompt_text = f"""Analise o edital de concurso abaixo e retorne APENAS JSON válido.
 
 Gere um programa de estudos completo com base neste edital.
 O aluno tem {hours_per_day} horas disponíveis por dia, {days_per_week} dias por semana para estudar.
 {"A data da prova é: " + target_date + "." if target_date else "Não há data definida para a prova."}
 
-Responda APENAS com JSON no formato:
+Responda APENAS com JSON no formato (sem texto adicional):
 {{"concurso":{{"nome":"","orgao":"","banca":"","cargo":"","vagas":"","remuneracao":"","escolaridade":"","data_prova":""}},"disciplinas":[{{"nome":"","peso":3,"num_questoes":10,"topicos":[],"conteudo_programatico":[{{"assunto":"","subtopicos":[]}}],"dificuldade":"media","dicas_estudo":"","recursos_recomendados":""}}],"cronograma_semanal":[{{"dia":"Segunda","blocos":[{{"disciplina":"","duracao_minutos":120,"tipo_estudo":"Teoria","prioridade":"alta","assuntos_foco":[]}}]}}],"estrategia":{{"resumo":"","fase_1":"","fase_2":"","fase_3":"","dicas_gerais":[],"materias_prioritarias":[],"horas_semanais_total":0}}}}
-"""
+
+TEXTO DO EDITAL:
+{text_clip}"""
 
         system_msg = "Você é um especialista em concursos públicos brasileiros e planejamento de estudos."
         
-        result, error_type = await call_gemini_with_pdf(content, prompt_text, system_msg, user_api_key)
+        result, error_type = await call_gemini(prompt_text, system_msg, user_api_key, timeout_override=180, user_id=user.user_id)
         if not result:
             if error_type == "quota":
                 raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou.")
             if error_type == "invalid":
                 raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida.")
-            raise HTTPException(status_code=500, detail="Erro ao contactar API Gemini.")
+            raise HTTPException(status_code=500, detail=f"Erro ao contactar API Gemini (tipo={error_type}).")
         
         json_str = result.strip()
         if json_str.startswith("```json"):
@@ -10691,21 +10698,20 @@ _HYDRATION_SCHEMA = {
 }
 
 
-async def _hydrate_missing_disciplinas_pdf(pdf_content: bytes, cargos_list: List[dict], api_key: str, user_id: str, chunk_size: int = 6) -> int:
-    """2º passo do pipeline: extrai disciplinas dos cargos que vieram sem, via PDF (em lotes). Returns nº hidratado."""
+async def _hydrate_missing_disciplinas(pdf_text: str, cargos_list: List[dict], api_key: str, user_id: str, chunk_size: int = 6) -> int:
+    """2º passo: extrai disciplinas dos cargos que vieram sem, via texto extraído do PDF (em lotes)."""
     missing = [c for c in cargos_list if not c.get("disciplinas")]
     if not missing:
         return 0
     logging.info(f"analyze-edital: {len(missing)} cargo(s) sem disciplinas — iniciando hidratação (passo 2)")
     total_hydrated = 0
+    text_clip = pdf_text[:100_000]
     for start in range(0, len(missing), chunk_size):
         chunk = missing[start:start + chunk_size]
         nomes = [c.get("nome", "") for c in chunk]
         for tentativa in range(2):
-            result, err = await call_gemini_with_pdf(
-                pdf_content, _build_hydration_prompt(nomes), _HYDRATION_SYSTEM_MSG, api_key,
-                timeout=180, response_schema=_HYDRATION_SCHEMA, user_id=user_id,
-            )
+            prompt = _build_hydration_prompt(nomes) + f"\n\nTEXTO DO EDITAL:\n{text_clip}"
+            result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=180, user_id=user_id)
             parsed = _parse_json_lenient(result) if result else None
             if not parsed:
                 logging.warning(f"analyze-edital: hidratação (lote {start//chunk_size + 1}, tentativa {tentativa+1}) falhou (err={err})")
@@ -10767,9 +10773,10 @@ _ENUM_CARGOS_SCHEMA = {
 }
 
 
-async def _enumerate_cargos_pdf(pdf_content: bytes, api_key: str, user_id: str, min_cargos: int, hint_block: str) -> List[dict]:
-    """Retry focado: enumera SOMENTE os cargos/perfis (sem disciplinas) — resposta curta e confiável."""
-    prompt = f"""Você recebeu o PDF de um edital de concurso público brasileiro.
+async def _enumerate_cargos_text(pdf_text: str, api_key: str, user_id: str, min_cargos: int, hint_block: str) -> List[dict]:
+    """Retry focado: enumera SOMENTE os cargos/perfis (sem disciplinas) via texto extraído do PDF."""
+    text_clip = pdf_text[:80_000]
+    prompt = f"""Você recebeu o texto extraído de um edital de concurso público brasileiro.
 
 TAREFA ÚNICA: liste TODOS os cargos / perfis / especialidades / áreas de atuação oferecidos, sem omitir nenhum. NÃO extraia disciplinas nem conteúdo programático agora.
 
@@ -10778,11 +10785,17 @@ REGRAS:
 2) Foram detectados automaticamente PELO MENOS {min_cargos} perfis numerados no texto (ex: "PERFIL: 1.", "PERFIL: 2." ...). Seu array "cargos" DEVE ter no mínimo {min_cargos} itens.
 3) "nome" = nome oficial completo (cargo + perfil). "vagas", "remuneracao", "escolaridade" = strings CURTAS (máx 1 linha cada); use "" se não houver.
 4) Não invente cargos. Português brasileiro.
-{hint_block}"""
-    result, err = await call_gemini_with_pdf(
-        pdf_content, prompt,
+{hint_block}
+
+Responda APENAS com JSON no formato exato:
+{{"cargos":[{{"nome":"","vagas":"","remuneracao":"","escolaridade":""}}]}}
+
+TEXTO DO EDITAL:
+{text_clip}"""
+    result, err = await call_gemini(
+        prompt,
         "Você é um extrator determinístico de cargos e perfis de editais de concursos públicos brasileiros. Nunca omita um perfil.",
-        api_key, timeout=180, response_schema=_ENUM_CARGOS_SCHEMA, user_id=user_id,
+        api_key, timeout_override=180, user_id=user_id,
     )
     if not result:
         logging.warning(f"analyze-edital: enumeração de cargos (retry) falhou (err={err})")
@@ -11010,20 +11023,17 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
     )
 
     try:
-        result, error_type = await call_gemini_with_pdf(
-            content, prompt_text, system_msg, user_api_key,
-            timeout=180, response_schema=response_schema, user_id=user.user_id,
+        full_prompt = f"{prompt_text}\n\nTEXTO COMPLETO DO EDITAL:\n{pdf_text[:100_000]}"
+        result, error_type = await call_gemini(
+            full_prompt, system_msg, user_api_key,
+            timeout_override=180, user_id=user.user_id,
         )
         if not result:
             if error_type == "quota":
                 raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou. Tente amanhã ou crie outra chave em https://aistudio.google.com/apikey.")
-            if error_type == "invalid":
+            if error_type in ("invalid", "empty"):
                 raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida ou foi revogada. Gere uma nova em https://aistudio.google.com/apikey.")
-            if error_type == "timeout":
-                raise HTTPException(status_code=500, detail="Google Gemini demorou demais para responder. Tente novamente ou use um PDF menor.")
-            if error_type == "truncated":
-                raise HTTPException(status_code=500, detail="A resposta da IA foi truncada (edital muito grande). Tente enviar apenas as páginas do conteúdo programático.")
-            raise HTTPException(status_code=500, detail=f"Erro ao contactar API Gemini (tipo={error_type or 'unknown'}).")
+            raise HTTPException(status_code=500, detail=f"Erro ao contactar API Gemini (tipo={error_type or 'unknown'}). Tente novamente.")
 
         json_str = result.strip()
         # Remove eventuais code fences caso o modelo ignore o responseMimeType
@@ -11064,7 +11074,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
                 f"analyze-edital: modelo retornou {len(cargos_list)} cargo(s), mas heurística detectou "
                 f">= {min_cargos_detectados} perfis. Re-enumerando cargos..."
             )
-            enum_cargos = await _enumerate_cargos_pdf(content, user_api_key, user.user_id, min_cargos_detectados, hint_block)
+            enum_cargos = await _enumerate_cargos_text(pdf_text, user_api_key, user.user_id, min_cargos_detectados, hint_block)
             if enum_cargos:
                 cargos_list = dedup_cargos_fuzzy(cargos_list + enum_cargos, threshold=0.92)
                 logging.info(f"analyze-edital: após re-enumeração, {len(cargos_list)} cargo(s)")
@@ -11076,7 +11086,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         # (comum quando o fallback cai em modelos "lite"), hidrata com uma 2ª chamada
         # focada apenas em disciplinas/conteúdo programático.
         if cargos_list and any(not c.get("disciplinas") for c in cargos_list):
-            await _hydrate_missing_disciplinas_pdf(content, cargos_list, user_api_key, user.user_id)
+            await _hydrate_missing_disciplinas(pdf_text, cargos_list, user_api_key, user.user_id)
 
         _fill_cp_from_topicos(cargos_list)
 
