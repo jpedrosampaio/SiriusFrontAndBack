@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Send, User, Brain, Loader2, Sparkles } from 'lucide-react';
+import { X, Send, User, Bot, Loader2, Sparkles, AppWindow } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
@@ -30,12 +31,12 @@ function MessageAvatar({ role }) {
 }
 
 export default function AiChatModal({ open, onClose }) {
+  const location = useLocation();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  const chatRef = useRef(null);
 
   useEffect(() => {
     if (open) {
@@ -48,9 +49,14 @@ export default function AiChatModal({ open, onClose }) {
   }, [messages]);
 
   const callCloud = useCallback(async (message) => {
-    const res = await axios.post(`${BACKEND_URL}/api/ai/chat`, { message }, { withCredentials: true });
+    const pageContext = document.title || '';
+    const res = await axios.post(`${BACKEND_URL}/api/ai/chat`, {
+      message,
+      page: location.pathname,
+      page_context: pageContext,
+    }, { withCredentials: true });
     return res.data.reply;
-  }, []);
+  }, [location.pathname]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -96,7 +102,6 @@ export default function AiChatModal({ open, onClose }) {
         }`}
       >
         <div
-          ref={chatRef}
           className="bg-[#0A0A0A] border border-[#27272A] rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
           style={{ maxHeight: 'min(600px, calc(100vh - 140px))' }}
           onClick={(e) => e.stopPropagation()}
@@ -106,7 +111,7 @@ export default function AiChatModal({ open, onClose }) {
             <div className="flex items-center justify-between relative">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FFD700] to-[#FF8C00] flex items-center justify-center shadow-lg shadow-[#FFD700]/20">
-                  <Brain className="w-5 h-5 text-black" />
+                  <Bot className="w-5 h-5 text-black" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
@@ -115,7 +120,7 @@ export default function AiChatModal({ open, onClose }) {
                       Gemini
                     </span>
                   </div>
-                  <p className="text-[10px] text-[#52525B]">Assistente pessoal de treinos</p>
+                  <p className="text-[10px] text-[#52525B]">Assistente integrado do Sirius</p>
                 </div>
               </div>
               <button onClick={onClose} className="w-7 h-7 rounded-lg bg-[#1A1A1A] hover:bg-[#27272A] flex items-center justify-center transition-colors border border-[#27272A]">
@@ -128,14 +133,14 @@ export default function AiChatModal({ open, onClose }) {
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center py-12 px-4">
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#FFD700]/10 to-[#FF8C00]/5 flex items-center justify-center mb-5 border border-[#FFD700]/10">
-                  <Sparkles className="w-8 h-8 text-[#FFD700]" />
+                  <AppWindow className="w-8 h-8 text-[#FFD700]" />
                 </div>
                 <p className="text-base font-semibold text-white mb-1">IA Sirius</p>
                 <p className="text-xs text-[#52525B] max-w-[240px] mb-6 leading-relaxed">
-                  Pergunte sobre treinos, nutrição, lesões e evolução física. Uso do Gemini com sua chave.
+                  Assistente completo do Sirius. Pergunte sobre qualquer módulo: treinos, nutrição, estudos, finanças, tarefas, metas e mais.
                 </p>
                 <div className="flex flex-wrap gap-2 justify-center">
-                  {['Treino para iniciantes', 'Dieta para hipertrofia', 'Aquecimento ideal', 'Melhorar resistencia'].map((s) => (
+                  {['Resumo do meu mês', 'Otimizar orçamento', 'Próximo treino', 'Organizar estudos', 'Melhorar hábitos', 'Dica financeira'].map((s) => (
                     <button
                       key={s}
                       onClick={() => { setInput(s); inputRef.current?.focus(); }}
@@ -185,7 +190,7 @@ export default function AiChatModal({ open, onClose }) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Digite sua pergunta..."
+              placeholder="Pergunte sobre qualquer área..."
               disabled={sending}
               className="flex-1 bg-[#1A1A1A] border border-[#27272A] rounded-xl px-4 py-2.5 text-sm text-white placeholder-[#52525B] outline-none focus:border-[#FFD700]/40 focus:ring-1 focus:ring-[#FFD700]/20 transition-all duration-200 disabled:opacity-50"
             />

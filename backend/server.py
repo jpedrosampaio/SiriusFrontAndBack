@@ -14221,14 +14221,133 @@ async def trigger_daily_summaries(request: Request, session_token: Optional[str]
 
 class AiChatRequest(BaseModel):
     message: str
-    system_message: str = "Você é um assistente fitness especializado em treinos, nutrição e saúde."
+    system_message: str = ""
+    page: str = ""
+    page_context: str = ""
+
+async def build_ai_system_prompt(user_id: str, page: str = "", page_context: str = "") -> str:
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%d/%m/%Y")
+    time_str = now.strftime("%H:%M")
+
+    lines = [f"Você é o assistente integrado do Sirius, um aplicativo completo de gestão pessoal.",
+             f"Hoje é {date_str} e são {time_str} UTC.",
+             f"",
+             f"## Módulos do Sirius",
+             f"- **Treinos**: planos de treino, exercícios, séries, cargas, RPE, histórico",
+             f"- **Nutrição**: refeições, alimentos, calorias, macros, planejamento alimentar",
+             f"- **Estudos**: matérias, tópicos, flashcards, sessões de estudo, provas, redação",
+             f"- **Finanças**: receitas, despesas, orçamentos, projeções, categorias",
+             f"- **Tarefas**: tarefas diárias, hábitos, tracker, gamificação (XP, ranking)",
+             f"- **Metas**: objetivos de curto/médio/longo prazo com progresso",
+             f"- **Calendário**: eventos, agendamentos",
+             f"- **Dashboard**: visão geral de todas as áreas",
+             f"",
+             f"## Comportamento",
+             f"- Responda de forma objetiva e prática em português.",
+             f"- Use emojis com moderação para tornar a resposta mais amigável.",
+             f"- Sempre que relevante, sugira ações concretas que o usuário pode fazer no app.",
+             f"- Se o usuário pedir algo que você não pode fazer diretamente (criar/editar dados),",
+             f"  explique claramente o que ele precisa fazer e em qual seção do app."]
+
+    try:
+        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0, "gemini_api_key": 0, "email": 0})
+        if user_doc:
+            name = user_doc.get("name", "")
+            if name:
+                lines.append(f"")
+                lines.append(f"## Dados do usuário")
+                lines.append(f"- Nome: {name}")
+                rank = user_doc.get("rank", "")
+                xp = user_doc.get("xp", 0)
+                if rank:
+                    lines.append(f"- Rank: {rank} | XP: {xp}")
+
+            # Fetch summaries from each module
+            today = now.strftime("%Y-%m-%d")
+            current_month = now.strftime("%Y-%m")
+
+            # Tasks today
+            tasks_today = await db.task_instances.count_documents({"user_id": user_id, "date": today})
+            tasks_done = await db.task_instances.count_documents({"user_id": user_id, "date": today, "completed": True})
+            if tasks_today > 0:
+                lines.append(f"- Tarefas hoje: {tasks_done}/{tasks_today} concluídas")
+
+            # Habits
+            habits_count = await db.habits.count_documents({"user_id": user_id})
+            if habits_count > 0:
+                lines.append(f"- Hábitos cadastrados: {habits_count}")
+
+            # Workouts this month
+            workouts_month = await db.workout_logs.count_documents({"user_id": user_id, "date": {"$regex": f"^{current_month}"}})
+            if workouts_month > 0:
+                lines.append(f"- Treinos no mês: {workouts_month}")
+
+            # Finance summary (current month)
+            income = await db.transactions.aggregate([
+                {"$match": {"user_id": user_id, "type": "receita", "date": {"$regex": f"^{current_month}"}}},
+                {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+            ]).to_list(1)
+            expenses = await db.transactions.aggregate([
+                {"$match": {"user_id": user_id, "type": "despesa", "date": {"$regex": f"^{current_month}"}}},
+                {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+            ]).to_list(1)
+            inc_total = income[0]["total"] if income else 0
+            exp_total = expenses[0]["total"] if expenses else 0
+            if inc_total or exp_total:
+                lines.append(f"- Finanças do mês: R$ {inc_total:.2f} receitas | R$ {exp_total:.2f} despesas")
+
+            # Goals
+            goals_count = await db.goals.count_documents({"user_id": user_id})
+            if goals_count > 0:
+                lines.append(f"- Metas cadastradas: {goals_count}")
+
+            # Study
+            study_hours = await db.study_sessions.aggregate([
+                {"$match": {"user_id": user_id, "date": {"$regex": f"^{current_month}"}}},
+                {"$group": {"_id": None, "total": {"$sum": "$duration_minutes"}}}
+            ]).to_list(1)
+            total_minutes = study_hours[0]["total"] if study_hours else 0
+            if total_minutes > 0:
+                lines.append(f"- Estudos no mês: {total_minutes} minutos")
+
+    except Exception as e:
+        logging.warning(f"Failed to build AI context: {e}")
+
+    if page:
+        page_map = {
+            "/dashboard": "Dashboard - visão geral do app",
+            "/treinos": "Treinos - planos e histórico de treinos",
+            "/nutricao": "Nutrição - refeições e alimentos",
+            "/nutrição": "Nutrição - refeições e alimentos",
+            "/estudos": "Estudos - matérias e sessões de estudo",
+            "/financas": "Finanças - receitas, despesas e orçamentos",
+            "/finanças": "Finanças - receitas, despesas e orçamentos",
+            "/tarefas": "Tarefas e hábitos",
+            "/metas": "Metas e objetivos",
+            "/calendario": "Calendário de eventos",
+            "/calendário": "Calendário de eventos",
+            "/perfil": "Perfil do usuário e configurações",
+        }
+        page_name = page_map.get(page, f"Página: {page}")
+        lines.append(f"")
+        lines.append(f"## Contexto atual")
+        lines.append(f"O usuário está na página: {page_name}")
+        if page_context:
+            lines.append(f"Contexto adicional: {page_context}")
+
+    return "\n".join(lines)
 
 @api_router.post("/ai/chat")
 async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional[str] = Cookie(None)):
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     try:
-        reply = await call_llm(body.message, user_id=user.user_id, system_message=body.system_message)
+        if body.system_message:
+            system_msg = body.system_message
+        else:
+            system_msg = await build_ai_system_prompt(user.user_id, body.page, body.page_context)
+        reply = await call_llm(body.message, user_id=user.user_id, system_message=system_msg)
         return {"reply": reply}
     except Exception as e:
         logging.error(f"AI chat error: {e}")
