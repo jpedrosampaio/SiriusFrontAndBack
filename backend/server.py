@@ -114,6 +114,75 @@ def dedup_cargos_fuzzy(cargos: List[dict], threshold: float = 0.90) -> List[dict
     return out
 
 
+def _try_repair_json(s: str) -> Optional[dict]:
+    """Best-effort recovery of a truncated JSON emitted by Gemini's Structured Output.
+
+    Strategy:
+      1) Try `json.loads` on the raw string (fast path, no-op if already valid).
+      2) If truncated mid-array (e.g. ...`"conteudo_programatico":[{"assunto":"...` cut off),
+         locate the last complete top-level "cargos" entry by scanning matching braces, then
+         close the array + object.
+      3) Return the parsed dict or None on total failure.
+    Only attempts to recover the shape emitted by `analyze_edital_cargos` (has top-level
+    `cargos` array). Safe: never raises.
+    """
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    # Encontra a lista de cargos e trunca no último `}` bem-formado
+    cargos_start = s.find('"cargos"')
+    if cargos_start < 0:
+        return None
+    bracket_start = s.find('[', cargos_start)
+    if bracket_start < 0:
+        return None
+
+    # Faz scan char a char para achar o último `}` no nível de item do array
+    depth_brace = 0
+    depth_bracket = 1   # já entramos no [
+    in_string = False
+    escape = False
+    last_valid_close = -1
+    for i in range(bracket_start + 1, len(s)):
+        ch = s[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            depth_brace += 1
+        elif ch == '}':
+            depth_brace -= 1
+            if depth_brace == 0 and depth_bracket == 1:
+                last_valid_close = i  # cargo completo terminou aqui
+        elif ch == '[':
+            depth_bracket += 1
+        elif ch == ']':
+            depth_bracket -= 1
+            if depth_bracket == 0:
+                # array fechou naturalmente — provavelmente já era válido, mas caiu aqui
+                break
+
+    if last_valid_close < 0:
+        return None
+
+    # Reconstrói: prefixo + fecha array + fecha objeto raiz
+    repaired = s[: last_valid_close + 1] + "]}"
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        return None
+
+
 # ==================== GEMINI USAGE TRACKING ====================
 # Rate limits documented by Google (free tier, subject to change):
 GEMINI_FREE_TIER_RPD = {
@@ -301,22 +370,40 @@ async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
         logging.error(f"Gemini file upload error: {e}")
     return None
 
-async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 120, response_schema: Optional[dict] = None, user_id: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 120, response_schema: Optional[dict] = None, user_id: Optional[str] = None, inline_max_bytes: int = 15 * 1024 * 1024) -> tuple[Optional[str], Optional[str]]:
     """Upload a PDF and call Gemini with the file. Returns (response_text, error_type).
     Tries current free-tier models in order (2.5-flash preferred; 2.5-flash-lite has largest daily free quota).
     When `response_schema` is passed, Gemini is forced to return JSON matching that schema (Structured Output).
-    If `user_id` is provided, successful calls are counted in `db.gemini_usage`."""
+    If `user_id` is provided, successful calls are counted in `db.gemini_usage`.
+
+    Performance: for PDFs ≤ `inline_max_bytes` (default 15 MB) we send the PDF INLINE (base64)
+    in a single request, avoiding the separate `/upload/v1beta/files` roundtrip (economiza ~5–25 s
+    dependendo do tamanho e latência de rede). Above the threshold we fall back to the Files API.
+    """
+    import base64
     from urllib.parse import quote
-    file_uri = await upload_to_gemini(pdf_content, api_key)
-    if not file_uri:
-        return None, "other"
-    
+
+    inline_ok = len(pdf_content) <= inline_max_bytes
+    file_uri: Optional[str] = None
+    if not inline_ok:
+        file_uri = await upload_to_gemini(pdf_content, api_key)
+        if not file_uri:
+            return None, "other"
+
+    # Build the PDF part once
+    if inline_ok:
+        pdf_part = {"inlineData": {"mimeType": "application/pdf", "data": base64.b64encode(pdf_content).decode("ascii")}}
+        logging.info(f"Gemini PDF: sending INLINE ({len(pdf_content)/1024:.0f} KB) — sem upload API")
+    else:
+        pdf_part = {"fileData": {"mimeType": "application/pdf", "fileUri": file_uri}}
+        logging.info(f"Gemini PDF: sending via FILE URI ({len(pdf_content)/1024/1024:.1f} MB)")
+
     # gemini-1.5-flash was retired by Google and now returns 404.
     # gemini-2.0-flash / 2.0-flash-lite often hit 429 (very low free-tier daily quota).
     # We prefer 2.5-flash (best quality) and the "latest" aliases which Google keeps updated
     # (gemini-flash-lite-latest has the highest free-tier daily quota).
     models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
-    
+
     for i, model in enumerate(models_to_try):
         model_timeout = timeout
         try:
@@ -325,9 +412,11 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
             #  - temperature=0 → determinístico (mesmo edital = mesma extração)
             #  - thinkingConfig.thinkingBudget=0 → desliga "thinking" no 2.5-flash → ~3-5x mais rápido
             #  - responseMimeType/responseSchema → JSON estruturado garantido (sem fences ```)
+            #  - maxOutputTokens=65536 → limite do 2.5-flash. Editais grandes com 30+ perfis
+            #    e conteúdo programático completo estouram fácil 32k tokens.
             generation_config: Dict[str, Any] = {
                 "temperature": 0,
-                "maxOutputTokens": 32000,
+                "maxOutputTokens": 65536,
                 "thinkingConfig": {"thinkingBudget": 0},
             }
             if response_schema is not None:
@@ -337,25 +426,50 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
                 "contents": [{
                     "parts": [
                         {"text": prompt_text},
-                        {"fileData": {"mimeType": "application/pdf", "fileUri": file_uri}}
+                        pdf_part,
                     ]
                 }],
                 "generationConfig": generation_config,
             }
             if system_message:
                 payload["systemInstruction"] = {"parts": [{"text": system_message}]}
-            
+
             resp = requests.post(url, json=payload, timeout=model_timeout)
             logging.info(f"Gemini PDF call (model={model}, timeout={model_timeout}s): status={resp.status_code}")
-            
+
             if resp.status_code == 200:
                 data = resp.json()
-                text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                candidate = (data.get("candidates") or [{}])[0]
+                finish_reason = candidate.get("finishReason", "?")
+                parts = ((candidate.get("content") or {}).get("parts") or [])
+                text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+                # Log crucial diagnostics
+                logging.info(
+                    f"Gemini PDF 200: model={model} finish={finish_reason} "
+                    f"text_len={len(text)} parts={len(parts)}"
+                )
+                if finish_reason == "MAX_TOKENS":
+                    # Truncated → JSON provavelmente inválido. Aborta este modelo e tenta o próximo
+                    logging.warning(f"Gemini PDF response TRUNCATED (MAX_TOKENS) model={model}, trying next model...")
+                    if i == len(models_to_try) - 1:
+                        # Última tentativa: devolve mesmo assim para o caller tentar parsear
+                        if text:
+                            if user_id:
+                                await track_gemini_usage(user_id, model)
+                            return text, "truncated"
+                        return None, "truncated"
+                    continue
                 if text:
                     if user_id:
                         await track_gemini_usage(user_id, model)
                     return text, None
+                # 200 mas sem texto: safety filter provavelmente. Loga e tenta próximo.
+                logging.warning(f"Gemini PDF 200 but empty text (model={model}, finish={finish_reason}). Body snippet: {resp.text[:400]}")
+                if i == len(models_to_try) - 1:
+                    return None, "empty"
+                continue
             elif resp.status_code in (400, 401, 403):
+                logging.error(f"Gemini PDF auth/bad-request (model={model}): {resp.status_code} - {resp.text[:300]}")
                 return None, "invalid"
             elif resp.status_code == 429:
                 if i == len(models_to_try) - 1:
@@ -371,16 +485,16 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
         except requests.exceptions.Timeout:
             if i == len(models_to_try) - 1:
                 logging.error(f"Gemini PDF timeout for all models")
-                return None, "other"
+                return None, "timeout"
             logging.warning(f"Gemini PDF timeout model={model}, trying next...")
             continue
         except Exception as e:
             if i == len(models_to_try) - 1:
-                logging.error(f"Gemini PDF call error (model={model}): {e}")
+                logging.error(f"Gemini PDF call error (model={model}): {e}", exc_info=True)
                 return None, "other"
             logging.warning(f"Gemini PDF error model={model}: {e}, trying next...")
             continue
-    
+
     return None, "other"
 
 
@@ -10562,10 +10676,14 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         )
         if not result:
             if error_type == "quota":
-                raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou.")
+                raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou. Tente amanhã ou crie outra chave em https://aistudio.google.com/apikey.")
             if error_type == "invalid":
-                raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida.")
-            raise HTTPException(status_code=500, detail="Erro ao contactar API Gemini.")
+                raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida ou foi revogada. Gere uma nova em https://aistudio.google.com/apikey.")
+            if error_type == "timeout":
+                raise HTTPException(status_code=500, detail="Google Gemini demorou demais para responder. Tente novamente ou use um PDF menor.")
+            if error_type == "truncated":
+                raise HTTPException(status_code=500, detail="A resposta da IA foi truncada (edital muito grande). Tente enviar apenas as páginas do conteúdo programático.")
+            raise HTTPException(status_code=500, detail=f"Erro ao contactar API Gemini (tipo={error_type or 'unknown'}).")
 
         json_str = result.strip()
         # Remove eventuais code fences caso o modelo ignore o responseMimeType
@@ -10576,7 +10694,23 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         if json_str.endswith("```"):
             json_str = json_str[:-3]
 
-        parsed = json.loads(json_str.strip())
+        # (fallback robusto) Se o JSON estiver truncado, tenta:
+        #   1) recuperar até o último cargo válido cortando após "]" final antes do último trailing
+        #   2) se falhar, tenta json_repair (simple: fechar aspas/colchetes)
+        json_str_clean = json_str.strip()
+        try:
+            parsed = json.loads(json_str_clean)
+        except json.JSONDecodeError as jerr:
+            logging.warning(f"analyze-edital: JSON inválido ({jerr}). Tentando reparo. Tamanho resposta: {len(json_str_clean)} chars.")
+            parsed = _try_repair_json(json_str_clean)
+            if parsed is None:
+                # Logar preview para diagnóstico
+                logging.error(f"analyze-edital: reparo JSON falhou. Head: {json_str_clean[:400]!r} ... Tail: {json_str_clean[-400:]!r}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="A IA devolveu JSON inválido/incompleto. Tente novamente — se persistir, envie um PDF menor ou apenas as páginas do conteúdo programático.",
+                )
+            logging.info(f"analyze-edital: JSON reparado com sucesso. Cargos recuperados: {len(parsed.get('cargos') or [])}")
 
         cargos_list = parsed.get("cargos") or []
         # (item 3) — dedup fuzzy para proteger contra o modelo emitir cargos duplicados
@@ -10615,12 +10749,14 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             ),
         }
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logging.error(f"analyze-edital JSONDecodeError (não recuperável): {e}")
         raise HTTPException(status_code=500, detail="Erro ao processar resposta da IA. Tente novamente.")
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao analisar edital: {str(e)}")
+        logging.error(f"analyze-edital exceção inesperada: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao analisar edital: {type(e).__name__}: {str(e)[:200]}")
 
 
 # ========== EDITAIS: LIST / COMPARE / CHAT ==========
