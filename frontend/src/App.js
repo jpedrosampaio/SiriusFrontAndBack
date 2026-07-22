@@ -13,7 +13,39 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import NotificationManager from "@/components/NotificationManager";
 import { GeminiKeyModal } from "@/components/GeminiKeyModal";
 import AiChatModal from "@/components/AiChatModal";
-import { Bot, X } from "lucide-react";
+import { X } from "lucide-react";
+
+function SiriusGoldIcon({ size = "w-4 h-4" }) {
+  return (
+    <svg viewBox="0 0 100 100" className={size}>
+      <defs>
+        <linearGradient id="goldSiriusGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FFD700" />
+          <stop offset="50%" stopColor="#FF8C00" />
+          <stop offset="100%" stopColor="#FFD700" />
+        </linearGradient>
+        <filter id="goldSiriusGlow">
+          <feGaussianBlur stdDeviation="1.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <polygon points="31,20 39,41 23,43" fill="url(#goldSiriusGrad)" opacity="0.9"/>
+      <polygon points="69,20 61,41 77,43" fill="url(#goldSiriusGrad)" opacity="0.9"/>
+      <path d="M50,82 L35,66 L27,51 L28,41 L37,37 L43,43 L50,39 L57,43 L63,37 L72,41 L73,51 L65,66 Z"
+            fill="url(#goldSiriusGrad)" filter="url(#goldSiriusGlow)"/>
+      <path d="M50,41 L44,47 L39,51 L43,55 L50,53 L57,55 L61,51 L56,47 Z" fill="#050505" opacity="0.35"/>
+      <ellipse cx="41" cy="53" rx="4.3" ry="2.8" fill="#050505"/>
+      <ellipse cx="59" cy="53" rx="4.3" ry="2.8" fill="#050505"/>
+      <ellipse cx="42" cy="53" rx="1.8" ry="1.4" fill="#FFD700" opacity="0.9"/>
+      <ellipse cx="60" cy="53" rx="1.8" ry="1.4" fill="#FFD700" opacity="0.9"/>
+      <path d="M50,63 L48,65 L50,67 L52,65 Z" fill="#050505"/>
+      <line x1="50" y1="67" x2="50" y2="71" stroke="#050505" strokeWidth="0.6"/>
+      <polygon points="50,8 51.5,13 56,13 52.5,16 54,21 50,18 46,21 47.5,16 44,13 48.5,13"
+               fill="#FFD700" filter="url(#goldSiriusGlow)"/>
+      <circle cx="50" cy="14.5" r="1.2" fill="white" opacity="0.7"/>
+    </svg>
+  );
+}
 
 // Lazy-loaded pages — keeps initial bundle small
 const Dashboard = React.lazy(() => import("@/pages/Dashboard"));
@@ -96,8 +128,8 @@ function AiFloatingButton() {
         }`}
         style={{ boxShadow: open ? 'none' : '0 4px 24px rgba(255,215,0,0.12)' }}
       >
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#FFD700] to-[#FF8C00] flex items-center justify-center">
-          {open ? <X className="w-4 h-4 text-black" /> : <Bot className="w-4 h-4 text-black" />}
+        <div className="w-7 h-7 rounded-lg bg-[#050505] flex items-center justify-center">
+          {open ? <X className="w-4 h-4 text-[#FFD700]" /> : <SiriusGoldIcon size="w-5 h-5" />}
         </div>
       </button>
       <AiChatModal open={open} onClose={() => setOpen(false)} />

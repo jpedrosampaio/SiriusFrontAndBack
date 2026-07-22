@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Send, User, Bot, Loader2, Sparkles, AppWindow } from 'lucide-react';
+import { X, Send, User, Loader2, Sparkles, AppWindow } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 
@@ -18,8 +18,22 @@ function TypingDots() {
 function MessageAvatar({ role }) {
   if (role === 'assistant') {
     return (
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#FFD700] to-[#FF8C00] flex items-center justify-center shrink-0 mt-1 shadow-lg shadow-[#FFD700]/20">
-        <Sparkles className="w-4 h-4 text-black" />
+      <div className="w-8 h-8 rounded-xl bg-[#050505] flex items-center justify-center shrink-0 mt-1 shadow-lg shadow-[#FFD700]/20 border border-[#FFD700]/20">
+        <svg viewBox="0 0 100 100" className="w-4 h-4">
+          <defs>
+            <linearGradient id="msgGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#FFD700" />
+              <stop offset="50%" stopColor="#FF8C00" />
+              <stop offset="100%" stopColor="#FFD700" />
+            </linearGradient>
+          </defs>
+          <polygon points="32,28 39,43 27,45" fill="url(#msgGoldGrad)" opacity="0.9"/>
+          <polygon points="68,28 61,43 73,45" fill="url(#msgGoldGrad)" opacity="0.9"/>
+          <path d="M50,78 L37,66 L31,55 L32,47 L39,43 L45,48 L50,44 L55,48 L61,43 L68,47 L69,55 L63,66 Z" fill="url(#msgGoldGrad)" opacity="0.95"/>
+          <ellipse cx="42" cy="55" rx="3.5" ry="2.2" fill="#050505"/>
+          <ellipse cx="58" cy="55" rx="3.5" ry="2.2" fill="#050505"/>
+          <polygon points="50,12 51.2,16 55,16 52,18.5 53.2,22.5 50,20 46.8,22.5 48,18.5 45,16 48.8,16" fill="#FFD700"/>
+        </svg>
       </div>
     );
   }
@@ -110,8 +124,29 @@ export default function AiChatModal({ open, onClose }) {
             <div className="absolute inset-0 bg-gradient-to-r from-[#FFD700]/5 to-transparent pointer-events-none" />
             <div className="flex items-center justify-between relative">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FFD700] to-[#FF8C00] flex items-center justify-center shadow-lg shadow-[#FFD700]/20">
-                  <Bot className="w-5 h-5 text-black" />
+                <div className="w-9 h-9 rounded-xl bg-[#050505] flex items-center justify-center shadow-lg shadow-[#FFD700]/20 border border-[#FFD700]/20">
+                  <svg viewBox="0 0 100 100" className="w-5 h-5">
+                    <defs>
+                      <linearGradient id="chatGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#FFD700" />
+                        <stop offset="50%" stopColor="#FF8C00" />
+                        <stop offset="100%" stopColor="#FFD700" />
+                      </linearGradient>
+                      <filter id="chatGoldGlow">
+                        <feGaussianBlur stdDeviation="1" result="blur"/>
+                        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                      </filter>
+                    </defs>
+                    <polygon points="31,24 38,42 25,44" fill="url(#chatGoldGrad)" opacity="0.9"/>
+                    <polygon points="69,24 62,42 75,44" fill="url(#chatGoldGrad)" opacity="0.9"/>
+                    <path d="M50,80 L36,66 L29,53 L30,44 L38,40 L44,45 L50,41 L56,45 L62,40 L70,44 L71,53 L64,66 Z" fill="url(#chatGoldGrad)" filter="url(#chatGoldGlow)"/>
+                    <ellipse cx="41" cy="54" rx="3.8" ry="2.5" fill="#050505"/>
+                    <ellipse cx="59" cy="54" rx="3.8" ry="2.5" fill="#050505"/>
+                    <ellipse cx="42" cy="54" rx="1.6" ry="1.2" fill="#FFD700" opacity="0.9"/>
+                    <ellipse cx="60" cy="54" rx="1.6" ry="1.2" fill="#FFD700" opacity="0.9"/>
+                    <polygon points="50,10 51.3,14.5 55.5,14.5 52.2,17.3 53.5,22 50,19 46.5,22 47.8,17.3 44.5,14.5 48.7,14.5" fill="#FFD700" filter="url(#chatGoldGlow)"/>
+                    <circle cx="50" cy="16" r="1" fill="white" opacity="0.6"/>
+                  </svg>
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
