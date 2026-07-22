@@ -1807,19 +1807,19 @@ export default function Studies() {
                   <div className="flex gap-2 flex-wrap">
                     <Dialog open={showEditalDialog} onOpenChange={setShowEditalDialog}>
                       <DialogTrigger asChild><Button size="sm" className="bg-purple-600 hover:bg-purple-700 h-8 text-xs"><FileUp className="w-3 h-3 mr-1" />Importar Edital</Button></DialogTrigger>
-                      <DialogContent className="bg-[#0A0A0A] border-[#27272A] w-full max-w-xl min-w-0">
+                      <DialogContent className="bg-[#0A0A0A] border-[#27272A] w-[95vw] sm:w-full max-w-xl sm:max-w-2xl">
                         <DialogHeader>
                           <DialogTitle className="flex items-center gap-2"><FileUp className="w-5 h-5 text-purple-400 shrink-0" />Importar Edital de Concurso</DialogTitle>
                           <DialogDescription>Faça upload do PDF do edital e a IA criará um programa de estudos completo com disciplinas, pesos e cronograma.</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-4">
-                          <div className="min-w-0">
+                          <div>
                             <Label className="text-sm font-medium">PDF do Edital *</Label>
                             <div className={`mt-1 border-2 border-dashed rounded-lg p-6 text-center transition-colors ${editalFile ? 'border-purple-500 bg-purple-500/10' : 'border-[#27272A] hover:border-[#3F3F46]'}`}>
                               {editalFile ? (
-                                <div className="flex items-center justify-center gap-2 min-w-0">
+                                <div className="flex items-center justify-center gap-2">
                                   <FileText className="w-5 h-5 text-purple-400 shrink-0" />
-                                  <span className="text-sm text-purple-300 truncate min-w-0">{editalFile.name}</span>
+                                  <span className="text-sm text-purple-300 break-words text-left">{editalFile.name}</span>
                                   <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setEditalFile(null)}><XCircle className="w-4 h-4 text-red-400" /></Button>
                                 </div>
                               ) : (
