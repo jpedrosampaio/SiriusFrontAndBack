@@ -18,6 +18,9 @@ import io
 
 import random
 import requests
+import httpx
+import secrets
+from google.genai import types
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -10514,6 +10517,174 @@ async def delete_simulado(request: Request, simulado_id: str, session_token: Opt
 
 # ========== ANALYZE EDITAL (MULTI-CARGO) ==========
 
+_DISCIPLINA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "nome": {"type": "string"},
+        "peso": {"type": "integer"},
+        "num_questoes": {"type": "integer"},
+        "grupo": {"type": "string"},
+        "topicos": {"type": "array", "items": {"type": "string"}},
+        "conteudo_programatico": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "assunto": {"type": "string"},
+                    "subtopicos": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["assunto"],
+            },
+        },
+    },
+    "required": ["nome"],
+}
+
+
+def _strip_json_fences(s: str) -> str:
+    s = (s or "").strip()
+    if s.startswith("```json"):
+        s = s[7:]
+    if s.startswith("```"):
+        s = s[3:]
+    if s.endswith("```"):
+        s = s[:-3]
+    return s.strip()
+
+
+def _parse_json_lenient(s: str) -> Optional[dict]:
+    s = _strip_json_fences(s)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        return _try_repair_json(s)
+
+
+def _merge_hydrated_disciplinas(cargos_list: List[dict], parsed: dict) -> int:
+    """Merge disciplinas_comuns + específicas (parsed) into cargos without disciplinas. Returns nº hidratado."""
+    comuns = parsed.get("disciplinas_comuns") or []
+    por_cargo = {
+        (c.get("nome") or "").strip().lower(): (c.get("disciplinas") or [])
+        for c in (parsed.get("cargos") or [])
+    }
+    hydrated = 0
+    for cargo in cargos_list:
+        if cargo.get("disciplinas"):
+            continue
+        nome_l = (cargo.get("nome") or "").strip().lower()
+        especificas = por_cargo.get(nome_l)
+        if especificas is None:
+            especificas = next(
+                (v for k, v in por_cargo.items() if k and (k in nome_l or nome_l in k)), None
+            )
+        if especificas is None:
+            from difflib import SequenceMatcher
+            best_k, best_r = None, 0.0
+            for k in por_cargo:
+                r = SequenceMatcher(None, k, nome_l).ratio()
+                if r > best_r:
+                    best_k, best_r = k, r
+            especificas = por_cargo.get(best_k, []) if best_r >= 0.6 else []
+        merged = [dict(d) for d in comuns]
+        nomes_vistos = {(d.get("nome") or "").strip().lower() for d in merged}
+        for d in especificas:
+            nm = (d.get("nome") or "").strip().lower()
+            if nm and nm not in nomes_vistos:
+                merged.append(d)
+                nomes_vistos.add(nm)
+        if merged:
+            cargo["disciplinas"] = merged
+            hydrated += 1
+    return hydrated
+
+
+def _build_hydration_prompt(nomes: List[str]) -> str:
+    lista = "\n".join(f"- {n}" for n in nomes)
+    return f"""Você recebeu um edital de concurso público brasileiro.
+
+Já sabemos que os cargos/perfis abaixo existem neste edital. Sua ÚNICA tarefa agora é extrair as DISCIPLINAS cobradas nas provas de cada um deles:
+
+{lista}
+
+REGRAS:
+1) Se o edital tiver disciplinas COMUNS a todos os cargos (ex: "Conhecimentos Básicos", "Língua Portuguesa para todos os cargos"), coloque-as em "disciplinas_comuns" (com conteúdo programático COMPLETO) e NÃO as repita dentro de cada cargo.
+2) Em "cargos", inclua APENAS as disciplinas ESPECÍFICAS de cada cargo (conhecimentos específicos). Se um cargo não tiver disciplinas específicas próprias, retorne "disciplinas": [] para ele.
+3) Para cada disciplina preencha: "nome", "peso" (inteiro; 1 se não informado), "num_questoes" (inteiro; 0 se não informado), "topicos" (resumo, até 10 itens) e "conteudo_programatico" (lista COMPLETA e FIEL do conteúdo oficial, por assunto/subtópicos).
+4) NUNCA retorne tudo vazio: todo edital tem conteúdo programático. Procure nas seções "DOS CONTEÚDOS PROGRAMÁTICOS", "DO CONTEÚDO PROGRAMÁTICO", "DAS PROVAS", "ANEXO" e tabelas.
+5) Não invente nada que não esteja no edital. Português brasileiro em todos os campos."""
+
+
+_HYDRATION_SYSTEM_MSG = (
+    "Você é um extrator determinístico de conteúdo programático de editais de concursos públicos "
+    "brasileiros. Sua prioridade absoluta é encontrar TODAS as disciplinas e seus conteúdos."
+)
+
+_HYDRATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "disciplinas_comuns": {"type": "array", "items": _DISCIPLINA_SCHEMA},
+        "cargos": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "nome": {"type": "string"},
+                    "disciplinas": {"type": "array", "items": _DISCIPLINA_SCHEMA},
+                },
+                "required": ["nome"],
+            },
+        },
+    },
+    "required": ["disciplinas_comuns", "cargos"],
+}
+
+
+async def _hydrate_missing_disciplinas_pdf(pdf_content: bytes, cargos_list: List[dict], api_key: str, user_id: str) -> int:
+    """2º passo do pipeline: extrai disciplinas dos cargos que vieram sem, via PDF. Returns nº hidratado."""
+    missing = [c for c in cargos_list if not c.get("disciplinas")]
+    if not missing:
+        return 0
+    nomes = [c.get("nome", "") for c in missing]
+    logging.info(f"analyze-edital: {len(missing)} cargo(s) sem disciplinas — iniciando hidratação (passo 2)")
+    result, err = await call_gemini_with_pdf(
+        pdf_content, _build_hydration_prompt(nomes), _HYDRATION_SYSTEM_MSG, api_key,
+        timeout=180, response_schema=_HYDRATION_SCHEMA, user_id=user_id,
+    )
+    if not result:
+        logging.warning(f"analyze-edital: hidratação de disciplinas via PDF falhou (err={err})")
+        return 0
+    parsed = _parse_json_lenient(result)
+    if not parsed:
+        logging.warning("analyze-edital: hidratação retornou JSON inválido/irreparável")
+        return 0
+    hydrated = _merge_hydrated_disciplinas(cargos_list, parsed)
+    logging.info(f"analyze-edital: hidratação preencheu disciplinas de {hydrated}/{len(missing)} cargo(s)")
+    return hydrated
+
+
+async def _hydrate_disciplinas_from_text(pdf_text: str, cargo_nome: str, api_key: str, user_id: str) -> List[dict]:
+    """Fallback no import: extrai disciplinas de um cargo usando o texto do PDF armazenado na análise."""
+    if not pdf_text or not pdf_text.strip():
+        return []
+    prompt = (
+        _build_hydration_prompt([cargo_nome])
+        + "\n\nResponda APENAS com JSON válido no formato: "
+          '{"disciplinas_comuns": [...], "cargos": [{"nome": "...", "disciplinas": [...]}]}'
+        + f"\n\nTEXTO COMPLETO DO EDITAL:\n{pdf_text[:150_000]}"
+    )
+    result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=150, user_id=user_id)
+    if not result:
+        logging.warning(f"import-edital: hidratação por texto falhou (err={err})")
+        return []
+    parsed = _parse_json_lenient(result)
+    if not parsed:
+        logging.warning("import-edital: hidratação por texto retornou JSON inválido")
+        return []
+    fake_cargo = {"nome": cargo_nome, "disciplinas": []}
+    _merge_hydrated_disciplinas([fake_cargo], parsed)
+    return fake_cargo.get("disciplinas") or []
+
+
 @api_router.post("/study/programs/analyze-edital")
 async def analyze_edital_cargos(
     request: Request,
@@ -10556,8 +10727,8 @@ async def analyze_edital_cargos(
         {"user_id": user.user_id, "pdf_hash": pdf_hash},
         {"_id": 0}
     )
-    if cached and cached.get("cargos"):
-        # Refresh expiry and return cached
+    if cached and cached.get("cargos") and any(c.get("disciplinas") for c in cached["cargos"]):
+        # Refresh expiry and return cached (só usa cache se houver disciplinas extraídas)
         new_analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
         cached_copy = {
             "analysis_id": new_analysis_id,
@@ -10685,6 +10856,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
    - "conteudo_programatico" = lista COMPLETA e FIEL do conteúdo programático oficial, por assunto/subtópico.
 6) Nunca invente cargos, disciplinas ou tópicos. Se algo não estiver no edital, use "" ou 0.
 7) Português brasileiro em TODOS os campos.
+8) DISCIPLINAS NUNCA VAZIAS — todo edital tem conteúdo programático (procure em "DOS CONTEÚDOS PROGRAMÁTICOS", "DAS PROVAS", anexos e tabelas). Se o edital define disciplinas COMUNS a todos os cargos (ex: "Conhecimentos Básicos para todos os cargos"), REPLIQUE essas disciplinas dentro de CADA cargo, além das específicas. É PROIBIDO retornar um cargo com "disciplinas": [].
 {hint_block}
 """
 
@@ -10742,6 +10914,12 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         # com grafias ligeiramente diferentes ("Analista TI - Redes" e "Analista de TI Redes").
         cargos_list = dedup_cargos_fuzzy(cargos_list, threshold=0.92)
         parsed["multiple_cargos"] = len(cargos_list) > 1
+
+        # Passo 2 do pipeline: se o modelo enumerou cargos mas não extraiu disciplinas
+        # (comum quando o fallback cai em modelos "lite"), hidrata com uma 2ª chamada
+        # focada apenas em disciplinas/conteúdo programático.
+        if cargos_list and any(not c.get("disciplinas") for c in cargos_list):
+            await _hydrate_missing_disciplinas_pdf(content, cargos_list, user_api_key, user.user_id)
 
         analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
         # (item 6) — guardamos o texto extraído do PDF para alimentar o chat sobre este edital
@@ -11898,7 +12076,7 @@ Use temas ATUAIS e RELEVANTES de {datetime.now().year}. Varie entre:
         if json_str.endswith("```"): json_str = json_str[:-3]
         theme = json.loads(json_str.strip())
         return {"success": True, "theme": theme}
-    except:
+    except Exception:
         return {"success": True, "theme": {
             "tema": "O papel da tecnologia na promoção da inclusão social no Brasil",
             "tipo_texto": "Dissertativo-Argumentativo",
@@ -12005,7 +12183,7 @@ Ao final, inclua um bloco JSON separado com:
                     }
                     await db.recipes.insert_one(recipe_doc)
                     saved_item = {"type": "recipe", "id": recipe_id, "name": recipe_data.get("name", "")}
-            except: pass
+            except Exception: pass
 
         elif intent == "workout":
             prompt = f"""O usuário pediu: "{content}"
@@ -12030,7 +12208,7 @@ Ao final, inclua um bloco JSON:
                     }
                     await db.workout_plans.insert_one(plan_doc)
                     saved_item = {"type": "workout", "id": plan_id, "name": plan_data.get("name", "")}
-            except: pass
+            except Exception: pass
 
         # FINANCE: Register Income
         elif intent == "finance_income":
@@ -12154,7 +12332,7 @@ SOMENTE o JSON array.'''
                     ai_response_text += "\n\n💡 As transações já estão disponíveis na aba Finanças!"
                 else:
                     ai_response_text = "Não consegui identificar os valores. Pode detalhar melhor?"
-            except:
+            except Exception:
                 ai_response_text = "Não consegui processar as transações mistas. Tente uma de cada vez."
 
         # FINANCE: Report
@@ -12224,7 +12402,7 @@ Responda SOMENTE com JSON:
 🔴 Prioridade: {task_data.get('priority', 'medium')}
 
 💡 A tarefa está disponível na aba Tarefas!"""
-            except:
+            except Exception:
                 ai_response_text = "Não consegui criar a tarefa. Tente: 'Criar tarefa: Estudar direito constitucional até sexta'"
 
         # GOAL: Create goal
@@ -12264,7 +12442,7 @@ Responda SOMENTE com JSON:
 📂 Categoria: {goal_data.get('category', 'pessoal')}
 
 💡 A meta está disponível na aba Metas!"""
-            except:
+            except Exception:
                 ai_response_text = "Não consegui criar a meta. Tente: 'Minha meta é economizar 5000 até dezembro'"
 
         else:
@@ -12288,7 +12466,7 @@ Responda SOMENTE com JSON:
                 try:
                     bd = datetime.fromisoformat(user_birth)
                     user_age = str(now_utc.year - bd.year - ((now_utc.month, now_utc.day) < (bd.month, bd.day)))
-                except: pass
+                except Exception: pass
             
             # === FINANCE CONTEXT (current + last month for trends) ===
             fin_trans = await db.transactions.find({"user_id": user.user_id, "date": {"$regex": f"^{current_month}"}}, {"_id": 0}).to_list(100)
@@ -12510,7 +12688,7 @@ Responda SOMENTE com JSON:
                         proactive_hints.append(f"O usuário não treina há {days_since} dias - sugira gentilmente retomar")
                     if days_since == 0 and avg_difficulty >= 4:
                         proactive_hints.append("Treinou hoje com dificuldade alta - sugira descanso ou alongamento")
-                except: pass
+                except Exception: pass
             elif workouts_this_month == 0:
                 proactive_hints.append("Nenhum treino este mês - motive a começar uma rotina de exercícios")
             
@@ -12541,7 +12719,7 @@ Responda SOMENTE com JSON:
                             days_left = (td - now_utc).days
                             if 0 < days_left <= 30:
                                 proactive_hints.append(f"Prova de '{sp['name'][:30]}' em {days_left} dias - motivar intensificação dos estudos")
-                        except: pass
+                        except Exception: pass
             
             # Goal proactivity
             for g in goals:
@@ -12551,7 +12729,7 @@ Responda SOMENTE com JSON:
                         days_left = (td - now_utc).days
                         if 0 < days_left <= 14:
                             proactive_hints.append(f"Meta '{g['title'][:25]}' vence em {days_left} dias")
-                    except: pass
+                    except Exception: pass
             
             # Tasks proactivity
             if high_priority_tasks and tasks_completed == 0 and now_utc.hour >= 15:
@@ -14328,65 +14506,6 @@ async def export_nutrition(request: Request, format: str, session_token: Optiona
     raise HTTPException(status_code=400, detail="Formato deve ser 'excel' ou 'pdf'")
 
 
-    # Check if user just completed a workout -> suggest meal
-    recent_sessions = await db.workout_sessions.find(
-        {"user_id": user.user_id, "status": "completed"},
-        {"_id": 0}
-    ).sort("completed_at", -1).to_list(1)
-    
-    if recent_sessions:
-        last_session = recent_sessions[0]
-        completed_at = last_session.get("completed_at", "")
-        if completed_at and completed_at[:10] == today:
-            suggestions.append({
-                "type": "post_workout",
-                "icon": "🍗",
-                "title": "Refeição pós-treino",
-                "message": "Você treinou hoje! Consuma proteínas e carboidratos nas próximas 2 horas para melhor recuperação.",
-                "action": "Ir para Nutrição",
-                "action_link": "/nutrition"
-            })
-    
-    # Check if studying too long -> suggest break
-    study_today = await db.study_sessions.find(
-        {"user_id": user.user_id, "date": today},
-        {"_id": 0}
-    ).to_list(50)
-    total_study_min = sum(s.get('duration_minutes', 0) for s in study_today)
-    if total_study_min > 120:
-        suggestions.append({
-            "type": "study_break",
-            "icon": "🧘",
-            "title": "Hora de uma pausa",
-            "message": f"Você já estudou {total_study_min} minutos hoje. Uma caminhada de 15 min melhora a concentração!",
-            "action": "Ver treinos rápidos",
-            "action_link": "/workouts"
-        })
-    
-    # Check spending pattern -> suggest budget
-    month = today[:7]
-    month_expenses = await db.transactions.find(
-        {"user_id": user.user_id, "date": {"$regex": f"^{month}"}, "type": "expense"},
-        {"_id": 0}
-    ).to_list(500)
-    
-    total_month_expense = sum(t.get('amount', 0) for t in month_expenses)
-    day_of_month = int(today[8:10])
-    if day_of_month > 0:
-        daily_avg = total_month_expense / day_of_month
-        projected_month = daily_avg * 30
-        if projected_month > total_month_expense * 1.3 and day_of_month < 20:
-            suggestions.append({
-                "type": "finance_alert",
-                "icon": "📊",
-                "title": "Projeção de gastos",
-                "message": f"Seus gastos projetados para o mês: R$ {projected_month:.2f}. Revise seus orçamentos!",
-                "action": "Ver finanças",
-                "action_link": "/finance"
-            })
-    
-    return {"suggestions": suggestions}
-
 
 # ========== TELEGRAM BOT INTEGRATION ==========
 # import httpx
@@ -14415,7 +14534,7 @@ async def setup_telegram_webhook(request: Request, session_token: Optional[str] 
     try:
         body = await request.json()
         backend_url = body.get("backend_url", "").rstrip("/")
-    except:
+    except Exception:
         pass
     
     # Fallback: use BACKEND_PUBLIC_URL env var
@@ -14489,7 +14608,7 @@ async def link_telegram(request: Request, session_token: Optional[str] = Cookie(
                 bot_data = resp.json()
                 if bot_data.get("ok"):
                     bot_info = bot_data["result"]
-        except:
+        except Exception:
             pass
     
     bot_username = bot_info.get("username", "") if bot_info else ""
@@ -14531,7 +14650,7 @@ async def get_telegram_status(request: Request, session_token: Optional[str] = C
                 bot_data = resp.json()
                 if bot_data.get("ok"):
                     bot_username = bot_data["result"].get("username", "")
-        except:
+        except Exception:
             pass
     
     return {
@@ -14791,7 +14910,7 @@ async def handle_telegram_message(chat_id: int, text: str, telegram_name: str = 
                 "Você é um mestre motivacional."
             )
             await send_telegram_message(chat_id, quote_resp.strip())
-        except:
+        except Exception:
             await send_telegram_message(chat_id, random.choice(fallback_quotes))
         return
     

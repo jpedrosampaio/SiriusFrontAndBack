@@ -325,11 +325,13 @@ Exemplo de resposta JSON:
                 }
                 await db.transactions.insert_one(transaction_doc)
                 ai_message["transaction_data"] = transaction_data
-        except:
+        except Exception:
             pass
         
         await db.chat_messages.insert_one(ai_message)
         
+        user_message.pop('_id', None)
+        ai_message.pop('_id', None)
         user_message['created_at'] = datetime.fromisoformat(user_message['created_at'])
         ai_message['created_at'] = datetime.fromisoformat(ai_message['created_at'])
         
