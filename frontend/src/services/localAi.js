@@ -1,22 +1,9 @@
 import { pipeline, env } from '@xenova/transformers';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
-
 env.allowWasm = true;
 env.allowRemoteModels = true;
 env.backends.onnx.wasm.proxy = false;
 env.backends.onnx.wasm.numThreads = 1;
-env.remoteHost = BACKEND_URL;
-env.remotePathTemplate = '/api/hf/{model}/resolve/main/{file}';
-
-const origFetch = window.fetch.bind(window);
-window.fetch = (url, opts) => {
-  const urlStr = typeof url === 'string' ? url : url?.url || '';
-  if (urlStr.includes('huggingface.co/api/')) {
-    url = urlStr.replace('https://huggingface.co/api/', `${BACKEND_URL}/api/hf-api/`);
-  }
-  return origFetch(url, opts);
-};
 
 class LocalAIService {
   constructor() {

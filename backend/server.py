@@ -14240,24 +14240,41 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
         hf_token = user_hf_key or HF_API_TOKEN
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
-        resp = requests.post(
-            "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct",
-            json={"inputs": prompt, "parameters": {"max_new_tokens": 512, "temperature": 0.7, "return_full_text": False}},
-            headers=headers,
-            timeout=60,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            text = ""
-            if isinstance(data, list) and len(data) > 0:
-                text = data[0].get("generated_text", "")
-            elif isinstance(data, dict):
-                text = data.get("generated_text", "")
-            return {"reply": text.strip() if text else "Modelo não gerou resposta."}
-        return {"reply": f"⚠️ Serviço de IA temporariamente indisponível (HTTP {resp.status_code}). Tente novamente mais tarde."}
+        models_to_try = [
+            "HuggingFaceH4/zephyr-7b-beta",
+            "microsoft/Phi-3-mini-4k-instruct",
+            "mistralai/Mistral-7B-Instruct-v0.3",
+        ]
+        reply = None
+        for model in models_to_try:
+            try:
+                api_url = f"https://api-inference.huggingface.co/models/{model}"
+                payload = {"inputs": prompt, "parameters": {"max_new_tokens": 512, "temperature": 0.7}}
+                resp = requests.post(api_url, json=payload, headers=headers, timeout=30)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        reply = data[0].get("generated_text", "")
+                    elif isinstance(data, dict):
+                        reply = data.get("generated_text", "")
+                    if reply:
+                        break
+                    logging.warning(f"Model {model} returned empty response")
+                elif resp.status_code == 503:
+                    logging.warning(f"Model {model} is loading (503), trying next")
+                    continue
+                else:
+                    logging.warning(f"Model {model} returned {resp.status_code}: {resp.text[:200]}")
+            except Exception as e:
+                logging.warning(f"Model {model} error: {e}")
+                continue
+        if reply:
+            return {"reply": reply.strip()}
+        return {"reply": "⚠️ Nenhum modelo de IA disponível no momento. Tente novamente mais tarde."}
     except Exception as e:
         logging.error(f"AI chat error: {e}")
-        return {"reply": "⚠️ Erro ao contactar serviço de IA. Tente novamente."}
+        err_msg = str(e)[:200]
+        return {"reply": f"⚠️ Erro no servidor de IA: {err_msg}"}
 
 
 @api_router.get("/hf/{path:path}")
