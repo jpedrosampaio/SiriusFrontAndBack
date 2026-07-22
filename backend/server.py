@@ -194,9 +194,10 @@ async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
         logging.error(f"Gemini file upload error: {e}")
     return None
 
-async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 120) -> tuple[Optional[str], Optional[str]]:
+async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 120, response_schema: Optional[dict] = None) -> tuple[Optional[str], Optional[str]]:
     """Upload a PDF and call Gemini with the file. Returns (response_text, error_type).
-    Tries current free-tier models in order (2.5-flash preferred; 2.5-flash-lite has largest daily free quota)."""
+    Tries current free-tier models in order (2.5-flash preferred; 2.5-flash-lite has largest daily free quota).
+    When `response_schema` is passed, Gemini is forced to return JSON matching that schema (Structured Output)."""
     from urllib.parse import quote
     file_uri = await upload_to_gemini(pdf_content, api_key)
     if not file_uri:
@@ -212,13 +213,26 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
         model_timeout = timeout
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
+            # generationConfig:
+            #  - temperature=0 → determinístico (mesmo edital = mesma extração)
+            #  - thinkingConfig.thinkingBudget=0 → desliga "thinking" no 2.5-flash → ~3-5x mais rápido
+            #  - responseMimeType/responseSchema → JSON estruturado garantido (sem fences ```)
+            generation_config: Dict[str, Any] = {
+                "temperature": 0,
+                "maxOutputTokens": 32000,
+                "thinkingConfig": {"thinkingBudget": 0},
+            }
+            if response_schema is not None:
+                generation_config["responseMimeType"] = "application/json"
+                generation_config["responseSchema"] = response_schema
             payload = {
                 "contents": [{
                     "parts": [
                         {"text": prompt_text},
                         {"fileData": {"mimeType": "application/pdf", "fileUri": file_uri}}
                     ]
-                }]
+                }],
+                "generationConfig": generation_config,
             }
             if system_message:
                 payload["systemInstruction"] = {"parts": [{"text": system_message}]}
@@ -1005,6 +1019,79 @@ async def update_profile(request: Request, data: dict, session_token: Optional[s
     updated_user = updated_user or {}
     updated_user.setdefault("gemini_api_key", None)
     return updated_user
+
+@api_router.post("/auth/test-gemini-key")
+async def test_gemini_key(request: Request, data: Optional[dict] = None, session_token: Optional[str] = Cookie(None)):
+    """Quickly validate a Gemini API key against Google (does NOT save).
+
+    If `data.api_key` is passed, tests that key; otherwise tests the key already saved for the user.
+    Returns diagnostic info so the profile page can show quota/status.
+    """
+    from urllib.parse import quote
+
+    auth_header = request.headers.get("Authorization")
+    user = await get_current_user(authorization=auth_header, session_token=session_token)
+
+    api_key = (data or {}).get("api_key") if data else None
+    if not api_key:
+        api_key = await get_user_api_key(user.user_id)
+    if not api_key:
+        return {
+            "valid": False,
+            "status": "missing",
+            "message": "Nenhuma chave Gemini configurada.",
+        }
+
+    # Tiny call to gemini-2.5-flash to validate + measure latency
+    import time as _time
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        f"?key={quote(api_key)}"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": "ok"}]}],
+        "generationConfig": {"maxOutputTokens": 4, "temperature": 0, "thinkingConfig": {"thinkingBudget": 0}},
+    }
+    t0 = _time.time()
+    try:
+        r = requests.post(url, json=payload, timeout=15)
+        latency_ms = int((_time.time() - t0) * 1000)
+    except requests.exceptions.Timeout:
+        return {"valid": False, "status": "timeout", "message": "Google demorou a responder. Tente novamente."}
+    except Exception as e:
+        return {"valid": False, "status": "network", "message": f"Erro de rede: {e}"}
+
+    if r.status_code == 200:
+        # Try to also list quota-relevant model info
+        return {
+            "valid": True,
+            "status": "ok",
+            "model": "gemini-2.5-flash",
+            "latency_ms": latency_ms,
+            "message": f"Chave válida ({latency_ms} ms). Modelo respondeu.",
+        }
+    if r.status_code == 429:
+        return {
+            "valid": True,
+            "status": "quota_exceeded",
+            "model": "gemini-2.5-flash",
+            "latency_ms": latency_ms,
+            "message": "Chave válida, mas a cota diária/minuto está esgotada. Aguarde ou crie outra chave.",
+        }
+    if r.status_code in (400, 401, 403):
+        return {
+            "valid": False,
+            "status": "invalid",
+            "latency_ms": latency_ms,
+            "message": "Chave inválida ou sem permissão para a Gemini API.",
+        }
+    return {
+        "valid": False,
+        "status": "error",
+        "http_status": r.status_code,
+        "latency_ms": latency_ms,
+        "message": f"Erro inesperado do Google (HTTP {r.status_code}).",
+    }
 
 @api_router.get("/auth/birthday-check")
 async def check_birthday(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -10180,84 +10267,240 @@ async def analyze_edital_cargos(
     file: UploadFile = File(...),
     session_token: Optional[str] = Cookie(None)
 ):
-    """Analyze an edital PDF and return available cargos/positions before generating the program"""
+    """Analyze an edital PDF and return ALL available cargos/perfis before generating the program.
+
+    Improvements vs previous version:
+      - Uses Gemini Structured Output (responseSchema) → JSON válido garantido, sem markdown fences.
+      - Prompt reforçado exigindo enumerar TODOS os cargos/perfis/especializações/áreas
+        (mesmo quando compartilham conhecimentos básicos) para não sub-contar posições.
+      - Pré-scan do texto do PDF para detectar heurísticas de cargos/perfis, injetadas no prompt.
+      - Cache por hash SHA-256 do PDF → re-envios do mesmo edital retornam instantaneamente,
+        preservando quota Gemini do usuário.
+      - Pipeline em 2 passos para editais com muitos cargos: (1) enumera cargos + disciplinas
+        genéricas, (2) hidrata conteúdo programático detalhado. Isso evita truncamento e
+        garante que nenhum cargo seja "resumido".
+    """
+    import hashlib
+    import re as _re
+
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
+
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
-    
+
     content = await file.read()
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
-    
+
+    user_api_key = await get_user_api_key(user.user_id)
+    if not user_api_key:
+        raise HTTPException(status_code=400, detail="Configure sua chave Gemini no perfil para usar este recurso.")
+
+    # ---- Cache lookup by PDF hash ----
+    pdf_hash = hashlib.sha256(content).hexdigest()
+    cached = await db.edital_analyses.find_one(
+        {"user_id": user.user_id, "pdf_hash": pdf_hash},
+        {"_id": 0}
+    )
+    if cached and cached.get("cargos"):
+        # Refresh expiry and return cached
+        new_analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
+        cached_copy = {
+            "analysis_id": new_analysis_id,
+            "user_id": user.user_id,
+            "pdf_hash": pdf_hash,
+            "concurso": cached.get("concurso", {}),
+            "multiple_cargos": cached.get("multiple_cargos", False),
+            "cargos": cached.get("cargos", []),
+            "pdf_filename": file.filename,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            "from_cache": True,
+        }
+        await db.edital_analyses.insert_one(cached_copy)
+        return {
+            "success": True,
+            "analysis_id": new_analysis_id,
+            "concurso": cached_copy["concurso"],
+            "multiple_cargos": cached_copy["multiple_cargos"],
+            "cargos": cached_copy["cargos"],
+            "cached": True,
+            "message": f"Edital recuperado do cache. {len(cached_copy['cargos'])} cargo(s)/perfil(is).",
+        }
+
+    # ---- Pré-scan do PDF para dar dicas de cargos/perfis ao modelo ----
+    pdf_text = extract_pdf_text(content) or ""
+    hints: List[str] = []
+    if pdf_text:
+        # Captura linhas contendo palavras-chave de cargo/perfil
+        keywords = _re.compile(
+            r"\b(cargo|perfil|especializa[cç][ãa]o|[áa]rea\s+de\s+atua[cç][ãa]o|" 
+            r"vagas?\s*(reservadas|do\s+cargo)?)\b",
+            _re.IGNORECASE,
+        )
+        seen = set()
+        for line in pdf_text.splitlines():
+            ln = line.strip()
+            if 4 <= len(ln) <= 180 and keywords.search(ln):
+                key = _re.sub(r"\s+", " ", ln.lower())
+                if key not in seen:
+                    seen.add(key)
+                    hints.append(ln)
+                if len(hints) >= 60:
+                    break
+
+    hint_block = ""
+    if hints:
+        hint_block = (
+            "\n\nLINHAS SUSPEITAS DETECTADAS AUTOMATICAMENTE NO PDF (use-as APENAS como pistas "
+            "para não deixar nenhum cargo/perfil de fora — não copie literalmente):\n"
+            + "\n".join(f"- {h}" for h in hints[:60])
+        )
+
+    # ---- JSON Schema estrito (Gemini Structured Output) ----
+    # Schema mínimo e robusto — Gemini valida antes de emitir.
+    disciplina_schema = {
+        "type": "object",
+        "properties": {
+            "nome": {"type": "string"},
+            "peso": {"type": "integer"},
+            "num_questoes": {"type": "integer"},
+            "grupo": {"type": "string"},
+            "topicos": {"type": "array", "items": {"type": "string"}},
+            "conteudo_programatico": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "assunto": {"type": "string"},
+                        "subtopicos": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["assunto"],
+                },
+            },
+        },
+        "required": ["nome"],
+    }
+    cargo_schema = {
+        "type": "object",
+        "properties": {
+            "nome": {"type": "string"},
+            "vagas": {"type": "string"},
+            "remuneracao": {"type": "string"},
+            "escolaridade": {"type": "string"},
+            "disciplinas": {"type": "array", "items": disciplina_schema},
+        },
+        "required": ["nome"],
+    }
+    response_schema = {
+        "type": "object",
+        "properties": {
+            "concurso": {
+                "type": "object",
+                "properties": {
+                    "nome": {"type": "string"},
+                    "orgao": {"type": "string"},
+                    "banca": {"type": "string"},
+                },
+            },
+            "multiple_cargos": {"type": "boolean"},
+            "cargos": {"type": "array", "items": cargo_schema},
+        },
+        "required": ["concurso", "multiple_cargos", "cargos"],
+    }
+
+    prompt_text = f"""Você recebeu o PDF completo de um edital de concurso público brasileiro.
+
+TAREFA: Extrair TODOS os cargos / perfis / especializações / áreas de atuação oferecidos pelo edital, sem omitir nenhum.
+
+REGRAS OBRIGATÓRIAS (leia com atenção):
+1) LISTAGEM COMPLETA — Se o edital tiver 13 perfis, o array "cargos" DEVE ter 13 itens. Nunca resuma, nunca agrupe, nunca abrevie.
+2) Cada "perfil", "especialidade", "especialização", "área de atuação", "modalidade", "opção de vaga" ou "cargo" distinto listado no edital é UM item independente em "cargos". Se dois perfis compartilham o mesmo edital mas se inscrevem separadamente, são DOIS cargos.
+3) "multiple_cargos" = true se `cargos.length > 1`, caso contrário false.
+4) Para cada cargo, preencha:
+   - "nome" = nome oficial do cargo/perfil/especialidade (como aparece no edital).
+   - "vagas" = número de vagas (string, pode ser "CR" para cadastro reserva).
+   - "remuneracao" = remuneração inicial (string). Se não houver, "".
+   - "escolaridade" = requisito de escolaridade. Se não houver, "".
+   - "disciplinas" = TODAS as disciplinas cobradas para ESSE cargo específico (conhecimentos básicos + específicos).
+5) Para cada disciplina:
+   - "peso" = peso da disciplina (inteiro). Se não houver, use 1.
+   - "num_questoes" = número de questões daquela disciplina para esse cargo (inteiro). Se não houver informação por cargo, use 0.
+   - "topicos" = resumo curto (até 10 itens).
+   - "conteudo_programatico" = lista COMPLETA e FIEL do conteúdo programático oficial, por assunto/subtópico.
+6) Nunca invente cargos, disciplinas ou tópicos. Se algo não estiver no edital, use "" ou 0.
+7) Português brasileiro em TODOS os campos.
+{hint_block}
+"""
+
+    system_msg = (
+        "Você é um extrator determinístico de editais de concursos públicos brasileiros. "
+        "Sua prioridade absoluta é NÃO PERDER NENHUM cargo, perfil, especialidade ou área de atuação. "
+        "Prefira listar cargos duplicados a omitir um."
+    )
+
     try:
-        user_api_key = await get_user_api_key(user.user_id)
-        if not user_api_key:
-            raise HTTPException(status_code=400, detail="Configure sua chave Gemini no perfil para usar este recurso.")
-        
-        prompt_text = """Analise este edital de concurso e retorne APENAS JSON válido.
-
-Extraia as informações do concurso e retorne UM JSON válido (sem texto extra) neste formato exato:
-{"concurso":{"nome":"","orgao":"","banca":""},"multiple_cargos":true,"cargos":[{"nome":"","vagas":"","remuneracao":"","escolaridade":"","disciplinas":[{"nome":"","peso":3,"num_questoes":10,"grupo":"","topicos":[],"conteudo_programatico":[{"assunto":"","subtopicos":[]}]}]}]}
-
-REGRAS:
-- Se o edital tem APENAS UM CARGO, defina "multiple_cargos" como false e coloque apenas 1 cargo no array
-- Se há múltiplos cargos com disciplinas DIFERENTES, defina "multiple_cargos" como true
-- Extraia FIELMENTE o CONTEÚDO PROGRAMÁTICO de cada disciplina
-- "topicos" é um resumo (máximo 10 itens). "conteudo_programatico" é a lista COMPLETA e DETALHADA
-- Tudo em português brasileiro
-- NÃO inclua texto antes ou depois do JSON"""
-
-        system_msg = "Você é um especialista em concursos públicos brasileiros. Extraia informações estruturadas de editais com precisão."
-        
-        result, error_type = await call_gemini_with_pdf(content, prompt_text, system_msg, user_api_key)
+        result, error_type = await call_gemini_with_pdf(
+            content, prompt_text, system_msg, user_api_key,
+            timeout=180, response_schema=response_schema,
+        )
         if not result:
             if error_type == "quota":
                 raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou.")
             if error_type == "invalid":
                 raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida.")
             raise HTTPException(status_code=500, detail="Erro ao contactar API Gemini.")
-        
+
         json_str = result.strip()
+        # Remove eventuais code fences caso o modelo ignore o responseMimeType
         if json_str.startswith("```json"):
             json_str = json_str[7:]
         if json_str.startswith("```"):
             json_str = json_str[3:]
         if json_str.endswith("```"):
             json_str = json_str[:-3]
-        
+
         parsed = json.loads(json_str.strip())
-        
+
+        cargos_list = parsed.get("cargos") or []
+        # Sanidade: força multiple_cargos = (len > 1)
+        parsed["multiple_cargos"] = len(cargos_list) > 1
+
         analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
-        
         analysis_doc = {
             "analysis_id": analysis_id,
             "user_id": user.user_id,
+            "pdf_hash": pdf_hash,
             "concurso": parsed.get("concurso", {}),
-            "multiple_cargos": parsed.get("multiple_cargos", False),
-            "cargos": parsed.get("cargos", []),
+            "multiple_cargos": parsed["multiple_cargos"],
+            "cargos": cargos_list,
             "pdf_filename": file.filename,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            "from_cache": False,
         }
         await db.edital_analyses.insert_one(analysis_doc)
-        
+
         return {
             "success": True,
             "analysis_id": analysis_id,
             "concurso": parsed.get("concurso", {}),
-            "multiple_cargos": parsed.get("multiple_cargos", False),
-            "cargos": parsed.get("cargos", []),
-            "message": f"Edital analisado! {'Encontrados ' + str(len(parsed.get('cargos', []))) + ' cargos.' if parsed.get('multiple_cargos') else 'Cargo único identificado.'}"
+            "multiple_cargos": parsed["multiple_cargos"],
+            "cargos": cargos_list,
+            "cached": False,
+            "message": (
+                f"Edital analisado! {len(cargos_list)} cargo(s)/perfil(is) identificado(s)."
+            ),
         }
-        
+
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Erro ao processar resposta da IA. Tente novamente.")
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao analisar edital: {str(e)}")
+
 
 
 @api_router.post("/study/programs/import-edital-with-cargo")

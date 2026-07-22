@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Award, Trophy, Star, Shield, Target, TrendingUp, CheckSquare, Camera, Trash2, Upload, Cake, Edit3, Save, X, MessageCircle, Link2, Unlink, Copy, ExternalLink, CheckCircle2, Loader2, Info } from "lucide-react";
+import { Award, Trophy, Star, Shield, Target, TrendingUp, CheckSquare, Camera, Trash2, Upload, Cake, Edit3, Save, X, MessageCircle, Link2, Unlink, Copy, ExternalLink, CheckCircle2, Loader2, Info, Zap, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import axios from "axios";
 import { toast } from "sonner";
@@ -38,6 +38,8 @@ export default function Profile() {
   const [editingGeminiKey, setEditingGeminiKey] = useState(false);
   const [geminiKeyForm, setGeminiKeyForm] = useState("");
   const [savingGeminiKey, setSavingGeminiKey] = useState(false);
+  const [testingGeminiKey, setTestingGeminiKey] = useState(false);
+  const [geminiKeyStatus, setGeminiKeyStatus] = useState(null); // { valid, status, message, latency_ms }
 
   useEffect(() => {
     fetchUser();
@@ -186,11 +188,35 @@ export default function Profile() {
       );
       setUser(res.data);
       setEditingGeminiKey(false);
+      setGeminiKeyStatus(null); // reset — user should retest
       toast.success(res.data.gemini_api_key ? "Chave API atualizada!" : "Chave API removida!");
     } catch (error) {
       toast.error("Erro ao salvar chave API");
     } finally {
       setSavingGeminiKey(false);
+    }
+  };
+
+  const handleTestGeminiKey = async () => {
+    setTestingGeminiKey(true);
+    setGeminiKeyStatus(null);
+    try {
+      // If user is editing an unsaved key, test the field value; otherwise test the saved key.
+      const body = editingGeminiKey && geminiKeyForm ? { api_key: geminiKeyForm } : {};
+      const res = await axios.post(`${API}/auth/test-gemini-key`, body, { withCredentials: true });
+      setGeminiKeyStatus(res.data);
+      if (res.data.valid && res.data.status === "ok") {
+        toast.success(res.data.message);
+      } else if (res.data.status === "quota_exceeded") {
+        toast.warning(res.data.message);
+      } else {
+        toast.error(res.data.message || "Chave inválida");
+      }
+    } catch (error) {
+      toast.error("Erro ao testar chave. Verifique sua conexão.");
+      setGeminiKeyStatus({ valid: false, status: "network", message: "Erro de rede" });
+    } finally {
+      setTestingGeminiKey(false);
     }
   };
 
@@ -674,10 +700,24 @@ export default function Profile() {
                   <Button size="sm" onClick={handleSaveGeminiKey} disabled={savingGeminiKey} className="bg-green-600 h-7 text-xs">
                     <Save className="w-3 h-3 mr-1" />{savingGeminiKey ? 'Salvando...' : 'Salvar'}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setEditingGeminiKey(false)} className="h-7 text-xs">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid="gemini-test-key-editing-btn"
+                    onClick={handleTestGeminiKey}
+                    disabled={testingGeminiKey || !geminiKeyForm.trim()}
+                    className="h-7 text-xs border-[#FFD700]/40 text-[#FFD700] hover:bg-[#FFD700]/10"
+                  >
+                    {testingGeminiKey ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Zap className="w-3 h-3 mr-1" />}
+                    {testingGeminiKey ? 'Testando...' : 'Testar'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setEditingGeminiKey(false); setGeminiKeyStatus(null); }} className="h-7 text-xs">
                     <X className="w-3 h-3 mr-1" />Cancelar
                   </Button>
                 </div>
+                {geminiKeyStatus && (
+                  <GeminiStatusPill status={geminiKeyStatus} />
+                )}
               </motion.div>
             ) : (
               <div className="space-y-3">
@@ -708,6 +748,21 @@ export default function Profile() {
                 >
                   <Edit3 className="w-4 h-4 mr-2" />{user?.gemini_api_key ? 'Alterar API Key' : 'Configurar API Key'}
                 </Button>
+                {user?.gemini_api_key && (
+                  <Button
+                    onClick={handleTestGeminiKey}
+                    data-testid="gemini-test-key-btn"
+                    disabled={testingGeminiKey}
+                    variant="outline"
+                    className="ml-2 border-[#FFD700]/40 text-[#FFD700] hover:bg-[#FFD700]/10 text-sm"
+                  >
+                    {testingGeminiKey ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+                    {testingGeminiKey ? 'Testando...' : 'Testar Chave'}
+                  </Button>
+                )}
+                {geminiKeyStatus && (
+                  <GeminiStatusPill status={geminiKeyStatus} />
+                )}
               </div>
             )}
           </Card>
@@ -725,6 +780,34 @@ export default function Profile() {
         </div>
       </div>
       <MobileNav user={user} />
+    </div>
+  );
+}
+
+function GeminiStatusPill({ status }) {
+  if (!status) return null;
+  const s = status.status;
+  const cfg = {
+    ok:              { color: "text-green-400  border-green-400/30 bg-green-400/5",   Icon: CheckCircle2 },
+    quota_exceeded:  { color: "text-amber-400  border-amber-400/30 bg-amber-400/5",   Icon: AlertTriangle },
+    invalid:         { color: "text-red-400    border-red-400/30   bg-red-400/5",     Icon: X },
+    missing:         { color: "text-[#52525B]  border-[#27272A]    bg-[#121212]",     Icon: Info },
+    timeout:         { color: "text-amber-400  border-amber-400/30 bg-amber-400/5",   Icon: AlertTriangle },
+    network:         { color: "text-red-400    border-red-400/30   bg-red-400/5",     Icon: X },
+    error:           { color: "text-red-400    border-red-400/30   bg-red-400/5",     Icon: X },
+  }[s] || { color: "text-[#A1A1AA] border-[#27272A] bg-[#121212]", Icon: Info };
+  const { Icon } = cfg;
+  return (
+    <div data-testid="gemini-status-pill" className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-sm border text-xs ${cfg.color}`}>
+      <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+      <div className="flex-1">
+        <p className="font-medium">{status.message}</p>
+        {status.latency_ms !== undefined && (
+          <p className="text-[10px] opacity-70 mt-0.5">
+            Latência: {status.latency_ms} ms {status.model ? `• Modelo: ${status.model}` : ""}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

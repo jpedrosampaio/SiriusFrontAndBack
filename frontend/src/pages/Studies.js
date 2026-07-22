@@ -493,6 +493,9 @@ export default function Studies() {
   // Multi-cargo edital
   const [editalAnalysis, setEditalAnalysis] = useState(null);
   const [editalAnalyzing, setEditalAnalyzing] = useState(false);
+  const [editalAnalyzePhase, setEditalAnalyzePhase] = useState(""); // "upload" | "extract" | "cargos" | "done"
+  const [editalAnalyzeStartedAt, setEditalAnalyzeStartedAt] = useState(null);
+  const [editalAnalyzeElapsed, setEditalAnalyzeElapsed] = useState(0);
   const [showCargoSelection, setShowCargoSelection] = useState(false);
   const [selectedCargoIndex, setSelectedCargoIndex] = useState(0);
   const [creatingFromCargo, setCreatingFromCargo] = useState(false);
@@ -977,31 +980,57 @@ export default function Studies() {
   };
 
   // ========== MULTI-CARGO EDITAL IMPORT ==========
+  // Live-updating elapsed timer for the analyze-edital progress panel
+  useEffect(() => {
+    if (!editalAnalyzing || !editalAnalyzeStartedAt) return;
+    const t = setInterval(() => {
+      setEditalAnalyzeElapsed(Math.floor((Date.now() - editalAnalyzeStartedAt) / 1000));
+    }, 250);
+    return () => clearInterval(t);
+  }, [editalAnalyzing, editalAnalyzeStartedAt]);
+
   const handleAnalyzeEdital = async () => {
     if (!editalFile) { toast.error("Selecione um arquivo PDF do edital"); return; }
     if (!selectedArea) { toast.error("Selecione uma área primeiro"); return; }
     setEditalAnalyzing(true);
+    setEditalAnalyzeStartedAt(Date.now());
+    setEditalAnalyzeElapsed(0);
+    setEditalAnalyzePhase("upload");
     try {
       const formData = new FormData();
       formData.append("file", editalFile);
 
+      // Move to next visible phase shortly after upload starts, then to "cargos"
+      // (backend runs sequentially: upload → gemini extract → parse).
+      const phaseTimer1 = setTimeout(() => setEditalAnalyzePhase("extract"), 1500);
+      const phaseTimer2 = setTimeout(() => setEditalAnalyzePhase("cargos"), 6000);
+
       const res = await axios.post(`${API}/study/programs/analyze-edital`, formData, {
         withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 300000
       });
+      clearTimeout(phaseTimer1); clearTimeout(phaseTimer2);
+      setEditalAnalyzePhase("done");
       setEditalAnalysis(res.data);
-      
-      if (res.data.multiple_cargos && res.data.cargos?.length > 1) {
-        // Multiple cargos - show selection
+
+      const cargosCount = res.data.cargos?.length || 0;
+      if (res.data.cached) {
+        toast.success(`Edital reconhecido do cache (${cargosCount} cargo(s)).`);
+      }
+
+      if (cargosCount > 1) {
         setShowEditalDialog(false);
         setShowCargoSelection(true);
-        toast.success(`${res.data.cargos.length} cargos encontrados! Selecione o seu.`);
+        toast.success(`${cargosCount} cargo(s)/perfil(is) encontrado(s)! Selecione o seu.`);
       } else {
-        // Single cargo - proceed directly
         await handleCreateFromCargo(res.data.analysis_id, 0);
       }
     } catch (err) {
       toast.error(err.response?.data?.detail || "Erro ao analisar edital");
-    } finally { setEditalAnalyzing(false); }
+    } finally {
+      setEditalAnalyzing(false);
+      setEditalAnalyzePhase("");
+      setEditalAnalyzeStartedAt(null);
+    }
   };
 
   const handleCreateFromCargo = async (analysisId, cargoIdx) => {
@@ -1735,13 +1764,19 @@ export default function Studies() {
                               <li>Distribuição de tempo por matéria</li>
                             </ul>
                           </div>
-                          <Button onClick={handleAnalyzeEdital} disabled={!editalFile || editalImporting || editalAnalyzing} className="w-full bg-purple-600 hover:bg-purple-700">
+                          <Button onClick={handleAnalyzeEdital} data-testid="analyze-edital-btn" disabled={!editalFile || editalImporting || editalAnalyzing} className="w-full bg-purple-600 hover:bg-purple-700">
                             {(editalImporting || editalAnalyzing) ? (
-                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analisando edital... (pode levar até 3 min)</>
+                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analisando edital...</>
                             ) : (
                               <><Sparkles className="w-4 h-4 mr-2" />Gerar Programa de Estudos</>
                             )}
                           </Button>
+                          {editalAnalyzing && (
+                            <EditalAnalyzeProgress
+                              phase={editalAnalyzePhase}
+                              elapsed={editalAnalyzeElapsed}
+                            />
+                          )}
                         </div>
                       </DialogContent>
                     </Dialog>
@@ -3953,5 +3988,66 @@ export default function Studies() {
     </div>
   );
 }
+
+// Live progress panel for the analyze-edital flow.
+// Uses TWO independent animations so the user *always* sees motion:
+//  1) A spinning ring (border animation) that keeps rotating regardless of network state.
+//  2) An indeterminate progress bar (CSS-only, `bg-[length:200%_100%] animate-[shimmer_1.4s_linear_infinite]`).
+// Elapsed time is updated by a parent setInterval, so even if React re-renders are sparse
+// the timer text still ticks visibly.
+function EditalAnalyzeProgress({ phase, elapsed }) {
+  const phases = [
+    { key: "upload",  label: "Enviando PDF para o Google Gemini..." },
+    { key: "extract", label: "Extraindo estrutura do edital com IA..." },
+    { key: "cargos",  label: "Identificando cargos, perfis e disciplinas..." },
+  ];
+  const currentIdx = Math.max(0, phases.findIndex(p => p.key === phase));
+  return (
+    <div data-testid="edital-analyze-progress" className="mt-3 rounded-lg border border-purple-500/30 bg-purple-500/5 p-4">
+      <div className="flex items-center gap-3">
+        {/* Custom spinning ring — pure CSS, never freezes */}
+        <div className="relative w-8 h-8 shrink-0">
+          <div className="absolute inset-0 rounded-full border-2 border-purple-500/20"></div>
+          <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-purple-400 border-r-purple-400 animate-spin"></div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-white font-medium truncate">
+            {phases[currentIdx]?.label || "Processando..."}
+          </p>
+          <p className="text-xs text-purple-300/70 mt-0.5">
+            {elapsed}s decorridos • pode levar até ~90 s
+          </p>
+        </div>
+      </div>
+      {/* Indeterminate bar (never stops until unmounted) */}
+      <div className="mt-3 h-1.5 rounded-full bg-purple-500/10 overflow-hidden relative">
+        <div
+          className="absolute inset-y-0 w-1/3 rounded-full bg-gradient-to-r from-transparent via-purple-400 to-transparent"
+          style={{
+            animation: "editalSlide 1.4s ease-in-out infinite",
+          }}
+        />
+      </div>
+      {/* Phase dots */}
+      <div className="mt-3 flex items-center justify-between gap-1">
+        {phases.map((p, i) => (
+          <div key={p.key} className="flex items-center gap-1 flex-1">
+            <div className={`w-2 h-2 rounded-full ${i <= currentIdx ? "bg-purple-400" : "bg-purple-500/20"} ${i === currentIdx ? "animate-pulse" : ""}`}></div>
+            <span className={`text-[10px] uppercase tracking-wider ${i <= currentIdx ? "text-purple-300" : "text-[#52525B]"}`}>
+              {p.key}
+            </span>
+          </div>
+        ))}
+      </div>
+      <style>{`
+        @keyframes editalSlide {
+          0%   { left: -33%; }
+          100% { left: 100%; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 
 
