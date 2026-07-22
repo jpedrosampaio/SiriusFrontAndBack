@@ -13,7 +13,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import NotificationManager from "@/components/NotificationManager";
 import { GeminiKeyModal } from "@/components/GeminiKeyModal";
 import AiChatModal from "@/components/AiChatModal";
-import { Brain, X } from "lucide-react";
+import { Bot, X } from "lucide-react";
 
 // Lazy-loaded pages — keeps initial bundle small
 const Dashboard = React.lazy(() => import("@/pages/Dashboard"));
@@ -89,17 +89,16 @@ function AiFloatingButton() {
     <>
       <button
         onClick={() => setOpen(!open)}
-        className={`fixed bottom-20 right-4 z-50 flex items-center gap-2.5 px-4 h-12 rounded-2xl border shadow-xl backdrop-blur-xl transition-all duration-300 ${
+        className={`fixed bottom-20 right-4 z-50 flex items-center justify-center w-12 h-12 rounded-2xl border shadow-xl backdrop-blur-xl transition-all duration-300 ${
           open
-            ? 'bg-[#0A0A0A] border-[#27272A] text-white scale-95 opacity-80 hover:opacity-100'
+            ? 'bg-[#0A0A0A] border-[#27272A] text-white scale-95'
             : 'bg-[#0A0A0A]/90 border-[#FFD700]/30 text-white hover:border-[#FFD700]/60 hover:shadow-[#FFD700]/10'
         }`}
         style={{ boxShadow: open ? 'none' : '0 4px 24px rgba(255,215,0,0.12)' }}
       >
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#FFD700] to-[#FF8C00] flex items-center justify-center shrink-0">
-          {open ? <X className="w-4 h-4 text-black" /> : <Brain className="w-4 h-4 text-black" />}
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#FFD700] to-[#FF8C00] flex items-center justify-center">
+          {open ? <X className="w-4 h-4 text-black" /> : <Bot className="w-4 h-4 text-black" />}
         </div>
-        <span className="text-sm font-medium">{open ? 'Fechar' : 'IA Sirius'}</span>
       </button>
       <AiChatModal open={open} onClose={() => setOpen(false)} />
     </>
