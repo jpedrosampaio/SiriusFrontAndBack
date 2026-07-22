@@ -87,19 +87,20 @@ function AiFloatingButton() {
   if (isPublicPage) return null;
   return (
     <>
-      <div className={`fixed bottom-20 right-4 z-50 ${open ? '' : 'animate-pulse'}`}>
-        <button
-          onClick={() => setOpen(!open)}
-          className={`relative w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl transition-all duration-300 ${
-            open
-              ? 'bg-[#FFD700] text-black rotate-45 scale-110 shadow-[#FFD700]/30'
-              : 'bg-gradient-to-br from-[#FFD700] to-[#FF8C00] text-black hover:scale-110 hover:shadow-[#FFD700]/40'
-          }`}
-          style={{ boxShadow: open ? '0 0 30px rgba(255,215,0,0.3)' : '0 8px 32px rgba(255,215,0,0.25)' }}
-        >
-          {open ? <X className="w-5 h-5" /> : <Brain className="w-5 h-5" />}
-        </button>
-      </div>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`fixed bottom-20 right-4 z-50 flex items-center gap-2.5 px-4 h-12 rounded-2xl border shadow-xl backdrop-blur-xl transition-all duration-300 ${
+          open
+            ? 'bg-[#0A0A0A] border-[#27272A] text-white scale-95 opacity-80 hover:opacity-100'
+            : 'bg-[#0A0A0A]/90 border-[#FFD700]/30 text-white hover:border-[#FFD700]/60 hover:shadow-[#FFD700]/10'
+        }`}
+        style={{ boxShadow: open ? 'none' : '0 4px 24px rgba(255,215,0,0.12)' }}
+      >
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#FFD700] to-[#FF8C00] flex items-center justify-center shrink-0">
+          {open ? <X className="w-4 h-4 text-black" /> : <Brain className="w-4 h-4 text-black" />}
+        </div>
+        <span className="text-sm font-medium">{open ? 'Fechar' : 'IA Sirius'}</span>
+      </button>
       <AiChatModal open={open} onClose={() => setOpen(false)} />
     </>
   );

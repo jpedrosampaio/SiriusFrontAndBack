@@ -90,7 +90,6 @@ export default function AiChatModal({ open, onClose }) {
 
   return (
     <>
-      {open && <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={onClose} />}
       <div
         className={`fixed bottom-24 right-4 z-50 w-[380px] max-w-[calc(100vw-32px)] transition-all duration-300 ${
           open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-95 pointer-events-none'
