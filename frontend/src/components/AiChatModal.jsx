@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Send, User, Loader2, Sparkles, AppWindow } from 'lucide-react';
+import { Send, User, Loader2, Sparkles, AppWindow } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 
@@ -158,9 +158,6 @@ export default function AiChatModal({ open, onClose }) {
                   <p className="text-[10px] text-[#52525B]">Assistente integrado do Sirius</p>
                 </div>
               </div>
-              <button onClick={onClose} className="w-7 h-7 rounded-lg bg-[#1A1A1A] hover:bg-[#27272A] flex items-center justify-center transition-colors border border-[#27272A]">
-                <X className="w-3.5 h-3.5 text-[#52525B]" />
-              </button>
             </div>
           </div>
 

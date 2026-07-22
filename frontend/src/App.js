@@ -13,7 +13,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import NotificationManager from "@/components/NotificationManager";
 import { GeminiKeyModal } from "@/components/GeminiKeyModal";
 import AiChatModal from "@/components/AiChatModal";
-import { X } from "lucide-react";
+
 
 function SiriusGoldIcon({ size = "w-4 h-4" }) {
   return (
@@ -129,7 +129,7 @@ function AiFloatingButton() {
         style={{ boxShadow: open ? 'none' : '0 4px 24px rgba(255,215,0,0.12)' }}
       >
         <div className="w-7 h-7 rounded-lg bg-[#050505] flex items-center justify-center">
-          {open ? <X className="w-4 h-4 text-[#FFD700]" /> : <SiriusGoldIcon size="w-5 h-5" />}
+          <SiriusGoldIcon size="w-5 h-5" />
         </div>
       </button>
       <AiChatModal open={open} onClose={() => setOpen(false)} />
