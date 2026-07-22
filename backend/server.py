@@ -404,15 +404,12 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
         pdf_part = {"fileData": {"mimeType": "application/pdf", "fileUri": file_uri}}
         logging.info(f"Gemini PDF: sending via FILE URI ({len(pdf_content)/1024/1024:.1f} MB)")
 
-    # gemini-1.5-flash was retired by Google and now returns 404.
-    # gemini-2.0-flash / 2.0-flash-lite often hit 429 (very low free-tier daily quota).
-    # We prefer 2.5-flash (best quality) and the "latest" aliases which Google keeps updated
-    # (gemini-flash-lite-latest has the highest free-tier daily quota).
-    #
-    # IMPORTANTE: `thinkingConfig` só é aceito por modelos da família 2.5 (gemini-2.5-flash,
-    # gemini-2.5-pro). Enviar esse campo para `flash-latest`/`flash-lite-latest` retorna
-    # 400 INVALID_ARGUMENT. Por isso montamos o payload por modelo.
-    models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
+    # gemini-2.5-flash-lite: melhor custo-benefício — suporta PDF, cota free alta (1000/dia),
+    # boa qualidade, e aceita responseSchema + thinkingConfig.
+    # gemini-2.5-flash: melhor qualidade mas cota menor (250/dia).
+    # gemini-flash-latest: fallback, funciona às vezes.
+    # NÃO usar gemini-flash-lite-latest: alias para modelo que NÃO suporta PDF.
+    models_to_try = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-flash-latest"]
 
     def _build_payload(model: str, include_schema: bool, include_thinking: bool) -> Dict[str, Any]:
         gc: Dict[str, Any] = {
@@ -441,14 +438,12 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
         return text, finish, len(parts)
 
     for i, model in enumerate(models_to_try):
-        # Timeouts agressivos por modelo: 2.5-flash falha rápido, flash-latest muitas vezes
-        # demora além do normal para PDFs grandes, flash-lite-latest ganha tempo extra.
-        if "2.5" in model:
-            model_timeout = min(timeout, 30)
-        elif "flash-latest" in model and "lite" not in model:
-            model_timeout = min(timeout, 30)
-        else:
+        # 2.5-flash-lite é o primário — timeout cheio.
+        # 2.5-flash e flash-latest costumam falhar (404/429) — 20s é suficiente.
+        if model == "gemini-2.5-flash-lite":
             model_timeout = timeout
+        else:
+            model_timeout = min(timeout, 20)
         # Cada modelo tem até 2 tentativas: (1) payload completo; (2) sem schema/thinking se der 400.
         for attempt in range(2):
             include_schema = (attempt == 0)
