@@ -14234,59 +14234,17 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     try:
-        prompt = f"{body.system_message}\n\nUser: {body.message}\nAssistant:"
-        headers = {"Content-Type": "application/json"}
-        user_hf_key = getattr(user, 'hf_api_key', None)
-        hf_token = user_hf_key or HF_API_TOKEN
-        if hf_token:
-            headers["Authorization"] = f"Bearer {hf_token}"
-        logging.info(f"AI chat: user={user.user_id[:12]}, has_user_hf_key={bool(user_hf_key)}, has_server_token={bool(HF_API_TOKEN)}, using_token={bool(hf_token)}")
-        models_to_try = [
-            "google/flan-t5-large",
-            "bigscience/bloom-560m",
-            "HuggingFaceH4/zephyr-7b-beta",
-        ]
-        reply = None
-        for model in models_to_try:
-            try:
-                api_url = f"https://api-inference.huggingface.co/models/{model}"
-                payload = {"inputs": prompt, "parameters": {"max_new_tokens": 512, "temperature": 0.7}}
-                resp = requests.post(api_url, json=payload, headers=headers, timeout=60)
-                logging.info(f"HF model={model} status={resp.status_code}")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, list) and len(data) > 0:
-                        reply = data[0].get("generated_text", "")
-                    elif isinstance(data, dict):
-                        reply = data.get("generated_text", "")
-                    if reply:
-                        break
-                elif resp.status_code == 503:
-                    import time
-                    for retry in range(3):
-                        time.sleep(5)
-                        resp = requests.post(api_url, json=payload, headers=headers, timeout=60)
-                        if resp.status_code == 200:
-                            break
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        if isinstance(data, list) and len(data) > 0:
-                            reply = data[0].get("generated_text", "")
-                        elif isinstance(data, dict):
-                            reply = data.get("generated_text", "")
-                        if reply:
-                            break
-                logging.warning(f"Model {model} failed: {resp.status_code} {resp.text[:200]}")
-            except Exception as e:
-                logging.warning(f"Model {model} error: {e}")
-                continue
-        if reply:
-            return {"reply": reply.strip()}
-        return {"reply": "⚠️ Nenhum modelo de IA disponível. Verifique se seu token HF está válido no perfil."}
+        reply = await call_llm(body.message, user_id=user.user_id, system_message=body.system_message)
+        if reply.startswith("⚠️"):
+            user_gemini_key = getattr(user, 'gemini_api_key', None)
+            if not user_gemini_key and GOOGLE_GEMINI_API_KEY:
+                reply, _ = await call_gemini(body.message, body.system_message, GOOGLE_GEMINI_API_KEY)
+                if not reply:
+                    reply = "⚠️ Serviço de IA indisponível. Configure sua chave Gemini no perfil."
+        return {"reply": reply}
     except Exception as e:
         logging.error(f"AI chat error: {e}")
-        err_msg = str(e)[:200]
-        return {"reply": f"⚠️ Erro no servidor de IA: {err_msg}"}
+        return {"reply": f"⚠️ Erro no servidor: {str(e)[:200]}"}
 
 
 @api_router.get("/hf/{path:path}")
