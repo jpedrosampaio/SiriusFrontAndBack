@@ -11,9 +11,10 @@ from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
 import bcrypt
-# import google.generativeai as genai
 import aiofiles
 import base64
+from pypdf import PdfReader
+import io
 
 import random
 import requests
@@ -36,6 +37,20 @@ FREE_TTS_VOICE = os.environ.get('FREE_TTS_VOICE', 'pt-BR-FranciscaNeural')
 
 EIDOS_URL = os.environ.get('EIDOS_URL', 'https://eidosspeech.xyz/api/v1/tts')
 EIDOS_API_KEY = os.environ.get('EIDOS_API_KEY', '')
+
+def extract_pdf_text(content: bytes) -> str:
+    """Extract text from a PDF using pypdf"""
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        text_parts = []
+        for page in reader.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text_parts.append(extracted)
+        return "\n".join(text_parts)
+    except Exception as e:
+        logging.warning(f"Failed to extract PDF text: {e}")
+        return ""
 
 async def get_user_api_key(user_id: str) -> Optional[str]:
     try:
@@ -10121,88 +10136,75 @@ async def analyze_edital_cargos(
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
     
-    if not gemini_client:
-        raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
-    
     content = await file.read()
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
     
     try:
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
-            tmp_file.write(content)
-            tmp_path = tmp_file.name
+        pdf_text = extract_pdf_text(content)
+        if not pdf_text.strip():
+            raise HTTPException(status_code=400, detail="Não foi possível extrair texto do PDF. Verifique se o arquivo é um PDF com texto selecionável.")
         
-        uploaded_file = gemini_client.files.upload(file=tmp_path)
+        text_limit = 100000
+        if len(pdf_text) > text_limit:
+            pdf_text = pdf_text[:text_limit] + "\n\n[Conteúdo truncado por limite de tamanho]"
         
-        system_msg = """Você é um especialista em concursos públicos brasileiros.
-Analise o edital do concurso contido neste PDF e identifique:
-1. Se há MÚLTIPLOS CARGOS/POSIÇÕES disponíveis
-2. Informações gerais do concurso
-3. Para cada cargo: as disciplinas, pesos, número de questões E o conteúdo programático completo
+        prompt = f"""Analise o edital de concurso abaixo (extraído de PDF) e retorne APENAS JSON válido.
 
-ATENÇÃO: Extraia FIELMENTE o CONTEÚDO PROGRAMÁTICO de cada disciplina. A maioria dos editais traz uma seção listando todos os assuntos cobrados. Extraia TODOS esses assuntos.
+Conteúdo do edital:
+---
+{pdf_text}
+---
 
-Responda APENAS com JSON válido no formato abaixo. NÃO inclua texto antes ou depois do JSON.
-
-{
-  "concurso": {
+Com base no texto acima, extraia as informações do concurso e retorne UM JSON válido (sem texto extra) neste formato exato:
+{{
+  "concurso": {{
     "nome": "Nome completo do concurso",
     "orgao": "Órgão/instituição",
     "banca": "Banca organizadora"
-  },
+  }},
   "multiple_cargos": true,
   "cargos": [
-    {
+    {{
       "nome": "Nome do Cargo",
       "vagas": "Número de vagas",
       "remuneracao": "Remuneração",
       "escolaridade": "Nível exigido",
       "disciplinas": [
-        {
+        {{
           "nome": "Nome da Disciplina",
           "peso": 3,
           "num_questoes": 10,
           "grupo": "Conhecimentos Gerais",
           "topicos": ["Tópico resumido 1", "Tópico resumido 2"],
           "conteudo_programatico": [
-            {
+            {{
               "assunto": "Nome do assunto principal",
               "subtopicos": ["Subtópico 1", "Subtópico 2"]
-            }
+            }}
           ]
-        }
+        }}
       ]
-    }
+    }}
   ]
-}
+}}
 
 REGRAS:
 - Se o edital tem APENAS UM CARGO, defina "multiple_cargos" como false e coloque apenas 1 cargo no array
 - Se há múltiplos cargos com disciplinas DIFERENTES, defina "multiple_cargos" como true
-- O "peso" deve refletir exatamente o peso descrito no edital (se o edital diz peso 2, coloque 2)
-- Se o edital define pesos por grupo (ex: Conhecimentos Gerais peso 1, Conhecimentos Específicos peso 2), aplique o peso do grupo a cada disciplina daquele grupo
-- Extraia TODOS os cargos disponíveis
-- CONTEÚDO PROGRAMÁTICO: Extraia FIELMENTE todos os assuntos listados no conteúdo programático de cada disciplina. Cada assunto principal deve virar um item em "conteudo_programatico" com subtópicos quando houver. Se o edital não detalhar o conteúdo programático, deixe o array vazio.
-- "topicos" é um resumo (máximo 10 itens). "conteudo_programatico" é a lista COMPLETA e DETALHADA.
+- Extraia FIELMENTE o CONTEÚDO PROGRAMÁTICO de cada disciplina
+- "topicos" é um resumo (máximo 10 itens). "conteudo_programatico" é a lista COMPLETA e DETALHADA
 - Tudo em português brasileiro
-"""
+- NÃO inclua texto antes ou depois do JSON"""
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded_file.uri, mime_type="application/pdf"),
-                "Analise este edital de concurso e identifique os cargos disponíveis e suas disciplinas:"
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg
-            )
-        )
+        system_msg = "Você é um especialista em concursos públicos brasileiros. Extraia informações estruturadas de editais com precisão."
         
-        os.unlink(tmp_path)
+        response_text = await call_llm(prompt, f"edital_{user.user_id}_{uuid.uuid4().hex[:6]}", system_msg, user_id=user.user_id)
         
-        json_str = response.text.strip()
+        if "Configure sua chave" in response_text:
+            raise HTTPException(status_code=500, detail=response_text)
+        
+        json_str = response_text.strip()
         if json_str.startswith("```json"):
             json_str = json_str[7:]
         if json_str.startswith("```"):
@@ -10212,15 +10214,8 @@ REGRAS:
         
         parsed = json.loads(json_str.strip())
         
-        # Store the analysis temporarily for the user
         analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
         
-        # Upload file again for later use
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file2:
-            tmp_file2.write(content)
-            tmp_path2 = tmp_file2.name
-        
-        # Store analysis with PDF content for later
         analysis_doc = {
             "analysis_id": analysis_id,
             "user_id": user.user_id,
@@ -10233,8 +10228,6 @@ REGRAS:
             "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
         }
         await db.edital_analyses.insert_one(analysis_doc)
-        
-        os.unlink(tmp_path2)
         
         return {
             "success": True,
@@ -10293,17 +10286,10 @@ async def import_edital_with_cargo(
     if not disciplinas:
         raise HTTPException(status_code=400, detail="Nenhuma disciplina encontrada para este cargo")
     
-    # Now use AI to generate cronograma based on the selected cargo's disciplines
-    if not gemini_client:
-        raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
-    
     try:
         disc_list = json.dumps(disciplinas, ensure_ascii=False)
         
-        system_msg = f"""Você é um MESTRE em planejamento de estudos para concursos públicos brasileiros, com experiência em coaching de aprovados.
-Crie um cronograma semanal IMPECÁVEL e OTIMIZADO, considerando neurociência da aprendizagem.
-
-Disciplinas e seus pesos: {disc_list}
+        prompt = f"""Gere cronograma para estas disciplinas de concurso: {disc_list}
 
 Configuração do aluno:
 - {hours_per_day} horas por dia, {days_per_week} dias por semana
@@ -10351,16 +10337,15 @@ REGRAS CRÍTICAS:
 9. MOTIVAÇÃO: Cada dia deve ter uma frase motivacional ÚNICA e IMPACTANTE (curta, 1 linha)
 10. DESCANSO: Se {days_per_week} < 7, os dias livres são para descanso/lazer
 11. CONSISTÊNCIA: O nome da disciplina nos blocos deve ser EXATAMENTE igual ao nome na lista de disciplinas"""
+
+        system_msg = "Você é um MESTRE em planejamento de estudos para concursos públicos brasileiros, com experiência em coaching de aprovados."
         
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=f"Gere cronograma para estas disciplinas de concurso: {disc_list}",
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg
-            )
-        )
+        response_text = await call_llm(prompt, f"cronograma_{user.user_id}_{uuid.uuid4().hex[:6]}", system_msg, user_id=user.user_id)
         
-        json_str = response.text.strip()
+        if "Configure sua chave" in response_text:
+            raise HTTPException(status_code=500, detail=response_text)
+        
+        json_str = response_text.strip()
         if json_str.startswith("```json"):
             json_str = json_str[7:]
         if json_str.startswith("```"):
