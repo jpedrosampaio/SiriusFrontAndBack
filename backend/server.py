@@ -7429,25 +7429,27 @@ async def import_edital(
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
     
-    if not gemini_client:
-        raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
-    
     content = await file.read()
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
     
     try:
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
-            tmp_file.write(content)
-            tmp_path = tmp_file.name
+        pdf_text = extract_pdf_text(content)
+        if not pdf_text.strip():
+            raise HTTPException(status_code=400, detail="Não foi possível extrair texto do PDF. Verifique se o arquivo é um PDF com texto selecionável.")
         
-        uploaded_file = gemini_client.files.upload(file=tmp_path)
+        text_limit = 100000
+        if len(pdf_text) > text_limit:
+            pdf_text = pdf_text[:text_limit] + "\n\n[Conteúdo truncado por limite de tamanho]"
         
-        system_msg = f"""Você é um especialista em concursos públicos brasileiros e planejamento de estudos.
-Analise o edital do concurso contido neste PDF e extraia TODAS as informações relevantes para criar um programa de estudos completo.
+        prompt = f"""Analise o edital de concurso abaixo (extraído de PDF) e retorne APENAS JSON válido.
 
-ATENÇÃO ESPECIAL: Extraia o CONTEÚDO PROGRAMÁTICO COMPLETO de cada disciplina. A maioria dos editais traz uma seção de "Conteúdo Programático" ou "Programa" listando todos os assuntos cobrados em cada matéria. Extraia TODOS esses assuntos fielmente.
+Conteúdo do edital:
+---
+{pdf_text}
+---
+
+Com base no texto acima, extraia todas as informações relevantes para criar um programa de estudos completo.
 
 O aluno tem {hours_per_day} horas disponíveis por dia, {days_per_week} dias por semana para estudar.
 {"A data da prova é: " + target_date + ". Considere o tempo disponível até a prova para o cronograma." if target_date else "Não há data definida para a prova."}
@@ -7516,28 +7518,22 @@ REGRAS IMPORTANTES:
 - Inclua APENAS {days_per_week} dias no cronograma (ex: Segunda a Sexta se 5 dias)
 - Alterne matérias pesadas com leves no mesmo dia
 - Reserve tempo para revisão e questões
-- CONTEÚDO PROGRAMÁTICO: Este é o campo MAIS IMPORTANTE. Extraia FIELMENTE todos os assuntos do conteúdo programático de cada disciplina conforme listado no edital. Cada assunto principal deve virar um item em "conteudo_programatico" com seus respectivos subtópicos. Se o edital não tiver conteúdo programático detalhado, deixe o array vazio [].
-- "topicos" é um RESUMO dos principais tópicos (máximo 10 itens simples). "conteudo_programatico" é a LISTA COMPLETA E DETALHADA dos assuntos cobrados.
-- "assuntos_foco" nos blocos do cronograma deve indicar quais assuntos específicos do conteúdo programático o aluno deve focar naquele bloco de estudo.
+- CONTEÚDO PROGRAMÁTICO: Extraia FIELMENTE todos os assuntos do conteúdo programático de cada disciplina
+- "topicos" é um RESUMO (máximo 10 itens). "conteudo_programatico" é a LISTA COMPLETA E DETALHADA
+- "assuntos_foco" nos blocos do cronograma deve indicar quais assuntos específicos focar
 - Tudo em português brasileiro
 - "dificuldade" deve ser: "baixa", "media" ou "alta"
 - Os dias devem ser: "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"
 """
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded_file.uri, mime_type="application/pdf"),
-                "Analise este edital de concurso e gere um programa de estudos completo em JSON conforme as instruções:"
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg
-            )
-        )
+        system_msg = "Você é um especialista em concursos públicos brasileiros e planejamento de estudos."
+
+        response_text = await call_llm(prompt, f"import_edital_{user.user_id}_{uuid.uuid4().hex[:6]}", system_msg, user_id=user.user_id, timeout_override=180)
         
-        os.unlink(tmp_path)
+        if "Configure sua chave" in response_text or "Sua cota" in response_text or "Erro ao contactar" in response_text:
+            raise HTTPException(status_code=500, detail=response_text)
         
-        json_str = response.text.strip()
+        json_str = response_text.strip()
         if json_str.startswith("```json"):
             json_str = json_str[7:]
         if json_str.startswith("```"):
