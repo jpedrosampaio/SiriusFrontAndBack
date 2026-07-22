@@ -1069,7 +1069,6 @@ export default function Studies() {
       refreshEditaisList();
       setCompareResult(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCompareEditais]);
 
   const handleCompareEditais = async () => {

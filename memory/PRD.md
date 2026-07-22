@@ -1,67 +1,69 @@
-# Sirius Study App — PRD (Análise de Edital — Precisão + UX)
+# Sirius Study App — PRD
 
-## Problem statement (user, PT-BR)
-> Funcionou, porém ainda está demorando bastante. A aplicação retornou dados errados,
-> trouxe 2 cargos em um edital que na verdade tem 13 perfis. Eu preciso de uma análise
-> perfeita, sem margem de erros, e que se adapte aos diferentes tipos de editais.
-> Além disso, aplique as melhorias que você sugeriu. Também, verifique a barrinha que
-> informa "Analisando Edital", ela meio que fica travada, seria interessante que a
-> bolinha ficasse rodando.
+## Sessão atual: features 3, 4, 5 e 6 do backlog
 
-## Sessão anterior (Bug Fix Gemini)
-- Corrigidos modelos Gemini descontinuados/quotados. Cascata atual:
-  `gemini-2.5-flash → gemini-flash-latest → gemini-flash-lite-latest`.
+### 3) Dedup fuzzy de cargos
+- Novo helper `dedup_cargos_fuzzy(cargos, threshold=0.90)` em `server.py`.
+- Normaliza nome (sem acento, sem "junior/jr/pleno/i/ii/iii/etc"), compara com
+  `difflib.SequenceMatcher.ratio`. Ao mesclar, unifica disciplinas por nome.
+- Aplicado dentro de `analyze_edital_cargos` (threshold 0.92 em produção).
+- Validado: 5 cargos duplicados → 3 únicos ("Advogado(a) Junior" ↔ "Advogado Junior";
+  "Analista de Sistemas Jr Redes" ↔ "Analista de Sistemas Junior - Redes").
 
-## Melhorias desta sessão
+### 4) Comparador de editais
+- `analysis_doc.expires_at` estendido de 1h → 90d para viabilizar histórico.
+- Novo endpoint `GET /api/study/programs/editais` → lista resumida (com dedup por pdf_hash).
+- Novo endpoint `POST /api/study/programs/editais/compare` com body
+  `{analysis_id_a, analysis_id_b}` → retorna `cargos_added / removed / changed / unchanged`
+  + diff de disciplinas por cargo comum.
+- Frontend: novo botão **"Comparar Editais"** ao lado do "Importar Edital"; dialog completo
+  com selects, contadores coloridos (verde/vermelho/âmbar/cinza) e grupos colapsáveis.
 
-### Backend (`/app/backend/server.py`)
-1. **Structured Output (Gemini JSON Schema)** em `call_gemini_with_pdf`
-   → JSON válido garantido pelo Google antes de emitir, sem mais parse errors.
-2. **`thinkingConfig.thinkingBudget = 0`** e **`temperature = 0`** no `gemini-2.5-flash`
-   → 3–5× mais rápido (~12 s para edital de 13 perfis) e resultado determinístico.
-3. **Prompt reforçado + pré-scan** de linhas do PDF contendo "cargo/perfil/especialização/
-   área de atuação/vagas" — injetadas como pistas, obriga a IA a **enumerar TODOS**.
-4. **Cache por hash SHA-256 do PDF** por usuário → re-upload do mesmo edital retorna em
-   ~6 ms sem consumir quota Gemini.
-5. **Novo endpoint** `POST /api/auth/test-gemini-key`
-   - Testa a chave salva (ou uma nova) contra Google Gemini em ~500 ms
-   - Retorna: `valid`, `status` (ok / quota_exceeded / invalid / timeout / network),
-     `latency_ms`, `model`, mensagem legível.
-6. **`multiple_cargos`** agora derivado do tamanho de `cargos[]` (evita bug do modelo
-   marcar `false` mesmo com múltiplos cargos).
-7. Timeout unificado a 180s por modelo (era 300/240/180).
+### 5) Estimativa de quota consumida
+- Nova coleção `db.gemini_usage` `{user_id, date(UTC), model, count}`, upsert idempotente.
+- Helpers `track_gemini_usage(user_id, model)` e `get_gemini_usage_today(user_id)`.
+- `call_gemini` e `call_gemini_with_pdf` recebem `user_id` opcional e incrementam a métrica
+  em cada chamada bem-sucedida.
+- Endpoint `POST /auth/test-gemini-key` agora retorna `usage_today` (por modelo, com
+  `used/limit/remaining` baseado em `GEMINI_FREE_TIER_RPD`).
+- Frontend: `<GeminiStatusPill>` mostra barra de progresso por modelo (verde <70%,
+  âmbar 70–90%, vermelho ≥90%) + texto "X/Y req (Z restantes)".
 
-### Frontend
-- **`/app/frontend/src/pages/Profile.js`**
-  - Botão **"Testar Chave"** (com e sem edição) + estado `geminiKeyStatus`.
-  - Novo componente `<GeminiStatusPill>` com ícone/cor por status (ok/quota/inválida/etc.)
-    e exibe latência do teste.
-- **`/app/frontend/src/pages/Studies.js`**
-  - Novo componente `<EditalAnalyzeProgress>`:
-    - Anel CSS animado (`animate-spin`) que **nunca trava** durante espera.
-    - Barra indeterminada com keyframe `editalSlide` (independente do render React).
-    - Fases visíveis: `upload → extract → cargos` (dots iluminam progressivamente).
-    - Contador de segundos decorridos (atualizado via `setInterval` a cada 250ms).
-  - `handleAnalyzeEdital` atualiza fase e captura `res.data.cached` para toast.
+### 6) Modo Assistente rápido (chat sobre o edital)
+- `analyze_edital_cargos` agora persiste `pdf_text[:200KB]` no doc (extraído com pypdf).
+- Novo endpoint `POST /api/study/programs/edital-chat` com body
+  `{analysis_id, question, history?}`. Usa cascata de modelos, `temperature=0.2`,
+  `thinkingBudget=0`, `systemInstruction` contendo o texto do PDF como contexto → nunca
+  precisa reuploadar o PDF a cada mensagem.
+- Frontend: botão **"Perguntar sobre este edital"** aparece no dialog de resultado;
+  novo Dialog `<EditalChat>` com sugestões pré-prontas ("Quais cargos exigem OAB?"),
+  bolhas user/model, indicador `pensando...` e Enter-to-send.
 
-## Validação E2E (backend, chave real do usuário)
+## Validação E2E (chave real revogada pelo Google após vazamento)
 
 | Cenário | Resultado |
 |---|---|
-| Edital 13 perfis (Petrobras sintético) | ✅ **13 de 13** cargos extraídos em **12.5 s** |
-| Re-upload mesmo PDF | ✅ **6 ms** (cache) |
-| Chave Gemini válida (`test-gemini-key`) | ✅ 552 ms |
-| Chave Gemini inválida | ✅ Detectada em 46 ms com mensagem clara |
+| `GET /editais` (list) | ✅ 3 editais retornados, ordenados por data |
+| `POST /editais/compare` (v1 vs v2 sintético) | ✅ Summary correto: +2 −1 △1 =11 |
+| `POST /edital-chat` (chave revogada) | ✅ 500 com mensagem clara "Sua chave Gemini é inválida" |
+| Chat sem `question` | ✅ 400 "Informe analysis_id e question" |
+| Compare A=B | ✅ 400 "Selecione dois editais diferentes" |
+| `dedup_cargos_fuzzy` (unitário) | ✅ 5 duplicados → 3 únicos, disciplinas unidas |
+| Test key (usage_today no payload) | ✅ Campo presente (vazio até 1ª chamada OK) |
 
-## Next Action Items
-- **Redeploy backend no Render** (`sirius-backend-1hsi`) — só arquivos alterados: `server.py`.
-- Frontend será redeployado automaticamente via Vercel/Netlify pipeline do usuário.
+## ⚠️ Ação necessária do usuário
 
-## Backlog / Próximas melhorias
-- P1: **Persistir cache global** (por hash de PDF, sem `user_id`) → dois usuários
-  enviando o mesmo edital compartilham o resultado, economizando quota Gemini.
-- P1: **Análise assíncrona em fila (Celery/RQ)** para editais >100 páginas: retorna
-  imediatamente com `analysis_id` e front faz polling em `/analyze-status/{id}`.
-- P2: **Dedup automático de cargos** por similaridade de nome (fuzzy match) — protege
-  contra o caso raro de o modelo listar o mesmo cargo com grafias ligeiramente diferentes.
-- P2: **Diff visual** entre 2 editais (útil para comparar edital atual vs anterior).
+**A chave `AIzaSyDmzyx50uhS8GUaSIZc50KD2NnCuGATftc` foi revogada pelo Google** — chaves
+compartilhadas em texto plano são detectadas em ~1 min e desativadas automaticamente.
+1. Gere uma NOVA chave em <https://aistudio.google.com/apikey>.
+2. Cole em Profile → **Configurar API Key** (nunca compartilhe fora do app).
+3. Clique **"Testar Chave"** para validar antes de tentar analisar um edital.
+
+## Next Action Items (deploy)
+- Redeploy backend no Render (`sirius-backend-1hsi`) — só `server.py`.
+- Frontend redeploy (Vercel) — `Profile.js`, `Studies.js`.
+
+## Backlog / Backlog remanescente
+- P1: Cache global de análise por hash (compartilhado entre usuários, zera quota redundante).
+- P1: Análise assíncrona em fila (Celery/RQ) para editais >100 páginas + polling.
+- P2: Índice sobre `edital_analyses.pdf_hash` no MongoDB para acelerar cache lookup.
