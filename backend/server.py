@@ -129,40 +129,65 @@ async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_ov
     return None, last_error
 
 async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
-    """Upload a PDF to Gemini's file API and return the file URI."""
+    """Upload a PDF to Gemini's file API using multipart/form-data (like curl -F) and return the file URI."""
     import uuid
     from urllib.parse import quote
     upload_url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={quote(api_key)}"
     
     boundary = f"---{uuid.uuid4().hex}"
     
-    # Build multipart body
-    metadata = b'{"file":{"display_name":"edital.pdf","mime_type":"application/pdf"}}'
-    body_parts = []
-    body_parts.append(f"--{boundary}\r\n".encode())
-    body_parts.append(b'Content-Type: application/json; charset=UTF-8\r\n\r\n')
-    body_parts.append(metadata)
-    body_parts.append(b'\r\n')
-    body_parts.append(f"--{boundary}\r\n".encode())
-    body_parts.append(b'Content-Type: application/pdf\r\n\r\n')
-    body_parts.append(pdf_content)
-    body_parts.append(f"\r\n--{boundary}--\r\n".encode())
+    metadata = b'{"file":{"display_name":"edital.pdf"}}'
     
-    body = b"".join(body_parts)
+    parts = []
+    parts.append(f"--{boundary}\r\n".encode())
+    parts.append(b'Content-Disposition: form-data; name="metadata"\r\n')
+    parts.append(b'Content-Type: application/json; charset=UTF-8\r\n\r\n')
+    parts.append(metadata)
+    parts.append(b'\r\n')
+    parts.append(f"--{boundary}\r\n".encode())
+    parts.append(b'Content-Disposition: form-data; name="media"; filename="edital.pdf"\r\n')
+    parts.append(b'Content-Type: application/pdf\r\n\r\n')
+    parts.append(pdf_content)
+    parts.append(b'\r\n')
+    parts.append(f"--{boundary}--\r\n".encode())
+    
+    body = b"".join(parts)
     
     try:
         resp = requests.post(
             upload_url,
             data=body,
-            headers={"Content-Type": f"multipart/related; boundary={boundary}"},
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
             timeout=120
         )
         if resp.status_code == 200:
             data = resp.json()
             file_uri = data.get("file", {}).get("uri")
-            logging.info(f"Gemini file upload success: {file_uri}")
+            file_name = data.get("file", {}).get("name", "")
+            file_state = data.get("file", {}).get("state", "PROCESSING")
+            logging.info(f"Gemini file upload success: {file_uri} (state={file_state})")
+            
+            # Poll until file is ACTIVE
+            import asyncio
+            file_get_url = f"https://generativelanguage.googleapis.com/v1beta/{file_name}?key={quote(api_key)}"
+            for attempt in range(10):
+                if file_state == "ACTIVE":
+                    break
+                await asyncio.sleep(2)
+                try:
+                    sr = requests.get(file_get_url, timeout=15)
+                    if sr.status_code == 200:
+                        file_state = sr.json().get("file", {}).get("state", "PROCESSING")
+                        logging.info(f"Gemini file poll attempt {attempt+1}: state={file_state}")
+                except Exception:
+                    pass
+            
+            if file_state != "ACTIVE":
+                logging.error(f"Gemini file never became ACTIVE, final state: {file_state}")
+                return None
+            
             return file_uri
-        logging.error(f"Gemini file upload failed: {resp.status_code} - {resp.text[:500]}")
+        logging.error(f"Gemini file upload failed: {resp.status_code} - {resp.text[:2000]}")
     except Exception as e:
         logging.error(f"Gemini file upload error: {e}")
     return None
