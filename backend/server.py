@@ -441,7 +441,14 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
         return text, finish, len(parts)
 
     for i, model in enumerate(models_to_try):
-        model_timeout = timeout
+        # Timeouts agressivos por modelo: 2.5-flash falha rápido, flash-latest muitas vezes
+        # demora além do normal para PDFs grandes, flash-lite-latest ganha tempo extra.
+        if "2.5" in model:
+            model_timeout = min(timeout, 30)
+        elif "flash-latest" in model and "lite" not in model:
+            model_timeout = min(timeout, 30)
+        else:
+            model_timeout = timeout
         # Cada modelo tem até 2 tentativas: (1) payload completo; (2) sem schema/thinking se der 400.
         for attempt in range(2):
             include_schema = (attempt == 0)
