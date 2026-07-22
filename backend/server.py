@@ -7442,6 +7442,8 @@ async def import_edital(
         if len(pdf_text) > text_limit:
             pdf_text = pdf_text[:text_limit] + "\n\n[Conteúdo truncado por limite de tamanho]"
         
+        pdf_text = pdf_text.replace("{", "{{").replace("}", "}}")
+        
         prompt = f"""Analise o edital de concurso abaixo (extraído de PDF) e retorne APENAS JSON válido.
 
 Conteúdo do edital:
@@ -10145,6 +10147,8 @@ async def analyze_edital_cargos(
         if len(pdf_text) > text_limit:
             pdf_text = pdf_text[:text_limit] + "\n\n[Conteúdo truncado por limite de tamanho]"
         
+        pdf_text = pdf_text.replace("{", "{{").replace("}", "}}")
+        
         prompt = f"""Analise o edital de concurso abaixo (extraído de PDF) e retorne APENAS JSON válido.
 
 Conteúdo do edital:
@@ -10219,7 +10223,6 @@ REGRAS:
             "multiple_cargos": parsed.get("multiple_cargos", False),
             "cargos": parsed.get("cargos", []),
             "pdf_filename": file.filename,
-            "pdf_content_b64": base64.b64encode(content).decode('utf-8'),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
         }
