@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Award, Trophy, Star, Shield, Target, TrendingUp, CheckSquare, Camera, Trash2, Upload, Cake, Edit3, Save, X, MessageCircle, Link2, Unlink, Copy, ExternalLink, CheckCircle2, Loader2, Info, Brain } from "lucide-react";
+import { Award, Trophy, Star, Shield, Target, TrendingUp, CheckSquare, Camera, Trash2, Upload, Cake, Edit3, Save, X, MessageCircle, Link2, Unlink, Copy, ExternalLink, CheckCircle2, Loader2, Info } from "lucide-react";
 import { motion } from "framer-motion";
 import axios from "axios";
 import { toast } from "sonner";
@@ -39,11 +39,6 @@ export default function Profile() {
   const [geminiKeyForm, setGeminiKeyForm] = useState("");
   const [savingGeminiKey, setSavingGeminiKey] = useState(false);
 
-  // Hugging Face API Key states
-  const [editingHfKey, setEditingHfKey] = useState(false);
-  const [hfKeyForm, setHfKeyForm] = useState("");
-  const [savingHfKey, setSavingHfKey] = useState(false);
-
   useEffect(() => {
     fetchUser();
     fetchAchievements();
@@ -51,7 +46,6 @@ export default function Profile() {
     checkBirthday();
     fetchTelegramStatus();
     fetchGeminiKeyStatus();
-    fetchHfKeyStatus();
   }, []);
 
   const fetchUser = async () => {
@@ -197,34 +191,6 @@ export default function Profile() {
       toast.error("Erro ao salvar chave API");
     } finally {
       setSavingGeminiKey(false);
-    }
-  };
-
-  // Hugging Face API Key functions
-  const fetchHfKeyStatus = async () => {
-    try {
-      const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
-      setUser(res.data);
-      setHfKeyForm(res.data.hf_api_key || "");
-    } catch (error) {
-      console.error("Erro ao carregar status HF", error);
-    }
-  };
-
-  const handleSaveHfKey = async () => {
-    setSavingHfKey(true);
-    try {
-      const res = await axios.patch(`${API}/auth/profile`, 
-        { hf_api_key: hfKeyForm || null }, 
-        { withCredentials: true }
-      );
-      setUser(res.data);
-      setEditingHfKey(false);
-      toast.success(res.data.hf_api_key ? "Token Hugging Face atualizado!" : "Token Hugging Face removido!");
-    } catch (error) {
-      toast.error("Erro ao salvar token Hugging Face");
-    } finally {
-      setSavingHfKey(false);
     }
   };
 
@@ -741,89 +707,6 @@ export default function Profile() {
                   className="bg-[#FFD700] hover:bg-[#E6C200] text-black text-sm"
                 >
                   <Edit3 className="w-4 h-4 mr-2" />{user?.gemini_api_key ? 'Alterar API Key' : 'Configurar API Key'}
-                </Button>
-              </div>
-            )}
-          </Card>
-
-          {/* Hugging Face API Key Settings */}
-          <Card className="bg-[#0A0A0A] border-[#27272A] p-6 mb-8">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="w-10 h-10 bg-[#FFD700]/20 rounded-sm flex items-center justify-center">
-                <Brain className="w-6 h-6 text-[#FFD700]" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-heading text-lg uppercase">Hugging Face API</h3>
-                <p className="text-xs text-[#A1A1AA]">Token opcional para IA via servidor (mais rápido, sem rate limit)</p>
-              </div>
-              <a
-                href="https://huggingface.co/settings/tokens"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[#52525B] hover:text-[#007AFF] transition-colors p-2"
-                title="Criar token no Hugging Face"
-              >
-                <Info className="w-4 h-4" />
-              </a>
-            </div>
-
-            {editingHfKey ? (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
-                <Input
-                  type="password"
-                  value={hfKeyForm}
-                  onChange={(e) => setHfKeyForm(e.target.value)}
-                  placeholder="Cole seu token HF (hf_...)"
-                  className="bg-[#121212] border-[#27272A] text-white font-mono text-xs"
-                />
-                <p className="text-[10px] text-[#52525B]">
-                  Gere em{' '}
-                  <a
-                    href="https://huggingface.co/settings/tokens"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#007AFF] hover:underline"
-                  >
-                    huggingface.co/settings/tokens
-                  </a>
-                </p>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleSaveHfKey} disabled={savingHfKey} className="bg-green-600 h-7 text-xs">
-                    <Save className="w-3 h-3 mr-1" />{savingHfKey ? 'Salvando...' : 'Salvar'}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setEditingHfKey(false)} className="h-7 text-xs">
-                    <X className="w-3 h-3 mr-1" />Cancelar
-                  </Button>
-                </div>
-              </motion.div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2 bg-[#121212] border border-[#27272A] p-3 rounded-sm">
-                  {user?.hf_api_key ? (
-                    <>
-                      <CheckCircle2 className="w-5 h-5 text-green-400" />
-                      <div className="flex-1">
-                        <p className="text-sm text-green-400 font-medium">Token configurado</p>
-                        <p className="text-xs text-[#A1A1AA]">
-                         ••••••••{user.hf_api_key.slice(-8)}
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="w-5 h-5 text-[#52525B]" />
-                      <div className="flex-1">
-                        <p className="text-sm text-[#A1A1AA]">Token não configurado</p>
-                        <p className="text-xs text-[#52525B]">Usando token padrão do servidor (se configurado)</p>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <Button
-                  onClick={() => setEditingHfKey(true)}
-                  className="bg-[#FFD700] hover:bg-[#E6C200] text-black text-sm"
-                >
-                  <Edit3 className="w-4 h-4 mr-2" />{user?.hf_api_key ? 'Alterar Token' : 'Configurar Token'}
                 </Button>
               </div>
             )}

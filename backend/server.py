@@ -37,8 +37,6 @@ FREE_TTS_VOICE = os.environ.get('FREE_TTS_VOICE', 'pt-BR-FranciscaNeural')
 EIDOS_URL = os.environ.get('EIDOS_URL', 'https://eidosspeech.xyz/api/v1/tts')
 EIDOS_API_KEY = os.environ.get('EIDOS_API_KEY', '')
 
-HF_API_TOKEN = os.environ.get('HF_API_TOKEN', '')
-
 async def get_user_api_key(user_id: str) -> Optional[str]:
     try:
         user_doc = await db.users.find_one({"user_id": user_id}, {"gemini_api_key": 1})
@@ -205,7 +203,6 @@ class User(BaseModel):
     birth_date: Optional[str] = None
     bio: Optional[str] = None
     gemini_api_key: Optional[str] = None
-    hf_api_key: Optional[str] = None
     created_at: datetime
 
 class UserCreate(BaseModel):
@@ -578,7 +575,6 @@ async def get_current_user(authorization: Optional[str] = None, session_token: O
     user_doc.setdefault("birth_date", None)
     user_doc.setdefault("bio", None)
     user_doc.setdefault("gemini_api_key", None)
-    user_doc.setdefault("hf_api_key", None)
     
     if isinstance(user_doc['created_at'], str):
         user_doc['created_at'] = datetime.fromisoformat(user_doc['created_at'])
@@ -672,7 +668,6 @@ async def register(user_data: UserCreate, response: Response):
         "xp": 0,
         "rank": "Recruta",
         "gemini_api_key": user_data.gemini_api_key,
-        "hf_api_key": None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(user_doc)
@@ -849,7 +844,7 @@ async def update_profile(request: Request, data: dict, session_token: Optional[s
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
     update_fields = {}
-    for field in ["name", "birth_date", "bio", "health_condition", "gemini_api_key", "hf_api_key"]:
+    for field in ["name", "birth_date", "bio", "health_condition", "gemini_api_key"]:
         if field in data:
             update_fields[field] = data[field]
     
@@ -864,7 +859,6 @@ async def update_profile(request: Request, data: dict, session_token: Optional[s
     updated_user = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password": 0})
     updated_user = updated_user or {}
     updated_user.setdefault("gemini_api_key", None)
-    updated_user.setdefault("hf_api_key", None)
     return updated_user
 
 @api_router.get("/auth/birthday-check")
@@ -14235,48 +14229,10 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     try:
         reply = await call_llm(body.message, user_id=user.user_id, system_message=body.system_message)
-        if reply.startswith("⚠️"):
-            user_gemini_key = getattr(user, 'gemini_api_key', None)
-            if not user_gemini_key and GOOGLE_GEMINI_API_KEY:
-                reply, _ = await call_gemini(body.message, body.system_message, GOOGLE_GEMINI_API_KEY)
-                if not reply:
-                    reply = "⚠️ Serviço de IA indisponível. Configure sua chave Gemini no perfil."
         return {"reply": reply}
     except Exception as e:
         logging.error(f"AI chat error: {e}")
         return {"reply": f"⚠️ Erro no servidor: {str(e)[:200]}"}
-
-
-@api_router.get("/hf/{path:path}")
-async def hf_proxy(path: str):
-    hf_url = f"https://huggingface.co/{path}"
-    try:
-        resp = requests.get(hf_url, stream=True, timeout=300, headers={"User-Agent": "Mozilla/5.0"})
-        content_type = resp.headers.get("content-type", "")
-        if "text/html" in content_type and resp.status_code >= 400:
-            return {"error": f"Hugging Face returned {resp.status_code}", "path": path}
-        return StreamingResponse(
-            resp.iter_content(chunk_size=8192),
-            media_type=content_type or "application/octet-stream",
-            status_code=resp.status_code,
-        )
-    except Exception as e:
-        logging.error(f"HF proxy error: {e}")
-        return {"error": f"Proxy error: {e}"}
-
-
-@api_router.get("/hf-api/{path:path}")
-async def hf_api_proxy(path: str):
-    """Proxy para a API do Hugging Face (ex: models/Xenova/...)"""
-    hf_url = f"https://huggingface.co/api/{path}"
-    try:
-        resp = requests.get(hf_url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-        if resp.status_code == 200:
-            return resp.json()
-        return {"error": f"HF API returned {resp.status_code}", "path": path}
-    except Exception as e:
-        logging.error(f"HF API proxy error: {e}")
-        return {"error": str(e)}
 
 
 # Include router AFTER all endpoints are defined
