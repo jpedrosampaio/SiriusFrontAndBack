@@ -268,48 +268,63 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
         return "⚠️ Sua chave de API Gemini é inválida. Verifique em https://makersuite.google.com/app/apikey"
     return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida em https://makersuite.google.com/app/apikey"
 
-async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None, user_id: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None, user_id: Optional[str] = None, response_schema: Optional[dict] = None) -> tuple[Optional[str], Optional[str]]:
     """Call Gemini API, returns (response_text, error_type).
     error_type: None on success, 'quota' on 429, 'invalid' on 400/401/403, 'other' otherwise.
-    If `user_id` is provided, successful calls are counted in `db.gemini_usage` for quota tracking."""
+    If `user_id` is provided, successful calls are counted in `db.gemini_usage` for quota tracking.
+    If `response_schema` is provided, uses Structured Output (responseMimeType=application/json)."""
     from urllib.parse import quote
-    # Free-tier friendly cascade. Older 1.5/2.0 models often hit 429 quota or 404 (deprecated),
-    # so we prefer 2.5-flash and the "latest" aliases which Google keeps updated.
     models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
     if GEMINI_MODEL not in models_to_try:
         models_to_try.insert(0, GEMINI_MODEL)
     
+    def _build_payload(model: str, include_schema: bool) -> dict:
+        p: dict = {"contents": [{"parts": [{"text": prompt}]}]}
+        if system_message:
+            p["systemInstruction"] = {"parts": [{"text": system_message}]}
+        if include_schema and response_schema is not None:
+            p["generationConfig"] = {
+                "temperature": 0,
+                "responseMimeType": "application/json",
+                "responseSchema": response_schema,
+            }
+        return p
+
     last_error = None
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    if system_message:
-        payload["systemInstruction"] = {"parts": [{"text": system_message}]}
-    
     for model in models_to_try:
         timeout = timeout_override or (90 if "2.5" in model else 30)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
         
-        try:
-            resp = requests.post(url, json=payload, timeout=timeout)
-            logging.info(f"Gemini call (model={model} timeout={timeout}s): status={resp.status_code}")
-            if resp.status_code == 200:
-                data = resp.json()
-                text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                if text:
-                    if user_id:
-                        await track_gemini_usage(user_id, model)
-                    return text, None
-                logging.warning(f"Gemini 200 OK but no text in response (model={model})")
-            else:
-                logging.error(f"Gemini API error (model={model}): {resp.status_code} - {resp.text[:500]}")
-            if resp.status_code in (400, 401, 403):
-                return None, "invalid"
-            if resp.status_code == 429:
-                last_error = "quota"
-            elif resp.status_code != 200:
+        for attempt in range(2):
+            include_schema = (attempt == 0 and response_schema is not None)
+            try:
+                payload = _build_payload(model, include_schema)
+                resp = requests.post(url, json=payload, timeout=timeout)
+                logging.info(f"Gemini call (model={model} schema={include_schema} timeout={timeout}s): status={resp.status_code}")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    if text:
+                        if user_id:
+                            await track_gemini_usage(user_id, model)
+                        return text, None
+                    logging.warning(f"Gemini 200 OK but no text in response (model={model})")
+                else:
+                    logging.error(f"Gemini API error (model={model}): {resp.status_code} - {resp.text[:500]}")
+                if resp.status_code in (400, 401, 403) and include_schema:
+                    logging.warning(f"Gemini {model} rejeitou schema — tentando sem schema")
+                    continue
+                if resp.status_code in (400, 401, 403):
+                    return None, "invalid"
+                if resp.status_code == 429:
+                    last_error = "quota"
+                    break
                 last_error = "other"
-        except Exception as e:
-            logging.error(f"Gemini error (model={model}): {e}")
-            last_error = "other"
+                break
+            except Exception as e:
+                logging.error(f"Gemini error (model={model}): {e}")
+                last_error = "other"
+                break
     return None, last_error
 
 async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
@@ -10719,7 +10734,7 @@ async def _hydrate_missing_disciplinas(pdf_text: str, cargos_list: List[dict], a
         nomes = [c.get("nome", "") for c in chunk]
         for tentativa in range(2):
             prompt = _build_hydration_prompt(nomes) + f"\n\nTEXTO DO EDITAL:\n{text_clip}"
-            result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=180, user_id=user_id)
+            result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=180, user_id=user_id, response_schema=_HYDRATION_SCHEMA)
             parsed = _parse_json_lenient(result) if result else None
             if not parsed:
                 logging.warning(f"analyze-edital: hidratação (lote {start//chunk_size + 1}, tentativa {tentativa+1}) falhou (err={err})")
@@ -10824,7 +10839,7 @@ async def _hydrate_disciplinas_from_text(pdf_text: str, cargo_nome: str, api_key
           '{"disciplinas_comuns": [...], "cargos": [{"nome": "...", "disciplinas": [...]}]}'
         + f"\n\nTEXTO COMPLETO DO EDITAL:\n{pdf_text[:150_000]}"
     )
-    result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=150, user_id=user_id)
+    result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=150, user_id=user_id, response_schema=_HYDRATION_SCHEMA)
     if not result:
         logging.warning(f"import-edital: hidratação por texto falhou (err={err})")
         return []
@@ -11054,6 +11069,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         result, error_type = await call_gemini(
             full_prompt, system_msg, user_api_key,
             timeout_override=180, user_id=user.user_id,
+            response_schema=response_schema,
         )
         if not result:
             if error_type == "quota":
