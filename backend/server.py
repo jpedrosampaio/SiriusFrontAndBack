@@ -11191,13 +11191,24 @@ async def delete_edital_analysis(
     request: Request,
     session_token: Optional[str] = Cookie(None)
 ):
-    """Delete a single edital analysis by analysis_id."""
+    """Delete an edital analysis AND all cached copies of the same PDF (mesmo pdf_hash)."""
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
-    result = await db.edital_analyses.delete_one({"analysis_id": analysis_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
+    # Primeiro descobre o pdf_hash do documento sendo removido
+    doc = await db.edital_analyses.find_one(
+        {"analysis_id": analysis_id, "user_id": user.user_id},
+        {"pdf_hash": 1}
+    )
+    if not doc:
         raise HTTPException(status_code=404, detail="Análise não encontrada.")
-    return {"success": True, "message": "Análise removida."}
+    pdf_hash = doc.get("pdf_hash")
+    if pdf_hash:
+        result = await db.edital_analyses.delete_many({"pdf_hash": pdf_hash, "user_id": user.user_id})
+        deleted = result.deleted_count
+    else:
+        result = await db.edital_analyses.delete_one({"analysis_id": analysis_id, "user_id": user.user_id})
+        deleted = 1
+    return {"success": True, "message": f"{deleted} análise(s) removida(s).", "deleted_count": deleted}
 
 @api_router.post("/study/programs/editais/compare")
 async def compare_editais(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
