@@ -14,7 +14,6 @@ import bcrypt
 import aiofiles
 import base64
 from pypdf import PdfReader
-import pdfplumber
 import io
 
 import random
@@ -46,29 +45,18 @@ EIDOS_URL = os.environ.get('EIDOS_URL', 'https://eidosspeech.xyz/api/v1/tts')
 EIDOS_API_KEY = os.environ.get('EIDOS_API_KEY', '')
 
 def extract_pdf_text(content: bytes) -> str:
-    """Extract text from a PDF using pdfplumber (better quality, handles tables)."""
+    """Extract text from a PDF using pypdf (memory-safe)."""
     try:
-        import io
+        reader = PdfReader(io.BytesIO(content))
         text_parts = []
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            for page in pdf.pages:
-                extracted = page.extract_text()
-                if extracted:
-                    text_parts.append(extracted)
+        for page in reader.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text_parts.append(extracted)
         return "\n".join(text_parts)
     except Exception as e:
-        logging.warning(f"Failed to extract PDF text via pdfplumber: {e}")
-        try:
-            reader = PdfReader(io.BytesIO(content))
-            text_parts = []
-            for page in reader.pages:
-                extracted = page.extract_text()
-                if extracted:
-                    text_parts.append(extracted)
-            return "\n".join(text_parts)
-        except Exception as e2:
-            logging.warning(f"Fallback pypdf also failed: {e2}")
-            return ""
+        logging.warning(f"Failed to extract PDF text: {e}")
+        return ""
 
 
 # ==================== FUZZY DEDUP DE CARGOS ====================
