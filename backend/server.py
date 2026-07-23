@@ -10699,8 +10699,16 @@ _HYDRATION_SCHEMA = {
 
 
 async def _hydrate_missing_disciplinas(pdf_text: str, cargos_list: List[dict], api_key: str, user_id: str, chunk_size: int = 6) -> int:
-    """2º passo: extrai disciplinas dos cargos que vieram sem, via texto extraído do PDF (em lotes)."""
-    missing = [c for c in cargos_list if not c.get("disciplinas")]
+    """2º passo: extrai disciplinas dos cargos que vieram sem ou só com grupos genéricos."""
+    _GRUPOS_GENERICOS = {"conhecimentos gerais", "conhecimentos específicos", "conhecimentos básicos",
+                         "conhecimentos complementares", "disciplinas gerais", "disciplinas específicas"}
+    def _precisa_hidratar(c: dict) -> bool:
+        disc = c.get("disciplinas")
+        if not disc: return True
+        if len(disc) <= 3: return True
+        nomes = {d.get("nome", "").strip().lower() if isinstance(d, dict) else str(d).strip().lower() for d in disc}
+        return nomes.issubset(_GRUPOS_GENERICOS)
+    missing = [c for c in cargos_list if _precisa_hidratar(c)]
     if not missing:
         return 0
     logging.info(f"analyze-edital: {len(missing)} cargo(s) sem disciplinas — iniciando hidratação (passo 2)")
