@@ -11013,6 +11013,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
 6) Nunca invente cargos, disciplinas ou tópicos. Se algo não estiver no edital, use "" ou 0.
 7) Português brasileiro em TODOS os campos.
 8) DISCIPLINAS NUNCA VAZIAS — todo edital tem conteúdo programático (procure em "DOS CONTEÚDOS PROGRAMÁTICOS", "DAS PROVAS", anexos e tabelas). Se o edital define disciplinas COMUNS a todos os cargos (ex: "Conhecimentos Básicos para todos os cargos"), REPLIQUE essas disciplinas dentro de CADA cargo, além das específicas. É PROIBIDO retornar um cargo com "disciplinas": [].
+9) NÃO AGRUPE disciplinas em grupos genéricos. Se o edital divide em "Conhecimentos Gerais" e "Conhecimentos Específicos", extraia CADA disciplina individual (ex: "Língua Portuguesa", "Raciocínio Lógico", "Direito Administrativo") — NUNCA retorne apenas os nomes dos grupos. O array "disciplinas" deve ter TODAS as matérias individuais cobradas.
 {hint_block}
 """
 
@@ -11082,10 +11083,18 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         cargos_list = _sanitize_cargos(cargos_list)
         parsed["multiple_cargos"] = len(cargos_list) > 1
 
-        # Passo 2 do pipeline: se o modelo enumerou cargos mas não extraiu disciplinas
-        # (comum quando o fallback cai em modelos "lite"), hidrata com uma 2ª chamada
-        # focada apenas em disciplinas/conteúdo programático.
-        if cargos_list and any(not c.get("disciplinas") for c in cargos_list):
+        # Passo 2 do pipeline: hidrata cargos cujas disciplinas estão vazias ou são apenas
+        # grupos genéricos (ex: só "Conhecimentos Gerais" e "Conhecimentos Específicos").
+        def _precisa_hidratar(c: dict) -> bool:
+            disc = c.get("disciplinas")
+            if not disc: return True
+            if len(disc) <= 3: return True
+            grupos = {"conhecimentos gerais", "conhecimentos específicos", "conhecimentos básicos",
+                      "conhecimentos complementares", "disciplinas gerais", "disciplinas específicas"}
+            nomes = {d.get("nome", "").strip().lower() for d in disc}
+            if nomes.issubset(grupos): return True
+            return False
+        if cargos_list and any(_precisa_hidratar(c) for c in cargos_list):
             await _hydrate_missing_disciplinas(pdf_text, cargos_list, user_api_key, user.user_id)
 
         _fill_cp_from_topicos(cargos_list)
