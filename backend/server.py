@@ -14,6 +14,7 @@ import bcrypt
 import aiofiles
 import base64
 from pypdf import PdfReader
+import pdfplumber
 import io
 
 import random
@@ -45,18 +46,29 @@ EIDOS_URL = os.environ.get('EIDOS_URL', 'https://eidosspeech.xyz/api/v1/tts')
 EIDOS_API_KEY = os.environ.get('EIDOS_API_KEY', '')
 
 def extract_pdf_text(content: bytes) -> str:
-    """Extract text from a PDF using pypdf"""
+    """Extract text from a PDF using pdfplumber (better quality, handles tables)."""
     try:
-        reader = PdfReader(io.BytesIO(content))
+        import io
         text_parts = []
-        for page in reader.pages:
-            extracted = page.extract_text()
-            if extracted:
-                text_parts.append(extracted)
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            for page in pdf.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text_parts.append(extracted)
         return "\n".join(text_parts)
     except Exception as e:
-        logging.warning(f"Failed to extract PDF text: {e}")
-        return ""
+        logging.warning(f"Failed to extract PDF text via pdfplumber: {e}")
+        try:
+            reader = PdfReader(io.BytesIO(content))
+            text_parts = []
+            for page in reader.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text_parts.append(extracted)
+            return "\n".join(text_parts)
+        except Exception as e2:
+            logging.warning(f"Fallback pypdf also failed: {e2}")
+            return ""
 
 
 # ==================== FUZZY DEDUP DE CARGOS ====================
@@ -10964,7 +10976,7 @@ async def analyze_edital_cargos(
                 },
             },
         },
-        "required": ["nome"],
+        "required": ["nome", "grupo"],
     }
     cargo_schema = {
         "type": "object",
@@ -11007,16 +11019,31 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
    - "vagas" = número de vagas (string, pode ser "CR" para cadastro reserva).
    - "remuneracao" = remuneração inicial (string). Se não houver, "".
    - "escolaridade" = requisito de escolaridade. Se não houver, "".
-   - "disciplinas" = TODAS as disciplinas cobradas para ESSE cargo específico (conhecimentos básicos + específicos).
+   - "disciplinas" = TODAS as disciplinas cobradas para ESSE cargo específico.
 5) Para cada disciplina:
+   - "nome" = NOME DA DISCIPLINA INDIVIDUAL (ex: "Língua Portuguesa", nunca "Conhecimentos Gerais")
+   - "grupo" = nome do GRUPO/TÓPICO a que pertence (ex: "Grupo I - Conhecimentos Básicos", "Grupo II - Conhecimentos Específicos", "Conhecimentos Gerais", "Conhecimentos Específicos")
    - "peso" = peso da disciplina (inteiro). Se não houver, use 1.
-   - "num_questoes" = número de questões daquela disciplina para esse cargo (inteiro). Se não houver informação por cargo, use 0.
+   - "num_questoes" = número de questões (inteiro). Se não houver, use 0.
    - "topicos" = resumo curto (até 10 itens).
-   - "conteudo_programatico" = lista COMPLETA e FIEL do conteúdo programático oficial, por assunto/subtópico.
+   - "conteudo_programatico" = lista COMPLETA do conteúdo oficial.
 6) Nunca invente cargos, disciplinas ou tópicos. Se algo não estiver no edital, use "" ou 0.
 7) Português brasileiro em TODOS os campos.
-8) DISCIPLINAS NUNCA VAZIAS — todo edital tem conteúdo programático (procure em "DOS CONTEÚDOS PROGRAMÁTICOS", "DAS PROVAS", anexos e tabelas). Se o edital define disciplinas COMUNS a todos os cargos (ex: "Conhecimentos Básicos para todos os cargos"), REPLIQUE essas disciplinas dentro de CADA cargo, além das específicas. É PROIBIDO retornar um cargo com "disciplinas": [].
-9) NÃO AGRUPE disciplinas em grupos genéricos. Se o edital divide em "Conhecimentos Gerais" e "Conhecimentos Específicos", extraia CADA disciplina individual (ex: "Língua Portuguesa", "Raciocínio Lógico", "Direito Administrativo") — NUNCA retorne apenas os nomes dos grupos. O array "disciplinas" deve ter TODAS as matérias individuais cobradas.
+
+8) REGRA CRÍTICA — NUNCA use nomes de grupos/genéricos como nome de disciplina.
+   Exemplo CORRETO de como expandir grupos:
+   Se o edital diz: "Grupo I - Conhecimentos Gerais: Língua Portuguesa, Raciocínio Lógico"
+   Você DEVE retornar DUAS disciplinas: {{"nome": "Língua Portuguesa", "grupo": "Grupo I - Conhecimentos Gerais"}}
+   e {{"nome": "Raciocínio Lógico", "grupo": "Grupo I - Conhecimentos Gerais"}}
+   Você NUNCA deve retornar {{"nome": "Conhecimentos Gerais"}} — isso está ERRADO.
+
+   Exemplo CORRETO de grupo com sub-tópicos numerados:
+   Se o edital diz: "NOÇÕES DE DIREITO: 1 Direito Administrativo, 2 Agentes Públicos"
+   Você DEVE retornar UMA disciplina: {{"nome": "Noções de Direito", "grupo": "Conhecimentos Específicos"}}
+   com "conteudo_programatico": [{{"assunto": "Direito Administrativo"}}, {{"assunto": "Agentes Públicos"}}]
+   NUNCA crie disciplinas separadas para cada item numerado — os números são sub-tópicos.
+
+9) Se o edital define grupos COMUNS a todos os cargos (ex: "Conhecimentos Básicos para todos os cargos"), REPLIQUE essas disciplinas dentro de CADA cargo. É PROIBIDO retornar cargo com disciplinas vazias.
 {hint_block}
 """
 
