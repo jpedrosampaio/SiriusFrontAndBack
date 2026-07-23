@@ -11185,6 +11185,20 @@ async def list_editais(request: Request, session_token: Optional[str] = Cookie(N
     return {"editais": unique, "total": len(unique)}
 
 
+@api_router.delete("/study/programs/editais/{analysis_id}")
+async def delete_edital_analysis(
+    analysis_id: str,
+    request: Request,
+    session_token: Optional[str] = Cookie(None)
+):
+    """Delete a single edital analysis by analysis_id."""
+    auth_header = request.headers.get("Authorization")
+    user = await get_current_user(authorization=auth_header, session_token=session_token)
+    result = await db.edital_analyses.delete_one({"analysis_id": analysis_id, "user_id": user.user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Análise não encontrada.")
+    return {"success": True, "message": "Análise removida."}
+
 @api_router.post("/study/programs/editais/compare")
 async def compare_editais(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
     """Diff two edital analyses.

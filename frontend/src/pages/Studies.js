@@ -501,7 +501,9 @@ export default function Studies() {
 
   // ========== EDITAL: LIST / COMPARE / CHAT (itens 4 e 6) ==========
   const [showCompareEditais, setShowCompareEditais] = useState(false);
+  const [showManageEditais, setShowManageEditais] = useState(false);
   const [editaisList, setEditaisList] = useState([]);
+  const [editaisDeleting, setEditaisDeleting] = useState(null);
   const [editaisLoading, setEditaisLoading] = useState(false);
   const [compareA, setCompareA] = useState("");
   const [compareB, setCompareB] = useState("");
@@ -1064,6 +1066,19 @@ export default function Studies() {
       toast.error("Falha ao carregar editais salvos");
     } finally {
       setEditaisLoading(false);
+    }
+  };
+
+  const handleDeleteEdital = async (analysisId) => {
+    setEditaisDeleting(analysisId);
+    try {
+      await axios.delete(`${API}/study/programs/editais/${analysisId}`, { withCredentials: true });
+      toast.success("Análise removida.");
+      setEditaisList(prev => prev.filter(e => e.analysis_id !== analysisId));
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Erro ao remover análise.");
+    } finally {
+      setEditaisDeleting(null);
     }
   };
 
@@ -1897,6 +1912,14 @@ export default function Studies() {
                       className="h-8 text-xs border-purple-500/40 text-purple-300 hover:bg-purple-500/10"
                     >
                       <GitCompareArrows className="w-3 h-3 mr-1" />Comparar Editais
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { refreshEditaisList(); setShowManageEditais(true); }}
+                      className="h-8 text-xs border-[#27272A] text-[#A1A1AA] hover:text-white"
+                    >
+                      <Folder className="w-3 h-3 mr-1" />Gerenciar Editais
                     </Button>
                     <Dialog open={showProgramDialog} onOpenChange={setShowProgramDialog}>
                       <DialogTrigger asChild><Button size="sm" className="bg-[#007AFF] h-8 text-xs"><Plus className="w-3 h-3 mr-1" />Novo Programa</Button></DialogTrigger>
@@ -4208,6 +4231,54 @@ export default function Studies() {
                   <CompareGroup title="Cargos MANTIDOS" color="gray" items={compareResult.cargos_unchanged} collapsedByDefault />
                 </div>
               )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ========== GERENCIAR EDITAIS ========== */}
+        <Dialog open={showManageEditais} onOpenChange={setShowManageEditais}>
+          <DialogContent className="bg-[#0A0A0A] border-[#27272A] max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><Folder className="w-5 h-5 text-purple-400" />Gerenciar Editais Salvos</DialogTitle>
+              <DialogDescription>Visualize e remova análises de editais salvas no sistema.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              {editaisLoading && (
+                <div className="flex items-center gap-2 text-sm text-[#A1A1AA]"><Loader2 className="w-4 h-4 animate-spin" />Carregando...</div>
+              )}
+              {!editaisLoading && editaisList.length === 0 && (
+                <div className="text-sm text-[#A1A1AA] bg-[#121212] rounded-lg p-6 text-center">
+                  Nenhum edital salvo. Faça upload em <em>Importar Edital</em>.
+                </div>
+              )}
+              {!editaisLoading && editaisList.map(e => (
+                <div key={e.analysis_id} className="flex items-center justify-between gap-3 bg-[#121212] border border-[#27272A] rounded-lg p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{e.pdf_filename}</p>
+                    <p className="text-xs text-[#A1A1AA] mt-0.5">
+                      {e.concurso?.nome || "Concurso não identificado"} — {e.num_cargos} cargo(s)
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteEdital(e.analysis_id)}
+                    disabled={editaisDeleting === e.analysis_id}
+                    className="text-red-400 hover:text-red-300 hover:bg-red-500/10 shrink-0"
+                  >
+                    {editaisDeleting === e.analysis_id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              ))}
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" onClick={refreshEditaisList} disabled={editaisLoading} className="border-[#27272A]">
+                  <RefreshCw className={`w-4 h-4 mr-2 ${editaisLoading ? "animate-spin" : ""}`} />Atualizar
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
