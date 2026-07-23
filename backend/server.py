@@ -10833,6 +10833,7 @@ async def _hydrate_disciplinas_from_text(pdf_text: str, cargo_nome: str, api_key
 async def analyze_edital_cargos(
     request: Request,
     file: UploadFile = File(...),
+    force: bool = Query(False, description="Ignora o cache e força uma nova análise"),
     session_token: Optional[str] = Cookie(None)
 ):
     """Analyze an edital PDF and return ALL available cargos/perfis before generating the program.
@@ -10867,10 +10868,12 @@ async def analyze_edital_cargos(
 
     # ---- Cache lookup by PDF hash ----
     pdf_hash = hashlib.sha256(content).hexdigest()
-    cached = await db.edital_analyses.find_one(
-        {"user_id": user.user_id, "pdf_hash": pdf_hash},
-        {"_id": 0}
-    )
+    cached = None
+    if not force:
+        cached = await db.edital_analyses.find_one(
+            {"user_id": user.user_id, "pdf_hash": pdf_hash},
+            {"_id": 0}
+        )
     if (
         cached and cached.get("cargos")
         and any(c.get("disciplinas") for c in cached["cargos"])

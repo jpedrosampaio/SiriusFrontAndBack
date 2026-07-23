@@ -474,6 +474,7 @@ export default function Studies() {
   const [editalFile, setEditalFile] = useState(null);
   const [editalImporting, setEditalImporting] = useState(false);
   const [editalForm, setEditalForm] = useState({ target_date: "", hours_per_day: 4, days_per_week: 5 });
+  const [editalForceReanalyze, setEditalForceReanalyze] = useState(false);
   const [editalResult, setEditalResult] = useState(null);
   const [showEditalResultDialog, setShowEditalResultDialog] = useState(false);
   const [showCronogramaDialog, setShowCronogramaDialog] = useState(false);
@@ -900,6 +901,7 @@ export default function Studies() {
       setShowEditalResultDialog(true);
       setEditalFile(null);
       setEditalForm({ target_date: "", hours_per_day: 4, days_per_week: 5 });
+      setEditalForceReanalyze(false);
       fetchAllData();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Erro ao importar edital");
@@ -1022,7 +1024,8 @@ export default function Studies() {
       const phaseTimer1 = setTimeout(() => setEditalAnalyzePhase("extract"), 1500);
       const phaseTimer2 = setTimeout(() => setEditalAnalyzePhase("cargos"), 6000);
 
-      const res = await axios.post(`${API}/study/programs/analyze-edital`, formData, {
+      const forceParam = editalForceReanalyze ? "?force=true" : "";
+      const res = await axios.post(`${API}/study/programs/analyze-edital${forceParam}`, formData, {
         withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 300000
       });
       clearTimeout(phaseTimer1); clearTimeout(phaseTimer2);
@@ -1157,6 +1160,7 @@ export default function Studies() {
       setShowEditalResultDialog(true);
       setEditalFile(null);
       setEditalForm({ target_date: "", hours_per_day: 4, days_per_week: 5 });
+      setEditalForceReanalyze(false);
       setEditalAnalysis(null);
       fetchAllData();
     } catch (err) {
@@ -1820,7 +1824,7 @@ export default function Studies() {
                                 <div className="flex items-center justify-center gap-2">
                                   <FileText className="w-5 h-5 text-purple-400 shrink-0" />
                                   <span className="text-sm text-purple-300 break-words text-left">{editalFile.name}</span>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => setEditalFile(null)}><XCircle className="w-4 h-4 text-red-400" /></Button>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => { setEditalFile(null); setEditalForceReanalyze(false); }}><XCircle className="w-4 h-4 text-red-400" /></Button>
                                 </div>
                               ) : (
                                 <label className="cursor-pointer">
@@ -1865,6 +1869,10 @@ export default function Studies() {
                               <li>Distribuição de tempo por matéria</li>
                             </ul>
                           </div>
+                          <label className="flex items-center gap-2 text-xs text-[#A1A1AA] cursor-pointer select-none">
+                            <input type="checkbox" checked={editalForceReanalyze} onChange={e => setEditalForceReanalyze(e.target.checked)} className="accent-purple-500" />
+                            Refazer análise (ignorar cache)
+                          </label>
                           <Button onClick={handleAnalyzeEdital} data-testid="analyze-edital-btn" disabled={!editalFile || editalImporting || editalAnalyzing} className="w-full bg-purple-600 hover:bg-purple-700">
                             {(editalImporting || editalAnalyzing) ? (
                               <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analisando edital...</>
