@@ -811,7 +811,7 @@ class WorkoutPlanCreate(BaseModel):
 class WorkoutPlanGenerate(BaseModel):
     objective: str  # hipertrofia, emagrecimento, condicionamento, forca, flexibilidade
     level: str  # iniciante, intermediario, avancado
-    workout_type: str = "musculacao"  # "musculacao", "corrida", "hibrido"
+    workout_type: str = "musculacao"  # "musculacao", "corrida", "hibrido", "calistenia"
     muscle_groups: Optional[List[str]] = None  # peito, costas, pernas, ombros, biceps, triceps, abdomen, gluteos, trapezio, antebraco, panturrilha
     duration: str = "dia"  # dia, semana, mes, ciclo
     # New fields for split-based generation
@@ -828,6 +828,9 @@ class WorkoutPlanGenerate(BaseModel):
     running_goal: Optional[str] = None  # "5km", "10km", "meia_maratona", "maratona", "condicionamento", "emagrecimento"
     weekly_frequency: Optional[int] = None  # 2-7 days per week
     preferred_terrain: Optional[str] = None  # "asfalto", "esteira", "trilha", "misto"
+    # Calisthenics-specific fields
+    calisthenics_focus: Optional[str] = None  # "forca_upper", "forca_lower", "full_body", "habilidades", "condicionamento"
+    calisthenics_equipment: Optional[str] = None  # "barra", "paralelas", "argolas", "solo", "nenhum"
 
 class WorkoutSession(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -4779,6 +4782,101 @@ REGRAS:
 - Retorne APENAS JSON válido, sem markdown, sem texto extra.
 - Adapte volume e intensidade ao nível ({gen_data.level}).
 - {freq} dias de treino por semana, com intensidades variadas.
+- Siga o princípio de progressão gradual (não mais que 10% de aumento semanal)."""
+
+    elif gen_data.workout_type in ("calistenia",) and gen_data.generation_mode == "periodo":
+        # --- CALISTHENICS (PERIOD MODE) ---
+        focus_labels = {
+            "forca_upper": "Força de Upper Body", "forca_lower": "Força de Lower Body",
+            "full_body": "Full Body", "habilidades": "Habilidades Calistênicas (handstand, muscle-up, front lever, back lever, planche)",
+            "condicionamento": "Condicionamento Calistênico"
+        }
+        focus_text = focus_labels.get(gen_data.calisthenics_focus or "", gen_data.calisthenics_focus or "Full Body")
+        equip_labels = {
+            "barra": "Barra Fixa", "paralelas": "Barras Paralelas",
+            "argolas": "Argolas", "solo": "Solo (apenas chão)", "nenhum": "Nenhum (só peso corporal)"
+        }
+        equip_text = equip_labels.get(gen_data.calisthenics_equipment or "", gen_data.calisthenics_equipment or "Nenhum")
+        dur_label_map = {"dia": "um dia", "semana": "uma semana", "mes": "um mês", "ciclo": "um ciclo (8-12 semanas)"}
+        dur_text = dur_label_map.get(gen_data.duration, gen_data.duration)
+
+        prompt = f"""Você é um coach de calistenia certificado. Gere um plano de treino APENAS com exercícios de calistenia (peso corporal e/ou barra fixa/paralelas/argolas) em formato JSON.
+
+PARÂMETROS:
+- Foco: {focus_text}
+- Nível do aluno: {gen_data.level}
+- Duração do plano: {dur_text}
+- Equipamento disponível: {equip_text}
+- Objetivo principal: {gen_data.objective}
+{health_text}
+
+ORIENTAÇÕES TÉCNICAS DE CALISTENIA:
+- Use APENAS exercícios de peso corporal, barra fixa, barras paralelas, argolas ou solo.
+- SISTEMA DE PROGRESSÕES: para cada movimento, indique a progressão adequada ao nível:
+  * Iniciante: versões simplificadas (flexão de joelhos, barra australiana, agachamento ar, pike push-up)
+  * Intermediário: versões clássicas (flexão completa, barra fixa, agachamento búlgaro, paralela)
+  * Avançado: versões avançadas (flexão diamante/archer, barra explosiva/muscle-up progressão, pistols, L-sit, handstand push-up)
+- Inclua progressão de sobrecarga via: aumento de reps, diminuição de descanso, variação de alavanca (ângulo mais difícil), adição de tempo sob tensão (isometria).
+- Para HABILIDADES (handstand, front lever, back lever, planche, L-sit, muscle-up): inclua drills preparatórios, progressões semanais e tempo de prática de habilidade (ex: "Prática de Handstand contra parede 10-15min").
+- Estruture cada treino com: aquecimento específico + ativação + trabalho principal + core/finalizador + alongamento.
+- Repetições baseadas em falha técnica (parar quando a forma começar a quebrar) ou range definido.
+- DESCANSO: 60-90s entre séries de força, 90-120s para séries de falha.
+
+Para CADA exercício no JSON:
+  - "name": nome do exercício + progressão (ex: "Flexão Completa", "Barra Fixa Pronada", "Agachamento Búlgaro", "Paralela", "Prancha", "L-Sit Hold", "Handstand Walk")
+  - "sets": número de séries
+  - "reps": número de repetições OU "AMRAP" (para falha) OU tempo em segundos (para isometria)
+  - "weight": nível da progressão (ex: "Completa", "Joelhos", "Assistida com elástico", "Negativa", "Explosiva", "Archer")
+  - "rest_seconds": descanso em segundos entre séries (60-120)
+  - "muscle_group": grupo muscular primário (peito, costas, pernas, ombros, core, braços, full_body, cardiorespiratorio)
+  - "tutorial": instruções detalhadas de execução: posição inicial, movimento, respiração, erros comuns, dica de progressão/regressão, e tempo de prática sugerido para habilidades
+
+FORMATO JSON OBRIGATÓRIO:
+{{
+  "name": "Treino Calistenia - {focus_text}",
+  "description": "Descrição breve do plano",
+  "plan_duration": "{gen_data.duration}",
+  "days": [
+    {{
+      "day_name": "dia1",
+      "day_label": "Treino A - Empurrar",
+      "exercises": [
+        {{
+          "name": "Aquecimento Articular",
+          "sets": 1, "reps": "8-10min", "weight": "Mobilidade dinâmica",
+          "rest_seconds": 0, "muscle_group": "full_body",
+          "tutorial": "Círculos de braço, rotação de punhos, ombros e quadril, cat-cow, leg swings. 8-10 minutos."
+        }},
+        {{
+          "name": "Flexão Completa",
+          "sets": 4, "reps": 10, "weight": "Padrão",
+          "rest_seconds": 90, "muscle_group": "peito",
+          "tutorial": "Mãos na largura dos ombros, corpo reto da cabeça ao calcanhar. Desça até o peito tocar o chão (ou cotovelos a 90°). Expire ao subir. Mantenha core contraído. Variação mais fácil: joelhos no chão. Variação mais difícil: pés elevados."
+        }},
+        {{
+          "name": "Paralela",
+          "sets": 3, "reps": 8, "weight": "Completa",
+          "rest_seconds": 90, "muscle_group": "triceps",
+          "tutorial": "Entre barras paralelas, corpo ereto. Desça até cotovelos a 90°, suba com força. Mantenha ombros estáveis (sem encolher). Variação fácil: assistida com elástico. Variação difícil: com peso adicional ou L-sit."
+        }},
+        {{
+          "name": "Prancha",
+          "sets": 3, "reps": "45s", "weight": "Padrão",
+          "rest_seconds": 60, "muscle_group": "core",
+          "tutorial": "Antebraços no chão, cotovelos sob os ombros. Corpo em linha reta. Contraia glúteos e abdômen. Respiração contínua. Variação fácil: joelhos no chão. Variação difícil: elevar uma perna."
+        }}
+      ]
+    }}
+  ]
+}}
+
+REGRAS:
+- Retorne APENAS JSON válido, sem markdown, sem texto extra.
+- Adapte volume e intensidade ao nível ({gen_data.level}).
+- Varie os estímulos nos dias da semana (push/pull/legs ou full body).
+- {equip_text} -- use apenas exercícios compatíveis com este equipamento.
+- Para {focus_text}: foque o plano neste tema.
+- Para plano semanal/mensal: alterne estímulos e inclua progressão semanal explícita.
 - Siga o princípio de progressão gradual (não mais que 10% de aumento semanal)."""
 
     elif gen_data.generation_mode == "tipo_treino" and gen_data.split_config:

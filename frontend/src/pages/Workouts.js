@@ -97,7 +97,9 @@ export default function Workouts() {
     workout_type: "musculacao",
     running_goal: "5km",
     weekly_frequency: 4,
-    preferred_terrain: "asfalto"
+    preferred_terrain: "asfalto",
+    calisthenics_focus: "full_body",
+    calisthenics_equipment: "nenhum"
   });
 
   const SPLIT_OPTIONS = [
@@ -693,6 +695,10 @@ export default function Workouts() {
         payload.weekly_frequency = aiGenForm.weekly_frequency;
         payload.preferred_terrain = aiGenForm.preferred_terrain;
         payload.duration = aiGenForm.duration;
+      } else if (aiGenForm.workout_type === "calistenia") {
+        payload.calisthenics_focus = aiGenForm.calisthenics_focus;
+        payload.calisthenics_equipment = aiGenForm.calisthenics_equipment;
+        payload.duration = aiGenForm.duration;
       } else if (aiGenMode === "tipo_treino") {
         payload.split_type = aiGenForm.split_type;
         payload.split_config = aiGenForm.split_config;
@@ -720,7 +726,9 @@ export default function Workouts() {
           workout_type: "musculacao",
           running_goal: "5km",
           weekly_frequency: 4,
-          preferred_terrain: "asfalto"
+          preferred_terrain: "asfalto",
+          calisthenics_focus: "full_body",
+          calisthenics_equipment: "nenhum"
         }));
         loadData();
       }
@@ -1317,6 +1325,16 @@ export default function Workouts() {
                       >
                         <Dumbbell className="w-4 h-4" /><span className="text-lg">🏃</span> Híbrido
                       </button>
+                      <button
+                        onClick={() => setAiGenForm(prev => ({...prev, workout_type: "calistenia"}))}
+                        className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                          aiGenForm.workout_type === "calistenia" 
+                            ? 'bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white shadow-lg' 
+                            : 'text-[#A1A1AA] hover:text-white hover:bg-[#1A1A1A]'
+                        }`}
+                      >
+                        <Zap className="w-4 h-4" /> Calistenia
+                      </button>
                     </div>
 
                     {/* ============ RUNNING MODE ============ */}
@@ -1419,6 +1437,93 @@ export default function Workouts() {
                           {generatingPlan ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando...</> : <><Sparkles className="w-4 h-4 mr-2" /> Gerar Treino de Corrida</>}
                         </Button>
                       </div>
+                  ) : aiGenForm.workout_type === "calistenia" ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-xs uppercase tracking-wider">Foco do Treino</Label>
+                          <Select value={aiGenForm.calisthenics_focus} onValueChange={(v) => setAiGenForm({...aiGenForm, calisthenics_focus: v})}>
+                            <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                              <SelectItem value="full_body">🔄 Full Body</SelectItem>
+                              <SelectItem value="forca_upper">💪 Força Upper Body</SelectItem>
+                              <SelectItem value="forca_lower">🦵 Força Lower Body</SelectItem>
+                              <SelectItem value="habilidades">🤸 Habilidades (handstand, muscle-up, etc)</SelectItem>
+                              <SelectItem value="condicionamento">❤️ Condicionamento</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs uppercase tracking-wider">Nível</Label>
+                          <Select value={aiGenForm.level} onValueChange={(v) => setAiGenForm({...aiGenForm, level: v})}>
+                            <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                              <SelectItem value="iniciante">🟢 Iniciante</SelectItem>
+                              <SelectItem value="intermediario">🟡 Intermediário</SelectItem>
+                              <SelectItem value="avancado">🔴 Avançado</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-xs uppercase tracking-wider">Equipamento Disponível</Label>
+                          <Select value={aiGenForm.calisthenics_equipment} onValueChange={(v) => setAiGenForm({...aiGenForm, calisthenics_equipment: v})}>
+                            <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                              <SelectItem value="nenhum">🙌 Nenhum (só peso corporal)</SelectItem>
+                              <SelectItem value="solo">🧘 Solo (chão + colchonete)</SelectItem>
+                              <SelectItem value="barra">💪 Barra Fixa</SelectItem>
+                              <SelectItem value="paralelas">💪 Barras Paralelas</SelectItem>
+                              <SelectItem value="argolas">⭕ Argolas</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs uppercase tracking-wider">Duração do Plano</Label>
+                          <Select value={aiGenForm.duration} onValueChange={(v) => setAiGenForm({...aiGenForm, duration: v})}>
+                            <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                              <SelectItem value="dia">📅 Um dia</SelectItem>
+                              <SelectItem value="semana">📅 Uma semana</SelectItem>
+                              <SelectItem value="mes">📅 Um mês (4 semanas)</SelectItem>
+                              <SelectItem value="ciclo">📅 Ciclo completo (8-12 semanas)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-xs uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                          <Heart className="w-3.5 h-3.5 text-red-400" /> Condição de Saúde / Lesões
+                          <span className="text-[#52525B] font-normal normal-case">(opcional)</span>
+                        </Label>
+                        <textarea
+                          value={aiGenForm.health_condition}
+                          onChange={(e) => setAiGenForm({...aiGenForm, health_condition: e.target.value})}
+                          placeholder="Ex: Dor no ombro ao fazer barra, lesão no punho..."
+                          className="w-full bg-[#121212] border border-[#27272A] rounded-lg p-3 text-sm text-white placeholder:text-[#52525B] focus:border-[#F97316] focus:ring-1 focus:ring-[#F97316] outline-none resize-none transition-colors"
+                          rows={2}
+                        />
+                      </div>
+
+                      <Button
+                        onClick={handleGenerateWithAI}
+                        disabled={generatingPlan}
+                        className="w-full bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:opacity-90 text-white font-bold"
+                      >
+                        {generatingPlan ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando...</> : <><Zap className="w-4 h-4 mr-2" /> Gerar Treino de Calistenia</>}
+                      </Button>
+                    </div>
                     ) : (
                     <>
                     {/* Mode Selector Tabs */}
