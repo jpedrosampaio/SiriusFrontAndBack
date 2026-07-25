@@ -811,6 +811,7 @@ class WorkoutPlanCreate(BaseModel):
 class WorkoutPlanGenerate(BaseModel):
     objective: str  # hipertrofia, emagrecimento, condicionamento, forca, flexibilidade
     level: str  # iniciante, intermediario, avancado
+    workout_type: str = "musculacao"  # "musculacao", "corrida", "hibrido"
     muscle_groups: Optional[List[str]] = None  # peito, costas, pernas, ombros, biceps, triceps, abdomen, gluteos, trapezio, antebraco, panturrilha
     duration: str = "dia"  # dia, semana, mes, ciclo
     # New fields for split-based generation
@@ -823,6 +824,10 @@ class WorkoutPlanGenerate(BaseModel):
     cardio_type: Optional[str] = None  # "corrida", "bike", "HIIT", "caminhada", "natacao", "pular_corda"
     cardio_mode: Optional[str] = None  # "hibrido", "hibrido_alternado"
     health_condition: Optional[str] = None  # user health conditions/injuries to consider
+    # Running-specific fields
+    running_goal: Optional[str] = None  # "5km", "10km", "meia_maratona", "maratona", "condicionamento", "emagrecimento"
+    weekly_frequency: Optional[int] = None  # 2-7 days per week
+    preferred_terrain: Optional[str] = None  # "asfalto", "esteira", "trilha", "misto"
 
 class WorkoutSession(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -4696,8 +4701,87 @@ Se algum exercício for contraindicado, substitua por uma alternativa segura e e
             {"$set": {"health_condition": gen_data.health_condition.strip()}}
         )
     
-    # ===== BUILD PROMPT BASED ON GENERATION MODE =====
-    if gen_data.generation_mode == "tipo_treino" and gen_data.split_config:
+    # ===== BUILD PROMPT BASED ON WORKOUT TYPE =====
+    if gen_data.workout_type in ("corrida",):
+        # --- RUNNING-ONLY WORKOUT ---
+        goal_labels = {
+            "5km": "Completar 5km", "10km": "Completar 10km",
+            "meia_maratona": "Meia Maratona (21km)", "maratona": "Maratona (42km)",
+            "condicionamento": "Condicionamento cardiovascular", "emagrecimento": "Emagrecimento"
+        }
+        goal_text = goal_labels.get(gen_data.running_goal or "", gen_data.running_goal or "Condicionamento")
+        freq = gen_data.weekly_frequency or 4
+        terrain = gen_data.preferred_terrain or "asfalto"
+        duration_map = {"dia": "um dia", "semana": "uma semana", "mes": "um mês", "ciclo": "um ciclo (8-12 semanas)"}
+        dur_text = duration_map.get(gen_data.duration, gen_data.duration)
+
+        prompt = f"""Você é um coach de corrida certificado. Gere um plano de treino de corrida completo em formato JSON.
+
+PARÂMETROS:
+- Objetivo: {goal_text}
+- Nível do corredor: {gen_data.level}
+- Duração: {dur_text}
+- Frequência semanal: {freq} dias/semana
+- Terreno preferido: {terrain} (asfalto, esteira, trilha ou misto)
+{health_text}
+
+ORIENTAÇÕES:
+- Varie os tipos de treino ao longo da semana: rodagem leve (zona 2), tiros/intervalado, tempo run, longão.
+- Inclua aquecimento (5-10min caminhada + alongamento dinâmico) e desaquecimento (5min caminhada + alongamento estático).
+- Para PLANO DIÁRIO: 1 dia de treino apenas.
+- Para PLANO SEMANAL: organize {freq} dias na semana (segunda a domingo). Alterne dias de corrida com descanso ativo (caminhada, mobilidade).
+- Para PLANO MENSAL: 4 semanas com progressão de volume (aumento semanal de ~10% no km total).
+- Para CICLO: periodização em fases: Base aeróbica (2-3sem), Construção (3-4sem), Pico (2sem), Polimento/Descanso (1sem).
+
+Para CADA exercício (treino do dia), inclua:
+  - "name": nome do treino (ex: "Rodagem Leve Zona 2", "Tiros 400m", "Tempo Run", "Longão", "Descanso Ativo")
+  - "sets": 1 (para treinos baseados em tempo/distância)
+  - "reps": duração em minutos ou distância (ex: "30min", "5km", "60min")
+  - "weight": zona de intensidade ou pace (ex: "Z2 - Conversacional", "Ritmo de prova", "Pace 5:30/km")
+  - "rest_seconds": 0 (corrida não tem descanso entre séries; o descanso é entre dias)
+  - "muscle_group": "cardio"
+  - "tutorial": instruções detalhadas do treino: como executar, pace sugerido, FC alvo, percepção de esforço (PSE), dicas de respiração e postura
+
+FORMATO JSON OBRIGATÓRIO:
+{{
+  "name": "Plano de Corrida - {goal_text}",
+  "description": "Descrição breve do plano",
+  "plan_duration": "{gen_data.duration}",
+  "days": [
+    {{
+      "day_name": "dia1",
+      "day_label": "Segunda - Rodagem Leve",
+      "exercises": [
+        {{
+          "name": "Aquecimento",
+          "sets": 1, "reps": "10min", "weight": "Caminhada leve",
+          "rest_seconds": 0, "muscle_group": "cardio",
+          "tutorial": "Caminhe em ritmo leve por 10 minutos. Alongamento dinâmico: elevação de joelhos, calcanhar ao glúteo, passada lateral."
+        }},
+        {{
+          "name": "Rodagem Leve Zona 2",
+          "sets": 1, "reps": "30min", "weight": "Z2 - Conversacional",
+          "rest_seconds": 0, "muscle_group": "cardio",
+          "tutorial": "Corra em ritmo confortável onde consegue manter uma conversa. FC entre 60-70% da FC máxima. Respiração nasal. Postura ereta, braços relaxados, passadas curtas e rápidas."
+        }},
+        {{
+          "name": "Desaquecimento",
+          "sets": 1, "reps": "5min", "weight": "Caminhada leve + alongamento",
+          "rest_seconds": 0, "muscle_group": "cardio",
+          "tutorial": "Reduza o ritmo gradualmente até caminhar. Alongue panturrilhas, quadríceps, isquiotibiais e glúteos por 20-30 segundos cada."
+        }}
+      ]
+    }}
+  ]
+}}
+
+REGRAS:
+- Retorne APENAS JSON válido, sem markdown, sem texto extra.
+- Adapte volume e intensidade ao nível ({gen_data.level}).
+- {freq} dias de treino por semana, com intensidades variadas.
+- Siga o princípio de progressão gradual (não mais que 10% de aumento semanal)."""
+
+    elif gen_data.generation_mode == "tipo_treino" and gen_data.split_config:
         # --- SPLIT-BASED GENERATION (Tipo de Treino) ---
         # Strategy: Generate only BASE SPLITS (A, B, C...) + weekly progression notes
         # Then expand to full days on the server side to avoid huge AI responses

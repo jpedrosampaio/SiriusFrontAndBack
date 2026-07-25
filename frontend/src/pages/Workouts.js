@@ -93,7 +93,11 @@ export default function Workouts() {
     include_cardio: false,
     cardio_type: "corrida",
     cardio_mode: "hibrido",
-    health_condition: ""
+    health_condition: "",
+    workout_type: "musculacao",
+    running_goal: "5km",
+    weekly_frequency: 4,
+    preferred_terrain: "asfalto"
   });
 
   const SPLIT_OPTIONS = [
@@ -679,11 +683,17 @@ export default function Workouts() {
       const payload = {
         objective: aiGenForm.objective,
         level: aiGenForm.level,
+        workout_type: aiGenForm.workout_type,
         generation_mode: aiGenMode,
         health_condition: aiGenForm.health_condition || null,
       };
       
-      if (aiGenMode === "tipo_treino") {
+      if (aiGenForm.workout_type === "corrida") {
+        payload.running_goal = aiGenForm.running_goal;
+        payload.weekly_frequency = aiGenForm.weekly_frequency;
+        payload.preferred_terrain = aiGenForm.preferred_terrain;
+        payload.duration = aiGenForm.duration;
+      } else if (aiGenMode === "tipo_treino") {
         payload.split_type = aiGenForm.split_type;
         payload.split_config = aiGenForm.split_config;
         payload.training_days_per_week = aiGenForm.training_days_per_week;
@@ -706,7 +716,11 @@ export default function Workouts() {
           objective: "hipertrofia",
           level: "intermediario",
           muscle_groups: [],
-          duration: "dia"
+          duration: "dia",
+          workout_type: "musculacao",
+          running_goal: "5km",
+          weekly_frequency: 4,
+          preferred_terrain: "asfalto"
         }));
         loadData();
       }
@@ -1271,6 +1285,142 @@ export default function Workouts() {
                     <DialogDescription className="sr-only">Escolha o modo de geração de treino com IA</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 mt-4">
+                    {/* Workout Type Selector */}
+                    <div className="flex gap-2 p-1 bg-[#121212] rounded-lg border border-[#27272A]">
+                      <button
+                        onClick={() => setAiGenForm(prev => ({...prev, workout_type: "musculacao"}))}
+                        className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                          aiGenForm.workout_type === "musculacao" 
+                            ? 'bg-gradient-to-r from-[#A855F7] to-[#7C3AED] text-white shadow-lg' 
+                            : 'text-[#A1A1AA] hover:text-white hover:bg-[#1A1A1A]'
+                        }`}
+                      >
+                        <Dumbbell className="w-4 h-4" /> Musculação
+                      </button>
+                      <button
+                        onClick={() => setAiGenForm(prev => ({...prev, workout_type: "corrida"}))}
+                        className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                          aiGenForm.workout_type === "corrida" 
+                            ? 'bg-gradient-to-r from-[#00F0FF] to-[#0EA5E9] text-white shadow-lg' 
+                            : 'text-[#A1A1AA] hover:text-white hover:bg-[#1A1A1A]'
+                        }`}
+                      >
+                        <span className="text-lg">🏃</span> Corrida
+                      </button>
+                      <button
+                        onClick={() => setAiGenForm(prev => ({...prev, workout_type: "hibrido"}))}
+                        className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                          aiGenForm.workout_type === "hibrido" 
+                            ? 'bg-gradient-to-r from-[#10B981] to-[#059669] text-white shadow-lg' 
+                            : 'text-[#A1A1AA] hover:text-white hover:bg-[#1A1A1A]'
+                        }`}
+                      >
+                        <Dumbbell className="w-4 h-4" /><span className="text-lg">🏃</span> Híbrido
+                      </button>
+                    </div>
+
+                    {/* ============ RUNNING MODE ============ */}
+                    {aiGenForm.workout_type === "corrida" ? (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs uppercase tracking-wider">Objetivo da Corrida</Label>
+                            <Select value={aiGenForm.running_goal} onValueChange={(v) => setAiGenForm({...aiGenForm, running_goal: v})}>
+                              <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                                <SelectItem value="5km">🏃 5km</SelectItem>
+                                <SelectItem value="10km">🏃 10km</SelectItem>
+                                <SelectItem value="meia_maratona">🏅 Meia Maratona (21km)</SelectItem>
+                                <SelectItem value="maratona">🏅 Maratona (42km)</SelectItem>
+                                <SelectItem value="condicionamento">❤️ Condicionamento</SelectItem>
+                                <SelectItem value="emagrecimento">🔥 Emagrecimento</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs uppercase tracking-wider">Nível</Label>
+                            <Select value={aiGenForm.level} onValueChange={(v) => setAiGenForm({...aiGenForm, level: v})}>
+                              <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                                <SelectItem value="iniciante">🟢 Iniciante</SelectItem>
+                                <SelectItem value="intermediario">🟡 Intermediário</SelectItem>
+                                <SelectItem value="avancado">🔴 Avançado</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs uppercase tracking-wider">Dias por Semana</Label>
+                            <Select value={String(aiGenForm.weekly_frequency)} onValueChange={(v) => setAiGenForm({...aiGenForm, weekly_frequency: Number(v)})}>
+                              <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                                {[2,3,4,5,6,7].map(n => <SelectItem key={n} value={String(n)}>{n} dias</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs uppercase tracking-wider">Terreno</Label>
+                            <Select value={aiGenForm.preferred_terrain} onValueChange={(v) => setAiGenForm({...aiGenForm, preferred_terrain: v})}>
+                              <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                                <SelectItem value="asfalto">🛣️ Asfalto</SelectItem>
+                                <SelectItem value="esteira">🏃 Esteira</SelectItem>
+                                <SelectItem value="trilha">⛰️ Trilha</SelectItem>
+                                <SelectItem value="misto">🔄 Misto</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label className="text-xs uppercase tracking-wider">Duração do Plano</Label>
+                          <Select value={aiGenForm.duration} onValueChange={(v) => setAiGenForm({...aiGenForm, duration: v})}>
+                            <SelectTrigger className="bg-[#121212] border-[#27272A] text-white mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#121212] border-[#27272A] text-white">
+                              <SelectItem value="dia">📅 Um dia</SelectItem>
+                              <SelectItem value="semana">📅 Uma semana</SelectItem>
+                              <SelectItem value="mes">📅 Um mês (4 semanas)</SelectItem>
+                              <SelectItem value="ciclo">📅 Ciclo completo (8-12 semanas)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div>
+                          <Label className="text-xs uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                            <Heart className="w-3.5 h-3.5 text-red-400" /> Condição de Saúde / Lesões
+                            <span className="text-[#52525B] font-normal normal-case">(opcional)</span>
+                          </Label>
+                          <textarea
+                            value={aiGenForm.health_condition}
+                            onChange={(e) => setAiGenForm({...aiGenForm, health_condition: e.target.value})}
+                            placeholder="Ex: Dor no joelho ao correr, lesão no tornozelo..."
+                            className="w-full bg-[#121212] border border-[#27272A] rounded-lg p-3 text-sm text-white placeholder:text-[#52525B] focus:border-[#00F0FF] focus:ring-1 focus:ring-[#00F0FF] outline-none resize-none transition-colors"
+                            rows={2}
+                          />
+                        </div>
+
+                        <Button
+                          onClick={handleGenerateWithAI}
+                          disabled={generatingPlan}
+                          className="w-full bg-gradient-to-r from-[#00F0FF] to-[#0EA5E9] hover:opacity-90 text-black font-bold"
+                        >
+                          {generatingPlan ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando...</> : <><Sparkles className="w-4 h-4 mr-2" /> Gerar Treino de Corrida</>}
+                        </Button>
+                      </div>
+                    ) : (
+                    <>
                     {/* Mode Selector Tabs */}
                     <div className="flex gap-2 p-1 bg-[#121212] rounded-lg border border-[#27272A]">
                       <button
@@ -1590,6 +1740,7 @@ export default function Workouts() {
                         <><Sparkles className="w-4 h-4 mr-2" /> Gerar Treino</>
                       )}
                     </Button>
+                    </> {/* fecha fragment do else (musculacao/hibrido) */}
                   </div>
                 </DialogContent>
               </Dialog>
