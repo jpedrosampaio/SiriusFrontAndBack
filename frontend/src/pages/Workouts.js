@@ -1845,7 +1845,7 @@ export default function Workouts() {
                         <><Sparkles className="w-4 h-4 mr-2" /> Gerar Treino</>
                       )}
                     </Button>
-                    </> /* fecha fragment do else (musculacao/hibrido) */}
+                    </>)}
                   </div>
                 </DialogContent>
               </Dialog>
