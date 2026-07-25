@@ -699,6 +699,7 @@ export default function Workouts() {
         payload.calisthenics_focus = aiGenForm.calisthenics_focus;
         payload.calisthenics_equipment = aiGenForm.calisthenics_equipment;
         payload.duration = aiGenForm.duration;
+        payload.generation_mode = "periodo";
       } else if (aiGenMode === "tipo_treino") {
         payload.split_type = aiGenForm.split_type;
         payload.split_config = aiGenForm.split_config;
@@ -1326,7 +1327,7 @@ export default function Workouts() {
                         <Dumbbell className="w-4 h-4" /><span className="text-lg">🏃</span> Híbrido
                       </button>
                       <button
-                        onClick={() => setAiGenForm(prev => ({...prev, workout_type: "calistenia"}))}
+                        onClick={() => { setAiGenForm(prev => ({...prev, workout_type: "calistenia"})); setAiGenMode("periodo"); }}
                         className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
                           aiGenForm.workout_type === "calistenia" 
                             ? 'bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white shadow-lg' 
