@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/lib/api-errors";
 import { useEffect, useState, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -637,7 +638,7 @@ export default function Workouts() {
       // Refresh plans
       const plansRes = await axios.get(`${API}/workout-plans`, { withCredentials: true });
       setPlans(Array.isArray(plansRes.data) ? plansRes.data : []);
-    } catch (err) { toast.error(err.response?.data?.detail || "Erro ao importar treino"); }
+    } catch (err) { toast.error(getApiErrorMessage(err, "Erro ao importar treino")); }
     finally { setImportLoading(false); }
   };
 
@@ -734,7 +735,7 @@ export default function Workouts() {
         loadData();
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao gerar treino com IA");
+      toast.error(getApiErrorMessage(error, "Erro ao gerar treino com IA"));
     } finally {
       setGeneratingPlan(false);
     }
@@ -762,7 +763,7 @@ export default function Workouts() {
         loadData();
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao melhorar treino");
+      toast.error(getApiErrorMessage(error, "Erro ao melhorar treino"));
     } finally {
       setImprovingPlan(null);
     }
@@ -839,7 +840,7 @@ export default function Workouts() {
       fetchNextLoads(plan.plan_id);
       toast.success("Treino iniciado! Bora! 💪");
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao iniciar treino");
+      toast.error(getApiErrorMessage(error, "Erro ao iniciar treino"));
     }
   };
 

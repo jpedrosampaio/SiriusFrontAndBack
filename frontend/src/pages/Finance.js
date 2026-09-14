@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/lib/api-errors";
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -134,7 +135,7 @@ export default function Finance() {
       setNewCategoryName("");
       fetchCategories();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao criar categoria");
+      toast.error(getApiErrorMessage(error, "Erro ao criar categoria"));
     } finally {
       setCategoryLoading(false);
     }
@@ -146,7 +147,7 @@ export default function Finance() {
       toast.success(`Categoria "${catName}" removida`);
       fetchCategories();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao remover categoria");
+      toast.error(getApiErrorMessage(error, "Erro ao remover categoria"));
     }
   };
 
@@ -365,7 +366,7 @@ export default function Finance() {
       setOpenBudget(false);
       fetchBudgets();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao criar orçamento");
+      toast.error(getApiErrorMessage(error, "Erro ao criar orçamento"));
     }
   };
 

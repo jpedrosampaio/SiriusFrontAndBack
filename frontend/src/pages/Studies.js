@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/lib/api-errors";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -726,7 +727,7 @@ export default function Studies() {
       setImportForm({ title: "Simulado Importado", banca: "", disciplina: "", concurso: "", question_type: "multipla_escolha" });
       fetchSimulados();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao importar PDF");
+      toast.error(getApiErrorMessage(err, "Erro ao importar PDF"));
     } finally { setSimuladoImporting(false); }
   };
 
@@ -744,7 +745,7 @@ export default function Studies() {
       setGenerateForm({ title: "", banca: "", disciplina: "", concurso: "", question_type: "multipla_escolha", num_questions: 10, difficulty: "medio" });
       fetchSimulados();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao gerar simulado");
+      toast.error(getApiErrorMessage(err, "Erro ao gerar simulado"));
     } finally { setSimuladoGenerating(false); }
   };
 
@@ -779,7 +780,7 @@ export default function Studies() {
       fetchSimulados();
       fetchAllData();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao submeter simulado");
+      toast.error(getApiErrorMessage(err, "Erro ao submeter simulado"));
     } finally { setSimuladoSubmitting(false); }
   };
 
@@ -845,7 +846,7 @@ export default function Studies() {
       fetchAllData();
       if (selectedNotebook) fetchNotebookData();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao analisar PDF");
+      toast.error(getApiErrorMessage(err, "Erro ao analisar PDF"));
     } finally { setContentPdfAnalyzing(false); }
   };
 
@@ -906,7 +907,7 @@ export default function Studies() {
       setEditalForceReanalyze(false);
       fetchAllData();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao importar edital");
+      toast.error(getApiErrorMessage(err, "Erro ao importar edital"));
     } finally { setEditalImporting(false); }
   };
 
@@ -932,7 +933,7 @@ export default function Studies() {
       setEditalEditMode(false);
       fetchAllData();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao salvar alterações");
+      toast.error(getApiErrorMessage(err, "Erro ao salvar alterações"));
     } finally { setSavingDisciplinas(false); }
   };
 
@@ -948,7 +949,7 @@ export default function Studies() {
       setCronogramaData(cronRes.data);
       setStudyIndicators(indRes.data);
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao carregar cronograma");
+      toast.error(getApiErrorMessage(err, "Erro ao carregar cronograma"));
       setShowCronogramaDialog(false);
     } finally { setCronogramaLoading(false); }
   };
@@ -962,7 +963,7 @@ export default function Studies() {
       const res = await axios.get(`${API}/study/programs/${programId}/edital-verticalizado`, { withCredentials: true });
       setVerticalizadoData(res.data);
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao carregar edital verticalizado");
+      toast.error(getApiErrorMessage(err, "Erro ao carregar edital verticalizado"));
       setShowVerticalizadoDialog(false);
     } finally { setVerticalizadoLoading(false); }
   };
@@ -996,7 +997,7 @@ export default function Studies() {
       setShowSimuladoFromEdital(false);
       setEditalSimuladoForm({ title: "", disciplina: "", question_type: "multipla_escolha", num_questions: 10, difficulty: "medio" });
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao gerar simulado");
+      toast.error(getApiErrorMessage(err, "Erro ao gerar simulado"));
     } finally { setEditalSimuladoGenerating(false); }
   };
 
@@ -1047,7 +1048,7 @@ export default function Studies() {
         await handleCreateFromCargo(res.data.analysis_id, 0);
       }
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao analisar edital");
+      toast.error(getApiErrorMessage(err, "Erro ao analisar edital"));
     } finally {
       setEditalAnalyzing(false);
       setEditalAnalyzePhase("");
@@ -1076,7 +1077,7 @@ export default function Studies() {
       toast.success("Análise removida.");
       setEditaisList(prev => prev.filter(e => e.analysis_id !== analysisId));
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao remover análise.");
+      toast.error(getApiErrorMessage(err, "Erro ao remover análise."));
     } finally {
       setEditaisDeleting(null);
     }
@@ -1102,7 +1103,7 @@ export default function Studies() {
       );
       setCompareResult(res.data);
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao comparar editais");
+      toast.error(getApiErrorMessage(err, "Erro ao comparar editais"));
     } finally {
       setComparing(false);
     }
@@ -1144,7 +1145,7 @@ export default function Studies() {
       );
       setChatHistory(h => [...h, { role: "assistant", content: res.data.answer, model: res.data.model }]);
     } catch (err) {
-      const msg = err.response?.data?.detail || "Erro ao consultar a IA.";
+      const msg = getApiErrorMessage(err, "Erro ao consultar a IA.");
       setChatHistory(h => [...h, { role: "assistant", content: `⚠️ ${msg}`, error: true }]);
     } finally {
       setChatSending(false);
@@ -1179,7 +1180,7 @@ export default function Studies() {
       setEditalAnalysis(null);
       fetchAllData();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao criar programa");
+      toast.error(getApiErrorMessage(err, "Erro ao criar programa"));
     } finally { setCreatingFromCargo(false); }
   };
 
@@ -1212,7 +1213,7 @@ export default function Studies() {
       setMindmapTopic("");
       setMindmapFile(null);
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao gerar mapa mental");
+      toast.error(getApiErrorMessage(err, "Erro ao gerar mapa mental"));
     } finally { setMindmapGenerating(false); }
   };
 
@@ -1280,7 +1281,7 @@ export default function Studies() {
       }, { withCredentials: true });
       toast.success(res.data.message || "Lembretes criados!");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Erro ao criar lembretes");
+      toast.error(getApiErrorMessage(err, "Erro ao criar lembretes"));
     }
   };
 
@@ -1300,7 +1301,7 @@ export default function Studies() {
       setRedacaoFile(null);
       toast.success("Redação corrigida!");
       fetchRedacaoHistory();
-    } catch (err) { toast.error(err.response?.data?.detail || "Erro ao corrigir redação"); }
+    } catch (err) { toast.error(getApiErrorMessage(err, "Erro ao corrigir redação")); }
     finally { setRedacaoLoading(false); }
   };
 
