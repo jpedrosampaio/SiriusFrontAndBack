@@ -6,6 +6,8 @@ MongoDB must support multi-document transactions: use Atlas, a replica set,
 or a supported sharded deployment. Standalone MongoDB is not supported for these
 three mutation routes. Confirm the production topology before merging/deploying.
 No data migration is required. Existing completions and XP are retained.
+Startup prepares the task_instances and activity_requests collections before
+serving requests, avoiding namespace creation inside concurrent transactions.
 
 ## Behavior
 

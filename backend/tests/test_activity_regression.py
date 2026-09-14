@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock
 import httpx
 from fastapi import APIRouter, Cookie, FastAPI, HTTPException, Request
 from pymongo import ReturnDocument
-from pymongo.errors import OperationFailure
+from pymongo.errors import OperationFailure, CollectionInvalid
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
@@ -26,7 +26,7 @@ TREE = ast.parse(SOURCE.read_text(encoding="utf-8"))
 
 def load_routes(client, db):
     ns = dict(globals(), client=client, db=db, api_router=APIRouter(prefix="/api"))
-    names = {"validate_activity_date", "run_activity_mutation", "set_task_completion",
+    names = {"setup_activity_collections", "validate_activity_date", "run_activity_mutation", "set_task_completion",
              "update_task", "update_task_status", "get_tasks", "complete_habit",
              "calculate_rank", "award_xp", "calculate_streak", "calculate_best_streak"}
     selected = [node for node in TREE.body
@@ -69,6 +69,7 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
             "user_id": "alice", "habit_id": "habit_1", "completions": [],
             "streak": 0, "best_streak": 0})
         self.ns, app = load_routes(self.mongo, self.db)
+        await self.ns["setup_activity_collections"]()
         self.http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                      base_url="https://sirius.test")
 
@@ -101,6 +102,12 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
     def successes(self, responses):
         for response in responses:
             self.assertEqual(response.status_code, 200, response.text)
+
+    async def test_collection_setup_is_safe_for_concurrent_worker_startup(self):
+        await asyncio.gather(*(self.ns["setup_activity_collections"]() for _ in range(4)))
+        names = await self.db.list_collection_names()
+        self.assertIn("task_instances", names)
+        self.assertIn("activity_requests", names)
 
     async def test_repeated_task_completion_and_undo_each_apply_once(self):
         results = await asyncio.gather(*(self.task() for _ in range(20)))

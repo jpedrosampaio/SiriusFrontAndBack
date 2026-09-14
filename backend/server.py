@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
-from pymongo.errors import OperationFailure
+from pymongo.errors import OperationFailure, CollectionInvalid
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 import hashlib
@@ -1492,6 +1492,19 @@ async def get_topic_progress(request: Request, notebook_id: str, session_token: 
     )
     
     return progress_doc or {"topics": {}}
+
+async def setup_activity_collections():
+    # Creating namespaces inside concurrent transactions can conflict or block.
+    # Prepare them before serving requests; multiple workers may start together.
+    for name in ("task_instances", "activity_requests"):
+        try:
+            await db.create_collection(name)
+        except CollectionInvalid:
+            pass
+        except OperationFailure as exc:
+            if exc.code != 48:  # NamespaceExists from another starting worker.
+                raise
+
 
 def validate_activity_date(value: str) -> str:
     try:
@@ -15684,6 +15697,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup_activity_storage():
+    await setup_activity_collections()
+
 
 @app.on_event("startup")
 async def startup_setup():

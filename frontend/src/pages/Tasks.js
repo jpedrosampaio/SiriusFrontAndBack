@@ -365,7 +365,7 @@ export default function Tasks() {
                                 task={task}
                                 index={idx}
                                 pending={!!pendingTasks[task.task_id]}
-                    onToggle={handleToggleTask}
+                                onToggle={handleToggleTask}
                                 onDelete={handleDeleteTask}
                                 viewMode="kanban"
                               />
