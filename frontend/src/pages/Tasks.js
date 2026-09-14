@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { createActivityRequests } from "@/lib/activity-requests";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import { getLocalDateStr } from "@/lib/utils";
@@ -33,10 +34,10 @@ const priorityColors = {
 const priorityLabels = { low: "Baixa", medium: "Média", high: "Alta" };
 const recurrenceLabels = { all: "Todas", once: "Única vez", daily: "Diárias", weekly: "Semanais", monthly: "Mensais" };
 
-function TaskCard({ task, index, onToggle, onDelete, viewMode }) {
+function TaskCard({ task, index, onToggle, onDelete, viewMode, pending }) {
   if (viewMode === "kanban") {
     return (
-      <Draggable draggableId={task.task_id} index={index}>
+      <Draggable draggableId={task.task_id} index={index} isDragDisabled={pending}>
         {(provided, snapshot) => (
           <div
             ref={provided.innerRef}
@@ -75,7 +76,7 @@ function TaskCard({ task, index, onToggle, onDelete, viewMode }) {
     <Card className={"task-item bg-[#0A0A0A] border-[#27272A] border-l-4 " + priorityColors[task.priority] + " p-4"}>
       <div className="flex items-start justify-between">
         <div className="flex items-start space-x-3 flex-1">
-          <button data-testid={"task-toggle-" + task.task_id} onClick={() => onToggle(task)} className="mt-1">
+          <button data-testid={"task-toggle-" + task.task_id} onClick={() => onToggle(task)} disabled={pending} aria-busy={pending} className="mt-1">
             {task.completed ? <CheckCircle2 className="w-6 h-6 text-[#39FF14]" /> : <Circle className="w-6 h-6 text-[#52525B]" />}
           </button>
           <div className="flex-1">
@@ -104,6 +105,8 @@ function TaskCard({ task, index, onToggle, onDelete, viewMode }) {
 export default function Tasks() {
   const [user, setUser] = useState(null);
   const [tasks, setTasks] = useState([]);
+  const [pendingTasks, setPendingTasks] = useState({});
+  const activityRequests = useRef(createActivityRequests());
   const [selectedDate, setSelectedDate] = useState(getLocalDateStr());
   const [activeTab, setActiveTab] = useState("all");
   const [viewMode, setViewMode] = useState("kanban");
@@ -154,15 +157,30 @@ export default function Tasks() {
   };
 
   const handleToggleTask = async (task) => {
+    const completed = !task.completed;
+    const key = activityRequests.current.begin(task.task_id,
+      JSON.stringify([selectedDate, completed ? "done" : "todo"]));
+    if (!key) return;
+    setPendingTasks(prev => ({ ...prev, [task.task_id]: true }));
+    let succeeded = false;
     try {
-      const res = await axios.patch(`${API}/tasks/${task.task_id}?completed=${!task.completed}&date=${selectedDate}`, {}, { withCredentials: true });
-      if (res.data.xp_earned) {
-        toast.success(`+${res.data.xp_earned} XP! ${res.data.new_rank !== user?.rank ? "Novo rank: " + res.data.new_rank + "!" : ""}`);
+      const res = await axios.patch(`${API}/tasks/${task.task_id}`, {}, {
+        withCredentials: true,
+        params: { completed, date: selectedDate },
+        headers: { "Idempotency-Key": key },
+      });
+      succeeded = true;
+      if (!res.data.replayed && res.data.xp_earned > 0) {
+        toast.success(`+${res.data.xp_earned} XP!`);
+      } else if (!res.data.replayed && res.data.xp_earned < 0) {
+        toast.warning(`${res.data.xp_earned} XP! Tarefa desmarcada`);
       }
-      fetchTasks();
-      fetchUser();
+      await Promise.all([fetchTasks(), fetchUser()]);
     } catch (error) {
-      toast.error("Erro ao atualizar tarefa");
+      toast.error("Não foi possível confirmar a alteração. Tente novamente.");
+    } finally {
+      activityRequests.current.finish(task.task_id, succeeded);
+      setPendingTasks(prev => ({ ...prev, [task.task_id]: false }));
     }
   };
 
@@ -188,39 +206,33 @@ export default function Tasks() {
     done: tasks.filter(t => getTaskStatus(t) === "done"),
   };
 
-  const handleDragEnd = useCallback(async (result) => {
+  const handleDragEnd = async (result) => {
     if (!result.destination) return;
     const { source, destination, draggableId } = result;
-    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
-
+    if (source.droppableId === destination.droppableId) return;
     const newStatus = destination.droppableId;
-    const task = tasks.find(t => t.task_id === draggableId);
-    if (!task) return;
-
-    // Optimistic update
-    setTasks(prev => prev.map(t => {
-      if (t.task_id === draggableId) {
-        return { ...t, completed: newStatus === "done", status: newStatus };
-      }
-      return t;
-    }));
-
+    if (!tasks.some(task => task.task_id === draggableId)) return;
+    const key = activityRequests.current.begin(draggableId,
+      JSON.stringify([selectedDate, newStatus]));
+    if (!key) return;
+    setPendingTasks(prev => ({ ...prev, [draggableId]: true }));
+    let succeeded = false;
     try {
       const res = await axios.patch(`${API}/tasks/${draggableId}/status`, {
-        status: newStatus,
-        date: selectedDate
-      }, { withCredentials: true });
-      if (res.data.xp_earned > 0) {
+        status: newStatus, date: selectedDate,
+      }, { withCredentials: true, headers: { "Idempotency-Key": key } });
+      succeeded = true;
+      if (!res.data.replayed && res.data.xp_earned > 0) {
         toast.success(`+${res.data.xp_earned} XP!`);
-        fetchUser();
-      } else if (res.data.xp_earned < 0) {
-        fetchUser();
       }
+      await Promise.all([fetchTasks(), fetchUser()]);
     } catch (error) {
-      toast.error("Erro ao mover tarefa");
-      fetchTasks();
+      toast.error("Não foi possível confirmar a alteração. Tente novamente.");
+    } finally {
+      activityRequests.current.finish(draggableId, succeeded);
+      setPendingTasks(prev => ({ ...prev, [draggableId]: false }));
     }
-  }, [tasks, selectedDate, fetchTasks]);
+  };
 
   const totalDone = tasks.filter(t => t.completed).length;
   const totalTasks = tasks.length;
@@ -352,7 +364,8 @@ export default function Tasks() {
                                 key={task.task_id}
                                 task={task}
                                 index={idx}
-                                onToggle={handleToggleTask}
+                                pending={!!pendingTasks[task.task_id]}
+                    onToggle={handleToggleTask}
                                 onDelete={handleDeleteTask}
                                 viewMode="kanban"
                               />
@@ -389,6 +402,7 @@ export default function Tasks() {
                     key={task.task_id}
                     task={task}
                     index={idx}
+                    pending={!!pendingTasks[task.task_id]}
                     onToggle={handleToggleTask}
                     onDelete={handleDeleteTask}
                     viewMode="list"

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { createActivityRequests } from "@/lib/activity-requests";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import { getLocalDateStr } from "@/lib/utils";
@@ -75,6 +76,8 @@ const CompactStreakDisplay = ({ streak, bestStreak, color }) => (
 export default function Habits() {
   const [user, setUser] = useState(null);
   const [habits, setHabits] = useState([]);
+  const [pendingHabits, setPendingHabits] = useState({});
+  const activityRequests = useRef(createActivityRequests());
   const [open, setOpen] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [selectedHabit, setSelectedHabit] = useState(null);
@@ -133,18 +136,29 @@ export default function Habits() {
     }
   };
 
-  const handleCompleteHabit = async (habitId) => {
+  const handleCompleteHabit = async (habitId, completed) => {
+    const key = activityRequests.current.begin(habitId, JSON.stringify([today, completed]));
+    if (!key) return;
+    setPendingHabits(prev => ({ ...prev, [habitId]: true }));
+    let succeeded = false;
     try {
-      const res = await axios.post(`${API}/habits/${habitId}/complete?date=${today}`, {}, { withCredentials: true });
-      if (res.data.uncompleted) {
+      const res = await axios.post(`${API}/habits/${habitId}/complete`, {}, {
+        withCredentials: true,
+        params: { date: today, completed },
+        headers: { "Idempotency-Key": key },
+      });
+      succeeded = true;
+      if (!res.data.replayed && res.data.xp_earned < 0) {
         toast.warning(`${res.data.xp_earned} XP! Hábito desmarcado`);
-      } else if (res.data.xp_earned > 0) {
+      } else if (!res.data.replayed && res.data.xp_earned > 0) {
         toast.success(`+${res.data.xp_earned} XP! Sequência: ${res.data.streak} dias 🔥`);
       }
-      fetchHabits();
-      fetchUser();
+      await Promise.all([fetchHabits(), fetchUser()]);
     } catch (error) {
-      toast.error("Erro ao atualizar hábito");
+      toast.error("Não foi possível confirmar a alteração. Tente novamente.");
+    } finally {
+      activityRequests.current.finish(habitId, succeeded);
+      setPendingHabits(prev => ({ ...prev, [habitId]: false }));
     }
   };
 
@@ -341,7 +355,9 @@ export default function Habits() {
                       <div className="flex items-center gap-2">
                         <Button
                           data-testid={`habit-complete-${habit.habit_id}`}
-                          onClick={() => handleCompleteHabit(habit.habit_id)}
+                          onClick={() => handleCompleteHabit(habit.habit_id, !completedToday)}
+                          disabled={!!pendingHabits[habit.habit_id]}
+                          aria-busy={!!pendingHabits[habit.habit_id]}
                           size="sm"
                           className={`uppercase text-xs tracking-widest transition-all ${
                             completedToday

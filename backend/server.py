@@ -2,6 +2,11 @@ from fastapi import FastAPI, APIRouter, HTTPException, File, UploadFile, Form, C
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
+from pymongo.errors import OperationFailure
+from pymongo.read_concern import ReadConcern
+from pymongo.write_concern import WriteConcern
+import hashlib
 import os
 import logging
 import json
@@ -1488,6 +1493,108 @@ async def get_topic_progress(request: Request, notebook_id: str, session_token: 
     
     return progress_doc or {"topics": {}}
 
+def validate_activity_date(value: str) -> str:
+    try:
+        if not isinstance(value, str) or len(value) != 10:
+            raise ValueError
+        parsed = datetime.strptime(value, "%Y-%m-%d")
+        if parsed.strftime("%Y-%m-%d") != value:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Date must be a valid YYYY-MM-DD")
+    return value
+
+
+async def run_activity_mutation(user_id, request_key, fingerprint, apply):
+    """Serialize activity transitions per user and commit state, XP and receipt together."""
+    receipt_id = None
+    if request_key is not None:
+        if not (8 <= len(request_key) <= 128) or not all(
+            c.isascii() and (c.isalnum() or c in "-_") for c in request_key
+        ):
+            raise HTTPException(status_code=422, detail="Invalid Idempotency-Key")
+        receipt_id = hashlib.sha256(
+            json.dumps([user_id, request_key]).encode("utf-8")
+        ).hexdigest()
+
+    async def transact(session):
+        # This write makes simultaneous transitions for this user conflict.
+        # Motor retries the entire transaction against a fresh snapshot.
+        balance = await db.users.find_one_and_update(
+            {"user_id": user_id}, {"$inc": {"activity_revision": 1}},
+            return_document=ReturnDocument.AFTER, session=session
+        )
+        if balance is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if receipt_id is not None:
+            previous = await db.activity_requests.find_one({"_id": receipt_id}, session=session)
+            if previous is not None:
+                if previous["fingerprint"] != fingerprint:
+                    raise HTTPException(status_code=409, detail="Idempotency-Key already used for another action")
+                return {**previous["result"], "replayed": True}
+
+        result = await apply(session, balance)
+        if receipt_id is not None:
+            await db.activity_requests.insert_one({
+                "_id": receipt_id, "user_id": user_id, "fingerprint": fingerprint,
+                "result": result, "created_at": datetime.now(timezone.utc).isoformat()
+            }, session=session)
+        return result
+
+    try:
+        async with await client.start_session() as session:
+            return await session.with_transaction(
+                transact, read_concern=ReadConcern("snapshot"),
+                write_concern=WriteConcern("majority"), max_commit_time_ms=10000
+            )
+    except OperationFailure as exc:
+        if exc.code == 20:
+            logging.error("Activity transactions require MongoDB replica set or mongos")
+            raise HTTPException(status_code=503, detail="Activity transactions unavailable") from exc
+        raise
+
+
+async def set_task_completion(user_id, task_id, date, new_status, request_key=None):
+    date = validate_activity_date(date)
+    fingerprint = ["task", task_id, date, new_status]
+
+    async def apply(session, balance):
+        task = await db.tasks.find_one(
+            {"task_id": task_id, "user_id": user_id}, {"_id": 0}, session=session
+        )
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        query = {"task_id": task_id, "date": date, "user_id": user_id}
+        instances = await db.task_instances.find(query, {"_id": 0}, session=session).to_list(1000)
+        # Older releases could create duplicate instances. Treat a completed
+        # instance as completed and normalize all existing rows on transition.
+        was_completed = any(row.get("completed", False) for row in instances)
+        completed = new_status == "done"
+        if instances:
+            await db.task_instances.update_many(
+                query, {"$set": {"completed": completed, "status": new_status}}, session=session
+            )
+        else:
+            await db.task_instances.insert_one({
+                **query, "instance_id": f"inst_{uuid.uuid4().hex[:12]}",
+                "completed": completed, "status": new_status,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }, session=session)
+        xp_earned = (int(completed) - int(was_completed)) * task["xp_reward"]
+        new_xp = balance.get("xp", 0)
+        new_rank = calculate_rank(new_xp)
+        if xp_earned:
+            new_xp, new_rank = await award_xp(user_id, xp_earned, session=session)
+        return {
+            "message": "Task completed" if xp_earned > 0 else
+                       "Task uncompleted" if xp_earned < 0 else "Task updated",
+            "status": new_status, "completed": completed, "xp_earned": xp_earned,
+            "new_xp": new_xp, "new_rank": new_rank
+        }
+
+    return await run_activity_mutation(user_id, request_key, fingerprint, apply)
+
+
 @api_router.get("/tasks")
 async def get_tasks(request: Request, date: Optional[str] = None, recurrence: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
     auth_header = request.headers.get("Authorization")
@@ -1506,7 +1613,15 @@ async def get_tasks(request: Request, date: Optional[str] = None, recurrence: Op
         instances = await db.task_instances.find({
             "user_id": user.user_id, "date": date, "task_id": {"$in": task_ids}
         }, {"_id": 0}).to_list(1000)
-    instances_by_task = {instance["task_id"]: instance for instance in instances}
+    instances_by_task = {}
+    for instance in instances:
+        previous = instances_by_task.get(instance["task_id"])
+        if previous is None or (
+            bool(instance.get("completed")) > bool(previous.get("completed"))
+        ) or (
+            not previous.get("completed") and instance.get("status") == "in_progress"
+        ):
+            instances_by_task[instance["task_id"]] = instance
 
     result_tasks = []
     for task in all_tasks:
@@ -1554,46 +1669,13 @@ async def create_task(request: Request, task_data: TaskCreate, session_token: Op
 
 @api_router.patch("/tasks/{task_id}")
 async def update_task(request: Request, task_id: str, completed: bool, date: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    task = await db.tasks.find_one({"task_id": task_id, "user_id": user.user_id}, {"_id": 0})
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    instance = await db.task_instances.find_one({"task_id": task_id, "date": date, "user_id": user.user_id}, {"_id": 0})
-    
-    if not instance:
-        instance_id = f"inst_{uuid.uuid4().hex[:12]}"
-        instance_doc = {
-            "instance_id": instance_id,
-            "task_id": task_id,
-            "user_id": user.user_id,
-            "date": date,
-            "completed": completed,
-            "status": "done" if completed else "todo",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.task_instances.insert_one(instance_doc)
-        was_completed = False
-    else:
-        await db.task_instances.update_one(
-            {"instance_id": instance["instance_id"], "user_id": user.user_id},
-            {"$set": {"completed": completed, "status": "done" if completed else "todo"}}
-        )
-        was_completed = instance["completed"]
-    
-    # Completing task - award XP
-    if completed and not was_completed:
-        new_xp, new_rank = await award_xp(user.user_id, task['xp_reward'])
-        return {"message": "Task completed", "xp_earned": task['xp_reward'], "new_xp": new_xp, "new_rank": new_rank}
-    
-    # Uncompleting task - deduct XP
-    if not completed and was_completed:
-        new_xp, new_rank = await award_xp(user.user_id, -(task['xp_reward']))
-        return {"message": "Task uncompleted", "xp_earned": -task['xp_reward'], "new_xp": new_xp, "new_rank": new_rank}
-    
-    return {"message": "Task updated"}
+    user = await get_current_user(
+        authorization=request.headers.get("Authorization"), session_token=session_token
+    )
+    return await set_task_completion(
+        user.user_id, task_id, date, "done" if completed else "todo",
+        request.headers.get("Idempotency-Key")
+    )
 
 @api_router.delete("/tasks/{task_id}")
 async def delete_task(request: Request, task_id: str, session_token: Optional[str] = Cookie(None)):
@@ -1608,57 +1690,21 @@ async def delete_task(request: Request, task_id: str, session_token: Optional[st
 
 @api_router.patch("/tasks/{task_id}/status")
 async def update_task_status(request: Request, task_id: str, session_token: Optional[str] = Cookie(None)):
-    """Update task kanban status (todo, in_progress, done)"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
+    """Update Kanban and checkbox state through the same transaction."""
+    user = await get_current_user(
+        authorization=request.headers.get("Authorization"), session_token=session_token
+    )
     body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Expected a JSON object")
     new_status = body.get("status", "todo")
-    date = body.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-    
     if new_status not in ("todo", "in_progress", "done"):
         raise HTTPException(status_code=400, detail="Status must be todo, in_progress, or done")
-    
-    task = await db.tasks.find_one({"task_id": task_id, "user_id": user.user_id}, {"_id": 0})
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    completed = new_status == "done"
-    instance = await db.task_instances.find_one({"task_id": task_id, "date": date, "user_id": user.user_id}, {"_id": 0})
-    
-    if not instance:
-        instance_id = f"inst_{uuid.uuid4().hex[:12]}"
-        instance_doc = {
-            "instance_id": instance_id,
-            "task_id": task_id,
-            "user_id": user.user_id,
-            "date": date,
-            "completed": completed,
-            "status": new_status,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.task_instances.insert_one(instance_doc)
-        was_completed = False
-    else:
-        was_completed = instance.get("completed", False)
-        await db.task_instances.update_one(
-            {"instance_id": instance["instance_id"], "user_id": user.user_id},
-            {"$set": {"completed": completed, "status": new_status}}
-        )
-    
-    xp_earned = 0
-    new_xp = user.xp
-    new_rank = user.rank
-    
-    if completed and not was_completed:
-        new_xp, new_rank = await award_xp(user.user_id, task['xp_reward'])
-        xp_earned = task['xp_reward']
-    elif not completed and was_completed:
-        new_xp, new_rank = await award_xp(user.user_id, -(task['xp_reward']))
-        xp_earned = -task['xp_reward']
-    
-    return {"message": "Status updated", "status": new_status, "xp_earned": xp_earned, "new_xp": new_xp, "new_rank": new_rank}
-
+    return await set_task_completion(
+        user.user_id, task_id,
+        body.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+        new_status, request.headers.get("Idempotency-Key")
+    )
 
 
 @api_router.get("/habits")
@@ -1695,49 +1741,49 @@ async def create_habit(request: Request, habit_data: HabitCreate, session_token:
     return Habit(**habit_doc)
 
 @api_router.post("/habits/{habit_id}/complete")
-async def complete_habit(request: Request, habit_id: str, date: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    habit = await db.habits.find_one({"habit_id": habit_id, "user_id": user.user_id}, {"_id": 0})
-    if not habit:
-        raise HTTPException(status_code=404, detail="Habit not found")
-    
-    # Toggle: if already completed, uncomplete it
-    if date in habit['completions']:
-        # Uncomplete - remove date and deduct XP
-        completions = [d for d in habit['completions'] if d != date]
-        completions.sort()
-        
-        streak = calculate_streak(completions)
-        # Recalculate best_streak from all completions
-        best_streak = calculate_best_streak(completions)
-        
-        await db.habits.update_one(
-            {"habit_id": habit_id},
-            {"$set": {"completions": completions, "streak": streak, "best_streak": best_streak}}
-        )
-        
-        # Deduct XP
-        new_xp, new_rank = await award_xp(user.user_id, -(8))
-        
-        return {"message": "Habit uncompleted", "streak": streak, "best_streak": best_streak, "xp_earned": -8, "new_xp": new_xp, "uncompleted": True}
-    
-    # Complete - add date and award XP
-    completions = habit['completions'] + [date]
-    completions.sort()
-    
-    streak = calculate_streak(completions)
-    best_streak = max(habit.get('best_streak', 0), streak)
-    
-    await db.habits.update_one(
-        {"habit_id": habit_id},
-        {"$set": {"completions": completions, "streak": streak, "best_streak": best_streak}}
+async def complete_habit(request: Request, habit_id: str, date: str,
+                         session_token: Optional[str] = Cookie(None), completed: Optional[bool] = None):
+    user = await get_current_user(
+        authorization=request.headers.get("Authorization"), session_token=session_token
     )
-    
-    new_xp, new_rank = await award_xp(user.user_id, 8)
-    
-    return {"message": "Habit completed", "streak": streak, "best_streak": best_streak, "xp_earned": 8, "new_xp": new_xp, "uncompleted": False}
+    date = validate_activity_date(date)
+    request_key = request.headers.get("Idempotency-Key")
+    # Legacy toggles are replay-safe only with a request identity.
+    if completed is None and request_key is None:
+        raise HTTPException(status_code=428, detail="Send completed=true/false or an Idempotency-Key")
+    fingerprint = ["habit", habit_id, date, completed]
+
+    async def apply(session, balance):
+        query = {"habit_id": habit_id, "user_id": user.user_id}
+        habit = await db.habits.find_one(query, {"_id": 0}, session=session)
+        if habit is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        dates = set(habit.get("completions", []))
+        was_completed = date in dates
+        target = not was_completed if completed is None else completed
+        if target:
+            dates.add(date)
+        else:
+            dates.discard(date)
+        completions = sorted(dates)
+        streak = calculate_streak(completions)
+        best_streak = calculate_best_streak(completions)
+        await db.habits.update_one(query, {"$set": {
+            "completions": completions, "streak": streak, "best_streak": best_streak
+        }}, session=session)
+        xp_earned = (int(target) - int(was_completed)) * 8
+        new_xp = balance.get("xp", 0)
+        new_rank = calculate_rank(new_xp)
+        if xp_earned:
+            new_xp, new_rank = await award_xp(user.user_id, xp_earned, session=session)
+        return {
+            "message": "Habit completed" if target else "Habit uncompleted",
+            "completed": target, "uncompleted": not target,
+            "streak": streak, "best_streak": best_streak,
+            "xp_earned": xp_earned, "new_xp": new_xp, "new_rank": new_rank
+        }
+
+    return await run_activity_mutation(user.user_id, request_key, fingerprint, apply)
 
 @api_router.delete("/habits/{habit_id}")
 async def delete_habit(request: Request, habit_id: str, session_token: Optional[str] = Cookie(None)):
@@ -3297,10 +3343,11 @@ def calculate_rank(xp: int) -> str:
             return rank
     return "Recruta"
 
-async def award_xp(user_id: str, amount: int):
+async def award_xp(user_id: str, amount: int, session=None):
     """Apply an XP delta using compare-and-set, keeping XP and rank together."""
+    session_options = {"session": session} if session is not None else {}
     for _ in range(100):
-        user_doc = await db.users.find_one({"user_id": user_id}, {"xp": 1})
+        user_doc = await db.users.find_one({"user_id": user_id}, {"xp": 1}, **session_options)
         if user_doc is None:
             raise HTTPException(status_code=404, detail="User not found")
         current_xp = user_doc.get("xp", 0)
@@ -3311,7 +3358,7 @@ async def award_xp(user_id: str, amount: int):
         expected_xp = current_xp if "xp" in user_doc else {"$exists": False}
         result = await db.users.update_one(
             {"user_id": user_id, "xp": expected_xp},
-            {"$set": {"xp": new_xp, "rank": new_rank}}
+            {"$set": {"xp": new_xp, "rank": new_rank}}, **session_options
         )
         if result.matched_count:
             return new_xp, new_rank
