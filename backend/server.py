@@ -1585,16 +1585,12 @@ async def update_task(request: Request, task_id: str, completed: bool, date: str
     
     # Completing task - award XP
     if completed and not was_completed:
-        new_xp = user.xp + task['xp_reward']
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, task['xp_reward'])
         return {"message": "Task completed", "xp_earned": task['xp_reward'], "new_xp": new_xp, "new_rank": new_rank}
     
     # Uncompleting task - deduct XP
     if not completed and was_completed:
-        new_xp = max(0, user.xp - task['xp_reward'])
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, -(task['xp_reward']))
         return {"message": "Task uncompleted", "xp_earned": -task['xp_reward'], "new_xp": new_xp, "new_rank": new_rank}
     
     return {"message": "Task updated"}
@@ -1655,14 +1651,10 @@ async def update_task_status(request: Request, task_id: str, session_token: Opti
     new_rank = user.rank
     
     if completed and not was_completed:
-        new_xp = user.xp + task['xp_reward']
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, task['xp_reward'])
         xp_earned = task['xp_reward']
     elif not completed and was_completed:
-        new_xp = max(0, user.xp - task['xp_reward'])
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, -(task['xp_reward']))
         xp_earned = -task['xp_reward']
     
     return {"message": "Status updated", "status": new_status, "xp_earned": xp_earned, "new_xp": new_xp, "new_rank": new_rank}
@@ -1727,9 +1719,7 @@ async def complete_habit(request: Request, habit_id: str, date: str, session_tok
         )
         
         # Deduct XP
-        new_xp = max(0, user.xp - 8)
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, -(8))
         
         return {"message": "Habit uncompleted", "streak": streak, "best_streak": best_streak, "xp_earned": -8, "new_xp": new_xp, "uncompleted": True}
     
@@ -1745,9 +1735,7 @@ async def complete_habit(request: Request, habit_id: str, date: str, session_tok
         {"$set": {"completions": completions, "streak": streak, "best_streak": best_streak}}
     )
     
-    new_xp = user.xp + 8
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, 8)
     
     return {"message": "Habit completed", "streak": streak, "best_streak": best_streak, "xp_earned": 8, "new_xp": new_xp, "uncompleted": False}
 
@@ -3150,15 +3138,11 @@ async def check_goal_day(request: Request, goal_id: str, date: str, session_toke
     if was_checked:
         daily_checks.remove(date)
         xp_change = -5
-        new_xp = max(0, user.xp + xp_change)
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, xp_change)
     else:
         daily_checks.append(date)
         xp_change = 5
-        new_xp = user.xp + xp_change
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, xp_change)
     
     await db.goals.update_one(
         {"goal_id": goal_id},
@@ -3166,9 +3150,9 @@ async def check_goal_day(request: Request, goal_id: str, date: str, session_toke
     )
     
     if xp_change > 0:
-        return {"message": "Day checked", "xp_earned": xp_change, "new_xp": user.xp + xp_change}
+        return {"message": "Day checked", "xp_earned": xp_change, "new_xp": new_xp}
     else:
-        return {"message": "Day unchecked", "xp_earned": xp_change, "new_xp": user.xp + xp_change}
+        return {"message": "Day unchecked", "xp_earned": xp_change, "new_xp": new_xp}
 
 @api_router.get("/challenges/current")
 async def get_current_challenges(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -3240,9 +3224,7 @@ async def complete_challenge(request: Request, challenge_id: str, session_token:
         {"$push": {"completed_by": user.user_id}}
     )
     
-    new_xp = user.xp + challenge['xp_reward']
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, challenge['xp_reward'])
     
     achievement_id = f"ach_{uuid.uuid4().hex[:12]}"
     achievement_doc = {
@@ -3316,16 +3298,25 @@ def calculate_rank(xp: int) -> str:
     return "Recruta"
 
 async def award_xp(user_id: str, amount: int):
-    """Award XP and update rank atomically"""
-    user_doc = await db.users.find_one({"user_id": user_id}, {"xp": 1})
-    current_xp = user_doc.get("xp", 0) if user_doc else 0
-    new_xp = max(0, current_xp + amount)
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one(
-        {"user_id": user_id},
-        {"$set": {"xp": new_xp, "rank": new_rank}}
-    )
-    return new_xp, new_rank
+    """Apply an XP delta using compare-and-set, keeping XP and rank together."""
+    for _ in range(100):
+        user_doc = await db.users.find_one({"user_id": user_id}, {"xp": 1})
+        if user_doc is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        current_xp = user_doc.get("xp", 0)
+        new_xp = max(0, current_xp + amount)
+        new_rank = calculate_rank(new_xp)
+        # A concurrent award invalidates this snapshot. Retry instead of
+        # overwriting it; matched_count also handles an unchanged XP balance.
+        expected_xp = current_xp if "xp" in user_doc else {"$exists": False}
+        result = await db.users.update_one(
+            {"user_id": user_id, "xp": expected_xp},
+            {"$set": {"xp": new_xp, "rank": new_rank}}
+        )
+        if result.matched_count:
+            return new_xp, new_rank
+        await asyncio.sleep(0)
+    raise HTTPException(status_code=503, detail="XP update busy; try again")
 
 def calculate_streak(completions: List[str]) -> int:
     if not completions:
@@ -4388,9 +4379,7 @@ async def log_workout(request: Request, workout_data: WorkoutLogCreate, session_
     workout_doc.pop('_id', None)  # Remove MongoDB ObjectId
     
     # Award XP to user
-    new_xp = user.xp + xp_earned
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
     
     workout_doc['created_at'] = datetime.fromisoformat(workout_doc['created_at'])
     return {**workout_doc, "new_xp": new_xp, "new_rank": new_rank}
@@ -4413,9 +4402,7 @@ async def toggle_workout(request: Request, log_id: str, session_token: Optional[
     )
     
     # Update user XP
-    new_xp = max(0, user.xp + xp_change)
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, xp_change)
     
     return {
         "message": "Workout toggled",
@@ -4436,9 +4423,7 @@ async def delete_workout(request: Request, log_id: str, session_token: Optional[
     
     # Deduct XP if was completed
     if workout['completed']:
-        new_xp = max(0, user.xp - workout['xp_earned'])
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, -(workout['xp_earned']))
     
     await db.workout_logs.delete_one({"log_id": log_id})
     return {"message": "Workout deleted"}
@@ -5260,9 +5245,7 @@ IMPORTANTE:
         
         # Award XP for generating a plan
         xp_earned = 5
-        new_xp = user.xp + xp_earned
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, xp_earned)
         
         plan_doc['created_at'] = datetime.fromisoformat(plan_doc['created_at'])
         
@@ -5517,9 +5500,7 @@ REGRAS:
         await db.workout_plans.insert_one(new_plan_doc)
         
         xp_earned = 3
-        new_xp = user.xp + xp_earned
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, xp_earned)
         
         return {
             "success": True,
@@ -5771,9 +5752,7 @@ async def complete_workout_session(request: Request, session_id: str, session_to
     await db.workout_logs.insert_one(workout_doc)
     
     # Award XP
-    new_xp = user.xp + xp_earned
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
     
     return {
         "success": True,
@@ -6731,9 +6710,7 @@ async def complete_daily_workout(request: Request, plan_id: str, data: dict, ses
     await db.workout_logs.insert_one(workout_doc)
     
     # Update user XP
-    new_xp = user.xp + total_xp
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, total_xp)
     
     # Mark daily status as completed
     await db.daily_workout_status.update_one(
@@ -7933,9 +7910,7 @@ IMPORTANTE: Retorne APENAS o JSON, sem markdown, sem ```json."""
         
         # Award XP
         xp_earned = 10
-        new_xp = user.xp + xp_earned
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, xp_earned)
         
         os.unlink(tmp_path)
         
@@ -8741,9 +8716,7 @@ async def log_questions(request: Request, data: QuestionLogCreate, session_token
     
     # Award XP: 2 XP per correct answer
     xp_earned = data.correct
-    new_xp = user.xp + xp_earned
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
     
     # Update study streak
     await update_study_streak(user.user_id)
@@ -8836,9 +8809,7 @@ async def complete_focus_session(request: Request, data: FocusSessionCreate, ses
         )
     
     # Award XP
-    new_xp = user.xp + xp_earned
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
     
     # Update study streak
     await update_study_streak(user.user_id)
@@ -9216,9 +9187,7 @@ async def update_study_task(request: Request, task_id: str, data: dict, session_
         if new_completed and not was_completed:
             # Completing task - award XP
             xp = task.get("xp_reward", 20)
-            new_xp = user.xp + xp
-            new_rank = calculate_rank(new_xp)
-            await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+            new_xp, new_rank = await award_xp(user.user_id, xp)
             
             # Update study streak
             await update_study_streak(user.user_id)
@@ -9241,9 +9210,7 @@ async def update_study_task(request: Request, task_id: str, data: dict, session_
                 update_fields["completed_at"] = None
                 
                 xp = task.get("xp_reward", 20)
-                new_xp = max(0, user.xp - xp)
-                new_rank = calculate_rank(new_xp)
-                await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+                new_xp, new_rank = await award_xp(user.user_id, -(xp))
     
     if update_fields:
         await db.study_tasks.update_one(
@@ -9309,9 +9276,7 @@ async def create_study_session(request: Request, session_data: StudySessionCreat
     )
     
     # Award XP
-    new_xp = user.xp + xp_earned
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
     
     # Update study streak
     await update_study_streak(user.user_id)
@@ -9520,9 +9485,7 @@ async def review_flashcard(request: Request, flashcard_id: str, review: Flashcar
     
     # Award XP for reviewing
     xp_earned = 5 if quality >= 3 else 2
-    new_xp = user.xp + xp_earned
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
     
     return {
         "message": "Card reviewed",
@@ -9776,9 +9739,7 @@ async def submit_quiz_attempt(request: Request, quiz_id: str, data: dict, sessio
     
     # Award XP based on score
     xp_earned = int(score / 10) * 3  # Up to 30 XP for perfect score
-    new_xp = user.xp + xp_earned
-    new_rank = calculate_rank(new_xp)
-    await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
     
     # Update study streak
     await update_study_streak(user.user_id)
@@ -13656,9 +13617,7 @@ IMPORTANTE:
         plan_doc.pop('_id', None)
         
         xp_earned = 5
-        new_xp = user.xp + xp_earned
-        new_rank = calculate_rank(new_xp)
-        await db.users.update_one({"user_id": user.user_id}, {"$set": {"xp": new_xp, "rank": new_rank}})
+        new_xp, new_rank = await award_xp(user.user_id, xp_earned)
         
         return {"success": True, "plan": plan_doc, "xp_earned": xp_earned}
         

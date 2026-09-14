@@ -63,7 +63,7 @@ class Collection:
 
 class TaskRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.ns = load_functions({"get_tasks", "update_task", "update_task_status"})
+        self.ns = load_functions({"get_tasks", "update_task", "update_task_status", "award_xp"})
         self.db = SimpleNamespace(
             tasks=Collection([{"task_id": "task_1", "user_id": "alice", "title": "Study",
                                "is_template": True, "recurrence": "daily", "xp_reward": 10,
