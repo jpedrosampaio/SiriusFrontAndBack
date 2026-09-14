@@ -11033,7 +11033,7 @@ async def _hydrate_disciplinas_from_text(pdf_text: str, cargo_nome: str, api_key
 async def analyze_edital_cargos(
     request: Request,
     file: UploadFile = File(...),
-    force: bool = Query(False, description="Ignora o cache e força uma nova análise"),
+    force: bool = Query(False, description="Reanalisa o PDF completo, incluindo os anexos finais, sem reutilizar o cache"),
     session_token: Optional[str] = Cookie(None)
 ):
     """Analyze an edital PDF and return ALL available cargos/perfis before generating the program.
