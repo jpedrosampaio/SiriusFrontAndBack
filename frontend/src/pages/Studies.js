@@ -1,4 +1,5 @@
 import { getApiErrorMessage } from "@/lib/api-errors";
+import StudyLessons from "@/components/StudyLessons";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -55,25 +56,26 @@ const dayLabels = {
 };
 
 // ========== POMODORO TIMER COMPONENT ==========
-function PomodoroTimer({ notebooks, onComplete }) {
+function PomodoroTimer({ notebooks, onComplete, initialNotebookId = "", topic = "" }) {
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isBreak, setIsBreak] = useState(false);
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [focusMinutes, setFocusMinutes] = useState(25);
   const [breakMinutes, setBreakMinutes] = useState(5);
-  const [selectedNb, setSelectedNb] = useState("");
+  const [selectedNb, setSelectedNb] = useState(initialNotebookId);
   const [sessionsCompleted, setSessionsCompleted] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const intervalRef = useRef(null);
+  const completedPhaseRef = useRef(false);
 
   const handleFocusComplete = useCallback(async () => {
     try {
       await axios.post(`${API}/study/focus/complete`, {
-        notebook_id: selectedNb || null,
+        notebook_id: selectedNb && selectedNb !== "none" ? selectedNb : null,
         focus_minutes: focusMinutes,
         break_minutes: breakMinutes,
-        notes: null
+        notes: topic || null
       }, { withCredentials: true });
       setSessionsCompleted(prev => prev + 1);
       toast.success(`Sessão concluída! +XP 🎉`);
@@ -81,33 +83,32 @@ function PomodoroTimer({ notebooks, onComplete }) {
     } catch (err) {
       console.error(err);
     }
-  }, [selectedNb, focusMinutes, breakMinutes, onComplete]);
+  }, [selectedNb, focusMinutes, breakMinutes, onComplete, topic]);
 
   useEffect(() => {
     if (isRunning && !isPaused) {
       intervalRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(intervalRef.current);
-            if (!isBreak) {
-              // Focus completed
-              handleFocusComplete();
-              setIsBreak(true);
-              return breakMinutes * 60;
-            } else {
-              // Break completed
-              setIsBreak(false);
-              setIsRunning(false);
-              toast.success("Pausa finalizada! Pronto para mais?");
-              return focusMinutes * 60;
-            }
-          }
-          return prev - 1;
-        });
+        setTimeLeft(prev => Math.max(0, prev - 1));
       }, 1000);
     }
     return () => clearInterval(intervalRef.current);
-  }, [isRunning, isPaused, isBreak, breakMinutes, focusMinutes, handleFocusComplete]);
+  }, [isRunning, isPaused]);
+
+  useEffect(() => {
+    if (timeLeft > 0) { completedPhaseRef.current = false; return; }
+    if (!isRunning || isPaused || completedPhaseRef.current) return;
+    completedPhaseRef.current = true;
+    if (!isBreak) {
+      handleFocusComplete();
+      setIsBreak(true);
+      setTimeLeft(breakMinutes * 60);
+    } else {
+      setIsBreak(false);
+      setIsRunning(false);
+      setTimeLeft(focusMinutes * 60);
+      toast.success("Pausa finalizada! Pronto para mais?");
+    }
+  }, [timeLeft, isRunning, isPaused, isBreak, breakMinutes, focusMinutes, handleFocusComplete]);
 
   const startTimer = () => {
     setIsRunning(true);
@@ -542,6 +543,7 @@ export default function Studies() {
   // Edital Verticalizado
   const [showVerticalizadoDialog, setShowVerticalizadoDialog] = useState(false);
   const [verticalizadoData, setVerticalizadoData] = useState(null);
+  const [studyTopic, setStudyTopic] = useState(null);
   const [verticalizadoLoading, setVerticalizadoLoading] = useState(false);
   const [expandedDisciplinas, setExpandedDisciplinas] = useState(new Set());
 
@@ -912,6 +914,10 @@ export default function Studies() {
   };
 
   const handleSaveDisciplinas = async () => {
+    if (editedDisciplinas.some(d => !Number.isFinite(Number(d.weight)) || Number(d.weight) <= 0)) {
+      toast.error("Informe um peso maior que zero para cada disciplina.");
+      return;
+    }
     if (!editalResult?.program?.program_id) return;
     setSavingDisciplinas(true);
     try {
@@ -3349,12 +3355,9 @@ export default function Studies() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <Label className="text-[10px] text-[#A1A1AA]">Peso (edital)</Label>
-                              <Select value={String(disc.weight || 1)} onValueChange={v => { const u = [...editedDisciplinas]; u[i] = {...u[i], weight: parseInt(v)}; setEditedDisciplinas(u); }}>
-                                <SelectTrigger className="bg-[#121212] border-[#27272A] h-7 text-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent className="bg-[#0A0A0A] border-[#27272A]">
-                                  {[1,2,3,4,5].map(w => <SelectItem key={w} value={String(w)}>Peso {w}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
+                              <Input type="number" min="0.01" step="any" aria-label={`Peso de ${disc.name}`} value={disc.weight ?? 1}
+                                onChange={e => { const u = [...editedDisciplinas]; u[i] = {...u[i], weight: e.target.value === '' ? '' : Number(e.target.value)}; setEditedDisciplinas(u); }}
+                                className="bg-[#121212] border-[#27272A] h-7 text-xs" />
                             </div>
                             <div>
                               <Label className="text-[10px] text-[#A1A1AA]">Minha dificuldade</Label>
@@ -4066,7 +4069,8 @@ export default function Studies() {
                           <div className="text-left">
                             <p className="text-sm font-medium text-white">{disc.nome}</p>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <Badge variant="outline" className="text-[9px] border-yellow-500 text-yellow-400">Peso {disc.peso}</Badge>
+                              <Badge variant="outline" className="text-[9px] border-yellow-500 text-yellow-400">Peso {disc.peso} {disc.peso_status !== 'extraido_com_fonte' ? '(a conferir)' : ''}</Badge>
+                              <Badge variant="outline" className="text-[9px] border-purple-500 text-purple-300">Prioridade {disc.prioridade || 'a definir'}{disc.prioridade_provisoria ? ' · provisória' : ''}</Badge>
                               {disc.num_questoes > 0 && <span className="text-[10px] text-[#71717A]">{disc.num_questoes} questões</span>}
                               <Badge variant="outline" className={`text-[9px] ${disc.dificuldade === 'alta' ? 'border-red-500 text-red-400' : disc.dificuldade === 'media' ? 'border-yellow-500 text-yellow-400' : 'border-green-500 text-green-400'}`}>{disc.dificuldade}</Badge>
                               {disc.grupo && <span className="text-[10px] text-[#52525B]">{disc.grupo}</span>}
@@ -4095,12 +4099,19 @@ export default function Studies() {
                           </div>
 
                           {/* Conteúdo Programático Detalhado */}
+                          <div className="mb-4 space-y-2 text-xs text-[#A1A1AA]">
+                            <p>Base da prioridade: {disc.prioridade_base}. Participação estimada: {disc.participacao_estimada}% entre as disciplinas. Esta é uma sugestão de estudo, não uma classificação oficial do edital.</p>
+                            {disc.peso_fonte && <p>Peso — trecho extraído: “{disc.peso_fonte}”</p>}
+                            {disc.num_questoes_fonte && <p>Questões — trecho extraído: “{disc.num_questoes_fonte}”</p>}
+                            <Button size="sm" onClick={() => setStudyTopic({ notebookId: disc.notebook_id, name: disc.nome, topic: '' })}><Play className="w-3 h-3 mr-1" />Estudar {disc.nome}</Button>
+                          </div>
                           {hasConteudo ? (
                             <div className="space-y-2">
                               <p className="text-xs font-medium text-purple-400 mb-2">Conteúdo Programático:</p>
                               {disc.conteudo_programatico.map((item, j) => (
                                 <div key={j} className="pl-3 border-l-2 border-purple-500/30 py-1">
                                   <p className="text-xs font-medium text-white">{j + 1}. {item.assunto}</p>
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs text-blue-300" onClick={() => setStudyTopic({ notebookId: disc.notebook_id, name: disc.nome, topic: item.assunto })}>Estudar este assunto</Button>
                                   {item.subtopicos?.length > 0 && (
                                     <div className="ml-4 mt-1 space-y-0.5">
                                       {item.subtopicos.map((sub, k) => (
@@ -4135,6 +4146,20 @@ export default function Studies() {
           </DialogContent>
         </Dialog>
 
+
+        <Dialog open={!!studyTopic} onOpenChange={open => { if (!open) setStudyTopic(null); }}>
+          <DialogContent className="bg-[#0A0A0A] border-[#27272A] max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Estudar · {studyTopic?.name}</DialogTitle>
+              <DialogDescription>{studyTopic?.topic || 'Escolha uma aula e inicie sua sessão de foco.'}</DialogDescription>
+            </DialogHeader>
+            {studyTopic && <div className="space-y-4">
+              <PomodoroTimer key={`${studyTopic.notebookId}:${studyTopic.topic}`} notebooks={notebooks} initialNotebookId={studyTopic.notebookId} topic={studyTopic.topic} onComplete={fetchAllData} />
+              <p className="text-xs text-[#A1A1AA]">Mantenha esta janela aberta durante a sessão. As aulas abrem em outra aba.</p>
+              <StudyLessons notebookId={studyTopic.notebookId} topic={studyTopic.topic} api={API} />
+            </div>}
+          </DialogContent>
+        </Dialog>
 
         {/* ========== COMPARAR EDITAIS DIALOG (item 4) ========== */}
         <Dialog open={showCompareEditais} onOpenChange={setShowCompareEditais}>

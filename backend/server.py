@@ -823,15 +823,15 @@ class WorkoutPlanGenerate(BaseModel):
     generation_mode: str = "periodo"  # "periodo" or "tipo_treino"
     split_type: Optional[str] = None  # "AB", "ABC", "ABCD", "ABCDE"
     split_config: Optional[List[Dict[str, Any]]] = None  # [{label: "A", name: "Peito e Tríceps", muscle_groups: ["peito", "triceps"]}]
-    training_days_per_week: Optional[int] = None  # 2-7
-    cycle_weeks: Optional[int] = None  # 1-12
+    training_days_per_week: Optional[int] = Field(default=None, ge=2, le=7)  # 2-7
+    cycle_weeks: Optional[int] = Field(default=None, ge=1, le=12)  # 1-12
     include_cardio: bool = False
     cardio_type: Optional[str] = None  # "corrida", "bike", "HIIT", "caminhada", "natacao", "pular_corda"
     cardio_mode: Optional[str] = None  # "hibrido", "hibrido_alternado"
     health_condition: Optional[str] = None  # user health conditions/injuries to consider
     # Running-specific fields
     running_goal: Optional[str] = None  # "5km", "10km", "meia_maratona", "maratona", "condicionamento", "emagrecimento"
-    weekly_frequency: Optional[int] = None  # 2-7 days per week
+    weekly_frequency: Optional[int] = Field(default=None, ge=2, le=7)  # 2-7 days per week
     preferred_terrain: Optional[str] = None  # "asfalto", "esteira", "trilha", "misto"
     # Calisthenics-specific fields
     calisthenics_focus: Optional[str] = None  # "forca_upper", "forca_lower", "full_body", "habilidades", "condicionamento"
@@ -5157,25 +5157,41 @@ IMPORTANTE:
         cleaned = re.sub(r',\s*]', ']', cleaned)
         return json.loads(cleaned)
 
-    # Call LLM (Gemini via HTTP + TorGPT fallback)
-    plan_data = None
+    from workout_calendar import calendar_shape, validate_ai_calendar, normalize_days, expand_splits
+    if gen_data.workout_type == "corrida":
+        gen_data.generation_mode = "periodo"
     try:
-        logging.info("Generating workout plan via LLM")
-        response_text = await call_llm(
-            prompt + "\n\nResponda APENAS com JSON puro, sem markdown, sem texto extra.",
-            f"workout_{user.user_id}",
-            "Você é um personal trainer profissional certificado. Sempre responda SOMENTE em JSON válido, sem nenhum texto adicional.",
-            user_id=user.user_id
-        )
-        
-        if not response_text or not response_text.strip():
-            raise HTTPException(status_code=500, detail="Resposta vazia da IA. Tente novamente.")
-        
-        response_text = response_text.strip()
-        if response_text.startswith("⚠"):
-            raise HTTPException(status_code=500, detail=response_text)
-        
-        plan_data = _clean_and_parse_json(response_text)
+        expected_weeks, expected_frequency = calendar_shape(gen_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    contract = f"\nCALEND?RIO OBRIGAT?RIO: {expected_weeks} semanas, {expected_frequency} dias por semana, {expected_weeks * expected_frequency} dias no total."
+    if gen_data.generation_mode == "tipo_treino":
+        contract += " Retorne splits completos para todas as divis?es solicitadas; o servidor expandir? o calend?rio."
+    else:
+        contract += " Retorne TODOS os dias em days, ordenados por semana e dia, com week inteiro a partir de 1 e day_name semN_diaN. N?o resuma nem omita semanas."
+    prompt += contract
+    plan_data = None
+    response_text = ""
+    try:
+        # One corrective attempt for incomplete or malformed responses; no partial plan is saved.
+        correction = ""
+        for attempt in range(2):
+            response_text = await call_llm(
+                prompt + correction + "\nResponda APENAS com JSON puro, sem markdown, sem texto extra.",
+                f"workout_{user.user_id}",
+                "Voc? ? um personal trainer profissional certificado. Sempre responda SOMENTE em JSON v?lido, sem nenhum texto adicional.",
+                user_id=user.user_id
+            )
+            if response_text and response_text.startswith("?"):
+                raise HTTPException(status_code=502, detail=response_text)
+            try:
+                plan_data = validate_ai_calendar(_clean_and_parse_json(response_text or ""), gen_data)
+                break
+            except (ValueError, TypeError) as exc:
+                if attempt == 1:
+                    raise HTTPException(status_code=502, detail="A IA n?o retornou um calend?rio completo e consistente. Nenhum treino foi salvo. Tente gerar novamente.")
+                correction = f"\nA resposta anterior estava incompleta ou inv?lida: {exc}. Gere novamente o JSON completo respeitando o calend?rio obrigat?rio."
+
         logging.info("Successfully parsed workout plan")
         
     except json.JSONDecodeError as e:
@@ -5197,74 +5213,13 @@ IMPORTANTE:
         weekly_progression = plan_data.get("weekly_progression", [])
         
         if gen_data.generation_mode == "tipo_treino" and plan_data.get("splits"):
-            splits = plan_data["splits"]
-            split_labels_ai = [s.get("split_label", f"S{i}") for i, s in enumerate(splits)]
-            days_per_week = gen_data.training_days_per_week or 5
-            cycle_weeks_count = gen_data.cycle_weeks or 4
-            
-            # Build rotation pattern using split labels from AI response
-            # Filter out cardio and rest splits for the main rotation
-            main_splits = [s for s in splits if s.get("split_label", "").lower() not in ("cardio", "descanso")]
-            cardio_split = next((s for s in splits if s.get("split_label", "").lower() == "cardio"), None)
-            rest_split = next((s for s in splits if s.get("split_label", "").lower() == "descanso"), None)
-            
-            muscle_day_counter = 0
-            cardio_mode = gen_data.cardio_mode or "hibrido"
-            
-            for week in range(1, cycle_weeks_count + 1):
-                week_progression = next((wp for wp in weekly_progression if wp.get("week") == week), None)
-                progression_note = week_progression.get("notes", "") if week_progression else ""
-                progression_focus = week_progression.get("focus", "") if week_progression else ""
-                
-                for day_in_week in range(1, days_per_week + 1):
-                    is_rest_day = False
-                    is_cardio_day = False
-                    
-                    if cardio_mode == "hibrido_alternado" and gen_data.include_cardio and cardio_split:
-                        # Pattern: Muscle, Cardio, Muscle, Cardio, ..., Rest (last day)
-                        if day_in_week == days_per_week:
-                            is_rest_day = True
-                        elif day_in_week % 2 == 0:
-                            is_cardio_day = True
-                        # Odd days (1, 3, 5, ...) are muscle days
-                    elif cardio_mode == "hibrido" and gen_data.include_cardio:
-                        # Hybrid mode: last day is rest, all others are muscle+cardio
-                        if day_in_week == days_per_week:
-                            is_rest_day = True
-                    
-                    if is_rest_day:
-                        if rest_split:
-                            current_split = rest_split
-                        else:
-                            current_split = {"exercises": [{"name": "Descanso ativo - Caminhada leve", "sets": 1, "reps": "20-30min", "rest_seconds": 0, "muscle_group": "descanso", "tutorial": "Caminhada leve para recuperação ativa. Mantenha ritmo tranquilo."}]}
-                        label = "Descanso"
-                        split_name = "Descanso / Recuperação"
-                    elif is_cardio_day and cardio_split:
-                        current_split = cardio_split
-                        label = "Cardio"
-                        split_name = cardio_split.get("split_name", "Cardio")
-                    else:
-                        split_idx = muscle_day_counter % len(main_splits) if main_splits else 0
-                        current_split = main_splits[split_idx] if main_splits else {"exercises": []}
-                        label = current_split.get("split_label", "?")
-                        split_name = current_split.get("split_name", "")
-                        muscle_day_counter += 1
-                    
-                    day_label = f"Semana {week} - Dia {day_in_week}: Treino {label} - {split_name}"
-                    
-                    days.append({
-                        "day_name": f"sem{week}_dia{day_in_week}",
-                        "day_label": day_label,
-                        "split_label": label,
-                        "week": week,
-                        "exercises": current_split.get("exercises", []),
-                        "progression_focus": progression_focus,
-                        "progression_notes": progression_note,
-                    })
+            days = expand_splits(plan_data, gen_data)
         else:
             # Period-based: days come directly from AI response
             days = plan_data.get("days", [])
         
+        days = normalize_days(days, expected_weeks, expected_frequency)
+
         # Flatten exercises for backward compatibility
         all_exercises = []
         for day in days:
@@ -5286,13 +5241,14 @@ IMPORTANTE:
             "generated_by_ai": True,
             "days": days,
             "weekly_progression": weekly_progression,
+            "workout_type": gen_data.workout_type,
             "objective": gen_data.objective,
             "level": gen_data.level,
             "generation_mode": gen_data.generation_mode,
             "split_type": gen_data.split_type if gen_data.generation_mode == "tipo_treino" else None,
             "split_config": gen_data.split_config if gen_data.generation_mode == "tipo_treino" else None,
-            "training_days_per_week": gen_data.training_days_per_week if gen_data.generation_mode == "tipo_treino" else None,
-            "cycle_weeks": gen_data.cycle_weeks if gen_data.generation_mode == "tipo_treino" else None,
+            "training_days_per_week": expected_frequency,
+            "cycle_weeks": expected_weeks,
             "include_cardio": gen_data.include_cardio if gen_data.generation_mode == "tipo_treino" else False,
             "cardio_type": gen_data.cardio_type if gen_data.generation_mode == "tipo_treino" and gen_data.include_cardio else None,
             "cardio_mode": gen_data.cardio_mode if gen_data.generation_mode == "tipo_treino" and gen_data.include_cardio else None,
@@ -5461,35 +5417,29 @@ REGRAS:
     
     system_msg = "Você é um personal trainer certificado. Retorne apenas JSON válido sem markdown."
     
+    from workout_calendar import calendar_shape, validate_ai_calendar, normalize_days, expand_splits
+    gen_data = WorkoutPlanGenerate(
+        objective=plan.get("objective") or "hipertrofia", level=plan.get("level") or "intermediario",
+        workout_type=plan.get("workout_type") or "musculacao", duration=plan.get("plan_duration") or "dia",
+        generation_mode=plan.get("generation_mode") or "periodo", split_config=plan.get("split_config"),
+        training_days_per_week=plan.get("training_days_per_week") if plan.get("training_days_per_week", 0) != 1 else None,
+        cycle_weeks=plan.get("cycle_weeks"), include_cardio=plan.get("include_cardio", False),
+        cardio_mode=plan.get("cardio_mode"), weekly_frequency=plan.get("training_days_per_week") if plan.get("workout_type") == "corrida" and plan.get("training_days_per_week", 0) != 1 else None,
+    )
+    expected_weeks, expected_frequency = calendar_shape(gen_data)
+    prompt += f"\nMaintain exactly {expected_weeks} weeks and {expected_frequency} days per week. Return complete splits for split mode, otherwise all {expected_weeks * expected_frequency} days in chronological order."
     try:
-        response_text = None
-        last_error = None
-        
-        for attempt in range(3):
+        correction = ""
+        for attempt in range(2):
+            response_text = await call_llm(prompt + correction, f"improve_workout_{user.user_id}", system_msg, user_id=user.user_id)
             try:
-                model_to_use = GEMINI_MODEL if attempt < 2 else GEMINI_FALLBACK_MODEL
-                ai_response = gemini_client.models.generate_content(
-                    model=model_to_use,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_msg,
-                        temperature=0.7,
-                        max_output_tokens=16384,
-                    )
-                )
-                response_text = ai_response.text.strip()
-                if response_text.startswith("```"):
-                    response_text = response_text.split("\n", 1)[1] if "\n" in response_text else response_text[3:]
-                    response_text = response_text.rsplit("```", 1)[0].strip()
-                
-                improved_data = json.loads(response_text)
+                improved_data = validate_ai_calendar(json.loads(_strip_json_fences(response_text)), gen_data)
                 break
-            except Exception as e:
-                last_error = str(e)
-                continue
-        else:
-            raise HTTPException(status_code=500, detail=f"Erro ao melhorar treino: {last_error}")
-        
+            except (ValueError, TypeError) as exc:
+                if attempt == 1:
+                    raise HTTPException(status_code=502, detail="A IA retornou um calendario incompleto. O treino original foi preservado; tente novamente.")
+                correction = f"\nCorrect the incomplete calendar and return the full JSON: {exc}"
+
         # Create a new plan from the improved data
         new_plan_id = f"plan_{uuid.uuid4().hex[:12]}"
         
@@ -5497,35 +5447,12 @@ REGRAS:
         new_days = []
         new_weekly_progression = improved_data.get("weekly_progression", [])
         
-        if plan.get("generation_mode") == "tipo_treino" and improved_data.get("splits"):
-            new_splits = improved_data["splits"]
-            main_splits = [s for s in new_splits if s.get("split_label", "").lower() != "cardio"]
-            cardio_split = next((s for s in new_splits if s.get("split_label", "").lower() == "cardio"), None)
-            days_per_week = plan.get("training_days_per_week", 5)
-            cycle_wks = plan.get("cycle_weeks", 4)
-            day_counter = 0
-            
-            for week in range(1, cycle_wks + 1):
-                wp = next((w for w in new_weekly_progression if w.get("week") == week), None)
-                for day_in_week in range(1, days_per_week + 1):
-                    split_idx = day_counter % len(main_splits)
-                    current = main_splits[split_idx]
-                    label = current.get("split_label", "?")
-                    sname = current.get("split_name", "")
-                    day_counter += 1
-                    
-                    new_days.append({
-                        "day_name": f"sem{week}_dia{day_in_week}",
-                        "day_label": f"Semana {week} - Dia {day_in_week}: Treino {label} - {sname}",
-                        "split_label": label,
-                        "week": week,
-                        "exercises": current.get("exercises", []),
-                        "progression_focus": wp.get("focus", "") if wp else "",
-                        "progression_notes": wp.get("notes", "") if wp else "",
-                    })
+        if gen_data.generation_mode == "tipo_treino":
+            new_days = expand_splits(improved_data, gen_data)
         else:
             new_days = improved_data.get("days", [])
-        
+        new_days = normalize_days(new_days, expected_weeks, expected_frequency)
+
         all_exercises = []
         for d in new_days:
             all_exercises.extend(d.get("exercises", []))
@@ -5547,8 +5474,9 @@ REGRAS:
             "generation_mode": plan.get("generation_mode", "tipo_treino"),
             "split_type": plan.get("split_type"),
             "split_config": plan.get("split_config"),
-            "training_days_per_week": plan.get("training_days_per_week"),
-            "cycle_weeks": plan.get("cycle_weeks"),
+            "training_days_per_week": expected_frequency,
+            "cycle_weeks": expected_weeks,
+            "workout_type": gen_data.workout_type,
             "include_cardio": plan.get("include_cardio", False),
             "cardio_type": plan.get("cardio_type"),
             "cardio_mode": plan.get("cardio_mode"),
@@ -5558,6 +5486,7 @@ REGRAS:
         
         new_plan_doc['created_at'] = datetime.fromisoformat(new_plan_doc['created_at'])
         await db.workout_plans.insert_one(new_plan_doc)
+        new_plan_doc.pop("_id", None)
         
         xp_earned = 3
         new_xp, new_rank = await award_xp(user.user_id, xp_earned)
@@ -5608,7 +5537,9 @@ async def start_workout_session(request: Request, session_token: Optional[str] =
     
     # Get exercises for the session (either from specific day or all exercises)
     days = plan.get("days") or []
-    if days and day_index < len(days):
+    if type(day_index) is not int or day_index < 0 or (days and day_index >= len(days)) or (not days and day_index != 0):
+        raise HTTPException(status_code=422, detail="Dia de treino invalido. Selecione um dia existente.")
+    if days:
         session_exercises = days[day_index].get("exercises", [])
         day_label = days[day_index].get("day_label", f"Dia {day_index + 1}")
     else:
@@ -8287,6 +8218,10 @@ TEXTO DO EDITAL:
                 "total_questions": 0,
                 "correct_questions": 0,
                 "weight": disc.get("peso", 1),
+                "peso_fonte": disc.get("peso_fonte", ""),
+                "peso_status": disc.get("peso_status", "a_conferir"),
+                "num_questoes_fonte": disc.get("num_questoes_fonte", ""),
+                "num_questoes_status": disc.get("num_questoes_status", "a_conferir"),
                 "num_questoes_edital": disc.get("num_questoes", 0),
                 "dificuldade": disc.get("dificuldade", "media"),
                 "topicos": disc.get("topicos", []),
@@ -8485,12 +8420,10 @@ async def get_edital_verticalizado(request: Request, program_id: str, session_to
     disciplinas_verticalizadas = []
     total_assuntos = 0
     
-    # Check if all num_questoes_edital are the same (AI likely used total instead of per-discipline)
-    all_questoes = [nb.get("num_questoes_edital", 0) for nb in notebooks]
-    all_same_questoes = len(set(all_questoes)) == 1 and all_questoes[0] > 0 and len(all_questoes) > 1
+    from study_resources import normalize_content, prioritize
     
-    for nb in sorted(notebooks, key=lambda x: x.get("weight", 1), reverse=True):
-        conteudo = nb.get("conteudo_programatico", [])
+    for nb in notebooks:
+        conteudo = normalize_content(nb.get("conteudo_programatico"), nb.get("topicos", []))
         topicos = nb.get("topicos", [])
         
         # Count total assuntos
@@ -8502,7 +8435,11 @@ async def get_edital_verticalizado(request: Request, program_id: str, session_to
             "notebook_id": nb.get("notebook_id"),
             "nome": nb.get("name", ""),
             "peso": nb.get("weight", 1),
-            "num_questoes": 0 if all_same_questoes else nb.get("num_questoes_edital", 0),
+            "num_questoes": nb.get("num_questoes_edital", 0),
+            "peso_fonte": nb.get("peso_fonte", ""),
+            "peso_status": nb.get("peso_status", "a_conferir"),
+            "num_questoes_fonte": nb.get("num_questoes_fonte", ""),
+            "num_questoes_status": nb.get("num_questoes_status", "a_conferir"),
             "dificuldade": nb.get("dificuldade", "media"),
             "grupo": nb.get("grupo", ""),
             "color": nb.get("color", "#007AFF"),
@@ -8527,9 +8464,19 @@ async def get_edital_verticalizado(request: Request, program_id: str, session_to
         "target_date": program.get("target_date"),
         "total_disciplinas": len(disciplinas_verticalizadas),
         "total_assuntos": total_assuntos,
-        "disciplinas": disciplinas_verticalizadas
+        "disciplinas": prioritize(disciplinas_verticalizadas)
     }
 
+
+@api_router.get("/study/notebooks/{notebook_id}/lessons")
+async def get_study_lessons(request: Request, notebook_id: str, topic: str = Query("", max_length=300), session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
+    notebook = await db.notebooks.find_one({"notebook_id": notebook_id, "user_id": user.user_id}, {"_id": 0})
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Disciplina não encontrada")
+    from study_resources import youtube_lessons
+    query = " ".join(f"{notebook.get('name', '')} {topic} aula concurso".split())[:400]
+    return await youtube_lessons(query, os.environ.get("YOUTUBE_API_KEY", ""))
 
 
 @api_router.post("/study/programs/{program_id}/update-disciplinas")
@@ -8542,6 +8489,10 @@ async def update_program_disciplinas(request: Request, program_id: str, data: di
     if not program:
         raise HTTPException(status_code=404, detail="Programa não encontrado")
     
+    from study_resources import positive_number
+    if any("weight" in disc and positive_number(disc["weight"]) is None for disc in data.get("disciplinas", [])):
+        raise HTTPException(status_code=422, detail="Informe pesos maiores que zero.")
+
     # Update program name if provided
     if data.get("program_name"):
         await db.study_programs.update_one(
@@ -8560,6 +8511,9 @@ async def update_program_disciplinas(request: Request, program_id: str, data: di
         for field in ["weight", "dificuldade", "user_difficulty", "name", "topicos"]:
             if field in disc:
                 update_fields[field] = disc[field]
+        if "weight" in update_fields:
+            update_fields["weight"] = positive_number(update_fields["weight"])
+            update_fields.update(peso_status="ajustado_pelo_usuario", peso_fonte="")
         if update_fields:
             await db.notebooks.update_one(
                 {"notebook_id": nb_id, "user_id": user.user_id},
@@ -10792,7 +10746,9 @@ _DISCIPLINA_SCHEMA = {
     "type": "object",
     "properties": {
         "nome": {"type": "string"},
-        "peso": {"type": "integer"},
+        "peso": {"type": "number"},
+            "peso_fonte": {"type": "string"},
+            "num_questoes_fonte": {"type": "string"},
         "num_questoes": {"type": "integer"},
         "grupo": {"type": "string"},
         "topicos": {"type": "array", "items": {"type": "string"}},
@@ -10854,7 +10810,7 @@ def _normalize_disciplinas(discs) -> List[dict]:
             v = d.get(f)
             if not isinstance(v, int):
                 try:
-                    d[f] = int(float(v))
+                    d[f] = float(v) if f == "peso" else int(float(v))
                 except (TypeError, ValueError):
                     d[f] = default
         out.append(d)
@@ -10920,7 +10876,7 @@ Já sabemos que os cargos/perfis abaixo existem neste edital. Sua ÚNICA tarefa 
 REGRAS:
 1) Se o edital tiver disciplinas COMUNS a todos os cargos (ex: "Conhecimentos Básicos", "Língua Portuguesa para todos os cargos"), coloque-as em "disciplinas_comuns" (com conteúdo programático COMPLETO) e NÃO as repita dentro de cada cargo.
 2) Em "cargos", inclua APENAS as disciplinas ESPECÍFICAS de cada cargo (conhecimentos específicos). Se um cargo não tiver disciplinas específicas próprias, retorne "disciplinas": [] para ele.
-3) Para cada disciplina preencha: "nome", "peso" (inteiro; 1 se não informado), "num_questoes" (inteiro; 0 se não informado), "topicos" (resumo, até 10 itens) e "conteudo_programatico".
+3) Para cada disciplina preencha: "nome", "peso" (preserve decimais; 1 provisório se não informado), "num_questoes" (inteiro; 0 se não informado), "topicos" e "conteudo_programatico". Inclua peso_fonte e num_questoes_fonte como trechos literais do edital; use "" se não encontrados. Não replique totais de questões de grupos em cada disciplina.
 4) "conteudo_programatico" é OBRIGATÓRIO e NUNCA pode ser vazio: copie FIELMENTE a lista oficial de assuntos/subtópicos daquela disciplina, exatamente como está na seção de conteúdo programático do edital (geralmente em "DOS CONTEÚDOS PROGRAMÁTICOS", "DO CONTEÚDO PROGRAMÁTICO", "DAS PROVAS" ou em ANEXO).
 5) NUNCA retorne tudo vazio: todo edital tem conteúdo programático.
 6) Se o edital agrupar várias matérias sob "Conhecimentos Específicos", liste CADA matéria como uma disciplina SEPARADA (ex: "Direito Constitucional", "Direito Administrativo"), nunca uma única disciplina genérica chamada "Conhecimentos Específicos".
@@ -11133,7 +11089,7 @@ async def analyze_edital_cargos(
     cached = None
     if not force:
         cached = await db.edital_analyses.find_one(
-            {"user_id": user.user_id, "pdf_hash": pdf_hash},
+            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 2},
             {"_id": 0}
         )
     if (
@@ -11147,6 +11103,7 @@ async def analyze_edital_cargos(
             "analysis_id": new_analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
+            "analysis_version": 2,
             "concurso": cached.get("concurso", {}),
             "multiple_cargos": cached.get("multiple_cargos", False),
             "cargos": cached.get("cargos", []),
@@ -11210,7 +11167,9 @@ async def analyze_edital_cargos(
         "type": "object",
         "properties": {
             "nome": {"type": "string"},
-            "peso": {"type": "integer"},
+            "peso": {"type": "number"},
+            "peso_fonte": {"type": "string"},
+            "num_questoes_fonte": {"type": "string"},
             "num_questoes": {"type": "integer"},
             "grupo": {"type": "string"},
             "topicos": {"type": "array", "items": {"type": "string"}},
@@ -11273,7 +11232,9 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
 5) Para cada disciplina:
    - "nome" = NOME DA DISCIPLINA INDIVIDUAL (ex: "Língua Portuguesa", nunca "Conhecimentos Gerais")
    - "grupo" = nome do GRUPO/TÓPICO a que pertence (ex: "Grupo I - Conhecimentos Básicos", "Grupo II - Conhecimentos Específicos", "Conhecimentos Gerais", "Conhecimentos Específicos")
-   - "peso" = peso da disciplina (inteiro). Se não houver, use 1.
+   - "peso" = peso da disciplina, preservando decimais. Se não houver, use 1 apenas para planejamento provisório.
+   - "peso_fonte" e "num_questoes_fonte" = trecho literal da tabela/seção que sustenta cada valor, incluindo disciplina/grupo e número. Se ausente, use "".
+   - Nunca atribua a cada disciplina o total de questões de um grupo ou prova. Use 0 quando não houver quantidade individualizada.
    - "num_questoes" = número de questões (inteiro). Se não houver, use 0.
    - "topicos" = resumo curto (até 10 itens).
    - "conteudo_programatico" = lista COMPLETA do conteúdo oficial.
@@ -11379,6 +11340,10 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             await _hydrate_missing_disciplinas(pdf_text, cargos_list, user_api_key, user.user_id)
 
         _fill_cp_from_topicos(cargos_list)
+        from study_resources import scoring_evidence
+        for cargo in cargos_list:
+            for discipline in cargo.get("disciplinas", []):
+                discipline.update(scoring_evidence(discipline, pdf_text))
 
         analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
         # (item 6) — guardamos o texto extraído do PDF para alimentar o chat sobre este edital
@@ -11387,6 +11352,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             "analysis_id": analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
+            "analysis_version": 2,
             "concurso": parsed.get("concurso", {}),
             "multiple_cargos": parsed["multiple_cargos"],
             "cargos": cargos_list,
@@ -11849,6 +11815,10 @@ REGRAS CRÍTICAS:
                 "total_questions": 0,
                 "correct_questions": 0,
                 "weight": disc.get("peso", 1),
+                "peso_fonte": disc.get("peso_fonte", ""),
+                "peso_status": disc.get("peso_status", "a_conferir"),
+                "num_questoes_fonte": disc.get("num_questoes_fonte", ""),
+                "num_questoes_status": disc.get("num_questoes_status", "a_conferir"),
                 "num_questoes_edital": disc.get("num_questoes", 0),
                 "dificuldade": "media",
                 "grupo": disc.get("grupo", ""),
@@ -11921,8 +11891,7 @@ REGRAS CRÍTICAS:
         xp_earned = 25
         await award_xp(user.user_id, xp_earned)
         
-        # Clean up analysis
-        await db.edital_analyses.delete_one({"analysis_id": analysis_id})
+        # Keep the source analysis for edital chat, comparison and scoring traceability.
         
         return {
             "success": True,
