@@ -32,7 +32,6 @@ export default function Profile() {
   const [telegramStatus, setTelegramStatus] = useState(null);
   const [telegramCode, setTelegramCode] = useState(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
-  const [webhookSetup, setWebhookSetup] = useState(false);
 
   // Gemini API Key states
   const [editingGeminiKey, setEditingGeminiKey] = useState(false);
@@ -128,15 +127,6 @@ export default function Profile() {
   const handleTelegramLink = async () => {
     setTelegramLoading(true);
     try {
-      // Setup webhook first (only once)
-      if (!webhookSetup) {
-        try {
-          await axios.post(`${API}/telegram/setup-webhook`, { backend_url: API.replace('/api', '') }, { withCredentials: true });
-          setWebhookSetup(true);
-        } catch (e) {
-          console.warn("Webhook setup failed (may already be set):", e);
-        }
-      }
       const res = await axios.post(`${API}/telegram/link`, {}, { withCredentials: true });
       if (res.data.already_linked) {
         toast.info("Telegram já está vinculado!");
