@@ -40,30 +40,36 @@ class Collection:
         self.rows = copy.deepcopy(list(rows))
         self.find_count = 0
 
-    def find(self, query, projection=None):
+    def find(self, query, projection=None, **kwargs):
         self.find_count += 1
         rows = [copy.deepcopy(r) for r in self.rows if matches(r, query)]
         async def to_list(limit):
             return rows[:limit]
         return SimpleNamespace(to_list=to_list)
 
-    async def find_one(self, query, projection=None):
+    async def find_one(self, query, projection=None, **kwargs):
         return next((copy.deepcopy(r) for r in self.rows if matches(r, query)), None)
 
-    async def insert_one(self, row):
+    async def insert_one(self, row, **kwargs):
         self.rows.append(copy.deepcopy(row))
 
-    async def update_one(self, query, update):
+    async def update_one(self, query, update, **kwargs):
         for row in self.rows:
             if matches(row, query):
                 row.update(update["$set"])
                 return SimpleNamespace(matched_count=1)
         return SimpleNamespace(matched_count=0)
 
+    async def update_many(self, query, update, **kwargs):
+        for row in self.rows:
+            if matches(row, query):
+                row.update(update["$set"])
+
 
 class TaskRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.ns = load_functions({"get_tasks", "update_task", "update_task_status", "award_xp"})
+        self.ns = load_functions({"get_tasks", "update_task", "update_task_status", "award_xp",
+                                  "set_task_completion", "validate_activity_date"})
         self.db = SimpleNamespace(
             tasks=Collection([{"task_id": "task_1", "user_id": "alice", "title": "Study",
                                "is_template": True, "recurrence": "daily", "xp_reward": 10,
@@ -72,7 +78,12 @@ class TaskRegressionTests(unittest.IsolatedAsyncioTestCase):
         )
         async def auth(**kwargs):
             return SimpleNamespace(user_id="alice", xp=0, rank="Recruta")
-        self.ns.update(db=self.db, get_current_user=auth, calculate_rank=lambda xp: "Recruta")
+        # These route-shape tests use a lightweight executor. Transaction isolation
+        # and rollback are tested against real MongoDB in test_activity_regression.
+        async def mutate(user_id, key, fingerprint, apply):
+            return await apply(None, await self.db.users.find_one({"user_id": user_id}))
+        self.ns.update(db=self.db, get_current_user=auth, calculate_rank=lambda xp: "Recruta",
+                       run_activity_mutation=mutate)
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.ns["app"]), base_url="https://sirius.test")
 

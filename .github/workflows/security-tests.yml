@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install fastapi==0.110.1 pydantic==2.12.5 httpx==0.28.1 requests==2.32.5
+      - run: python -m pip install fastapi==0.110.1 pydantic==2.12.5 httpx==0.28.1 requests==2.32.5 pymongo==4.5.0
       - name: Check backend syntax
         run: python -m compileall -q backend
       - name: Test isolated security routes (no live services)
@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: '22'
       - name: Service worker regression tests
-        run: node --test frontend/tests/service-worker.test.cjs
+        run: node --test frontend/tests/*.test.cjs
 
   xp-concurrency:
     runs-on: ubuntu-latest
@@ -45,6 +45,37 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install fastapi==0.110.1 pydantic==2.12.5 motor==3.3.1 pymongo==4.5.0
+      - run: python -m pip install fastapi==0.110.1 pydantic==2.12.5 motor==3.3.1 pymongo==4.5.0 httpx==0.28.1
       - name: XP tests against disposable MongoDB
-        run: python -m unittest discover -s backend/tests -p test_xp_regression.py -v
+        run: |
+          python -m unittest discover -s backend/tests -p test_xp_regression.py -v
+          python -m unittest discover -s backend/tests -p test_activity_regression.py -v
+
+  activity-transactions:
+    runs-on: ubuntu-latest
+    env:
+      ACTIVITY_TEST_MONGO_URI: mongodb://localhost:27017/?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install fastapi==0.110.1 pydantic==2.12.5 motor==3.3.1 pymongo==4.5.0 httpx==0.28.1
+      - name: Start disposable MongoDB replica set
+        run: |
+          docker run -d --name activity-mongo --network host mongo:7.0 --replSet rs0 --bind_ip_all
+          for attempt in {1..60}; do
+            if docker exec activity-mongo mongosh --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec activity-mongo mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
+          for attempt in {1..60}; do
+            if docker exec activity-mongo mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Test activity transactions, replay and rollback
+        run: python -m unittest discover -s backend/tests -p test_activity_regression.py -v
+      - name: Stop disposable MongoDB
+        if: always()
+        run: docker rm -f activity-mongo
