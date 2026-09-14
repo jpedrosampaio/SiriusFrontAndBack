@@ -7,7 +7,7 @@ import logging
 import json
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 import uuid
 from datetime import datetime, timezone, timedelta
 import bcrypt
@@ -1029,11 +1029,29 @@ async def get_current_user(authorization: Optional[str] = None, session_token: O
 async def root():
     return {"message": "Sirius API - Discipline is Destiny"}
 
+# Only the four collections currently used by the mobile data service are syncable.
+# Account/session/configuration collections must never be exposed through this API.
+SYNC_TABLES = {
+    "tasks": ("task_id", Task),
+    "habits": ("habit_id", Habit),
+    "transactions": ("transaction_id", Transaction),
+    "goals": ("goal_id", Goal),
+}
+
 class SyncPayload(BaseModel):
-    record_id: str
-    operation: str
+    model_config = ConfigDict(extra="forbid")
+    record_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    operation: Literal["INSERT", "UPDATE", "DELETE"]
     data: Dict[str, Any]
     timestamp: str
+
+
+def get_sync_config(table_name: str):
+    config = SYNC_TABLES.get(table_name)
+    if config is None:
+        raise HTTPException(status_code=403, detail="Collection is not available for sync")
+    return config
+
 
 @api_router.post("/sync/{table_name}")
 async def sync_table(
@@ -1042,33 +1060,53 @@ async def sync_table(
     request: Request,
     session_token: Optional[str] = Cookie(None)
 ):
-    """Sync data from mobile app"""
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
+    id_field, record_model = get_sync_config(table_name)
+    data = dict(payload.data)
+    if data.get("user_id", user.user_id) != user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if data.get(id_field, payload.record_id) != payload.record_id:
+        raise HTTPException(status_code=422, detail="Record identifier does not match")
+    allowed_fields = set(record_model.model_fields) | {"updated_at", "synced_at"}
+    if set(data) - allowed_fields:
+        raise HTTPException(status_code=422, detail="Unsupported sync fields")
+
     collection = db[table_name]
-    record_id = payload.record_id
-    data = payload.data
-    
+    selector = {id_field: payload.record_id, "user_id": user.user_id}
     if payload.operation == "DELETE":
-        await collection.delete_one({f"{table_name[:-1]}_id": record_id})
-    elif payload.operation == "INSERT":
-        data["synced_at"] = datetime.now(timezone.utc).isoformat()
-        await collection.update_one(
-            {f"{table_name[:-1]}_id": record_id},
-            {"$set": data},
-            upsert=True
-        )
-    elif payload.operation == "UPDATE":
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        data["synced_at"] = datetime.now(timezone.utc).isoformat()
-        await collection.update_one(
-            {f"{table_name[:-1]}_id": record_id},
-            {"$set": data},
-            upsert=True
-        )
-    
+        await collection.delete_one(selector)
+        return {"success": True}
+
+    existing = await collection.find_one(selector, {"_id": 0})
+    if existing is None:
+        if payload.operation == "UPDATE":
+            raise HTTPException(status_code=404, detail="Record not found")
+        # Avoid reusing another account's identifier, even though all writes are scoped.
+        if await collection.find_one({id_field: payload.record_id}, {"_id": 0, id_field: 1}):
+            raise HTTPException(status_code=409, detail="Record identifier is unavailable")
+
+    now = datetime.now(timezone.utc).isoformat()
+    merged = {**(existing or {}), **data, id_field: payload.record_id, "user_id": user.user_id}
+    merged["created_at"] = (existing or {}).get("created_at", data.get("created_at") or now)
+    # SQLite stores these values as JSON text; MongoDB consumers expect arrays.
+    for field in ("completions", "daily_checks", "sprints"):
+        if isinstance(merged.get(field), str):
+            try:
+                merged[field] = json.loads(merged[field])
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=422, detail="Invalid sync list")
+    if table_name == "tasks":
+        merged["xp_reward"] = (existing or {}).get("xp_reward", 10)
+    try:
+        validated = record_model.model_validate(merged).model_dump(mode="json")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid sync record")
+    validated["updated_at"] = now
+    validated["synced_at"] = now
+    await collection.update_one(selector, {"$set": validated}, upsert=payload.operation == "INSERT")
     return {"success": True}
+
 
 @api_router.get("/sync/{table_name}/{user_id}")
 async def get_sync_data(
@@ -1077,22 +1115,16 @@ async def get_sync_data(
     request: Request,
     session_token: Optional[str] = Cookie(None)
 ):
-    """Get data for sync to mobile app"""
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
+    _, record_model = get_sync_config(table_name)
     if user.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized")
-    
-    collection = db[table_name]
-    user_field = "user_id"
-    
-    records = await collection.find(
-        {user_field: user_id},
-        {"_id": 0}
-    ).to_list(1000)
-    
-    return records
+    # Positive projection also keeps unexpected legacy/private fields out of responses.
+    projection = {field: 1 for field in record_model.model_fields}
+    projection.update({"updated_at": 1, "synced_at": 1, "_id": 0})
+    return await db[table_name].find({"user_id": user.user_id}, projection).to_list(1000)
+
 
 @api_router.post("/auth/register")
 async def register(user_data: UserCreate, response: Response):
@@ -14966,6 +14998,7 @@ async def export_nutrition(request: Request, format: str, session_token: Optiona
 # TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 telegram_bot = None
 TELEGRAM_BOT_TOKEN = ''
+TELEGRAM_BOT_WEBHOOK_SECRET = os.environ.get('TELEGRAM_BOT_WEBHOOK_SECRET', '')
 # if TELEGRAM_BOT_TOKEN:
 #     try:
 #         telegram_bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -14974,53 +15007,11 @@ TELEGRAM_BOT_TOKEN = ''
 
 @api_router.post("/telegram/setup-webhook")
 async def setup_telegram_webhook(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Setup Telegram webhook - accepts backend_url in body or detects from request"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    if not telegram_bot:
-        raise HTTPException(status_code=503, detail="Bot do Telegram não configurado")
-    
-    # Try to get backend URL from request body first
-    backend_url = ''
-    try:
-        body = await request.json()
-        backend_url = body.get("backend_url", "").rstrip("/")
-    except Exception:
-        pass
-    
-    # Fallback: use BACKEND_PUBLIC_URL env var
-    if not backend_url:
-        backend_url = os.environ.get('BACKEND_PUBLIC_URL', '')
-    
-    # Fallback: try to detect from referer/origin (works when frontend proxies to backend)
-    if not backend_url:
-        origin = request.headers.get("origin", "")
-        if not origin:
-            referer = request.headers.get("referer", "")
-            if referer:
-                from urllib.parse import urlparse
-                parsed = urlparse(referer)
-                origin = f"{parsed.scheme}://{parsed.netloc}"
-        backend_url = origin
-    
-    if not backend_url:
-        raise HTTPException(status_code=400, detail="Não foi possível detectar a URL do backend. Configure BACKEND_PUBLIC_URL no servidor.")
-    
-    webhook_url = f"{backend_url}/api/telegram/webhook/{TELEGRAM_BOT_TOKEN}"
-    
-    try:
-        async with httpx.AsyncClient() as hclient:
-            resp = await hclient.post(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
-                json={"url": webhook_url, "allowed_updates": ["message"]}
-            )
-            result = resp.json()
-            if result.get("ok"):
-                return {"success": True, "webhook_url": webhook_url}
-            else:
-                raise HTTPException(status_code=500, detail=f"Falha ao configurar webhook: {result.get('description')}")
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=500, detail=f"Erro de conexão: {str(e)}")
+    """Global bot configuration is only performed by the server at startup."""
+    await get_current_user(
+        authorization=request.headers.get("Authorization"), session_token=session_token
+    )
+    raise HTTPException(status_code=403, detail="Webhook configuration is managed by the server")
 
 @api_router.post("/telegram/link")
 async def link_telegram(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -15482,11 +15473,14 @@ async def send_telegram_daily_summary(user_id: str, chat_id: int):
     await send_telegram_message(chat_id, msg, parse_mode="Markdown")
 
 # Telegram webhook endpoint (no auth required - Telegram calls this)
-@app.post("/api/telegram/webhook/{token}")
-async def telegram_webhook(token: str, request: Request):
-    """Receive updates from Telegram"""
-    if token != TELEGRAM_BOT_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid token")
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Receive updates authenticated with a dedicated Telegram webhook secret."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_BOT_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Telegram is not configured")
+    supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not secrets.compare_digest(supplied.encode("utf-8"), TELEGRAM_BOT_WEBHOOK_SECRET.encode("utf-8")):
+        raise HTTPException(status_code=403, detail="Invalid webhook secret")
     
     try:
         update_data = await request.json()
@@ -15513,11 +15507,11 @@ async def telegram_webhook(token: str, request: Request):
 
 @api_router.post("/telegram/send-daily-summaries")
 async def trigger_daily_summaries(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Trigger daily summaries to all linked Telegram users"""
+    """Trigger daily summaries only for the authenticated user."""
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    links = await db.telegram_links.find({"status": "active"}).to_list(1000)
+    links = await db.telegram_links.find({"status": "active", "user_id": user.user_id}).to_list(1000)
     sent = 0
     for link in links:
         try:
@@ -15683,39 +15677,41 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_setup():
-    """Auto-setup Telegram webhook on startup"""
-    if TELEGRAM_BOT_TOKEN:
-        try:
-            # Priority: BACKEND_PUBLIC_URL > construct from REACT_APP_BACKEND_URL
-            # On Railway, frontend and backend are separate services
-            backend_url = os.environ.get('BACKEND_PUBLIC_URL', '')
-            
-            if not backend_url:
-                # Try to detect from CORS_ORIGINS + common patterns
-                cors_origins = os.environ.get('CORS_ORIGINS', '')
-                for origin in cors_origins.split(','):
-                    origin = origin.strip()
-                    if origin and 'localhost' not in origin and '127.0.0.1' not in origin:
-                        backend_url = origin
-                        break
-            
-            if backend_url:
-                webhook_url = f"{backend_url}/api/telegram/webhook/{TELEGRAM_BOT_TOKEN}"
-                async with httpx.AsyncClient() as hclient:
-                    resp = await hclient.post(
-                        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
-                        json={"url": webhook_url, "allowed_updates": ["message"]},
-                        timeout=10
-                    )
-                    result = resp.json()
-                    if result.get("ok"):
-                        logging.info(f"Telegram webhook set to: {webhook_url}")
-                    else:
-                        logging.warning(f"Telegram webhook setup failed: {result}")
+    """Configure Telegram from trusted server settings only."""
+    if not TELEGRAM_BOT_TOKEN:
+        return
+    from urllib.parse import urlsplit
+    import re
+    backend_url = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
+    try:
+        parsed = urlsplit(backend_url)
+        valid_url = (parsed.scheme == "https" and parsed.hostname and
+                     not parsed.username and not parsed.password and
+                     not parsed.query and not parsed.fragment)
+    except ValueError:
+        valid_url = False
+    if not valid_url or not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", TELEGRAM_BOT_WEBHOOK_SECRET):
+        logging.warning("Telegram webhook requires BACKEND_PUBLIC_URL (HTTPS) and TELEGRAM_BOT_WEBHOOK_SECRET (32-256 safe characters)")
+        return
+    try:
+        async with httpx.AsyncClient() as hclient:
+            resp = await hclient.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
+                json={
+                    "url": f"{backend_url}/api/telegram/webhook",
+                    "secret_token": TELEGRAM_BOT_WEBHOOK_SECRET,
+                    "allowed_updates": ["message"],
+                },
+                timeout=10,
+            )
+            if resp.status_code == 200 and resp.json().get("ok"):
+                logging.info("Telegram webhook configured")
             else:
-                logging.warning("No public URL found for Telegram webhook. Set BACKEND_PUBLIC_URL env var.")
-        except Exception as e:
-            logging.warning(f"Telegram webhook auto-setup failed: {e}")
+                logging.warning("Telegram webhook configuration failed (HTTP %s)", resp.status_code)
+    except Exception:
+        # HTTP exception strings may contain the bot token in the request URL.
+        logging.warning("Telegram webhook configuration failed")
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
