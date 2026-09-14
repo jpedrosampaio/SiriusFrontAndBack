@@ -1453,6 +1453,12 @@ async def update_topic_progress(request: Request, notebook_id: str, data: dict, 
     
     if not topic_key:
         raise HTTPException(status_code=400, detail="topic_key é obrigatório")
+    import re
+    if not re.fullmatch(r"\d+(?:_\d+)?", str(topic_key)) or status not in ("studied", "reviewed", "mastered") or type(checked) is not bool:
+        raise HTTPException(status_code=422, detail="Progresso de assunto inválido")
+    notebook = await db.notebooks.find_one({"notebook_id": notebook_id, "user_id": user.user_id}, {"_id": 0})
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Disciplina não encontrada")
     
     progress_id = f"tp_{notebook_id}_{user.user_id}"
     progress_doc = await db.topic_progress.find_one({"progress_id": progress_id}, {"_id": 0})
@@ -8422,6 +8428,10 @@ async def get_edital_verticalizado(request: Request, program_id: str, session_to
     total_assuntos = 0
     
     from study_resources import normalize_content, prioritize
+    progress_documents = await db.topic_progress.find(
+        {"user_id": user.user_id, "notebook_id": {"$in": [nb["notebook_id"] for nb in notebooks]}}, {"_id": 0}
+    ).to_list(100)
+    progress_by_notebook = {doc["notebook_id"]: doc.get("topics", {}) for doc in progress_documents}
     
     for nb in notebooks:
         conteudo = normalize_content(nb.get("conteudo_programatico"), nb.get("topicos", []))
@@ -8434,6 +8444,7 @@ async def get_edital_verticalizado(request: Request, program_id: str, session_to
         
         disc_entry = {
             "notebook_id": nb.get("notebook_id"),
+            "topic_progress": progress_by_notebook.get(nb.get("notebook_id"), {}),
             "nome": nb.get("name", ""),
             "peso": nb.get("weight", 1),
             "num_questoes": nb.get("num_questoes_edital", 0),
@@ -11176,6 +11187,7 @@ async def analyze_edital_cargos(
             "vagas": {"type": "string"},
             "remuneracao": {"type": "string"},
             "escolaridade": {"type": "string"},
+            "taxa_inscricao": {"type": "string"},
             "disciplinas": {"type": "array", "items": disciplina_schema},
         },
         "required": ["nome"],
@@ -11189,6 +11201,14 @@ async def analyze_edital_cargos(
                     "nome": {"type": "string"},
                     "orgao": {"type": "string"},
                     "banca": {"type": "string"},
+                    "visao_geral": {"type": "string"},
+                    "prazos": {"type": "array", "items": {
+                        "type": "object", "properties": {
+                            "label": {"type": "string"},
+                            "data": {"type": "string"},
+                            "fonte": {"type": "string"},
+                        }, "required": ["label", "data", "fonte"],
+                    }},
                 },
             },
             "multiple_cargos": {"type": "boolean"},
@@ -11200,6 +11220,8 @@ async def analyze_edital_cargos(
     prompt_text = f"""Você recebeu o PDF completo de um edital de concurso público brasileiro.
 
 TAREFA: Extrair TODOS os cargos / perfis / especializações / áreas de atuação oferecidos pelo edital, sem omitir nenhum.
+
+No objeto concurso, inclua visao_geral (resumo breve) e prazos (inscrições, pagamento, isenção, provas e recursos) apenas quando expressos no documento. Cada prazo deve conter label com seu escopo/cargo quando específico, data como aparece no edital e fonte com o trecho literal completo que sustenta a data. Nunca estime datas. No cargo, inclua taxa_inscricao apenas se informada para aquele cargo. Ausências: string vazia ou lista vazia.
 
 REGRAS OBRIGATÓRIAS (leia com atenção):
 1) LISTAGEM COMPLETA — Se o edital tiver 13 perfis, o array "cargos" DEVE ter 13 itens. Nunca resuma, nunca agrupe, nunca abrevie.
@@ -11319,6 +11341,9 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         _fill_cp_from_topicos(cargos_list)
         mark_discipline_quality(cargos_list)
         from study_resources import scoring_evidence
+        from study_resources import sourced_deadlines
+        if isinstance(parsed.get("concurso"), dict):
+            parsed["concurso"]["prazos"] = sourced_deadlines(parsed["concurso"].get("prazos"), pdf_text)
         for cargo in cargos_list:
             for discipline in cargo.get("disciplinas", []):
                 discipline.update(scoring_evidence(discipline, pdf_text))
@@ -11405,6 +11430,19 @@ async def list_editais(request: Request, session_token: Optional[str] = Cookie(N
             seen.add(h)
         unique.append(_project_edital_summary(d))
     return {"editais": unique, "total": len(unique)}
+
+
+@api_router.get("/study/programs/editais/{analysis_id}")
+async def get_edital_analysis(request: Request, analysis_id: str, session_token: Optional[str] = Cookie(None)):
+    """Open a saved structured edital analysis without returning its raw PDF text."""
+    user = await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
+    analysis = await db.edital_analyses.find_one(
+        {"analysis_id": analysis_id, "user_id": user.user_id}, {"_id": 0, "pdf_text": 0}
+    )
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Análise não encontrada. Reenvie o edital para analisá-lo novamente.")
+    mark_discipline_quality(analysis.get("cargos", []))
+    return analysis
 
 
 @api_router.delete("/study/programs/editais/{analysis_id}")
