@@ -1,0 +1,25 @@
+name: Frontend production build
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Match the repository's Vercel install command.
+      - run: npm install --no-audit --no-fund
+      - name: Compile production frontend
+        run: npm run build
+        env:
+          # CRA production builds report existing lint warnings without failing on them.
+          CI: 'false'

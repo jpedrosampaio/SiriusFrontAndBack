@@ -17,6 +17,7 @@ from pypdf import PdfReader
 import io
 
 import random
+import asyncio
 import requests
 import httpx
 import secrets
@@ -258,7 +259,7 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
     if not user_api_key:
         return "⚠️ Configure sua chave de API Gemini nas configurações do perfil para usar IA."
     
-    result, error_type = await call_gemini(prompt, system_message, user_api_key, timeout_override)
+    result, error_type = await call_gemini(prompt, system_message, user_api_key, timeout_override, user_id=user_id)
     if result:
         return result
     
@@ -299,7 +300,7 @@ async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_ov
             include_schema = (attempt == 0 and response_schema is not None)
             try:
                 payload = _build_payload(model, include_schema)
-                resp = requests.post(url, json=payload, timeout=timeout)
+                resp = await asyncio.to_thread(requests.post, url, json=payload, timeout=timeout)
                 logging.info(f"Gemini call (model={model} schema={include_schema} timeout={timeout}s): status={resp.status_code}")
                 if resp.status_code == 200:
                     data = resp.json()
@@ -353,7 +354,7 @@ async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
     body = b"".join(parts)
     
     try:
-        resp = requests.post(
+        resp = await asyncio.to_thread(requests.post, 
             upload_url,
             data=body,
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
@@ -367,14 +368,13 @@ async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
             logging.info(f"Gemini file upload success: {file_uri} (state={file_state})")
             
             # Poll until file is ACTIVE
-            import asyncio
             file_get_url = f"https://generativelanguage.googleapis.com/v1beta/{file_name}?key={quote(api_key)}"
             for attempt in range(10):
                 if file_state == "ACTIVE":
                     break
                 await asyncio.sleep(2)
                 try:
-                    sr = requests.get(file_get_url, timeout=15)
+                    sr = await asyncio.to_thread(requests.get, file_get_url, timeout=15)
                     if sr.status_code == 200:
                         file_state = sr.json().get("file", {}).get("state", "PROCESSING")
                         logging.info(f"Gemini file poll attempt {attempt+1}: state={file_state}")
@@ -471,7 +471,7 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
                 payload = _build_payload(model, include_schema, include_thinking)
-                resp = requests.post(url, json=payload, timeout=model_timeout)
+                resp = await asyncio.to_thread(requests.post, url, json=payload, timeout=model_timeout)
                 logging.info(
                     f"Gemini PDF call (model={model}, attempt={attempt+1}, schema={include_schema}, "
                     f"thinking={include_thinking}, timeout={model_timeout}s): status={resp.status_code}"
@@ -1371,7 +1371,7 @@ async def test_gemini_key(request: Request, data: Optional[dict] = None, session
     }
     t0 = _time.time()
     try:
-        r = requests.post(url, json=payload, timeout=15)
+        r = await asyncio.to_thread(requests.post, url, json=payload, timeout=15)
         latency_ms = int((_time.time() - t0) * 1000)
     except requests.exceptions.Timeout:
         return {"valid": False, "status": "timeout", "message": "Google demorou a responder. Tente novamente."}
@@ -1496,25 +1496,28 @@ async def get_tasks(request: Request, date: Optional[str] = None, recurrence: Op
     if not date:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
-    query = {"user_id": user.user_id}
+    query = {"user_id": user.user_id, "is_template": True}
     if recurrence:
         query["recurrence"] = recurrence
-    
-    all_tasks = await db.tasks.find({"user_id": user.user_id, "is_template": True}, {"_id": 0}).to_list(1000)
-    
+    all_tasks = await db.tasks.find(query, {"_id": 0}).to_list(1000)
+    task_ids = [task["task_id"] for task in all_tasks]
+    instances = []
+    if task_ids:
+        instances = await db.task_instances.find({
+            "user_id": user.user_id, "date": date, "task_id": {"$in": task_ids}
+        }, {"_id": 0}).to_list(1000)
+    instances_by_task = {instance["task_id"]: instance for instance in instances}
+
     result_tasks = []
     for task in all_tasks:
-        if recurrence and task.get('recurrence') != recurrence:
-            continue
-            
-        instance = await db.task_instances.find_one({
-            "task_id": task["task_id"],
-            "date": date
-        }, {"_id": 0})
-        
+        instance = instances_by_task.get(task["task_id"])
         task_copy = task.copy()
         task_copy["date"] = date
-        task_copy["completed"] = instance["completed"] if instance else False
+        task_copy["completed"] = bool(instance and instance.get("completed", False))
+        task_copy["status"] = (
+            "done" if task_copy["completed"] else
+            "in_progress" if instance and instance.get("status") == "in_progress" else "todo"
+        )
         task_copy["instance_id"] = instance["instance_id"] if instance else None
         
         if isinstance(task_copy['created_at'], str):
@@ -1558,7 +1561,7 @@ async def update_task(request: Request, task_id: str, completed: bool, date: str
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    instance = await db.task_instances.find_one({"task_id": task_id, "date": date}, {"_id": 0})
+    instance = await db.task_instances.find_one({"task_id": task_id, "date": date, "user_id": user.user_id}, {"_id": 0})
     
     if not instance:
         instance_id = f"inst_{uuid.uuid4().hex[:12]}"
@@ -1568,14 +1571,15 @@ async def update_task(request: Request, task_id: str, completed: bool, date: str
             "user_id": user.user_id,
             "date": date,
             "completed": completed,
+            "status": "done" if completed else "todo",
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.task_instances.insert_one(instance_doc)
         was_completed = False
     else:
         await db.task_instances.update_one(
-            {"instance_id": instance["instance_id"]},
-            {"$set": {"completed": completed}}
+            {"instance_id": instance["instance_id"], "user_id": user.user_id},
+            {"$set": {"completed": completed, "status": "done" if completed else "todo"}}
         )
         was_completed = instance["completed"]
     
@@ -1624,7 +1628,7 @@ async def update_task_status(request: Request, task_id: str, session_token: Opti
         raise HTTPException(status_code=404, detail="Task not found")
     
     completed = new_status == "done"
-    instance = await db.task_instances.find_one({"task_id": task_id, "date": date}, {"_id": 0})
+    instance = await db.task_instances.find_one({"task_id": task_id, "date": date, "user_id": user.user_id}, {"_id": 0})
     
     if not instance:
         instance_id = f"inst_{uuid.uuid4().hex[:12]}"
@@ -1642,7 +1646,7 @@ async def update_task_status(request: Request, task_id: str, session_token: Opti
     else:
         was_completed = instance.get("completed", False)
         await db.task_instances.update_one(
-            {"instance_id": instance["instance_id"]},
+            {"instance_id": instance["instance_id"], "user_id": user.user_id},
             {"$set": {"completed": completed, "status": new_status}}
         )
     
@@ -11611,7 +11615,7 @@ async def edital_chat(request: Request, data: dict, session_token: Optional[str]
             },
         }
         try:
-            r = requests.post(url, json=payload, timeout=45)
+            r = await asyncio.to_thread(requests.post, url, json=payload, timeout=45)
         except requests.exceptions.Timeout:
             last_error = "timeout"; continue
         except Exception as e:
