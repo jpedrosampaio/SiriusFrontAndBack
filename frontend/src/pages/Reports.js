@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/lib/api-errors";
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -155,7 +156,7 @@ export default function Reports() {
       toast.success("Relatório gerado com sucesso!");
       fetchReports();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao gerar relatório");
+      toast.error(getApiErrorMessage(error, "Erro ao gerar relatório"));
     } finally {
       setLoading(false);
     }

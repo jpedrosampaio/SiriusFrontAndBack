@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/lib/api-errors";
 import { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -393,7 +394,7 @@ export default function Nutrition() {
         fetchMealPlans();
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao gerar plano alimentar");
+      toast.error(getApiErrorMessage(error, "Erro ao gerar plano alimentar"));
     } finally {
       setGeneratingMealPlan(false);
     }
@@ -470,7 +471,7 @@ export default function Nutrition() {
         fetchMealPlans();
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao importar plano alimentar");
+      toast.error(getApiErrorMessage(error, "Erro ao importar plano alimentar"));
     } finally {
       setImportingPlan(false);
     }
