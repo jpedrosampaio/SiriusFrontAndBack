@@ -914,6 +914,10 @@ export default function Studies() {
   };
 
   const handleSaveDisciplinas = async () => {
+    if (editedDisciplinas.some(d => !Number.isFinite(Number(d.weight)) || Number(d.weight) <= 0)) {
+      toast.error("Informe um peso maior que zero para cada disciplina.");
+      return;
+    }
     if (!editalResult?.program?.program_id) return;
     setSavingDisciplinas(true);
     try {
@@ -3351,12 +3355,9 @@ export default function Studies() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <Label className="text-[10px] text-[#A1A1AA]">Peso (edital)</Label>
-                              <Select value={String(disc.weight || 1)} onValueChange={v => { const u = [...editedDisciplinas]; u[i] = {...u[i], weight: parseInt(v)}; setEditedDisciplinas(u); }}>
-                                <SelectTrigger className="bg-[#121212] border-[#27272A] h-7 text-xs"><SelectValue /></SelectTrigger>
-                                <SelectContent className="bg-[#0A0A0A] border-[#27272A]">
-                                  {[1,2,3,4,5].map(w => <SelectItem key={w} value={String(w)}>Peso {w}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
+                              <Input type="number" min="0.01" step="any" aria-label={`Peso de ${disc.name}`} value={disc.weight ?? 1}
+                                onChange={e => { const u = [...editedDisciplinas]; u[i] = {...u[i], weight: e.target.value === '' ? '' : Number(e.target.value)}; setEditedDisciplinas(u); }}
+                                className="bg-[#121212] border-[#27272A] h-7 text-xs" />
                             </div>
                             <div>
                               <Label className="text-[10px] text-[#A1A1AA]">Minha dificuldade</Label>

@@ -8489,6 +8489,10 @@ async def update_program_disciplinas(request: Request, program_id: str, data: di
     if not program:
         raise HTTPException(status_code=404, detail="Programa não encontrado")
     
+    from study_resources import positive_number
+    if any("weight" in disc and positive_number(disc["weight"]) is None for disc in data.get("disciplinas", [])):
+        raise HTTPException(status_code=422, detail="Informe pesos maiores que zero.")
+
     # Update program name if provided
     if data.get("program_name"):
         await db.study_programs.update_one(
@@ -8508,6 +8512,7 @@ async def update_program_disciplinas(request: Request, program_id: str, data: di
             if field in disc:
                 update_fields[field] = disc[field]
         if "weight" in update_fields:
+            update_fields["weight"] = positive_number(update_fields["weight"])
             update_fields.update(peso_status="ajustado_pelo_usuario", peso_fonte="")
         if update_fields:
             await db.notebooks.update_one(
