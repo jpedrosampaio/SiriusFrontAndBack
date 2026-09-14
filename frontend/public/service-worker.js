@@ -1,142 +1,76 @@
-const CACHE_NAME = 'sirius-cache-v2';
-const API_CACHE = 'sirius-api-v1';
+const CACHE_NAME = 'sirius-cache-v3';
+const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json'
-];
-
-// API routes to cache for offline
-const CACHEABLE_API = [
-  '/api/auth/me',
-  '/api/stats/dashboard',
-  '/api/tasks',
-  '/api/habits',
-  '/api/goals',
-  '/api/streaks/global',
-  '/api/achievements/full',
-  '/api/dashboard/weekly-summary',
-  '/api/dashboard/daily-summary',
-  '/api/stats/analytics'
-];
-
-// Install
+// Cache only the application shell/assets, never authenticated API responses.
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Caching static assets');
-      return cache.addAll(STATIC_ASSETS);
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
-// Activate and clean old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((names) => {
-      return Promise.all(
-        names.map((name) => {
-          if (name !== CACHE_NAME && name !== API_CACHE) {
-            console.log('[SW] Deleting old cache:', name);
-            return caches.delete(name);
-          }
-        })
-      );
-    })
+    caches.keys().then((names) => Promise.all(
+      names.filter((name) =>
+        name.startsWith('sirius-api-') ||
+        (name.startsWith('sirius-cache-') && name !== CACHE_NAME)
+      ).map((name) => caches.delete(name))
+    )).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch strategy
+function offlineResponse() {
+  return new Response(
+    JSON.stringify({ error: 'Você está offline', offline: true }),
+    { status: 503, headers: { 'Content-Type': 'application/json' } }
+  );
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
-
   if (request.method !== 'GET') return;
 
-  // API calls: Network-first with cache fallback (stale-while-revalidate)
-  if (url.pathname.startsWith('/api')) {
-    const isCacheable = CACHEABLE_API.some(path => url.pathname.startsWith(path));
-    
-    if (isCacheable) {
-      event.respondWith(
-        fetch(request)
-          .then((response) => {
-            if (response && response.status === 200) {
-              const clone = response.clone();
-              caches.open(API_CACHE).then((cache) => {
-                cache.put(request, clone);
-              });
-            }
-            return response;
-          })
-          .catch(async () => {
-            const cached = await caches.match(request);
-            if (cached) {
-              console.log('[SW] Serving cached API:', url.pathname);
-              return cached;
-            }
-            return new Response(
-              JSON.stringify({ error: 'Você está offline', offline: true }),
-              { 
-                status: 503,
-                headers: { 'Content-Type': 'application/json' }
-              }
-            );
-          })
-      );
-      return;
-    }
-    
-    // Non-cacheable API: network only with offline error
+  // Do not read/write CacheStorage or the browser HTTP cache for private requests.
+  if (/^\/api(?:\/|$)/.test(url.pathname) || request.headers.has('Authorization')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }).catch(offlineResponse));
+    return;
+  }
+
+  // Third-party resources are not stored by this service worker.
+  if (url.origin !== self.location.origin) return;
+
+  // Refresh HTML online, keeping only the app shell as an offline fallback.
+  if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => {
-        return new Response(
-          JSON.stringify({ error: 'Você está offline', offline: true }),
-          { 
-            status: 503,
-            headers: { 'Content-Type': 'application/json' }
-          }
-        );
+      fetch(request, { cache: 'no-cache' }).catch(async () => {
+        const cache = await caches.open(CACHE_NAME);
+        return (await cache.match('/index.html')) || offlineResponse();
       })
     );
     return;
   }
 
-  // Static assets: Cache-first with network fallback
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      
-      return fetch(request).then((response) => {
-        if (!response || response.status !== 200) return response;
-        
-        // Cache JS, CSS, images, fonts
-        const contentType = response.headers.get('content-type') || '';
-        const shouldCache = contentType.includes('javascript') || 
-                           contentType.includes('css') || 
-                           contentType.includes('image') ||
-                           contentType.includes('font');
-        
-        if (shouldCache) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, clone);
-          });
-        }
-        
-        return response;
-      }).catch(() => {
-        // If offline and requesting a page, serve index.html
-        if (request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-        return new Response('Offline', { status: 503 });
-      });
-    })
-  );
+  const isStatic = url.pathname.startsWith('/static/') ||
+    url.pathname.startsWith('/icons/') || url.pathname === '/manifest.json';
+  if (!isStatic) return;
+
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    try {
+      const response = await fetch(request);
+      if (response.status === 200) {
+        const write = cache.put(request, response.clone()).catch(() => {});
+        event.waitUntil(write);
+      }
+      return response;
+    } catch {
+      return new Response('Offline', { status: 503 });
+    }
+  })());
 });
 
 // Push notifications

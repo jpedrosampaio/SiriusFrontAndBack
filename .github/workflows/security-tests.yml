@@ -1,4 +1,4 @@
-name: Security regression tests
+name: Backend and browser regression tests
 on:
   pull_request:
   push:
@@ -13,8 +13,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install fastapi==0.110.1 pydantic==2.12.5 httpx==0.28.1
+      - run: python -m pip install fastapi==0.110.1 pydantic==2.12.5 httpx==0.28.1 requests==2.32.5
       - name: Check backend syntax
         run: python -m compileall -q backend
       - name: Test isolated security routes (no live services)
+        run: python -m unittest discover -s backend/tests -p 'test_*regression.py' -v
+      - name: Security routes
         run: python -m unittest discover -s backend/tests -p test_security_routes.py -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Service worker regression tests
+        run: node --test frontend/tests/service-worker.test.cjs
