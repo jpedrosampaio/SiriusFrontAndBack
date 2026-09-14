@@ -1046,7 +1046,7 @@ export default function Studies() {
         toast.success(`Edital reconhecido do cache (${cargosCount} cargo(s)).`);
       }
 
-      if (cargosCount > 1) {
+      if (cargosCount > 1 || res.data.cargos?.some(c => c.disciplinas_status === 'incompleto')) {
         setShowEditalDialog(false);
         setShowCargoSelection(true);
         toast.success(`${cargosCount} cargo(s)/perfil(is) encontrado(s)! Selecione o seu.`);
@@ -3803,7 +3803,8 @@ export default function Studies() {
                         {cargo.remuneracao && <Badge variant="outline" className="text-[10px] border-yellow-500 text-yellow-400">{cargo.remuneracao}</Badge>}
                         {cargo.escolaridade && <Badge variant="outline" className="text-[10px] border-blue-500 text-blue-400">{cargo.escolaridade}</Badge>}
                       </div>
-                      <p className="text-xs text-[#A1A1AA] mt-2">{(cargo.disciplinas || []).length} disciplinas</p>
+                      <p className="text-xs text-[#A1A1AA] mt-2">{cargo.disciplinas_status === 'incompleto' ? 'Extração de disciplinas incompleta' : `${(cargo.disciplinas || []).length} disciplinas`}</p>
+                      {cargo.disciplinas_aviso && <p role="alert" className="text-xs text-amber-300 mt-2">{cargo.disciplinas_aviso}</p>}
                       <div className="flex flex-wrap gap-1 mt-1">
                         {(cargo.disciplinas || []).slice(0, 5).map((d, di) => (
                           <Badge key={di} variant="outline" className="text-[9px] border-[#3F3F46] text-[#A1A1AA]">
@@ -3841,7 +3842,8 @@ export default function Studies() {
                 </div>
               </div>
               
-              <Button onClick={() => handleCreateFromCargo(editalAnalysis?.analysis_id, selectedCargoIndex)} disabled={creatingFromCargo} className="w-full bg-purple-600 hover:bg-purple-700">
+              {editalAnalysis?.cargos?.some(c => c.disciplinas_status === 'incompleto') && <Button variant="outline" className="w-full" onClick={() => { setShowCargoSelection(false); setEditalForceReanalyze(true); setShowEditalDialog(true); }}>Reanalisar edital completo</Button>}
+              <Button onClick={() => handleCreateFromCargo(editalAnalysis?.analysis_id, selectedCargoIndex)} disabled={creatingFromCargo || editalAnalysis?.cargos?.[selectedCargoIndex]?.disciplinas_status === 'incompleto'} className="w-full bg-purple-600 hover:bg-purple-700">
                 {creatingFromCargo ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Criando programa...</> : <><Sparkles className="w-4 h-4 mr-2" />Gerar Programa para este Cargo</>}
               </Button>
             </div>

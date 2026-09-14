@@ -11,6 +11,7 @@ import os
 import logging
 import json
 from pathlib import Path
+from edital_quality import edital_context, needs_disciplines, generic_discipline, normalized_name, mark_discipline_quality
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Literal
 import uuid
@@ -8123,7 +8124,7 @@ async def import_edital(
         pdf_text = extract_pdf_text(content) or ""
         if not pdf_text.strip():
             raise HTTPException(status_code=400, detail="Não foi possível extrair texto do PDF.")
-        text_clip = pdf_text[:100_000].replace("{", "{{").replace("}", "}}")
+        text_clip = edital_context(pdf_text).replace("{", "{{").replace("}", "}}")
         
         prompt_text = f"""Analise o edital de concurso abaixo e retorne APENAS JSON válido.
 
@@ -10828,39 +10829,27 @@ def _fill_cp_from_topicos(cargos_list: List[dict]) -> List[dict]:
 
 
 def _merge_hydrated_disciplinas(cargos_list: List[dict], parsed: dict) -> int:
-    """Merge disciplinas_comuns + específicas (parsed) into cargos without disciplinas. Returns nº hidratado."""
-    comuns = parsed.get("disciplinas_comuns") or []
-    por_cargo = {
-        (c.get("nome") or "").strip().lower(): (c.get("disciplinas") or [])
-        for c in (parsed.get("cargos") or [])
-    }
+    """Repair incomplete cargos without borrowing another role's specific subjects."""
+    comuns = _normalize_disciplinas(parsed.get("disciplinas_comuns") or [])
+    por_cargo = {normalized_name(c.get("nome")): c.get("disciplinas") or []
+                 for c in parsed.get("cargos") or [] if isinstance(c, dict)}
     hydrated = 0
     for cargo in cargos_list:
-        if cargo.get("disciplinas"):
+        if not needs_disciplines(cargo):
             continue
-        nome_l = (cargo.get("nome") or "").strip().lower()
-        especificas = por_cargo.get(nome_l)
-        if especificas is None:
-            especificas = next(
-                (v for k, v in por_cargo.items() if k and (k in nome_l or nome_l in k)), None
-            )
-        if especificas is None:
-            from difflib import SequenceMatcher
-            best_k, best_r = None, 0.0
-            for k in por_cargo:
-                r = SequenceMatcher(None, k, nome_l).ratio()
-                if r > best_r:
-                    best_k, best_r = k, r
-            especificas = por_cargo.get(best_k, []) if best_r >= 0.6 else []
-        merged = [dict(d) for d in _normalize_disciplinas(comuns)]
-        nomes_vistos = {(d.get("nome") or "").strip().lower() for d in merged}
-        for d in _normalize_disciplinas(especificas):
-            nm = (d.get("nome") or "").strip().lower()
-            if nm and nm not in nomes_vistos:
-                merged.append(d)
-                nomes_vistos.add(nm)
-        if merged:
-            cargo["disciplinas"] = merged
+        name = normalized_name(cargo.get("nome"))
+        if not name or name not in por_cargo:
+            continue
+        candidates = comuns + _normalize_disciplinas(por_cargo[name])
+        if not candidates or any(generic_discipline(d) for d in candidates):
+            continue
+        # Retain already extracted real subjects, replace group placeholders.
+        previous = [d for d in _normalize_disciplinas(cargo.get("disciplinas")) if not generic_discipline(d)]
+        merged = {normalized_name(d.get("nome")): d for d in previous}
+        merged.update({normalized_name(d.get("nome")): d for d in candidates})
+        proposal = {**cargo, "disciplinas": list(merged.values())}
+        if not needs_disciplines(proposal):
+            cargo["disciplinas"] = proposal["disciplinas"]
             hydrated += 1
     return hydrated
 
@@ -10908,25 +10897,17 @@ _HYDRATION_SCHEMA = {
 }
 
 
-async def _hydrate_missing_disciplinas(pdf_text: str, cargos_list: List[dict], api_key: str, user_id: str, chunk_size: int = 6) -> int:
+async def _hydrate_missing_disciplinas(pdf_text: str, cargos_list: List[dict], api_key: str, user_id: str, chunk_size: int = 2) -> int:
     """2º passo: extrai disciplinas dos cargos que vieram sem ou só com grupos genéricos."""
-    _GRUPOS_GENERICOS = {"conhecimentos gerais", "conhecimentos específicos", "conhecimentos básicos",
-                         "conhecimentos complementares", "disciplinas gerais", "disciplinas específicas"}
-    def _precisa_hidratar(c: dict) -> bool:
-        disc = c.get("disciplinas")
-        if not disc: return True
-        if len(disc) <= 3: return True
-        nomes = {d.get("nome", "").strip().lower() if isinstance(d, dict) else str(d).strip().lower() for d in disc}
-        return nomes.issubset(_GRUPOS_GENERICOS)
-    missing = [c for c in cargos_list if _precisa_hidratar(c)]
+    missing = [c for c in cargos_list if needs_disciplines(c)]
     if not missing:
         return 0
     logging.info(f"analyze-edital: {len(missing)} cargo(s) sem disciplinas — iniciando hidratação (passo 2)")
     total_hydrated = 0
-    text_clip = pdf_text[:100_000]
     for start in range(0, len(missing), chunk_size):
         chunk = missing[start:start + chunk_size]
         nomes = [c.get("nome", "") for c in chunk]
+        text_clip = edital_context(pdf_text, nomes)
         for tentativa in range(2):
             prompt = _build_hydration_prompt(nomes) + f"\n\nTEXTO DO EDITAL:\n{text_clip}"
             result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=180, user_id=user_id, response_schema=_HYDRATION_SCHEMA)
@@ -10941,7 +10922,8 @@ async def _hydrate_missing_disciplinas(pdf_text: str, cargos_list: List[dict], a
                 logging.warning(f"analyze-edital: hidratação (lote {start//chunk_size + 1}) retornou só {total_disc} disciplina(s) — repetindo lote")
                 continue
             total_hydrated += _merge_hydrated_disciplinas(chunk, parsed)
-            break
+            if not any(needs_disciplines(c) for c in chunk):
+                break
     logging.info(f"analyze-edital: hidratação preencheu disciplinas de {total_hydrated}/{len(missing)} cargo(s)")
     return total_hydrated
 
@@ -11032,7 +11014,7 @@ async def _hydrate_disciplinas_from_text(pdf_text: str, cargo_nome: str, api_key
         _build_hydration_prompt([cargo_nome])
         + "\n\nResponda APENAS com JSON válido no formato: "
           '{"disciplinas_comuns": [...], "cargos": [{"nome": "...", "disciplinas": [...]}]}'
-        + f"\n\nTEXTO COMPLETO DO EDITAL:\n{pdf_text[:150_000]}"
+        + f"\n\nTRECHOS DO EDITAL PARA ESTE CARGO:\n{edital_context(pdf_text, [cargo_nome])}"
     )
     result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=150, user_id=user_id, response_schema=_HYDRATION_SCHEMA)
     if not result:
@@ -11051,7 +11033,7 @@ async def _hydrate_disciplinas_from_text(pdf_text: str, cargo_nome: str, api_key
 async def analyze_edital_cargos(
     request: Request,
     file: UploadFile = File(...),
-    force: bool = Query(False, description="Ignora o cache e força uma nova análise"),
+    force: bool = Query(False, description="Reanalisa o PDF completo, incluindo os anexos finais, sem reutilizar o cache"),
     session_token: Optional[str] = Cookie(None)
 ):
     """Analyze an edital PDF and return ALL available cargos/perfis before generating the program.
@@ -11089,12 +11071,12 @@ async def analyze_edital_cargos(
     cached = None
     if not force:
         cached = await db.edital_analyses.find_one(
-            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 2},
+            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 3},
             {"_id": 0}
         )
     if (
         cached and cached.get("cargos")
-        and any(c.get("disciplinas") for c in cached["cargos"])
+        and all(not needs_disciplines(c) for c in cached["cargos"])
         and len(cached["cargos"]) >= _detect_min_cargos(cached.get("pdf_text", ""))
     ):
         # Refresh expiry and return cached (só usa cache se houver disciplinas e nº de cargos plausível)
@@ -11103,7 +11085,7 @@ async def analyze_edital_cargos(
             "analysis_id": new_analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
-            "analysis_version": 2,
+            "analysis_version": 3,
             "concurso": cached.get("concurso", {}),
             "multiple_cargos": cached.get("multiple_cargos", False),
             "cargos": cached.get("cargos", []),
@@ -11265,7 +11247,11 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
     )
 
     try:
-        full_prompt = f"{prompt_text}\n\nTEXTO COMPLETO DO EDITAL:\n{pdf_text[:100_000]}"
+        try:
+            edital_context(pdf_text)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        full_prompt = f"{prompt_text}\n\nTEXTO COMPLETO DO EDITAL:\n{edital_context(pdf_text)}"
         result, error_type = await call_gemini(
             full_prompt, system_msg, user_api_key,
             timeout_override=180, user_id=user.user_id,
@@ -11327,19 +11313,11 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
 
         # Passo 2 do pipeline: hidrata cargos cujas disciplinas estão vazias ou são apenas
         # grupos genéricos (ex: só "Conhecimentos Gerais" e "Conhecimentos Específicos").
-        def _precisa_hidratar(c: dict) -> bool:
-            disc = c.get("disciplinas")
-            if not disc: return True
-            if len(disc) <= 3: return True
-            grupos = {"conhecimentos gerais", "conhecimentos específicos", "conhecimentos básicos",
-                      "conhecimentos complementares", "disciplinas gerais", "disciplinas específicas"}
-            nomes = {d.get("nome", "").strip().lower() for d in disc}
-            if nomes.issubset(grupos): return True
-            return False
-        if cargos_list and any(_precisa_hidratar(c) for c in cargos_list):
+        if cargos_list and any(needs_disciplines(c) for c in cargos_list):
             await _hydrate_missing_disciplinas(pdf_text, cargos_list, user_api_key, user.user_id)
 
         _fill_cp_from_topicos(cargos_list)
+        mark_discipline_quality(cargos_list)
         from study_resources import scoring_evidence
         for cargo in cargos_list:
             for discipline in cargo.get("disciplinas", []):
@@ -11352,12 +11330,12 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             "analysis_id": analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
-            "analysis_version": 2,
+            "analysis_version": 3,
             "concurso": parsed.get("concurso", {}),
             "multiple_cargos": parsed["multiple_cargos"],
             "cargos": cargos_list,
             "pdf_filename": file.filename,
-            "pdf_text": (pdf_text or "")[:200_000],  # limite defensivo (~200 KB)
+            "pdf_text": edital_context(pdf_text),  # preserve late annexes for import and repair
             "created_at": datetime.now(timezone.utc).isoformat(),
             # (item 4) — expiração longa para permitir comparação futura de editais
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
@@ -11655,7 +11633,7 @@ async def import_edital_with_cargo(
         raise HTTPException(status_code=404, detail="Análise não encontrada. Faça upload do edital novamente.")
     
     cargos = analysis.get("cargos", [])
-    if not cargos or cargo_index >= len(cargos):
+    if type(cargo_index) is not int or not cargos or not 0 <= cargo_index < len(cargos):
         raise HTTPException(status_code=400, detail="Cargo inválido")
     
     selected_cargo = cargos[cargo_index]
@@ -11666,33 +11644,28 @@ async def import_edital_with_cargo(
     concurso_info["escolaridade"] = selected_cargo.get("escolaridade", "")
     
     disciplinas = selected_cargo.get("disciplinas", [])
-    if not disciplinas:
-        # Fallback 1: outro cargo da mesma análise com disciplinas (editais com conteúdo comum)
-        donor = next((c for c in cargos if c.get("disciplinas")), None)
-        if donor:
-            disciplinas = donor["disciplinas"]
-            logging.info(f"import-edital: cargo '{selected_cargo.get('nome')}' sem disciplinas — reutilizando as do cargo '{donor.get('nome')}'")
-        else:
-            # Fallback 2: hidratar via texto do PDF armazenado na análise
-            user_api_key = await get_user_api_key(user.user_id)
-            if user_api_key:
-                logging.info(f"import-edital: hidratando disciplinas do cargo '{selected_cargo.get('nome')}' via texto do PDF")
+    if needs_disciplines(selected_cargo):
+        if analysis.get("analysis_version", 0) < 3:
+            raise HTTPException(status_code=422, detail="Esta análise antiga pode ter omitido os anexos. Reenvie o PDF completo e analise novamente.")
+        user_api_key = await get_user_api_key(user.user_id)
+        if user_api_key:
+            try:
                 disciplinas = await _hydrate_disciplinas_from_text(
-                    analysis.get("pdf_text", ""), selected_cargo.get("nome", ""), user_api_key, user.user_id
+                    edital_context(analysis.get("pdf_text", "")), selected_cargo.get("nome", ""), user_api_key, user.user_id
                 )
-        if disciplinas:
-            selected_cargo["disciplinas"] = disciplinas
-            _fill_cp_from_topicos([selected_cargo])
-            await db.edital_analyses.update_one(
-                {"analysis_id": analysis_id, "user_id": user.user_id},
-                {"$set": {f"cargos.{cargo_index}.disciplinas": disciplinas}}
-            )
-    if not disciplinas:
-        raise HTTPException(
-            status_code=400,
-            detail="Não foi possível extrair as disciplinas deste cargo. Reenvie o edital e analise novamente — se persistir, envie um PDF contendo as páginas do conteúdo programático."
-        )
-    
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            if disciplinas:
+                selected_cargo["disciplinas"] = disciplinas
+                mark_discipline_quality([selected_cargo])
+                await db.edital_analyses.update_one(
+                    {"analysis_id": analysis_id, "user_id": user.user_id},
+                    {"$set": {f"cargos.{cargo_index}": selected_cargo}}
+                )
+    if needs_disciplines(selected_cargo):
+        raise HTTPException(status_code=422, detail="Disciplinas incompletas para este cargo. Reanalise o edital antes de criar o programa.")
+    disciplinas = selected_cargo["disciplinas"]
+
     try:
         disc_list = json.dumps(disciplinas, ensure_ascii=False)
         
