@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/lib/api-errors";
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ export default function Register() {
       toast.success("Conta criada com sucesso!");
       navigate('/dashboard', { state: { user: response.data.user } });
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao criar conta");
+      toast.error(getApiErrorMessage(error, "Erro ao criar conta"));
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,283 @@
+diff --git a/frontend/src/pages/Finance.js b/frontend/src/pages/Finance.js
+--- a/frontend/src/pages/Finance.js
++++ b/frontend/src/pages/Finance.js
+@@ -1,3 +1,4 @@
++import { getApiErrorMessage } from "@/lib/api-errors";
+ import { useEffect, useState } from "react";
+ import Sidebar from "@/components/Sidebar";
+ import MobileNav from "@/components/MobileNav";
+@@ -134,7 +135,7 @@
+       setNewCategoryName("");
+       fetchCategories();
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao criar categoria");
++      toast.error(getApiErrorMessage(error, "Erro ao criar categoria"));
+     } finally {
+       setCategoryLoading(false);
+     }
+@@ -146,7 +147,7 @@
+       toast.success(`Categoria "${catName}" removida`);
+       fetchCategories();
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao remover categoria");
++      toast.error(getApiErrorMessage(error, "Erro ao remover categoria"));
+     }
+   };
+ 
+@@ -365,7 +366,7 @@
+       setOpenBudget(false);
+       fetchBudgets();
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao criar orçamento");
++      toast.error(getApiErrorMessage(error, "Erro ao criar orçamento"));
+     }
+   };
+ 
+diff --git a/frontend/src/pages/Nutrition.js b/frontend/src/pages/Nutrition.js
+--- a/frontend/src/pages/Nutrition.js
++++ b/frontend/src/pages/Nutrition.js
+@@ -1,3 +1,4 @@
++import { getApiErrorMessage } from "@/lib/api-errors";
+ import { useState, useEffect } from "react";
+ import Sidebar from "@/components/Sidebar";
+ import MobileNav from "@/components/MobileNav";
+@@ -393,7 +394,7 @@
+         fetchMealPlans();
+       }
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao gerar plano alimentar");
++      toast.error(getApiErrorMessage(error, "Erro ao gerar plano alimentar"));
+     } finally {
+       setGeneratingMealPlan(false);
+     }
+@@ -470,7 +471,7 @@
+         fetchMealPlans();
+       }
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao importar plano alimentar");
++      toast.error(getApiErrorMessage(error, "Erro ao importar plano alimentar"));
+     } finally {
+       setImportingPlan(false);
+     }
+diff --git a/frontend/src/pages/Reports.js b/frontend/src/pages/Reports.js
+--- a/frontend/src/pages/Reports.js
++++ b/frontend/src/pages/Reports.js
+@@ -1,3 +1,4 @@
++import { getApiErrorMessage } from "@/lib/api-errors";
+ import { useEffect, useState } from "react";
+ import Sidebar from "@/components/Sidebar";
+ import MobileNav from "@/components/MobileNav";
+@@ -155,7 +156,7 @@
+       toast.success("Relatório gerado com sucesso!");
+       fetchReports();
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao gerar relatório");
++      toast.error(getApiErrorMessage(error, "Erro ao gerar relatório"));
+     } finally {
+       setLoading(false);
+     }
+diff --git a/frontend/src/pages/Studies.js b/frontend/src/pages/Studies.js
+--- a/frontend/src/pages/Studies.js
++++ b/frontend/src/pages/Studies.js
+@@ -1,3 +1,4 @@
++import { getApiErrorMessage } from "@/lib/api-errors";
+ import { useState, useEffect, useRef, useCallback } from "react";
+ import Sidebar from "@/components/Sidebar";
+ import MobileNav from "@/components/MobileNav";
+@@ -726,7 +727,7 @@
+       setImportForm({ title: "Simulado Importado", banca: "", disciplina: "", concurso: "", question_type: "multipla_escolha" });
+       fetchSimulados();
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao importar PDF");
++      toast.error(getApiErrorMessage(err, "Erro ao importar PDF"));
+     } finally { setSimuladoImporting(false); }
+   };
+ 
+@@ -744,7 +745,7 @@
+       setGenerateForm({ title: "", banca: "", disciplina: "", concurso: "", question_type: "multipla_escolha", num_questions: 10, difficulty: "medio" });
+       fetchSimulados();
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao gerar simulado");
++      toast.error(getApiErrorMessage(err, "Erro ao gerar simulado"));
+     } finally { setSimuladoGenerating(false); }
+   };
+ 
+@@ -779,7 +780,7 @@
+       fetchSimulados();
+       fetchAllData();
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao submeter simulado");
++      toast.error(getApiErrorMessage(err, "Erro ao submeter simulado"));
+     } finally { setSimuladoSubmitting(false); }
+   };
+ 
+@@ -845,7 +846,7 @@
+       fetchAllData();
+       if (selectedNotebook) fetchNotebookData();
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao analisar PDF");
++      toast.error(getApiErrorMessage(err, "Erro ao analisar PDF"));
+     } finally { setContentPdfAnalyzing(false); }
+   };
+ 
+@@ -906,7 +907,7 @@
+       setEditalForceReanalyze(false);
+       fetchAllData();
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao importar edital");
++      toast.error(getApiErrorMessage(err, "Erro ao importar edital"));
+     } finally { setEditalImporting(false); }
+   };
+ 
+@@ -932,7 +933,7 @@
+       setEditalEditMode(false);
+       fetchAllData();
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao salvar alterações");
++      toast.error(getApiErrorMessage(err, "Erro ao salvar alterações"));
+     } finally { setSavingDisciplinas(false); }
+   };
+ 
+@@ -948,7 +949,7 @@
+       setCronogramaData(cronRes.data);
+       setStudyIndicators(indRes.data);
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao carregar cronograma");
++      toast.error(getApiErrorMessage(err, "Erro ao carregar cronograma"));
+       setShowCronogramaDialog(false);
+     } finally { setCronogramaLoading(false); }
+   };
+@@ -962,7 +963,7 @@
+       const res = await axios.get(`${API}/study/programs/${programId}/edital-verticalizado`, { withCredentials: true });
+       setVerticalizadoData(res.data);
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao carregar edital verticalizado");
++      toast.error(getApiErrorMessage(err, "Erro ao carregar edital verticalizado"));
+       setShowVerticalizadoDialog(false);
+     } finally { setVerticalizadoLoading(false); }
+   };
+@@ -996,7 +997,7 @@
+       setShowSimuladoFromEdital(false);
+       setEditalSimuladoForm({ title: "", disciplina: "", question_type: "multipla_escolha", num_questions: 10, difficulty: "medio" });
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao gerar simulado");
++      toast.error(getApiErrorMessage(err, "Erro ao gerar simulado"));
+     } finally { setEditalSimuladoGenerating(false); }
+   };
+ 
+@@ -1047,7 +1048,7 @@
+         await handleCreateFromCargo(res.data.analysis_id, 0);
+       }
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao analisar edital");
++      toast.error(getApiErrorMessage(err, "Erro ao analisar edital"));
+     } finally {
+       setEditalAnalyzing(false);
+       setEditalAnalyzePhase("");
+@@ -1076,7 +1077,7 @@
+       toast.success("Análise removida.");
+       setEditaisList(prev => prev.filter(e => e.analysis_id !== analysisId));
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao remover análise.");
++      toast.error(getApiErrorMessage(err, "Erro ao remover análise."));
+     } finally {
+       setEditaisDeleting(null);
+     }
+@@ -1102,7 +1103,7 @@
+       );
+       setCompareResult(res.data);
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao comparar editais");
++      toast.error(getApiErrorMessage(err, "Erro ao comparar editais"));
+     } finally {
+       setComparing(false);
+     }
+@@ -1144,7 +1145,7 @@
+       );
+       setChatHistory(h => [...h, { role: "assistant", content: res.data.answer, model: res.data.model }]);
+     } catch (err) {
+-      const msg = err.response?.data?.detail || "Erro ao consultar a IA.";
++      const msg = getApiErrorMessage(err, "Erro ao consultar a IA.");
+       setChatHistory(h => [...h, { role: "assistant", content: `⚠️ ${msg}`, error: true }]);
+     } finally {
+       setChatSending(false);
+@@ -1179,7 +1180,7 @@
+       setEditalAnalysis(null);
+       fetchAllData();
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao criar programa");
++      toast.error(getApiErrorMessage(err, "Erro ao criar programa"));
+     } finally { setCreatingFromCargo(false); }
+   };
+ 
+@@ -1212,7 +1213,7 @@
+       setMindmapTopic("");
+       setMindmapFile(null);
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao gerar mapa mental");
++      toast.error(getApiErrorMessage(err, "Erro ao gerar mapa mental"));
+     } finally { setMindmapGenerating(false); }
+   };
+ 
+@@ -1280,7 +1281,7 @@
+       }, { withCredentials: true });
+       toast.success(res.data.message || "Lembretes criados!");
+     } catch (err) {
+-      toast.error(err.response?.data?.detail || "Erro ao criar lembretes");
++      toast.error(getApiErrorMessage(err, "Erro ao criar lembretes"));
+     }
+   };
+ 
+@@ -1300,7 +1301,7 @@
+       setRedacaoFile(null);
+       toast.success("Redação corrigida!");
+       fetchRedacaoHistory();
+-    } catch (err) { toast.error(err.response?.data?.detail || "Erro ao corrigir redação"); }
++    } catch (err) { toast.error(getApiErrorMessage(err, "Erro ao corrigir redação")); }
+     finally { setRedacaoLoading(false); }
+   };
+ 
+diff --git a/frontend/src/pages/Workouts.js b/frontend/src/pages/Workouts.js
+--- a/frontend/src/pages/Workouts.js
++++ b/frontend/src/pages/Workouts.js
+@@ -1,3 +1,4 @@
++import { getApiErrorMessage } from "@/lib/api-errors";
+ import { useEffect, useState, useCallback } from "react";
+ import Sidebar from "@/components/Sidebar";
+ import MobileNav from "@/components/MobileNav";
+@@ -637,7 +638,7 @@
+       // Refresh plans
+       const plansRes = await axios.get(`${API}/workout-plans`, { withCredentials: true });
+       setPlans(Array.isArray(plansRes.data) ? plansRes.data : []);
+-    } catch (err) { toast.error(err.response?.data?.detail || "Erro ao importar treino"); }
++    } catch (err) { toast.error(getApiErrorMessage(err, "Erro ao importar treino")); }
+     finally { setImportLoading(false); }
+   };
+ 
+@@ -734,7 +735,7 @@
+         loadData();
+       }
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao gerar treino com IA");
++      toast.error(getApiErrorMessage(error, "Erro ao gerar treino com IA"));
+     } finally {
+       setGeneratingPlan(false);
+     }
+@@ -762,7 +763,7 @@
+         loadData();
+       }
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao melhorar treino");
++      toast.error(getApiErrorMessage(error, "Erro ao melhorar treino"));
+     } finally {
+       setImprovingPlan(null);
+     }
+@@ -839,7 +840,7 @@
+       fetchNextLoads(plan.plan_id);
+       toast.success("Treino iniciado! Bora! 💪");
+     } catch (error) {
+-      toast.error(error.response?.data?.detail || "Erro ao iniciar treino");
++      toast.error(getApiErrorMessage(error, "Erro ao iniciar treino"));
+     }
+   };
+ 

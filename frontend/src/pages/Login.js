@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/lib/api-errors";
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ export default function Login() {
       toast.success("Login realizado com sucesso!");
       navigate('/dashboard', { state: { user: response.data.user } });
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao fazer login");
+      toast.error(getApiErrorMessage(error, "Erro ao fazer login"));
     } finally {
       setLoading(false);
     }

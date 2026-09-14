@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getApiErrorMessage } from "./api-errors";
 import { OFFLINE_MODE, OFFLINE_USER, OFFLINE_DEMO_DATA } from "./offline-mode";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
@@ -49,7 +50,7 @@ axios.interceptors.response.use(
       (offlineError).isOfflineError = true;
       return Promise.reject(offlineError);
     }
-    if (error.response?.status === 401) {
+    if (error?.response?.status === 401) {
       clearToken();
       const path = window.location.pathname;
       if (path !== '/login' && path !== '/register' && path !== '/') {
@@ -57,7 +58,7 @@ axios.interceptors.response.use(
       }
     }
     // Detect Gemini API key errors
-    const errMsg = error.response?.data?.detail || "";
+    const errMsg = getApiErrorMessage(error, "");
     if (
       errMsg.includes("Configure sua chave") &&
       errMsg.includes("Gemini")
