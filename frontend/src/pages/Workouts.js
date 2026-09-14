@@ -1,3 +1,4 @@
+import { getWorkoutCalendar } from "@/lib/workout-calendar";
 import { getApiErrorMessage } from "@/lib/api-errors";
 import { useEffect, useState, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
@@ -203,8 +204,7 @@ export default function Workouts() {
   const [exerciseFilter, setExerciseFilter] = useState("");
   const [evoLoading, setEvoLoading] = useState(false);
   const [evoError, setEvoError] = useState("");
-  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
-  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [selectedDays, setSelectedDays] = useState({});
   const [improvingPlan, setImprovingPlan] = useState(null);
 
   const today = getLocalDateStr();
@@ -692,6 +692,7 @@ export default function Workouts() {
       };
       
       if (aiGenForm.workout_type === "corrida") {
+        payload.generation_mode = "periodo";
         payload.running_goal = aiGenForm.running_goal;
         payload.weekly_frequency = aiGenForm.weekly_frequency;
         payload.preferred_terrain = aiGenForm.preferred_terrain;
@@ -715,7 +716,7 @@ export default function Workouts() {
         payload.muscle_groups = aiGenForm.muscle_groups;
       }
       
-      const res = await axios.post(`${API}/workout-plans/generate`, payload, { withCredentials: true, timeout: 120000 });
+      const res = await axios.post(`${API}/workout-plans/generate`, payload, { withCredentials: true, timeout: 300000 });
       if (res.data.success) {
         toast.success(`Treino gerado com IA! +${res.data.xp_earned} XP`);
         setOpenAiGenerate(false);
@@ -754,7 +755,7 @@ export default function Workouts() {
   const handleImproveWorkout = async (planId) => {
     setImprovingPlan(planId);
     try {
-      const res = await axios.post(`${API}/workout-plans/${planId}/improve`, {}, { withCredentials: true, timeout: 120000 });
+      const res = await axios.post(`${API}/workout-plans/${planId}/improve`, {}, { withCredentials: true, timeout: 300000 });
       if (res.data.success) {
         toast.success(`Treino evoluído! +${res.data.xp_earned} XP`);
         if (res.data.improvements_summary) {
@@ -2169,6 +2170,8 @@ export default function Workouts() {
                 ) : (
                   plans.map(plan => {
                     const isExpanded = expandedPlans[plan.plan_id];
+                    const { weeks, weekNumbers, selectedWeek, selectedDayIndex, currentWeekDays } = getWorkoutCalendar(plan, selectedDays[plan.plan_id]);
+                    const setSelectedDayIndex = index => setSelectedDays(previous => ({ ...previous, [plan.plan_id]: index }));
                     const status = dailyStatus[plan.plan_id] || {};
                     const { completed, total } = getDailyCompletedCount(plan.plan_id, plan.exercises.length);
                     const isCompleted = status.completed;
@@ -2265,17 +2268,8 @@ export default function Workouts() {
                           <div className="mt-4 border-t border-[#27272A] pt-4">
                             {/* Day selector for multi-day plans */}
                             {plan.days && plan.days.length > 1 && (() => {
-                              // Group days by week
-                              const weeks = {};
-                              plan.days.forEach((day, idx) => {
-                                const weekNum = day.week || Math.floor(idx / (plan.training_days_per_week || 5)) + 1;
-                                if (!weeks[weekNum]) weeks[weekNum] = [];
-                                weeks[weekNum].push({ ...day, _globalIdx: idx });
-                              });
-                              const weekNumbers = Object.keys(weeks).map(Number).sort((a, b) => a - b);
                               const hasMultipleWeeks = weekNumbers.length > 1;
-                              const currentWeekDays = hasMultipleWeeks ? (weeks[selectedWeek] || weeks[weekNumbers[0]] || []) : plan.days.map((d, i) => ({ ...d, _globalIdx: i }));
-                              const currentWeekProgression = plan.weekly_progression?.find(wp => wp.week === selectedWeek);
+                              const currentWeekProgression = plan.weekly_progression?.find(wp => Number(wp.week) === selectedWeek);
 
                               return (
                                 <div className="mb-4 space-y-3">
@@ -2287,7 +2281,7 @@ export default function Workouts() {
                                         {weekNumbers.map(wn => (
                                           <button
                                             key={wn}
-                                            onClick={() => { setSelectedWeek(wn); setSelectedDayIndex(weeks[wn]?.[0]?._globalIdx || 0); }}
+                                            onClick={() => { setSelectedDayIndex(weeks[wn]?.[0]?._globalIdx || 0); }}
                                             className={`px-3 py-1.5 text-xs rounded-lg transition-all font-medium ${
                                               selectedWeek === wn 
                                                 ? 'bg-[#A855F7] text-white' 
