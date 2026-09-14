@@ -45,6 +45,20 @@ def scoring_evidence(discipline, pdf_text):
     return evidence
 
 
+def sourced_deadlines(deadlines, pdf_text):
+    """Keep literal dates with traceable source excerpts; not a certification of interpretation."""
+    source = " ".join((pdf_text or "").casefold().split())
+    result = []
+    for item in deadlines if isinstance(deadlines, list) else []:
+        if not isinstance(item, dict):
+            continue
+        label, date, quote = (str(item.get(key) or "").strip() for key in ("label", "data", "fonte"))
+        normalized_quote = " ".join(quote.casefold().split())
+        if label and date and normalized_quote and normalized_quote in source and " ".join(date.casefold().split()) in normalized_quote:
+            result.append({"label": label, "data": date, "fonte": quote})
+    return result
+
+
 def prioritize(disciplines):
     scores = []
     # Never mix question-weight products with weight-only scores in the same ranking.

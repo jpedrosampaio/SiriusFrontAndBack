@@ -15,6 +15,11 @@ import study_resources as resources
 
 
 class PriorityTests(unittest.TestCase):
+    def test_deadlines_require_both_a_real_excerpt_and_the_literal_date(self):
+        valid = {'label': 'Inscrições', 'data': '20/10/2026', 'fonte': 'Inscrições até 20/10/2026'}
+        self.assertEqual(resources.sourced_deadlines([valid, dict(valid, data='21/10/2026'), dict(valid, fonte='invented'), None], 'Inscrições até 20/10/2026'), [valid])
+        self.assertEqual(resources.sourced_deadlines(None, ''), [])
+
     def test_equal_question_counts_are_preserved_and_decimal_weights_rank(self):
         data = resources.prioritize([{'peso': 1, 'num_questoes': 10}, {'peso': 1.5, 'num_questoes': 10}])
         self.assertEqual(data[0]['peso'], 1.5)
