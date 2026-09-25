@@ -1,3 +1,7 @@
+import { useSearchParams } from "react-router-dom";
+import PomodoroTimer from "@/components/PomodoroTimer";
+import StudyProgramWorkspace from "@/components/StudyProgramWorkspace";
+import EditalAnalysisWorkspace from "@/components/EditalAnalysisWorkspace";
 import { getApiErrorMessage } from "@/lib/api-errors";
 import StudyLessons from "@/components/StudyLessons";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -56,156 +60,6 @@ const dayLabels = {
 };
 
 // ========== POMODORO TIMER COMPONENT ==========
-function PomodoroTimer({ notebooks, onComplete, initialNotebookId = "", topic = "" }) {
-  const [isRunning, setIsRunning] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isBreak, setIsBreak] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(25 * 60);
-  const [focusMinutes, setFocusMinutes] = useState(25);
-  const [breakMinutes, setBreakMinutes] = useState(5);
-  const [selectedNb, setSelectedNb] = useState(initialNotebookId);
-  const [sessionsCompleted, setSessionsCompleted] = useState(0);
-  const [showSettings, setShowSettings] = useState(false);
-  const intervalRef = useRef(null);
-  const completedPhaseRef = useRef(false);
-
-  const handleFocusComplete = useCallback(async () => {
-    try {
-      await axios.post(`${API}/study/focus/complete`, {
-        notebook_id: selectedNb && selectedNb !== "none" ? selectedNb : null,
-        focus_minutes: focusMinutes,
-        break_minutes: breakMinutes,
-        notes: topic || null
-      }, { withCredentials: true });
-      setSessionsCompleted(prev => prev + 1);
-      toast.success(`Sessão concluída! +XP 🎉`);
-      if (onComplete) onComplete();
-    } catch (err) {
-      console.error(err);
-    }
-  }, [selectedNb, focusMinutes, breakMinutes, onComplete, topic]);
-
-  useEffect(() => {
-    if (isRunning && !isPaused) {
-      intervalRef.current = setInterval(() => {
-        setTimeLeft(prev => Math.max(0, prev - 1));
-      }, 1000);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [isRunning, isPaused]);
-
-  useEffect(() => {
-    if (timeLeft > 0) { completedPhaseRef.current = false; return; }
-    if (!isRunning || isPaused || completedPhaseRef.current) return;
-    completedPhaseRef.current = true;
-    if (!isBreak) {
-      handleFocusComplete();
-      setIsBreak(true);
-      setTimeLeft(breakMinutes * 60);
-    } else {
-      setIsBreak(false);
-      setIsRunning(false);
-      setTimeLeft(focusMinutes * 60);
-      toast.success("Pausa finalizada! Pronto para mais?");
-    }
-  }, [timeLeft, isRunning, isPaused, isBreak, breakMinutes, focusMinutes, handleFocusComplete]);
-
-  const startTimer = () => {
-    setIsRunning(true);
-    setIsPaused(false);
-    setTimeLeft(focusMinutes * 60);
-    setIsBreak(false);
-  };
-
-  const togglePause = () => setIsPaused(p => !p);
-  const resetTimer = () => {
-    clearInterval(intervalRef.current);
-    setIsRunning(false);
-    setIsPaused(false);
-    setIsBreak(false);
-    setTimeLeft(focusMinutes * 60);
-  };
-
-  const mins = Math.floor(timeLeft / 60);
-  const secs = timeLeft % 60;
-  const totalSecs = isBreak ? breakMinutes * 60 : focusMinutes * 60;
-  const progress = ((totalSecs - timeLeft) / totalSecs) * 100;
-
-  return (
-    <Card className={`border-2 transition-all ${isBreak ? 'bg-emerald-950/30 border-emerald-500/30' : isRunning ? 'bg-red-950/20 border-red-500/30' : 'bg-[#0A0A0A] border-[#27272A]'}`}>
-      <CardContent className="p-4 md:p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Timer className={`w-5 h-5 ${isBreak ? 'text-emerald-400' : 'text-red-400'}`} />
-            <span className="font-bold text-sm">{isBreak ? 'PAUSA' : 'FOCO'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-xs">
-              <Coffee className="w-3 h-3 mr-1" /> {sessionsCompleted} sessões
-            </Badge>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowSettings(!showSettings)}>
-              <Edit3 className="w-3 h-3" />
-            </Button>
-          </div>
-        </div>
-
-        {showSettings && !isRunning && (
-          <div className="mb-4 p-3 bg-[#121212] rounded-lg space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Foco (min)</Label>
-                <Input type="number" value={focusMinutes} onChange={e => { setFocusMinutes(Number(e.target.value)); setTimeLeft(Number(e.target.value) * 60); }} className="bg-[#0A0A0A] border-[#27272A] h-8 text-sm" min={1} max={120} />
-              </div>
-              <div>
-                <Label className="text-xs">Pausa (min)</Label>
-                <Input type="number" value={breakMinutes} onChange={e => setBreakMinutes(Number(e.target.value))} className="bg-[#0A0A0A] border-[#27272A] h-8 text-sm" min={1} max={30} />
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs">Matéria (opcional)</Label>
-              <Select value={selectedNb} onValueChange={setSelectedNb}>
-                <SelectTrigger className="bg-[#0A0A0A] border-[#27272A] h-8 text-sm">
-                  <SelectValue placeholder="Nenhuma" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Nenhuma</SelectItem>
-                  {notebooks.map(nb => (
-                    <SelectItem key={nb.notebook_id} value={nb.notebook_id}>{nb.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        )}
-
-        <div className="text-center mb-4">
-          <div className={`text-5xl md:text-6xl font-mono font-bold tracking-wider ${isBreak ? 'text-emerald-400' : isRunning ? 'text-red-400' : 'text-white'}`}>
-            {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-          </div>
-          <Progress value={progress} className="mt-3 h-1.5" />
-        </div>
-
-        <div className="flex justify-center gap-2">
-          {!isRunning ? (
-            <Button onClick={startTimer} className="bg-red-600 hover:bg-red-700 px-8">
-              <Play className="w-4 h-4 mr-2" /> Iniciar Foco
-            </Button>
-          ) : (
-            <>
-              <Button onClick={togglePause} variant="outline" className="border-yellow-500 text-yellow-500">
-                {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-              </Button>
-              <Button onClick={resetTimer} variant="outline" className="border-red-500 text-red-500">
-                <RotateCcw className="w-4 h-4" />
-              </Button>
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ========== AI CHAT COMPONENT ==========
 function StudyAIChat({ notebooks, selectedNotebook }) {
   const [messages, setMessages] = useState([]);
@@ -402,6 +256,7 @@ function QuestionLogger({ notebooks, onLog }) {
 
 // ========== MAIN STUDIES PAGE ==========
 export default function Studies() {
+  const [workspaceParams, setWorkspaceParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -904,6 +759,7 @@ export default function Studies() {
       setEditalEditMode(true);
       setShowEditalDialog(false);
       setShowEditalResultDialog(true);
+      setWorkspaceParams({});
       setEditalFile(null);
       setEditalForm({ target_date: "", hours_per_day: 4, days_per_week: 5 });
       setEditalForceReanalyze(false);
@@ -1019,7 +875,6 @@ export default function Studies() {
 
   const handleAnalyzeEdital = async () => {
     if (!editalFile) { toast.error("Selecione um arquivo PDF do edital"); return; }
-    if (!selectedArea) { toast.error("Selecione uma área primeiro"); return; }
     setEditalAnalyzing(true);
     setEditalAnalyzeStartedAt(Date.now());
     setEditalAnalyzeElapsed(0);
@@ -1046,12 +901,12 @@ export default function Studies() {
         toast.success(`Edital reconhecido do cache (${cargosCount} cargo(s)).`);
       }
 
-      if (cargosCount > 1 || res.data.cargos?.some(c => c.disciplinas_status === 'incompleto')) {
+      if (cargosCount > 0) {
         setShowEditalDialog(false);
         setShowCargoSelection(true);
         toast.success(`${cargosCount} cargo(s)/perfil(is) encontrado(s)! Selecione o seu.`);
       } else {
-        await handleCreateFromCargo(res.data.analysis_id, 0);
+        toast.error("Nenhum cargo identificado. Confira o PDF e tente reanalisar.");
       }
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Erro ao analisar edital"));
@@ -1088,6 +943,10 @@ export default function Studies() {
       setEditaisDeleting(null);
     }
   };
+
+  useEffect(() => {
+    if (activeTab === "editais") refreshEditaisList();
+  }, [activeTab]);
 
   useEffect(() => {
     if (showCompareEditais) {
@@ -1159,13 +1018,13 @@ export default function Studies() {
   };
 
 
-  const handleCreateFromCargo = async (analysisId, cargoIdx) => {
+  const handleCreateFromCargo = async (analysisId, cargoIdx, areaId) => {
     setCreatingFromCargo(true);
     try {
       const res = await axios.post(`${API}/study/programs/import-edital-with-cargo`, {
         analysis_id: analysisId || editalAnalysis?.analysis_id,
         cargo_index: cargoIdx,
-        area_id: selectedArea.area_id,
+        area_id: areaId || selectedArea?.area_id,
         target_date: editalForm.target_date || null,
         hours_per_day: editalForm.hours_per_day,
         days_per_week: editalForm.days_per_week
@@ -1179,6 +1038,7 @@ export default function Studies() {
       setEditalEditMode(true);
       setShowCargoSelection(false);
       setShowEditalDialog(false);
+      setWorkspaceParams({});
       setShowEditalResultDialog(true);
       setEditalFile(null);
       setEditalForm({ target_date: "", hours_per_day: 4, days_per_week: 5 });
@@ -1447,6 +1307,10 @@ export default function Studies() {
 
   // Navigate into program
   const navigateToProgram = (program) => {
+    if (program.source_type === "edital_import") {
+      setWorkspaceParams({ program: program.program_id, view: "edital" });
+      return;
+    }
     setSelectedProgram(program);
     setSelectedNotebook(null);
     setActiveTab("materias");
@@ -1457,6 +1321,20 @@ export default function Studies() {
     setSelectedNotebook(notebook);
     setActiveTab("conteudo");
   };
+
+  if (user && (workspaceParams.get("analysis") || showCargoSelection)) {
+    return <EditalAnalysisWorkspace user={user} api={API} analysisId={workspaceParams.get("analysis") || editalAnalysis?.analysis_id}
+      initialAnalysis={editalAnalysis} areas={areas} defaultAreaId={selectedArea?.area_id} form={editalForm} onFormChange={setEditalForm}
+      creating={creatingFromCargo} onCreate={handleCreateFromCargo}
+      onBack={() => { setWorkspaceParams({}); setShowCargoSelection(false); }}
+      onReanalyze={() => { setWorkspaceParams({}); setShowCargoSelection(false); setActiveTab("programas"); setEditalForceReanalyze(true); setShowEditalDialog(true); }} />;
+  }
+  if (user && workspaceParams.get("program")) {
+    return <StudyProgramWorkspace key={workspaceParams.get("program")} user={user} api={API} programId={workspaceParams.get("program")}
+      onBack={() => setWorkspaceParams({})}
+      onManageSchedule={id => { setWorkspaceParams({}); handleViewCronograma(id); }}
+      onNotebook={notebook => { if (!notebook) return; setWorkspaceParams({}); setSelectedArea(areas.find(a => a.area_id === notebook.area_id) || null); setSelectedProgram(programs.find(p => p.program_id === notebook.program_id) || null); navigateToNotebook(notebook); }} />;
+  }
 
   if (loading && !user) {
     return <div className="min-h-screen bg-[#050505] flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-[#007AFF]" /></div>;
@@ -1478,10 +1356,11 @@ export default function Studies() {
       <Sidebar user={user} />
       <main className="flex-1 md:ml-64 p-3 md:p-6 pb-24 md:pb-8 pt-[72px] md:pt-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-3">
+        <div className="sirius-page-heading sirius-hero flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-heading text-[#00F0FF]">Área de Estudos</h1>
-            <p className="text-[#A1A1AA] text-sm">Organize, estude e evolua com inteligência</p>
+            <div className="sirius-eyebrow">Aprendizado com direção</div>
+            <h1 className="text-2xl md:text-3xl font-heading mb-2">Seu espaço de estudos.</h1>
+            <p className="text-[#A1A1AA] text-sm">Do edital à próxima sessão, cada assunto no seu lugar.</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <ExportButtons module="study" />
@@ -1532,9 +1411,90 @@ export default function Studies() {
           </div>
         )}
 
+                    <Dialog open={showEditalDialog} onOpenChange={setShowEditalDialog}>
+
+                      <DialogContent className="bg-[#0A0A0A] border-[#27272A] w-[95vw] sm:w-full max-w-xl sm:max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle className="flex items-center gap-2"><FileUp className="w-5 h-5 text-purple-400 shrink-0" />Importar Edital de Concurso</DialogTitle>
+                          <DialogDescription>Faça upload do PDF do edital e a IA criará um programa de estudos completo com disciplinas, pesos e cronograma.</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div>
+                            <Label className="text-sm font-medium">PDF do Edital *</Label>
+                            <div className={`mt-1 border-2 border-dashed rounded-lg p-6 text-center transition-colors ${editalFile ? 'border-purple-500 bg-purple-500/10' : 'border-[#27272A] hover:border-[#3F3F46]'}`}>
+                              {editalFile ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <FileText className="w-5 h-5 text-purple-400 shrink-0" />
+                                  <span className="text-sm text-purple-300 break-words text-left">{editalFile.name}</span>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => { setEditalFile(null); setEditalForceReanalyze(false); }}><XCircle className="w-4 h-4 text-red-400" /></Button>
+                                </div>
+                              ) : (
+                                <label className="cursor-pointer">
+                                  <Upload className="w-8 h-8 mx-auto text-[#A1A1AA] mb-2" />
+                                  <p className="text-sm text-[#A1A1AA]">Clique para selecionar o PDF</p>
+                                  <p className="text-xs text-[#52525B] mt-1">Máximo 20MB</p>
+                                  <input type="file" accept=".pdf" className="hidden" onChange={e => setEditalFile(e.target.files?.[0] || null)} />
+                                </label>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium">Data da Prova (opcional)</Label>
+                            <Input type="date" value={editalForm.target_date} onChange={e => setEditalForm({...editalForm, target_date: e.target.value})} className="bg-[#121212] border-[#27272A] mt-1" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <Label className="text-sm font-medium">Horas por dia</Label>
+                              <Select value={String(editalForm.hours_per_day)} onValueChange={v => setEditalForm({...editalForm, hours_per_day: parseFloat(v)})}>
+                                <SelectTrigger className="bg-[#121212] border-[#27272A] mt-1"><SelectValue /></SelectTrigger>
+                                <SelectContent className="bg-[#0A0A0A] border-[#27272A]">
+                                  {[1,2,3,4,5,6,7,8,10,12].map(h => <SelectItem key={h} value={String(h)}>{h}h</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-sm font-medium">Dias por semana</Label>
+                              <Select value={String(editalForm.days_per_week)} onValueChange={v => setEditalForm({...editalForm, days_per_week: parseInt(v)})}>
+                                <SelectTrigger className="bg-[#121212] border-[#27272A] mt-1"><SelectValue /></SelectTrigger>
+                                <SelectContent className="bg-[#0A0A0A] border-[#27272A]">
+                                  {[3,4,5,6,7].map(d => <SelectItem key={d} value={String(d)}>{d} dias</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="bg-[#121212] border border-[#27272A] rounded-lg p-3">
+                            <p className="text-xs text-[#A1A1AA]"><Sparkles className="w-3 h-3 inline mr-1 text-purple-400" />A IA vai analisar o edital e criar automaticamente:</p>
+                            <ul className="text-xs text-[#A1A1AA] mt-2 space-y-1 ml-4 list-disc">
+                              <li>Todas as disciplinas com pesos e tópicos</li>
+                              <li>Cronograma semanal otimizado</li>
+                              <li>Estratégia de estudo personalizada</li>
+                              <li>Distribuição de tempo por matéria</li>
+                            </ul>
+                          </div>
+                          <label className="flex items-center gap-2 text-xs text-[#A1A1AA] cursor-pointer select-none">
+                            <input type="checkbox" checked={editalForceReanalyze} onChange={e => setEditalForceReanalyze(e.target.checked)} className="accent-purple-500" />
+                            Refazer análise (ignorar cache)
+                          </label>
+                          <Button onClick={handleAnalyzeEdital} data-testid="analyze-edital-btn" disabled={!editalFile || editalImporting || editalAnalyzing} className="w-full bg-purple-600 hover:bg-purple-700">
+                            {(editalImporting || editalAnalyzing) ? (
+                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analisando edital...</>
+                            ) : (
+                              <><Sparkles className="w-4 h-4 mr-2" />Gerar Programa de Estudos</>
+                            )}
+                          </Button>
+                          {editalAnalyzing && (
+                            <EditalAnalyzeProgress
+                              phase={editalAnalyzePhase}
+                              elapsed={editalAnalyzeElapsed}
+                            />
+                          )}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="bg-[#121212] border border-[#27272A] overflow-x-auto flex-nowrap w-full justify-start gap-0">
             <TabsTrigger value="dashboard" className="text-xs md:text-sm">Dashboard</TabsTrigger>
+            <TabsTrigger value="editais" className="text-xs md:text-sm">Meus editais</TabsTrigger>
             <TabsTrigger value="programas" className="text-xs md:text-sm">Programas</TabsTrigger>
             <TabsTrigger value="materias" className="text-xs md:text-sm">Matérias</TabsTrigger>
             <TabsTrigger value="conteudo" className="text-xs md:text-sm">Conteúdo</TabsTrigger>
@@ -1811,6 +1771,14 @@ export default function Studies() {
             )}
           </TabsContent>
 
+          <TabsContent value="editais" className="space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="text-xl font-semibold">Meus editais</h2><p className="text-sm text-[#A1A1AA] mt-1">Abra a análise, confira o cargo e organize seu plano de estudos.</p></div>
+              <div className="flex gap-2"><Button variant="outline" disabled={editaisLoading} onClick={refreshEditaisList}>Atualizar</Button><Button onClick={() => { setActiveTab("programas"); setShowEditalDialog(true); }}>Analisar novo edital</Button></div>
+            </div>
+            {editaisLoading ? <Loader2 className="animate-spin mx-auto my-10" /> : editaisList.length === 0 ? <p className="rounded-xl border border-[#27272A] p-6 text-[#A1A1AA]">Nenhuma análise salva. Comece enviando um edital em PDF.</p> : <div className="grid gap-4 md:grid-cols-2">{editaisList.map(edital => <article key={edital.analysis_id} className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><span className="text-xs text-purple-300">EDITAL ANALISADO</span><h3 className="font-semibold">{edital.concurso?.nome || edital.pdf_filename}</h3><p className="text-sm text-[#A1A1AA]">{edital.concurso?.banca || 'Banca não informada'} · {edital.num_cargos} cargos</p><p className="text-xs text-[#71717A] break-words">{edital.pdf_filename}</p><Button variant="outline" onClick={() => setWorkspaceParams({ analysis: edital.analysis_id })}>Visualizar análise<ChevronRight className="w-4 h-4 ml-2" /></Button></article>)}</div>}
+          </TabsContent>
+
           {/* ========== PROGRAMAS TAB ========== */}
           <TabsContent value="programas" className="space-y-4">
             {/* Area selector */}
@@ -1831,86 +1799,7 @@ export default function Studies() {
                     <p className="text-xs text-[#A1A1AA]">{selectedArea.description || 'Programas e cursos desta área'}</p>
                   </div>
                   <div className="flex gap-2 flex-wrap">
-                    <Dialog open={showEditalDialog} onOpenChange={setShowEditalDialog}>
-                      <DialogTrigger asChild><Button size="sm" className="bg-purple-600 hover:bg-purple-700 h-8 text-xs"><FileUp className="w-3 h-3 mr-1" />Importar Edital</Button></DialogTrigger>
-                      <DialogContent className="bg-[#0A0A0A] border-[#27272A] w-[95vw] sm:w-full max-w-xl sm:max-w-2xl">
-                        <DialogHeader>
-                          <DialogTitle className="flex items-center gap-2"><FileUp className="w-5 h-5 text-purple-400 shrink-0" />Importar Edital de Concurso</DialogTitle>
-                          <DialogDescription>Faça upload do PDF do edital e a IA criará um programa de estudos completo com disciplinas, pesos e cronograma.</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                          <div>
-                            <Label className="text-sm font-medium">PDF do Edital *</Label>
-                            <div className={`mt-1 border-2 border-dashed rounded-lg p-6 text-center transition-colors ${editalFile ? 'border-purple-500 bg-purple-500/10' : 'border-[#27272A] hover:border-[#3F3F46]'}`}>
-                              {editalFile ? (
-                                <div className="flex items-center justify-center gap-2">
-                                  <FileText className="w-5 h-5 text-purple-400 shrink-0" />
-                                  <span className="text-sm text-purple-300 break-words text-left">{editalFile.name}</span>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => { setEditalFile(null); setEditalForceReanalyze(false); }}><XCircle className="w-4 h-4 text-red-400" /></Button>
-                                </div>
-                              ) : (
-                                <label className="cursor-pointer">
-                                  <Upload className="w-8 h-8 mx-auto text-[#A1A1AA] mb-2" />
-                                  <p className="text-sm text-[#A1A1AA]">Clique para selecionar o PDF</p>
-                                  <p className="text-xs text-[#52525B] mt-1">Máximo 20MB</p>
-                                  <input type="file" accept=".pdf" className="hidden" onChange={e => setEditalFile(e.target.files?.[0] || null)} />
-                                </label>
-                              )}
-                            </div>
-                          </div>
-                          <div>
-                            <Label className="text-sm font-medium">Data da Prova (opcional)</Label>
-                            <Input type="date" value={editalForm.target_date} onChange={e => setEditalForm({...editalForm, target_date: e.target.value})} className="bg-[#121212] border-[#27272A] mt-1" />
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label className="text-sm font-medium">Horas por dia</Label>
-                              <Select value={String(editalForm.hours_per_day)} onValueChange={v => setEditalForm({...editalForm, hours_per_day: parseFloat(v)})}>
-                                <SelectTrigger className="bg-[#121212] border-[#27272A] mt-1"><SelectValue /></SelectTrigger>
-                                <SelectContent className="bg-[#0A0A0A] border-[#27272A]">
-                                  {[1,2,3,4,5,6,7,8,10,12].map(h => <SelectItem key={h} value={String(h)}>{h}h</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label className="text-sm font-medium">Dias por semana</Label>
-                              <Select value={String(editalForm.days_per_week)} onValueChange={v => setEditalForm({...editalForm, days_per_week: parseInt(v)})}>
-                                <SelectTrigger className="bg-[#121212] border-[#27272A] mt-1"><SelectValue /></SelectTrigger>
-                                <SelectContent className="bg-[#0A0A0A] border-[#27272A]">
-                                  {[3,4,5,6,7].map(d => <SelectItem key={d} value={String(d)}>{d} dias</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <div className="bg-[#121212] border border-[#27272A] rounded-lg p-3">
-                            <p className="text-xs text-[#A1A1AA]"><Sparkles className="w-3 h-3 inline mr-1 text-purple-400" />A IA vai analisar o edital e criar automaticamente:</p>
-                            <ul className="text-xs text-[#A1A1AA] mt-2 space-y-1 ml-4 list-disc">
-                              <li>Todas as disciplinas com pesos e tópicos</li>
-                              <li>Cronograma semanal otimizado</li>
-                              <li>Estratégia de estudo personalizada</li>
-                              <li>Distribuição de tempo por matéria</li>
-                            </ul>
-                          </div>
-                          <label className="flex items-center gap-2 text-xs text-[#A1A1AA] cursor-pointer select-none">
-                            <input type="checkbox" checked={editalForceReanalyze} onChange={e => setEditalForceReanalyze(e.target.checked)} className="accent-purple-500" />
-                            Refazer análise (ignorar cache)
-                          </label>
-                          <Button onClick={handleAnalyzeEdital} data-testid="analyze-edital-btn" disabled={!editalFile || editalImporting || editalAnalyzing} className="w-full bg-purple-600 hover:bg-purple-700">
-                            {(editalImporting || editalAnalyzing) ? (
-                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analisando edital...</>
-                            ) : (
-                              <><Sparkles className="w-4 h-4 mr-2" />Gerar Programa de Estudos</>
-                            )}
-                          </Button>
-                          {editalAnalyzing && (
-                            <EditalAnalyzeProgress
-                              phase={editalAnalyzePhase}
-                              elapsed={editalAnalyzeElapsed}
-                            />
-                          )}
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+<Button size="sm" className="bg-purple-600 hover:bg-purple-700 h-8 text-xs" onClick={() => setShowEditalDialog(true)}><FileUp className="w-3 h-3 mr-1" />Importar Edital</Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -1960,7 +1849,7 @@ export default function Studies() {
                             </div>
                             <div className="flex items-center gap-1">
                               {isEditalProgram && (
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={e => { e.stopPropagation(); handleViewCronograma(prog.program_id); }} title="Ver Cronograma">
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={e => { e.stopPropagation(); setWorkspaceParams({ program: prog.program_id, view: "cronograma" }); }} title="Ver Cronograma">
                                   <LayoutGrid className="w-3 h-3 text-purple-400" />
                                 </Button>
                               )}
@@ -1984,8 +1873,8 @@ export default function Studies() {
                           <div className="flex items-center justify-between mt-2">
                             {isEditalProgram && (
                               <div className="flex items-center gap-2">
-                                <span className="text-[10px] text-purple-400 cursor-pointer hover:underline" onClick={e => { e.stopPropagation(); handleViewCronograma(prog.program_id); }}>Ver cronograma</span>
-                                <span className="text-[10px] text-blue-400 cursor-pointer hover:underline" onClick={e => { e.stopPropagation(); handleViewVerticalizado(prog.program_id); }}>Edital verticalizado</span>
+                                <span className="text-[10px] text-purple-400 cursor-pointer hover:underline" onClick={e => { e.stopPropagation(); setWorkspaceParams({ program: prog.program_id, view: "cronograma" }); }}>Ver cronograma</span>
+                                <span className="text-[10px] text-blue-400 cursor-pointer hover:underline" onClick={e => { e.stopPropagation(); setWorkspaceParams({ program: prog.program_id, view: "verticalizado" }); }}>Edital verticalizado</span>
                               </div>
                             )}
                             <span className="text-xs text-[#A1A1AA] group-hover:text-white transition-colors flex items-center gap-1 ml-auto">Ver matérias <ChevronRight className="w-3 h-3" /></span>
@@ -3419,8 +3308,8 @@ export default function Studies() {
                   <Button onClick={handleSaveDisciplinas} disabled={savingDisciplinas} className="w-full bg-purple-600 hover:bg-purple-700">
                     {savingDisciplinas ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Salvando e regenerando cronograma...</> : <><CheckCircle2 className="w-4 h-4 mr-2" />Salvar Personalizações e Regenerar Cronograma</>}
                   </Button>
-                  <Button variant="outline" onClick={() => { setShowEditalResultDialog(false); if (editalResult.program) handleViewCronograma(editalResult.program.program_id); }} className="w-full border-[#27272A]">
-                    <LayoutGrid className="w-4 h-4 mr-2" />Ver Cronograma Atual
+                  <Button variant="outline" onClick={() => { setShowEditalResultDialog(false); if (editalResult.program) setWorkspaceParams({ program: editalResult.program.program_id, view: "cronograma" }); }} className="w-full border-[#27272A]">
+                    <LayoutGrid className="w-4 h-4 mr-2" />Abrir plano de estudos
                   </Button>
                   {editalAnalysis?.analysis_id && (
                     <Button

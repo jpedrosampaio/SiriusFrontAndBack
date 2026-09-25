@@ -17,11 +17,11 @@ def positive_number(value):
         return None
 
 
-def normalize_content(content, topics=()):
+def normalize_content(content, topics=(), preserve_keys=False):
     if isinstance(content, str):
         content = [content]
     result = []
-    for item in content or topics or []:
+    for index, item in enumerate(content or topics or []):
         if isinstance(item, str):
             item = {"assunto": item}
         if not isinstance(item, dict) or not isinstance(item.get("assunto"), str):
@@ -29,7 +29,13 @@ def normalize_content(content, topics=()):
         subs = item.get("subtopicos") or []
         if isinstance(subs, str):
             subs = [subs]
-        result.append({"assunto": item["assunto"], "subtopicos": [s for s in subs if isinstance(s, str)]})
+        if not isinstance(subs, list):
+            subs = []
+        row = {"assunto": item["assunto"], "subtopicos": [s for s in subs if isinstance(s, str)]}
+        if preserve_keys:
+            row["topic_key"] = str(index)
+            row["subtopic_keys"] = [f"{index}_{i}" for i, sub in enumerate(subs) if isinstance(sub, str)]
+        result.append(row)
     return result
 
 
@@ -43,6 +49,20 @@ def scoring_evidence(discipline, pdf_text):
         evidence[f"{field}_fonte"] = quote if matched else ""
         evidence[f"{field}_status"] = "extraido_com_fonte" if matched and positive_number(discipline.get(field)) else "a_conferir"
     return evidence
+
+
+def sourced_deadlines(deadlines, pdf_text):
+    """Keep literal dates with traceable source excerpts; not a certification of interpretation."""
+    source = " ".join((pdf_text or "").casefold().split())
+    result = []
+    for item in deadlines if isinstance(deadlines, list) else []:
+        if not isinstance(item, dict):
+            continue
+        label, date, quote = (str(item.get(key) or "").strip() for key in ("label", "data", "fonte"))
+        normalized_quote = " ".join(quote.casefold().split())
+        if label and date and normalized_quote and normalized_quote in source and " ".join(date.casefold().split()) in normalized_quote:
+            result.append({"label": label, "data": date, "fonte": quote})
+    return result
 
 
 def prioritize(disciplines):

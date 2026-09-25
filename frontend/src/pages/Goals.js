@@ -111,7 +111,7 @@ export default function Goals() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
             <div>
-              <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="goals-title">METAS & SPRINTS</h1>
+              <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="goals-title">Metas e próximos passos</h1>
               <p className="text-[#A1A1AA]">Defina objetivos, marque dias, conquiste resultados</p>
             </div>
             <Dialog open={open} onOpenChange={setOpen}>

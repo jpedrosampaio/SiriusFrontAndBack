@@ -1110,10 +1110,11 @@ export default function Workouts() {
             </Card>
           )}
 
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          <div className="sirius-page-heading sirius-hero flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
-              <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="workouts-title">ÁREA DE TREINOS</h1>
-              <p className="text-[#A1A1AA]">Registre e acompanhe sua evolução física</p>
+              <div className="sirius-eyebrow">Movimento e constância</div>
+              <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="workouts-title">Seu próximo passo começa aqui.</h1>
+              <p className="text-[#A1A1AA]">Seus treinos, suas marcas e a evolução de cada semana.</p>
             </div>
             <div className="flex gap-2 flex-wrap">
               <Dialog open={openLog} onOpenChange={setOpenLog}>
@@ -2046,7 +2047,7 @@ export default function Workouts() {
 
           {/* Stats Summary - Compact */}
           {stats && (
-            <div className="flex items-center gap-6 p-4 bg-[#0A0A0A] border border-[#27272A] rounded-lg mb-6">
+            <div className="sirius-workout-stats flex items-center gap-6 p-4 bg-[#0A0A0A] border border-[#27272A] rounded-lg mb-6">
               <div className="flex items-center gap-2">
                 <Dumbbell className="w-5 h-5 text-[#00F0FF]" />
                 <span className="text-xs text-[#A1A1AA] uppercase">Treinos</span>

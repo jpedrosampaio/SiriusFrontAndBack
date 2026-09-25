@@ -4,6 +4,7 @@ import "@/index.css";
 // Initialize axios interceptors for auth token management (MUST be before App)
 import "@/lib/api";
 import App from "@/App";
+import "@/sirius-theme.css";
 
 // Register Service Worker for PWA
 if ('serviceWorker' in navigator) {

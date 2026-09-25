@@ -235,7 +235,7 @@ export default function Notifications() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
-              <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="notifications-title">NOTIFICAÇÕES</h1>
+              <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="notifications-title">Notificações</h1>
               <p className="text-[#A1A1AA]">Configure lembretes personalizados</p>
             </div>
             <Dialog open={open} onOpenChange={setOpen}>
