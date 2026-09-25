@@ -80,3 +80,35 @@ button, a, input, select, textarea, summary { -webkit-tap-highlight-color: trans
   .sirius-mobile-bar button { min-width: 0; padding-left: 8px; padding-right: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+/* Floating assistant lives in a body portal, outside transformed page layouts. */
+.sirius-assistant-launcher { position: fixed; z-index: 45; width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(145deg, #356de6, #5743b8); border: 1px solid #9bb7ff80; box-shadow: 0 8px 28px #0008, 0 0 0 5px #658cff12; touch-action: none; user-select: none; cursor: grab; }
+.sirius-assistant-launcher:active { cursor: grabbing; }
+.sirius-assistant-launcher:focus-visible, .sirius-assistant-close:focus-visible { outline: 3px solid #aac6ff; outline-offset: 4px; }
+.sirius-assistant-panel { position: fixed; z-index: 81; right: 24px; bottom: 24px; width: min(440px, calc(100vw - 32px)); height: min(660px, calc(100dvh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #354665; border-radius: 24px; background: #0d1729; box-shadow: 0 24px 80px #0009; }
+.sirius-assistant-close { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; height: 44px; padding: 8px; border-radius: 12px; background: #23314b; color: #f2f6ff; font-size: 12px; flex-shrink: 0; }
+.sirius-assistant-loading { position: fixed; z-index: 81; right: 20px; bottom: 90px; padding: 20px; border-radius: 16px; background: #172640; color: white; }
+.sirius-action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.sirius-action-card { text-align: left; padding: 20px; border-radius: 20px; border: 1px solid #33496c; background: linear-gradient(135deg, #1c3050, #142138); transition: border-color .2s, transform .2s; }
+.sirius-action-card:hover { border-color: #82aaff; transform: translateY(-2px); }
+.sirius-action-card strong { display: block; font-size: 16px; margin: 12px 0 5px; }
+.sirius-action-card span { font-size: 13px; color: #b6c6df; }
+.sirius-save-status { min-height: 20px; font-size: 12px; color: #a8c5ed; }
+@media (max-width: 767px) {
+  .sirius-assistant-panel { left: 8px; right: 8px; top: max(8px, env(safe-area-inset-top)); bottom: auto; width: auto; height: calc(100dvh - 16px - env(safe-area-inset-top)); border-radius: 20px; padding-bottom: env(safe-area-inset-bottom); }
+  .sirius-assistant-panel input { font-size: 16px; }
+  .sirius-action-grid { grid-template-columns: 1fr; }
+  .sirius-action-card { padding: 16px; }
+  .sirius-action-card strong { margin-top: 4px; }
+  .sirius-dialog { max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }
+  .sirius-dialog h2 { padding-right: 36px; }
+  main input:not([type=checkbox]):not([type=radio]), main textarea, [role=dialog] input:not([type=checkbox]):not([type=radio]), [role=dialog] textarea { font-size: 16px; }
+  main button, main [role=tab] { min-height: 40px; }
+  .sirius-button { max-width: 100%; white-space: normal; height: auto; min-height: 40px; text-align: center; line-height: 1.4; }
+  [data-workout-executing=true] .sirius-hero, [data-workout-executing=true] .sirius-workout-stats { display: none; }
+  [data-workout-executing=true] .sirius-workout-flow { padding: 0; border: 0; background: transparent; margin-bottom: 12px; }
+  [data-workout-executing=true] .sirius-workout-flow > div > p, [data-workout-executing=true] .sirius-workout-flow button:nth-of-type(n+2) { display: none; }
+  main input[type=checkbox] { width: 18px; height: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

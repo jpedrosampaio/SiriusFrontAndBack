@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -42,7 +43,7 @@ export default function Achievements() {
   const fetchData = async () => {
     try {
       const [userRes, achRes] = await Promise.all([
-        axios.get(`${API}/auth/me`, { withCredentials: true }),
+        getCurrentUser(),
         axios.get(`${API}/achievements/full`, { withCredentials: true })
       ]);
       setUser(userRes.data);

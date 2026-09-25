@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
 import { createActivityRequests } from "@/lib/activity-requests";
 import Sidebar from "@/components/Sidebar";
@@ -104,7 +105,7 @@ export default function Habits() {
 
   const fetchUser = async () => {
     try {
-      const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
+      const res = await getCurrentUser();
       setUser(res.data);
     } catch (error) {
       toast.error("Erro ao carregar usuário");

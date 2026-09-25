@@ -1,6 +1,9 @@
+import { readSaved, writeSaved } from "@/lib/session-storage";
+import { createActivityRequests } from "@/lib/activity-requests";
+import { getCurrentUser } from "@/lib/api";
 import { getWorkoutCalendar } from "@/lib/workout-calendar";
 import { getApiErrorMessage } from "@/lib/api-errors";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import PullToRefresh from "@/components/PullToRefresh";
@@ -36,6 +39,18 @@ const ACTIVITY_TYPES = [
 
 export default function Workouts() {
   const [user, setUser] = useState(null);
+  const workoutRequests = useRef(createActivityRequests());
+  const [sessionSaving, setSessionSaving] = useState(false);
+  const workoutBusy = useRef(false);
+  const restDeadline = useRef(null);
+  const workoutWrite = async (method, url, body) => {
+    const key = workoutRequests.current.begin('workout-session', JSON.stringify({ method, url, body }));
+    if (!key) throw new Error('Aguarde o registro em andamento');
+    workoutBusy.current = true; setSessionSaving(true);
+    let succeeded = false;
+    try { const response = await axios({ method, url, data: body, headers: { 'Idempotency-Key': key } }); succeeded = true; return response; }
+    finally { workoutRequests.current.finish('workout-session', succeeded); workoutBusy.current = false; setSessionSaving(false); }
+  };
   const [workouts, setWorkouts] = useState([]);
   const [plans, setPlans] = useState([]);
   const [stats, setStats] = useState(null);
@@ -45,6 +60,7 @@ export default function Workouts() {
   const [openEditPlan, setOpenEditPlan] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
   const [activeTab, setActiveTab] = useState("log");
+  useEffect(() => { if (activeTab === 'session') window.scrollTo({ top: 0, behavior: 'auto' }); }, [activeTab]);
   const [expandedWorkouts, setExpandedWorkouts] = useState({});
   const [expandedPlans, setExpandedPlans] = useState({});
   const [dailyStatus, setDailyStatus] = useState({});
@@ -253,29 +269,19 @@ export default function Workouts() {
 
   const loadData = useCallback(async () => {
     try {
-      const [userRes, workoutsRes, plansRes, statsRes, detailedStatsRes, measurementsRes, latestRes, quoteRes] = await Promise.all([
-        axios.get(`${API}/auth/me`, { withCredentials: true }),
-        axios.get(`${API}/workouts`, { withCredentials: true }),
-        axios.get(`${API}/workout-plans`, { withCredentials: true }),
-        axios.get(`${API}/workout-stats?period=week`, { withCredentials: true }),
-        axios.get(`${API}/workout-stats/detailed`, { withCredentials: true }),
-        axios.get(`${API}/body-measurements?limit=30`, { withCredentials: true }),
-        axios.get(`${API}/body-measurements/latest`, { withCredentials: true }),
-        axios.get(`${API}/motivational-quote`, { withCredentials: true })
+      const [userRes, workoutsRes, plansRes] = await Promise.all([
+        getCurrentUser(), axios.get(`${API}/workouts`), axios.get(`${API}/workout-plans`),
       ]);
       setUser(userRes.data);
-      // Pre-fill health condition from user profile
-      if (userRes.data.health_condition) {
-        setAiGenForm(prev => ({ ...prev, health_condition: userRes.data.health_condition }));
-      }
+      if (userRes.data.health_condition) setAiGenForm(prev => ({ ...prev, health_condition: userRes.data.health_condition }));
       setWorkouts(Array.isArray(workoutsRes.data) ? workoutsRes.data : []);
       setPlans(Array.isArray(plansRes.data) ? plansRes.data : []);
-      setStats(statsRes.data || null);
-      setDetailedStats(detailedStatsRes.data || null);
-      setMeasurements(Array.isArray(measurementsRes.data) ? measurementsRes.data : []);
-      setLatestMeasurement(latestRes.data || null);
-      setMotivationalQuote(quoteRes.data || null);
-      
+      void Promise.allSettled([
+        ['/workout-stats?period=week', setStats], ['/workout-stats/detailed', setDetailedStats],
+        ['/body-measurements?limit=30', d => setMeasurements(Array.isArray(d) ? d : [])],
+        ['/body-measurements/latest', setLatestMeasurement], ['/motivational-quote', setMotivationalQuote],
+      ].map(([path, apply]) => axios.get(`${API}${path}`).then(r => apply(r.data || null))));
+
       // Load daily status for each plan
       // Fetch today's schedule
       try {
@@ -338,7 +344,8 @@ export default function Workouts() {
       const res = await axios.post(`${API}/daily-workout-status/${planId}/toggle/${exerciseIdx}`, {}, { withCredentials: true });
       setDailyStatus(prev => ({ ...prev, [planId]: res.data }));
     } catch (error) {
-      toast.error("Erro ao atualizar exercício");
+      toast.error(getApiErrorMessage(error, "Erro ao atualizar exercício"));
+      if (error.response?.status === 409) checkActiveSession();
     }
   };
 
@@ -788,52 +795,37 @@ export default function Workouts() {
     checkActiveSession();
   }, [checkActiveSession]);
 
-  // Session timer
+  // Timestamp-based clocks remain accurate after the browser suspends a tab.
   useEffect(() => {
-    let interval;
-    if (activeSession && activeSession.status === "active") {
-      interval = setInterval(() => {
-        setSessionElapsed(prev => prev + 1);
-      }, 1000);
-    }
+    if (activeSession?.status !== 'active') return;
+    const tick = () => setSessionElapsed(Math.max(0, Math.floor((Date.now() - new Date(activeSession.started_at).getTime()) / 1000)));
+    tick(); const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [activeSession]);
-
-  // Rest timer
+  }, [activeSession?.session_id, activeSession?.started_at, activeSession?.status]);
   useEffect(() => {
-    let interval;
-    if (isResting && restTimer > 0) {
-      interval = setInterval(() => {
-        setRestTimer(prev => {
-          if (prev <= 1) {
-            setIsResting(false);
-            // Play beep sound
-            try {
-              const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-              const oscillator = audioCtx.createOscillator();
-              oscillator.type = 'sine';
-              oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-              oscillator.connect(audioCtx.destination);
-              oscillator.start();
-              oscillator.stop(audioCtx.currentTime + 0.3);
-            } catch {}
-            toast.success("Descanso finalizado! Próxima série 💪");
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
+    if (!activeSession || !user) return;
+    const deadline = readSaved(`sirius-rest:${user.user_id}:${activeSession.session_id}`);
+    if (Number.isFinite(deadline) && deadline > Date.now()) { restDeadline.current = deadline; setRestTimer(Math.ceil((deadline - Date.now()) / 1000)); setIsResting(true); }
+  }, [activeSession?.session_id, user?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isResting) return;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((restDeadline.current - Date.now()) / 1000));
+      setRestTimer(left);
+      if (!left) { setIsResting(false); toast.success('Descanso finalizado. Próxima série!'); }
+    };
+    tick(); const interval = setInterval(tick, 500);
     return () => clearInterval(interval);
-  }, [isResting, restTimer]);
+  }, [isResting]);
 
   const handleStartWorkout = async (plan, dayIdx = 0) => {
+    if (workoutBusy.current) return;
     try {
-      const res = await axios.post(`${API}/workout-sessions/start`, {
+      const res = await workoutWrite("post", `${API}/workout-sessions/start`, {
         plan_id: plan.plan_id,
         day_index: dayIdx,
         rest_timer_seconds: restDuration
-      }, { withCredentials: true });
+      });
       setActiveSession(res.data);
       setSessionElapsed(0);
       setActiveTab("session");
@@ -846,16 +838,16 @@ export default function Workouts() {
   };
 
   const handleToggleSessionExercise = async (idx) => {
+    if (workoutBusy.current) return;
     if (!activeSession) return;
     const ex = activeSession.exercises[idx];
     const newCompleted = !ex.completed;
     const newSetsCompleted = newCompleted ? ex.sets : 0;
     
     try {
-      const res = await axios.patch(
+      const res = await workoutWrite("patch",
         `${API}/workout-sessions/${activeSession.session_id}/exercise/${idx}`,
-        { completed: newCompleted, sets_completed: newSetsCompleted, current_exercise_idx: idx },
-        { withCredentials: true }
+        { completed: newCompleted, sets_completed: newSetsCompleted, current_exercise_idx: idx, revision: activeSession.revision || 0 }
       );
       setActiveSession(res.data);
       
@@ -864,18 +856,31 @@ export default function Workouts() {
         // Auto-start rest timer for next exercise
         const nextIdx = activeSession.exercises.findIndex((e, i) => i > idx && !e.completed);
         if (nextIdx >= 0) {
-          setRestTimer(ex.rest_seconds || restDuration);
-          setIsResting(true);
+          startRestManual(ex.rest_seconds || restDuration);
         }
       }
     } catch (error) {
-      toast.error("Erro ao atualizar exercício");
+      toast.error(getApiErrorMessage(error, "Erro ao atualizar exercício"));
+      if (error.response?.status === 409) checkActiveSession();
     }
   };
 
   const [setInputIdx, setSetInputIdx] = useState(null); // index of exercise awaiting set weight input
   const [setInputWeight, setSetInputWeight] = useState("");
+  const [setInputReps, setSetInputReps] = useState("");
   const [setInputRpe, setSetInputRpe] = useState(""); // RPE for current set
+  const setDraftKey = user && activeSession ? `sirius-workout-draft:${user.user_id}:${activeSession.session_id}` : null;
+  const restoredDraftKey = useRef(null);
+  useEffect(() => {
+    if (!setDraftKey || restoredDraftKey.current === setDraftKey) return;
+    const draft = readSaved(setDraftKey);
+    if (draft) { setSetInputIdx(draft.index); setSetInputWeight(draft.weight || ''); setSetInputRpe(draft.rpe || ''); setSetInputReps(draft.reps || ''); }
+    restoredDraftKey.current = setDraftKey;
+  }, [setDraftKey]);
+  useEffect(() => {
+    if (!setDraftKey || restoredDraftKey.current !== setDraftKey) return;
+    if (setInputIdx !== null) writeSaved(setDraftKey, { index: setInputIdx, weight: setInputWeight, rpe: setInputRpe, reps: setInputReps });
+  }, [setDraftKey, setInputIdx, setInputWeight, setInputRpe, setInputReps]);
   const [nextLoads, setNextLoads] = useState(null); // suggested next weights
   const [exerciseHistory, setExerciseHistory] = useState({}); // {exerciseIdx: history}
 
@@ -884,17 +889,22 @@ export default function Workouts() {
     const ex = activeSession.exercises[idx];
     // Show weight input before completing the set
     setSetInputIdx(idx);
+    setSetInputReps(String(ex.reps || 12).match(/\d+/)?.[0] || '12');
     setSetInputWeight(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.weight || ex.weight || "" : ex.weight || "");
     setSetInputRpe(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.rpe || "" : "");
   };
 
   const confirmSet = async (idx) => {
+    if (workoutBusy.current) return;
     if (!activeSession) return;
     const ex = activeSession.exercises[idx];
+    const reps = Number(setInputReps);
+    if (!Number.isInteger(reps) || reps < 1 || reps > 999) { toast.error('Informe de 1 a 999 repetições.'); return; }
+    if (setInputRpe && (!Number.isFinite(Number(setInputRpe)) || Number(setInputRpe) < 1 || Number(setInputRpe) > 10)) { toast.error('O esforço percebido deve estar entre 1 e 10.'); return; }
     const setsData = [...(ex.sets_data || [])];
     const newSet = {
       weight: setInputWeight,
-      reps: ex.reps,
+      reps,
       completed: true,
       rpe: setInputRpe || ""
     };
@@ -903,12 +913,12 @@ export default function Workouts() {
     const allSetsCompleted = newSetsCompleted >= (ex.sets || 1);
     
     try {
-      const res = await axios.patch(
+      const res = await workoutWrite("patch",
         `${API}/workout-sessions/${activeSession.session_id}/exercise/${idx}`,
-        { sets_data: setsData, completed: allSetsCompleted },
-        { withCredentials: true }
+        { sets_data: setsData, completed: allSetsCompleted, revision: activeSession.revision || 0 }
       );
       setActiveSession(res.data);
+      if (setDraftKey) writeSaved(setDraftKey, null);
       setSetInputIdx(null);
       setSetInputWeight("");
       setSetInputRpe("");
@@ -916,12 +926,12 @@ export default function Workouts() {
       if (allSetsCompleted) {
         toast.success(`${ex.name} - Todas as séries concluídas! ✅`);
       } else {
-        setRestTimer(ex.rest_seconds || restDuration);
-        setIsResting(true);
+        startRestManual(ex.rest_seconds || restDuration);
         toast.info(`Série ${newSetsCompleted}/${ex.sets} concluída. Descanse!`);
       }
     } catch (error) {
-      toast.error("Erro ao atualizar série");
+      toast.error(getApiErrorMessage(error, "Não foi possível salvar a série. Seus campos foram preservados."));
+      if (error.response?.status === 409) checkActiveSession();
     }
   };
 
@@ -941,40 +951,47 @@ export default function Workouts() {
   };
 
   const startRestManual = (seconds) => {
-    setRestTimer(seconds || restDuration);
-    setIsResting(true);
+    const duration = Math.max(1, Number(seconds || restDuration));
+    restDeadline.current = Date.now() + duration * 1000;
+    if (activeSession && user) writeSaved(`sirius-rest:${user.user_id}:${activeSession.session_id}`, restDeadline.current);
+    setRestTimer(duration); setIsResting(true);
   };
 
   const stopRest = () => {
+    restDeadline.current = null;
+    if (activeSession && user) writeSaved(`sirius-rest:${user.user_id}:${activeSession.session_id}`, null);
     setRestTimer(0);
     setIsResting(false);
   };
 
   const handleCompleteSession = async () => {
+    if (workoutBusy.current) return;
     if (!activeSession) return;
     try {
-      const res = await axios.post(
+      const res = await workoutWrite("post",
         `${API}/workout-sessions/${activeSession.session_id}/complete`,
-        feedbackData,
-        { withCredentials: true }
+        feedbackData
       );
       toast.success(`Treino concluído! +${res.data.xp_earned} XP 🏆`);
       setShowFeedbackDialog(false);
+      stopRest();
       setActiveSession(null);
       setSessionElapsed(0);
       setFeedbackData({ difficulty: 3, feeling: "bom", notes: "" });
       setActiveTab("log");
       loadData();
     } catch (error) {
-      toast.error("Erro ao finalizar treino");
+      toast.error(getApiErrorMessage(error, "Não foi possível confirmar a conclusão. Tente novamente."));
     }
   };
 
   const handleAbandonSession = async () => {
+    if (workoutBusy.current) return;
     if (!activeSession) return;
     try {
-      await axios.post(`${API}/workout-sessions/${activeSession.session_id}/abandon`, {}, { withCredentials: true });
+      await workoutWrite("post", `${API}/workout-sessions/${activeSession.session_id}/abandon`, {});
       toast.info("Sessão abandonada");
+      stopRest();
       setActiveSession(null);
       setSessionElapsed(0);
       setActiveTab("plans");
@@ -1090,7 +1107,7 @@ export default function Workouts() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#050505]">
+    <div className="flex min-h-screen bg-[#050505]" data-workout-executing={activeTab === 'session'}>
       <Sidebar user={user} />
       <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter`}>
         <PullToRefresh onRefresh={loadData}>
@@ -1297,6 +1314,12 @@ export default function Workouts() {
                     <DialogDescription className="sr-only">Escolha o modo de geração de treino com IA</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 mt-4">
+                    <div className="rounded-xl border border-blue-400/30 bg-blue-500/5 p-4" role="status"><p className="font-medium">O que será gerado</p><p className="text-sm text-slate-300 mt-2">{(() => {
+                      const split = aiGenForm.workout_type === 'musculacao' && aiGenMode === 'tipo_treino';
+                      const weeks = split ? aiGenForm.cycle_weeks : ({ dia: 1, semana: 1, mes: 4, ciclo: 10 }[aiGenForm.duration] || 1);
+                      const days = split ? aiGenForm.training_days_per_week : aiGenForm.duration === 'dia' ? 1 : aiGenForm.workout_type === 'corrida' ? aiGenForm.weekly_frequency : 5;
+                      return `${weeks} semana(s) · ${days} dia(s) de treino por semana · ${weeks * days} sessões · ${7 - days} dia(s) livres por semana`;
+                    })()}</p><p className="text-xs text-slate-400 mt-2">A duração de cada sessão depende dos exercícios e descansos. Confira a ficha gerada antes de iniciar.</p></div>
                     {/* Workout Type Selector */}
                     <div className="flex gap-2 p-1 bg-[#121212] rounded-lg border border-[#27272A]">
                       <button
@@ -2112,6 +2135,7 @@ export default function Workouts() {
             </div>
           )}
 
+          <section className="sirius-workout-flow mb-6 rounded-2xl border border-slate-700 bg-slate-900/50 p-4"><div className="flex flex-wrap items-center gap-3"><p className="text-sm text-slate-300 flex-1">{activeSession ? `Em andamento: ${activeSession.plan_name}` : 'Planeje seu treino, registre cada série e acompanhe sua evolução.'}</p><Button variant="outline" onClick={() => setActiveTab('plans')}>1. Meu plano</Button><Button disabled={!activeSession} onClick={() => setActiveTab('session')}>2. {activeSession ? 'Retomar treino' : 'Executar treino'}</Button><Button variant="outline" onClick={() => setActiveTab('evolution')}>3. Evolução</Button></div>{sessionSaving && <p role="status" className="text-sm text-blue-300 mt-3">Salvando seu progresso…</p>}</section>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="bg-[#0A0A0A] border border-[#27272A] mb-6 overflow-x-auto flex-nowrap w-full justify-start md:justify-center">
               <TabsTrigger value="log" className="data-[state=active]:bg-[#27272A]">
@@ -3128,7 +3152,7 @@ export default function Workouts() {
                       <p className="text-xs text-[#F59E0B] uppercase font-medium mb-2">Tempo de Descanso</p>
                       <div className="font-data text-6xl text-[#F59E0B]">{formatTime(restTimer)}</div>
                       <div className="flex gap-2 justify-center mt-4">
-                        <Button variant="outline" size="sm" onClick={() => setRestTimer(prev => prev + 15)} className="border-[#F59E0B] text-[#F59E0B]">+15s</Button>
+                        <Button variant="outline" size="sm" onClick={() => startRestManual(restTimer + 15)} className="border-[#F59E0B] text-[#F59E0B]">+15s</Button>
                         <Button variant="outline" size="sm" onClick={stopRest} className="border-red-500 text-red-400">
                           <Square className="w-3 h-3 mr-1" /> Pular
                         </Button>
@@ -3138,7 +3162,7 @@ export default function Workouts() {
 
                   {/* Rest Timer Presets */}
                   <Card className="bg-[#0A0A0A] border-[#27272A] p-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <Label className="text-xs uppercase tracking-wider text-[#A1A1AA]">Timer de Descanso</Label>
                       <div className="flex gap-1">
                         {[30, 60, 90, 120].map(sec => (
@@ -3170,8 +3194,8 @@ export default function Workouts() {
                           ex.completed ? 'bg-[#0a1a0a] border-green-900' : 'bg-[#0A0A0A]'
                         }`}>
                           <div className="p-4">
-                            <div className="flex items-center gap-3">
-                              <div 
+                            <div className="flex flex-wrap items-center gap-3">
+                              <button type="button" disabled={sessionSaving} aria-label={`Alternar conclusão de ${ex.name}`} aria-pressed={!!ex.completed}
                                 onClick={() => handleToggleSessionExercise(idx)}
                                 className={`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all ${
                                   ex.completed 
@@ -3180,7 +3204,7 @@ export default function Workouts() {
                                 }`}
                               >
                                 {ex.completed ? <Check className="w-4 h-4 text-white" /> : <span className="text-xs text-[#52525B]">{idx + 1}</span>}
-                              </div>
+                              </button>
                               
                               <div className="flex-1">
                                 <p className={`font-medium text-sm ${ex.completed ? 'text-green-400 line-through' : 'text-white'}`}>{ex.name}</p>
@@ -3193,30 +3217,31 @@ export default function Workouts() {
                               <div className="flex items-center gap-2">
                                 {/* Sets progress */}
                                 {!ex.completed && (
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex flex-wrap items-center gap-2">
                                     <span className="text-xs text-[#A1A1AA]">{setsProgress}/{ex.sets}</span>
                                     {setInputIdx === idx ? (
-                                      <div className="flex items-center gap-1">
+                                      <div className="flex flex-wrap items-center gap-2">
                                         <input
                                           type="text"
-                                          value={setInputWeight}
+                                          aria-label="Carga da série" inputMode="decimal" value={setInputWeight}
                                           onChange={(e) => setSetInputWeight(e.target.value)}
                                           placeholder="carga"
-                                          className="w-14 h-7 px-1 text-xs bg-[#18181B] border border-[#00F0FF] rounded text-white text-center"
+                                          className="w-20 h-11 px-2 text-sm bg-[#18181B] border border-[#00F0FF] rounded text-white text-center"
                                           autoFocus
                                           onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
                                         />
+                                        <input type="number" min={1} max={999} inputMode="numeric" aria-label="Repetições da série" value={setInputReps} onChange={e => setSetInputReps(e.target.value)} placeholder="reps" className="w-16 h-11 px-2 text-sm bg-[#18181B] border border-slate-600 rounded text-white text-center" />
                                         <input
                                           type="text"
-                                          value={setInputRpe}
+                                          aria-label="Esforço percebido da série (RPE)" inputMode="decimal" value={setInputRpe}
                                           onChange={(e) => setSetInputRpe(e.target.value)}
-                                          placeholder="RPE"
-                                          className="w-10 h-7 px-1 text-xs bg-[#18181B] border border-[#A855F7] rounded text-white text-center"
+                                          placeholder="RPE 1–10"
+                                          className="w-16 h-11 px-2 text-sm bg-[#18181B] border border-[#A855F7] rounded text-white text-center"
                                           onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
                                         />
                                         <Button 
                                           variant="outline" size="sm"
-                                          onClick={() => confirmSet(idx)}
+                                          aria-label="Salvar série" disabled={sessionSaving} onClick={() => confirmSet(idx)}
                                           className="h-7 px-2 text-xs border-green-500 text-green-400 hover:bg-green-500 hover:text-black"
                                         >
                                           <Check className="w-3 h-3" />
@@ -3225,7 +3250,7 @@ export default function Workouts() {
                                     ) : (
                                       <Button 
                                         variant="outline" size="sm"
-                                        onClick={() => handleIncrementSets(idx)}
+                                        aria-label={`Registrar série de ${ex.name}`} disabled={sessionSaving} onClick={() => handleIncrementSets(idx)}
                                         className="h-7 px-2 text-xs border-[#00F0FF] text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black"
                                       >
                                         +1 série

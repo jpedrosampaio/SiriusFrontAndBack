@@ -164,7 +164,7 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_call_llm_tracks_user_and_preserves_timeout(self):
         self.assertEqual(await self.ns["call_llm"]("hello", user_id="alice", timeout_override=7), "ok")
-        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-2.5-flash")
+        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-2.5-flash", usage=None)
         self.assertEqual(self.post.call_args.kwargs["timeout"], 7)
 
     async def test_blocking_request_does_not_block_event_loop(self):
@@ -195,7 +195,7 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("generationConfig", calls[0].kwargs["json"])
         self.assertNotIn("generationConfig", calls[1].kwargs["json"])
         self.assertIn("gemini-flash-latest", calls[2].args[0])
-        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-flash-latest")
+        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-flash-latest", usage=None)
 
     async def test_quota_and_invalid_key_do_not_record_success(self):
         for status, error in ((429, "quota"), (401, "invalid")):
@@ -216,7 +216,7 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, ("ok", None))
         part = self.post.call_args.kwargs["json"]["contents"][0]["parts"][1]
         self.assertEqual(part["inlineData"]["mimeType"], "application/pdf")
-        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-2.5-flash")
+        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-2.5-flash", usage=None, feature="pdf")
 
     async def test_upload_preserves_multipart_bytes_and_runs_off_thread(self):
         ids = []

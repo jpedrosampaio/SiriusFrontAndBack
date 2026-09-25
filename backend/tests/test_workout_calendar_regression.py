@@ -26,6 +26,9 @@ def route_context():
     exec(compile(ast.Module(body=NODES, type_ignores=[]), str(ROOT / 'server.py'), 'exec'), ns)
     ns['get_current_user'] = AsyncMock(return_value=SimpleNamespace(user_id='user1'))
     ns['db'] = SimpleNamespace(workout_plans=SimpleNamespace(insert_one=AsyncMock()))
+    async def mutate(user, key, fingerprint, apply):
+        return await apply(None, {})
+    ns['run_activity_mutation'] = mutate
     ns['award_xp'] = AsyncMock(return_value=(5, 'E'))
     return ns
 

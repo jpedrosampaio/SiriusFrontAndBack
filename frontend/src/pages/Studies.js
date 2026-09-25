@@ -1,3 +1,5 @@
+import EditalJobs from '@/components/EditalJobs';
+import { getCurrentUser } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
 import PomodoroTimer from "@/components/PomodoroTimer";
 import StudyProgramWorkspace from "@/components/StudyProgramWorkspace";
@@ -34,8 +36,8 @@ import {
   MessageCircle, Bot, ArrowUp, PlusCircle, MinusCircle, RefreshCw
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, PieChart, Pie, Cell } from 'recharts';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+const html2canvas = async (...args) => (await import('html2canvas')).default(...args);
+
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -444,12 +446,12 @@ export default function Studies() {
   const [newLink, setNewLink] = useState({ title: "", url: "" });
 
   useEffect(() => { fetchUser(); }, []);
-  useEffect(() => { if (user) fetchAllData(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (user) fetchAllData(); }, [user, !!workspaceParams.get('program'), !!workspaceParams.get('analysis')]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (user && selectedNotebook) fetchNotebookData(); }, [user, selectedNotebook]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchUser = async () => {
     try {
-      const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
+      const res = await getCurrentUser();
       setUser(res.data);
     } catch { window.location.href = '/login'; }
   };
@@ -457,34 +459,23 @@ export default function Studies() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [areasR, programsR, notebooksR, tasksR, streakR, statsR, qStatsR, fStatsR] = await Promise.all([
-        axios.get(`${API}/study/areas`, { withCredentials: true }),
-        axios.get(`${API}/study/programs`, { withCredentials: true }),
-        axios.get(`${API}/study/notebooks`, { withCredentials: true }),
-        axios.get(`${API}/study/tasks`, { withCredentials: true }),
-        axios.get(`${API}/study/streak`, { withCredentials: true }),
-        axios.get(`${API}/study/stats`, { withCredentials: true }),
-        axios.get(`${API}/study/questions/stats`, { withCredentials: true }),
-        axios.get(`${API}/study/focus/stats`, { withCredentials: true })
-      ]);
-      setAreas(Array.isArray(areasR.data) ? areasR.data : []);
-      setPrograms(Array.isArray(programsR.data) ? programsR.data : []);
-      setNotebooks(Array.isArray(notebooksR.data) ? notebooksR.data : []);
-      setTasks(Array.isArray(tasksR.data) ? tasksR.data : []);
-      setStreak(streakR.data || {});
-      setStats(statsR.data || null);
-      setQuestionStats(qStatsR.data || null);
-      setFocusStats(fStatsR.data || null);
-      // Fetch motivational quote (cached daily, resets at 5AM)
-      try {
-        const quoteR = await axios.get(`${API}/motivational-quote`, { withCredentials: true });
-        setMotivationalQuote(quoteR.data || null);
-      } catch (e) { console.error("Quote fetch failed:", e); }
-      // Fetch overall study stats for charts
-      try {
-        const studyStatsR = await axios.get(`${API}/study/overall-stats`, { withCredentials: true });
-        setOverallStudyStats(studyStatsR.data || null);
-      } catch (e) { console.error("Study stats fetch failed:", e); }
+      const resources = [
+        ['/study/areas', setAreas, []], ['/study/programs', setPrograms, []],
+        ['/study/notebooks', setNotebooks, []], ['/study/tasks', setTasks, []],
+        ['/study/streak', setStreak, {}], ['/study/stats', setStats, null],
+        ['/study/questions/stats', setQuestionStats, null], ['/study/focus/stats', setFocusStats, null],
+      ];
+      const needed = workspaceParams.get('program') || workspaceParams.get('analysis') ? resources.slice(0, 3) : resources;
+      const results = await Promise.allSettled(needed.map(([path, apply, fallback]) =>
+        axios.get(`${API}${path}`).then(r => apply(Array.isArray(fallback) ? (Array.isArray(r.data) ? r.data : []) : r.data || fallback))));
+      setLoading(false);
+      if (results.some(result => result.status === 'rejected')) toast.error('Alguns painéis não carregaram. Os demais continuam disponíveis.');
+      if (!workspaceParams.get('program') && !workspaceParams.get('analysis')) {
+        await Promise.allSettled([
+          axios.get(`${API}/motivational-quote`).then(r => setMotivationalQuote(r.data)),
+          axios.get(`${API}/study/overall-stats`).then(r => setOverallStudyStats(r.data)),
+        ]);
+      }
     } catch (err) {
       console.error(err);
       toast.error("Erro ao carregar dados");
@@ -883,31 +874,12 @@ export default function Studies() {
       const formData = new FormData();
       formData.append("file", editalFile);
 
-      // Move to next visible phase shortly after upload starts, then to "cargos"
-      // (backend runs sequentially: upload → gemini extract → parse).
-      const phaseTimer1 = setTimeout(() => setEditalAnalyzePhase("extract"), 1500);
-      const phaseTimer2 = setTimeout(() => setEditalAnalyzePhase("cargos"), 6000);
-
       const forceParam = editalForceReanalyze ? "?force=true" : "";
-      const res = await axios.post(`${API}/study/programs/analyze-edital${forceParam}`, formData, {
-        withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 300000
-      });
-      clearTimeout(phaseTimer1); clearTimeout(phaseTimer2);
-      setEditalAnalyzePhase("done");
-      setEditalAnalysis(res.data);
-
-      const cargosCount = res.data.cargos?.length || 0;
-      if (res.data.cached) {
-        toast.success(`Edital reconhecido do cache (${cargosCount} cargo(s)).`);
-      }
-
-      if (cargosCount > 0) {
-        setShowEditalDialog(false);
-        setShowCargoSelection(true);
-        toast.success(`${cargosCount} cargo(s)/perfil(is) encontrado(s)! Selecione o seu.`);
-      } else {
-        toast.error("Nenhum cargo identificado. Confira o PDF e tente reanalisar.");
-      }
+      await axios.post(`${API}/study/edital-jobs${forceParam}`, formData, { timeout: 60000 });
+      setShowEditalDialog(false);
+      setEditalFile(null);
+      window.dispatchEvent(new Event('edital-job-created'));
+      toast.success('PDF enviado. Você pode acompanhar a análise em Estudos e continuar usando o Sirius.');
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Erro ao analisar edital"));
     } finally {
@@ -1119,6 +1091,7 @@ export default function Studies() {
         const imgData = canvas.toDataURL('image/png');
         const imgWidth = 210; // A4 width in mm
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        const { jsPDF } = await import('jspdf');
         const pdf = new jsPDF('p', 'mm', 'a4');
         
         let position = 0;
@@ -1380,6 +1353,7 @@ export default function Studies() {
           </Card>
         )}
 
+        <EditalJobs api={API} onOpen={id => setWorkspaceParams({ analysis: id })} />
         {/* Breadcrumb */}
         {(selectedArea || selectedProgram || selectedNotebook) && (
           <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
@@ -1734,7 +1708,7 @@ export default function Studies() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="space-y-4">
                 <QuestionLogger notebooks={notebooks} onLog={fetchAllData} />
-                <PomodoroTimer notebooks={notebooks} onComplete={fetchAllData} />
+                <PomodoroTimer userId={user?.user_id} notebooks={notebooks} onComplete={fetchAllData} />
               </div>
               <StudyAIChat notebooks={notebooks} selectedNotebook={selectedNotebook} />
             </div>
@@ -2987,7 +2961,7 @@ export default function Studies() {
           <TabsContent value="foco" className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="space-y-4">
-                <PomodoroTimer notebooks={notebooks} onComplete={fetchAllData} />
+                <PomodoroTimer userId={user?.user_id} notebooks={notebooks} onComplete={fetchAllData} />
                 <QuestionLogger notebooks={notebooks} onLog={fetchAllData} />
               </div>
               <div className="space-y-4">
@@ -4045,7 +4019,7 @@ export default function Studies() {
               <DialogDescription>{studyTopic?.topic || 'Escolha uma aula e inicie sua sessão de foco.'}</DialogDescription>
             </DialogHeader>
             {studyTopic && <div className="space-y-4">
-              <PomodoroTimer key={`${studyTopic.notebookId}:${studyTopic.topic}`} notebooks={notebooks} initialNotebookId={studyTopic.notebookId} topic={studyTopic.topic} onComplete={fetchAllData} />
+              <PomodoroTimer userId={user?.user_id} key={`${studyTopic.notebookId}:${studyTopic.topic}`} notebooks={notebooks} initialNotebookId={studyTopic.notebookId} topic={studyTopic.topic} onComplete={fetchAllData} />
               <p className="text-xs text-[#A1A1AA]">Mantenha esta janela aberta durante a sessão. As aulas abrem em outra aba.</p>
               <StudyLessons notebookId={studyTopic.notebookId} topic={studyTopic.topic} api={API} />
             </div>}

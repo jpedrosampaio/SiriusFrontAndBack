@@ -18,7 +18,7 @@ function MobileNav({ user }) {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
+    const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -50,20 +50,19 @@ function MobileNav({ user }) {
   };
 
   const mainItems = [
-    { icon: Home, label: "Início", path: "/dashboard", color: "#007AFF" },
-    { icon: CheckSquare, label: "Tarefas", path: "/tasks", color: "#007AFF" },
+    { icon: Home, label: "Hoje", path: "/dashboard" },
+    { icon: BookOpen, label: "Estudos", path: "/studies" },
+    { icon: Dumbbell, label: "Treinos", path: "/workouts" },
+    { icon: CheckSquare, label: "Tarefas", path: "/tasks" },
+  ];
+  const moreItems = [
     { icon: TrendingUp, label: "Hábitos", path: "/habits", color: "#39FF14" },
     { icon: DollarSign, label: "Finanças", path: "/finance", color: "#FF9500" },
-    { icon: MessageSquare, label: "IA", path: "/chat", color: "#00F0FF" },
-  ];
-
-  const moreItems = [
-    { icon: Dumbbell, label: "Treinos", path: "/workouts", color: "#EF4444" },
     { icon: Apple, label: "Alimentação", path: "/nutrition", color: "#22C55E" },
-    { icon: BookOpen, label: "Estudos", path: "/studies", color: "#A855F7" },
+    { icon: Calendar, label: "Calendário", path: "/calendar", color: "#14B8A6" },
     { icon: Target, label: "Metas", path: "/goals", color: "#F59E0B" },
     { icon: Trophy, label: "Conquistas", path: "/achievements", color: "#FFD700" },
-    { icon: Calendar, label: "Calendário", path: "/calendar", color: "#14B8A6" },
+    { icon: MessageSquare, label: "Conversas com IA", path: "/chat", color: "#00F0FF" },
     { icon: Bell, label: "Notificações", path: "/notifications", color: "#EC4899" },
     { icon: FileText, label: "Relatórios", path: "/reports", color: "#8B5CF6" },
     { icon: User, label: "Perfil", path: "/profile", color: "#007AFF" },
@@ -129,7 +128,7 @@ function MobileNav({ user }) {
                 <span className="text-[10px] mt-0.5 font-medium">Mais</span>
               </button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="bg-[#0A0A0A] border-t border-[#1A1A1A] rounded-t-3xl px-4 pb-8 sheet-content">
+            <SheetContent side="bottom" className="bg-[#0A0A0A] border-t border-[#1A1A1A] rounded-t-3xl px-4 pb-8 sheet-content max-h-[85dvh] overflow-y-auto">
               <SheetTitle className="sr-only">Todos os módulos</SheetTitle>
               <SheetDescription className="sr-only">Escolha o espaço que deseja abrir no Sirius.</SheetDescription>
               <div className="w-10 h-1 bg-[#27272A] rounded-full mx-auto mb-5" />

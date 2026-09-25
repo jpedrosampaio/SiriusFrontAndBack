@@ -1,3 +1,6 @@
+import { Link } from "react-router-dom";
+import { getLocalDateStr } from "@/lib/utils";
+import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -42,11 +45,11 @@ export default function CalendarPage() {
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
-  const today = new Date().toISOString().split("T")[0];
+  const today = getLocalDateStr();
 
   const fetchUser = async () => {
     try {
-      const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
+      const res = await getCurrentUser();
       setUser(res.data);
     } catch {}
   };
@@ -270,7 +273,7 @@ export default function CalendarPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className={"text-sm font-medium truncate " + (event.completed ? "text-[#52525B] line-through" : "text-white")}>
-                              {event.title}
+                              {event.link ? <Link className="underline underline-offset-4" to={event.link}>{event.title}</Link> : event.title}
                             </p>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-[10px] uppercase tracking-wider" style={{ color: cfg.color }}>{cfg.label}</span>
