@@ -106,5 +106,3 @@ async def abandon_session(db, user, body, mongo_session, session_id):
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail='Sessão não encontrada')
     return {'message': 'Sessão abandonada'}
-
-
