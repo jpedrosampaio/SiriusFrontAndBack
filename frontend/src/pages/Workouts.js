@@ -60,6 +60,7 @@ export default function Workouts() {
   const [openEditPlan, setOpenEditPlan] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
   const [activeTab, setActiveTab] = useState("log");
+  useEffect(() => { if (activeTab === 'session') window.scrollTo({ top: 0, behavior: 'auto' }); }, [activeTab]);
   const [expandedWorkouts, setExpandedWorkouts] = useState({});
   const [expandedPlans, setExpandedPlans] = useState({});
   const [dailyStatus, setDailyStatus] = useState({});
@@ -1106,7 +1107,7 @@ export default function Workouts() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#050505]">
+    <div className="flex min-h-screen bg-[#050505]" data-workout-executing={activeTab === 'session'}>
       <Sidebar user={user} />
       <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter`}>
         <PullToRefresh onRefresh={loadData}>
@@ -2134,7 +2135,7 @@ export default function Workouts() {
             </div>
           )}
 
-          <section className="mb-6 rounded-2xl border border-slate-700 bg-slate-900/50 p-4"><div className="flex flex-wrap items-center gap-3"><p className="text-sm text-slate-300 flex-1">{activeSession ? `Em andamento: ${activeSession.plan_name}` : 'Planeje seu treino, registre cada série e acompanhe sua evolução.'}</p><Button variant="outline" onClick={() => setActiveTab('plans')}>1. Meu plano</Button><Button disabled={!activeSession} onClick={() => setActiveTab('session')}>2. {activeSession ? 'Retomar treino' : 'Executar treino'}</Button><Button variant="outline" onClick={() => setActiveTab('evolution')}>3. Evolução</Button></div>{sessionSaving && <p role="status" className="text-sm text-blue-300 mt-3">Salvando seu progresso…</p>}</section>
+          <section className="sirius-workout-flow mb-6 rounded-2xl border border-slate-700 bg-slate-900/50 p-4"><div className="flex flex-wrap items-center gap-3"><p className="text-sm text-slate-300 flex-1">{activeSession ? `Em andamento: ${activeSession.plan_name}` : 'Planeje seu treino, registre cada série e acompanhe sua evolução.'}</p><Button variant="outline" onClick={() => setActiveTab('plans')}>1. Meu plano</Button><Button disabled={!activeSession} onClick={() => setActiveTab('session')}>2. {activeSession ? 'Retomar treino' : 'Executar treino'}</Button><Button variant="outline" onClick={() => setActiveTab('evolution')}>3. Evolução</Button></div>{sessionSaving && <p role="status" className="text-sm text-blue-300 mt-3">Salvando seu progresso…</p>}</section>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="bg-[#0A0A0A] border border-[#27272A] mb-6 overflow-x-auto flex-nowrap w-full justify-start md:justify-center">
               <TabsTrigger value="log" className="data-[state=active]:bg-[#27272A]">
@@ -3161,7 +3162,7 @@ export default function Workouts() {
 
                   {/* Rest Timer Presets */}
                   <Card className="bg-[#0A0A0A] border-[#27272A] p-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <Label className="text-xs uppercase tracking-wider text-[#A1A1AA]">Timer de Descanso</Label>
                       <div className="flex gap-1">
                         {[30, 60, 90, 120].map(sec => (

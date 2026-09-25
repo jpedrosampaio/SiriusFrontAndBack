@@ -104,6 +104,9 @@ button, a, input, select, textarea, summary { -webkit-tap-highlight-color: trans
   main input:not([type=checkbox]):not([type=radio]), main textarea, [role=dialog] input:not([type=checkbox]):not([type=radio]), [role=dialog] textarea { font-size: 16px; }
   main button, main [role=tab] { min-height: 40px; }
   .sirius-button { max-width: 100%; white-space: normal; height: auto; min-height: 40px; text-align: center; line-height: 1.4; }
+  [data-workout-executing=true] .sirius-hero, [data-workout-executing=true] .sirius-workout-stats { display: none; }
+  [data-workout-executing=true] .sirius-workout-flow { padding: 0; border: 0; background: transparent; margin-bottom: 12px; }
+  [data-workout-executing=true] .sirius-workout-flow > div > p, [data-workout-executing=true] .sirius-workout-flow button:nth-of-type(n+2) { display: none; }
   main input[type=checkbox] { width: 18px; height: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
