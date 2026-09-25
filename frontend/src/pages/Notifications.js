@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -117,7 +118,7 @@ export default function Notifications() {
     const load = async () => {
       try {
         const [userRes, notifsRes, templatesRes] = await Promise.all([
-          axios.get(`${API}/auth/me`, { withCredentials: true }),
+          getCurrentUser(),
           axios.get(`${API}/notifications`, { withCredentials: true }),
           axios.get(`${API}/notification-templates`, { withCredentials: true })
         ]);

@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -26,7 +27,7 @@ export default function Chat() {
     const load = async () => {
       try {
         const [userRes, msgsRes] = await Promise.all([
-          axios.get(`${API}/auth/me`, { withCredentials: true }),
+          getCurrentUser(),
           axios.get(`${API}/chat/general/messages`, { withCredentials: true })
         ]);
         setUser(userRes.data);

@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -33,7 +34,7 @@ export default function Goals() {
 
   const fetchUser = async () => {
     try {
-      const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
+      const res = await getCurrentUser();
       setUser(res.data);
     } catch (error) {
       toast.error("Erro ao carregar usuário");

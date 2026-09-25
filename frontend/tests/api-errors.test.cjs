@@ -26,7 +26,7 @@ async function loadClient({ offline = false, pathname = "/studies" } = {}) {
       setItem: (key, value) => storage.set(key, value),
       removeItem: key => storage.delete(key),
     },
-    window: { location, dispatchEvent: event => events.push(event) },
+    window: { addEventListener() {}, location, dispatchEvent: event => events.push(event) },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options?.detail; } },
   });
   // Run the actual interceptor module with browser/axios dependencies supplied above.

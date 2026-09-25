@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import axios from "axios";
-import { toast } from "sonner";
+import { useState } from "react";
+import usePersistentFocus from "@/hooks/usePersistentFocus";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,79 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Timer, Coffee, Edit3, Play, Pause, RotateCcw } from "lucide-react";
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-
-export default function PomodoroTimer({ notebooks = [], onComplete, initialNotebookId = "", topic = "", initialMinutes = 25, lockNotebook = false }) {
-  const [isRunning, setIsRunning] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isBreak, setIsBreak] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(initialMinutes * 60);
-  const [focusMinutes, setFocusMinutes] = useState(initialMinutes);
-  const [breakMinutes, setBreakMinutes] = useState(5);
-  const [selectedNb, setSelectedNb] = useState(initialNotebookId);
-  const [sessionsCompleted, setSessionsCompleted] = useState(0);
+export default function PomodoroTimer({ userId, storageId, notebooks = [], onComplete, initialNotebookId = "", topic = "", initialMinutes = 25, lockNotebook = false }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [saveError, setSaveError] = useState(false);
-  const intervalRef = useRef(null);
-  const completedPhaseRef = useRef(false);
-
-  const handleFocusComplete = useCallback(async () => {
-    setSaveError(false);
-    try {
-      await axios.post(`${API}/study/focus/complete`, {
-        notebook_id: selectedNb && selectedNb !== "none" ? selectedNb : null,
-        focus_minutes: focusMinutes,
-        break_minutes: breakMinutes,
-        notes: topic || null
-      }, { withCredentials: true });
-      setSessionsCompleted(prev => prev + 1);
-      toast.success(`Sessão concluída! +XP 🎉`);
-      if (onComplete) onComplete();
-    } catch (err) {
-      setSaveError(true);
-    }
-  }, [selectedNb, focusMinutes, breakMinutes, onComplete, topic]);
-
-  useEffect(() => {
-    if (isRunning && !isPaused) {
-      intervalRef.current = setInterval(() => {
-        setTimeLeft(prev => Math.max(0, prev - 1));
-      }, 1000);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [isRunning, isPaused]);
-
-  useEffect(() => {
-    if (timeLeft > 0) { completedPhaseRef.current = false; return; }
-    if (!isRunning || isPaused || completedPhaseRef.current) return;
-    completedPhaseRef.current = true;
-    if (!isBreak) {
-      handleFocusComplete();
-      setIsBreak(true);
-      setTimeLeft(breakMinutes * 60);
-    } else {
-      setIsBreak(false);
-      setIsRunning(false);
-      setTimeLeft(focusMinutes * 60);
-      toast.success("Pausa finalizada! Pronto para mais?");
-    }
-  }, [timeLeft, isRunning, isPaused, isBreak, breakMinutes, focusMinutes, handleFocusComplete]);
-
-  const startTimer = () => {
-    setIsRunning(true);
-    setIsPaused(false);
-    setTimeLeft(focusMinutes * 60);
-    setIsBreak(false);
-  };
-
-  const togglePause = () => setIsPaused(p => !p);
-  const resetTimer = () => {
-    clearInterval(intervalRef.current);
-    setIsRunning(false);
-    setIsPaused(false);
-    setIsBreak(false);
-    setTimeLeft(focusMinutes * 60);
-  };
+  const { isRunning, isPaused, isBreak, timeLeft, focusMinutes, breakMinutes, selectedNb,
+    sessionsCompleted, saveError, saving, request, storageError, startTimer, togglePause, resetTimer, retry,
+    setFocusMinutes, setBreakMinutes, setSelectedNb } = usePersistentFocus({ userId, storageId, initialNotebookId, initialMinutes, topic, onComplete });
 
   const mins = Math.floor(timeLeft / 60);
   const secs = timeLeft % 60;
@@ -91,7 +22,8 @@ export default function PomodoroTimer({ notebooks = [], onComplete, initialNoteb
   return (
     <Card className={`border-2 transition-all ${isBreak ? 'bg-emerald-950/30 border-emerald-500/30' : isRunning ? 'bg-red-950/20 border-red-500/30' : 'bg-[#0A0A0A] border-[#27272A]'}`}>
       <CardContent className="p-4 md:p-6">
-        {saveError && <p role="alert" className="text-sm text-amber-300 mb-4">Registro não confirmado. Confira o histórico de foco antes de registrar novamente; suas anotações continuam nesta página.</p>}
+        {storageError && <p role="alert" className="text-sm text-amber-300">Não foi possível salvar o cronômetro neste dispositivo. Mantenha a tela aberta.</p>}
+        {(saveError || request) && <div role="status" className="text-sm text-amber-300 mb-4"><p>{saving ? 'Registrando sessão…' : 'Sessão pendente de confirmação. Você pode tentar novamente sem duplicar tempo ou XP.'}</p><Button onClick={retry} disabled={saving} className="mt-2">{saving ? 'Salvando…' : 'Confirmar registro'}</Button></div>}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Timer className={`w-5 h-5 ${isBreak ? 'text-emerald-400' : 'text-red-400'}`} />
@@ -101,18 +33,18 @@ export default function PomodoroTimer({ notebooks = [], onComplete, initialNoteb
             <Badge variant="outline" className="text-xs">
               <Coffee className="w-3 h-3 mr-1" /> {sessionsCompleted} sessões
             </Badge>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowSettings(!showSettings)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Configurar cronômetro" onClick={() => setShowSettings(!showSettings)}>
               <Edit3 className="w-3 h-3" />
             </Button>
           </div>
         </div>
 
-        {showSettings && !isRunning && (
+        {showSettings && !isRunning && !request && (
           <div className="mb-4 p-3 bg-[#121212] rounded-lg space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Foco (min)</Label>
-                <Input type="number" value={focusMinutes} onChange={e => { const minutes = Math.min(120, Math.max(1, Math.floor(Number(e.target.value)) || 1)); setFocusMinutes(minutes); setTimeLeft(minutes * 60); }} className="bg-[#0A0A0A] border-[#27272A] h-8 text-sm" min={1} max={120} />
+                <Input type="number" value={focusMinutes} onChange={e => { const minutes = Math.min(120, Math.max(1, Math.floor(Number(e.target.value)) || 1)); setFocusMinutes(minutes); }} className="bg-[#0A0A0A] border-[#27272A] h-8 text-sm" min={1} max={120} />
               </div>
               <div>
                 <Label className="text-xs">Pausa (min)</Label>
@@ -145,15 +77,15 @@ export default function PomodoroTimer({ notebooks = [], onComplete, initialNoteb
 
         <div className="flex justify-center gap-2">
           {!isRunning ? (
-            <Button onClick={startTimer} className="bg-red-600 hover:bg-red-700 px-8">
-              <Play className="w-4 h-4 mr-2" /> Iniciar Foco
+            <Button disabled={saving || !!request} onClick={startTimer} className="bg-red-600 hover:bg-red-700 px-8">
+              <Play className="w-4 h-4 mr-2" /> {isBreak ? 'Iniciar descanso' : 'Iniciar foco'}
             </Button>
           ) : (
             <>
-              <Button onClick={togglePause} variant="outline" className="border-yellow-500 text-yellow-500">
+              <Button aria-label={isPaused ? "Retomar foco" : "Pausar foco"} disabled={!!request} onClick={togglePause} variant="outline" className="border-yellow-500 text-yellow-500">
                 {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
               </Button>
-              <Button onClick={resetTimer} variant="outline" className="border-red-500 text-red-500">
+              <Button aria-label="Reiniciar cronômetro" disabled={!!request} onClick={resetTimer} variant="outline" className="border-red-500 text-red-500">
                 <RotateCcw className="w-4 h-4" />
               </Button>
             </>

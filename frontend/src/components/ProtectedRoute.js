@@ -1,56 +1,22 @@
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { getToken, clearToken } from "@/lib/api";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import { useNavigate } from "react-router-dom";
+import { getCurrentUser } from "@/lib/api";
 
 export default function ProtectedRoute({ children }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(null);
-  const [user, setUser] = useState(null);
+  const [state, setState] = useState('loading');
+  const [attempt, retry] = useState(0);
   const navigate = useNavigate();
-  const location = useLocation();
-
   useEffect(() => {
-    if (location.state?.user) {
-      setIsAuthenticated(true);
-      setUser(location.state.user);
-      return;
-    }
-
-    const checkAuth = async () => {
-      try {
-        // Token is automatically added by axios interceptor from api.js
-        const response = await axios.get(`${API}/auth/me`, {
-          withCredentials: true
-        });
-        setIsAuthenticated(true);
-        setUser(response.data);
-      } catch (error) {
-        clearToken();
-        setIsAuthenticated(false);
-        navigate('/login');
-      }
-    };
-
-    // Check if we have a token (cookie or localStorage)
-    const hasToken = getToken();
-    if (!hasToken) {
-      // No token in localStorage, still try with cookies
-      checkAuth();
-    } else {
-      checkAuth();
-    }
-  }, [navigate, location]);
-
-  if (isAuthenticated === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#050505]">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#007AFF]"></div>
-      </div>
-    );
-  }
-
-  return isAuthenticated ? children : null;
+    let active = true;
+    getCurrentUser().then(() => { if (active) setState('ready'); }).catch(error => {
+      if (!active) return;
+      if (error.response?.status === 401) navigate('/login');
+      else setState('error');
+    });
+    return () => { active = false; };
+  }, [navigate, attempt]);
+  if (state === 'ready') return children;
+  return <div className="min-h-screen flex flex-col gap-4 items-center justify-center bg-background text-foreground" role="status">
+    {state === 'error' ? <><p>Não foi possível conectar ao servidor.</p><button className="rounded-xl border px-5 py-3" onClick={() => { setState('loading'); retry(n => n + 1); }}>Tentar novamente</button></> : <><div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-400 border-t-transparent" /><p>Conectando ao seu espaço…</p></>}
+  </div>;
 }

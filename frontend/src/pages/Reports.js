@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/api";
 import { getApiErrorMessage } from "@/lib/api-errors";
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
@@ -129,7 +130,7 @@ export default function Reports() {
 
   const fetchUser = async () => {
     try {
-      const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
+      const res = await getCurrentUser();
       setUser(res.data);
     } catch (error) {
       toast.error("Erro ao carregar usuário");

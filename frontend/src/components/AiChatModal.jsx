@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, User, Loader2, Sparkles, AppWindow } from 'lucide-react';
+import { Send, User, Loader2, X, AppWindow } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
+import * as Dialog from '@radix-ui/react-dialog';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
@@ -51,11 +52,17 @@ export default function AiChatModal({ open, onClose }) {
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const [viewport, setViewport] = useState(null);
+  useEffect(() => {
+    if (!open) return;
+    const view = window.visualViewport;
+    const sync = () => setViewport(view && window.innerWidth < 768 ? { top: view.offsetTop + 8, height: view.height - 16 } : null);
+    sync(); view?.addEventListener('resize', sync); view?.addEventListener('scroll', sync);
+    return () => { view?.removeEventListener('resize', sync); view?.removeEventListener('scroll', sync); };
+  }, [open]);
 
   useEffect(() => {
-    if (open) {
-      inputRef.current?.focus();
-    }
+    if (open && window.innerWidth >= 768) inputRef.current?.focus();
   }, [open]);
 
   useEffect(() => {
@@ -110,20 +117,16 @@ export default function AiChatModal({ open, onClose }) {
 
   return (
     <>
-      <div
-        className={`fixed bottom-24 right-6 z-50 w-[380px] max-w-[calc(100vw-32px)] transition-all duration-300 ${
-          open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-95 pointer-events-none'
-        }`}
-      >
-        <div
-          className="bg-[#0A0A0A] border border-[#27272A] rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
-          style={{ maxHeight: 'min(600px, calc(100vh - 140px))' }}
-          onClick={(e) => e.stopPropagation()}
-        >
+      <Dialog.Root open={open} onOpenChange={value => { if (!value) onClose(); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[80] backdrop-blur-sm" />
+          <Dialog.Content id="sirius-assistant-panel" className="sirius-assistant-panel" style={viewport || undefined}
+            onOpenAutoFocus={e => { e.preventDefault(); document.getElementById('sirius-assistant-close')?.focus(); }}
+            onCloseAutoFocus={e => e.preventDefault()} aria-describedby="sirius-assistant-description">
           <div className="relative px-4 py-3.5 border-b border-[#27272A] shrink-0 bg-gradient-to-r from-[#0D0D0D] to-[#0A0A0A]">
             <div className="absolute inset-0 bg-gradient-to-r from-[#FFD700]/5 to-transparent pointer-events-none" />
             <div className="flex items-center justify-between relative">
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-2">
                 <div className="w-9 h-9 rounded-xl bg-[#050505] flex items-center justify-center shadow-lg shadow-[#FFD700]/20 border border-[#FFD700]/20">
                   <svg viewBox="0 0 100 100" className="w-5 h-5">
                     <defs>
@@ -148,20 +151,18 @@ export default function AiChatModal({ open, onClose }) {
                     <circle cx="50" cy="16" r="1" fill="white" opacity="0.6"/>
                   </svg>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-white">IA Sirius</span>
-                    <span className="px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-blue-500/10 text-blue-400 rounded-md border border-blue-500/20">
-                      Gemini
-                    </span>
+                    <Dialog.Title className="text-sm font-bold text-white">Assistente Sirius</Dialog.Title>
                   </div>
-                  <p className="text-[10px] text-[#52525B]">Assistente integrado do Sirius</p>
+                  <Dialog.Description id="sirius-assistant-description" className="text-xs text-slate-400 truncate">Ajuda para organizar seu dia</Dialog.Description>
                 </div>
               </div>
+              <Dialog.Close id="sirius-assistant-close" className="sirius-assistant-close" aria-label="Fechar assistente"><X className="w-5 h-5" /><span>Fechar</span></Dialog.Close>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
+          <div role="log" aria-live="polite" aria-relevant="additions text" className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center py-12 px-4">
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#FFD700]/10 to-[#FF8C00]/5 flex items-center justify-center mb-5 border border-[#FFD700]/10">
@@ -218,24 +219,25 @@ export default function AiChatModal({ open, onClose }) {
 
           <div className="flex items-center gap-2 p-3 border-t border-[#27272A] shrink-0 bg-[#0D0D0D]">
             <input
-              ref={inputRef}
+              aria-label="Mensagem para o assistente" ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Pergunte sobre qualquer área..."
               disabled={sending}
-              className="flex-1 bg-[#1A1A1A] border border-[#27272A] rounded-xl px-4 py-2.5 text-sm text-white placeholder-[#52525B] outline-none focus:border-[#FFD700]/40 focus:ring-1 focus:ring-[#FFD700]/20 transition-all duration-200 disabled:opacity-50"
+              className="min-w-0 flex-1 bg-[#1A1A1A] border border-[#27272A] rounded-xl px-4 py-2.5 text-sm text-white placeholder-[#52525B] outline-none focus:border-[#FFD700]/40 focus:ring-1 focus:ring-[#FFD700]/20 transition-all duration-200 disabled:opacity-50"
             />
             <button
-              onClick={handleSend}
+              aria-label="Enviar mensagem" onClick={handleSend}
               disabled={!input.trim() || sending}
               className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FFD700] to-[#FF8C00] hover:from-[#FFC300] hover:to-[#FF7000] disabled:from-[#27272A] disabled:to-[#27272A] flex items-center justify-center transition-all duration-200 disabled:text-[#52525B] text-black shrink-0 shadow-lg shadow-[#FFD700]/20 disabled:shadow-none"
             >
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
-        </div>
-      </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <style>{`
         @keyframes chatMessageIn {
           from { opacity: 0; transform: translateY(8px); }

@@ -10,6 +10,23 @@ export { OFFLINE_MODE };
 
 // Session token management via localStorage
 const TOKEN_KEY = "sirius_session_token";
+let userCache = null;
+let userRequest = null;
+let authGeneration = 0;
+function invalidateUser() { userCache = null; userRequest = null; authGeneration += 1; }
+// Memory only: never reuse one account's response after logout or a token change.
+export function getCurrentUser() {
+  if (userCache && userCache.until > Date.now()) return Promise.resolve(userCache.response);
+  if (userRequest) return userRequest;
+  const generation = authGeneration;
+  const request = axios.get(`${API}/auth/me`, { withCredentials: true }).then(response => {
+    if (generation === authGeneration) userCache = { response, until: Date.now() + 30000 };
+    return response;
+  }).finally(() => { if (userRequest === request) userRequest = null; });
+  userRequest = request;
+  return request;
+}
+window.addEventListener('storage', event => { if (event.key === TOKEN_KEY || event.key === null) invalidateUser(); });
 
 export const isOfflineMode = () => OFFLINE_MODE;
 
@@ -18,9 +35,11 @@ export const getToken = () => {
   return localStorage.getItem(TOKEN_KEY);
 };
 export const setToken = (token) => {
+  invalidateUser();
   if (!OFFLINE_MODE) localStorage.setItem(TOKEN_KEY, token);
 };
 export const clearToken = () => {
+  invalidateUser();
   if (!OFFLINE_MODE) localStorage.removeItem(TOKEN_KEY);
 };
 
@@ -43,7 +62,10 @@ axios.interceptors.request.use(
 
 // Interceptor for 401 responses - clear token and redirect to login
 axios.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (!['get', 'head', 'options'].includes(response.config?.method || 'get')) invalidateUser();
+    return response;
+  },
   (error) => {
     if (OFFLINE_MODE) {
       const offlineError = new Error('Modo offline - dados locais');

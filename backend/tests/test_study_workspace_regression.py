@@ -24,7 +24,7 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as error:
             await route(SimpleNamespace(headers={}), 'foreign', None)
         self.assertEqual(error.exception.status_code, 404)
-        self.assertEqual(lookup.call_args.args, ({'analysis_id': 'foreign', 'user_id': 'owner'}, {'_id': 0, 'pdf_text': 0}))
+        self.assertEqual(lookup.call_args.args, ({'analysis_id': 'foreign', 'user_id': 'owner'}, {'_id': 0, 'pdf_text': 0, 'pdf_pages': 0}))
         lookup.return_value = {'analysis_id': 'own', 'cargos': []}
         self.assertEqual((await route(SimpleNamespace(headers={}), 'own', None))['analysis_id'], 'own')
 

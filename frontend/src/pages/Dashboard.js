@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -60,35 +61,23 @@ export default function Dashboard() {
   const fetchData = async () => {
     try {
       const [userRes, statsRes] = await Promise.all([
-        axios.get(`${API}/auth/me`, { withCredentials: true }),
+        getCurrentUser(),
         axios.get(`${API}/stats/dashboard`, { withCredentials: true })
       ]);
       setUser(userRes.data);
       setStats(statsRes.data);
       
-      // Fetch additional data in background
-      try {
-        const [weeklyRes, remindersRes, suggestionsRes, analyticsRes, streaksRes, dailyRes] = await Promise.all([
-          axios.get(`${API}/dashboard/weekly-summary`, { withCredentials: true }),
-          axios.get(`${API}/reminders/smart`, { withCredentials: true }),
-          axios.get(`${API}/suggestions/cross-module`, { withCredentials: true }),
-          axios.get(`${API}/stats/analytics?days=7`, { withCredentials: true }),
-          axios.get(`${API}/streaks/global`, { withCredentials: true }),
-          axios.get(`${API}/dashboard/daily-summary`, { withCredentials: true })
-        ]);
-        setWeeklySummary(weeklyRes.data);
-        setReminders(remindersRes.data.reminders || []);
-        setCrossSuggestions(suggestionsRes.data.suggestions || []);
-        setAnalytics(analyticsRes.data);
-        setGlobalStreaks(streaksRes.data);
-        setDailySummary(dailyRes.data);
-      } catch {}
-      
-      // Fetch today's workout schedule
-      try {
-        const workoutRes = await axios.get(`${API}/workouts/today-schedule`, { withCredentials: true });
-        if (workoutRes.data.scheduled) setTodayWorkout(workoutRes.data);
-      } catch {}
+      setLoading(false);
+      // Each panel is independent: one unavailable integration cannot hide the rest.
+      await Promise.allSettled([
+        ['/dashboard/weekly-summary', d => setWeeklySummary(d)],
+        ['/reminders/smart', d => setReminders(d.reminders || [])],
+        ['/suggestions/cross-module', d => setCrossSuggestions(d.suggestions || [])],
+        ['/stats/analytics?days=7', d => setAnalytics(d)],
+        ['/streaks/global', d => setGlobalStreaks(d)],
+        ['/dashboard/daily-summary', d => setDailySummary(d)],
+        ['/workouts/today-schedule', d => setTodayWorkout(d.scheduled ? d : null)],
+      ].map(([path, apply]) => axios.get(`${API}${path}`).then(r => apply(r.data))));
     } catch (error) {
       toast.error("Erro ao carregar dados");
     } finally {
@@ -96,14 +85,17 @@ export default function Dashboard() {
     }
   };
 
-  const handleSearch = async (query) => {
-    setSearchQuery(query);
-    if (query.length < 2) { setSearchResults([]); return; }
-    try {
-      const res = await axios.get(`${API}/search/global?q=${encodeURIComponent(query)}`, { withCredentials: true });
-      setSearchResults(res.data.results || []);
-    } catch {}
-  };
+  const handleSearch = query => setSearchQuery(query);
+  useEffect(() => {
+    setSearchResults([]);
+    if (searchQuery.trim().length < 2) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      axios.get(`${API}/search/global`, { params: { q: searchQuery.trim() }, signal: controller.signal })
+        .then(r => { if (!controller.signal.aborted) setSearchResults(r.data.results || []); }).catch(() => {});
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [searchQuery]);
 
   const dismissReminder = (idx) => {
     setReminders(prev => prev.filter((_, i) => i !== idx));
@@ -219,6 +211,11 @@ export default function Dashboard() {
             </div>
           </div>
 
+          <section className="mb-8" aria-labelledby="today-actions"><div className="flex items-center justify-between mb-4"><h2 id="today-actions" className="text-xl font-semibold">O que vamos fazer hoje?</h2><Button variant="ghost" onClick={() => navigate('/calendar')}>Ver agenda<ChevronRight className="w-4 h-4 ml-1" /></Button></div><div className="sirius-action-grid">
+            <button className="sirius-action-card" onClick={() => navigate('/studies')}><BookOpen className="w-5 h-5 text-blue-300" /><strong>Continuar meus estudos</strong><span>{stats?.study_stats?.study_time_today_minutes || 0} min registrados hoje · abrir meu plano</span></button>
+            <button className="sirius-action-card" onClick={() => navigate('/workouts')}><Dumbbell className="w-5 h-5 text-rose-300" /><strong>{todayWorkout ? 'Treino previsto para hoje' : 'Meu próximo treino'}</strong><span>Planejar, executar e acompanhar sua evolução</span></button>
+            <button className="sirius-action-card" onClick={() => navigate('/tasks')}><CheckSquare className="w-5 h-5 text-emerald-300" /><strong>Minhas prioridades</strong><span>{stats?.tasks_completed_today || 0} tarefas concluídas hoje · organizar o restante</span></button>
+          </div></section>
           {/* Smart Reminders */}
           {reminders.length > 0 && (
             <div className="mb-6 space-y-2">

@@ -1,3 +1,6 @@
+import StudyPerformance from '@/components/StudyPerformance';
+import { SourceEvidence } from '@/components/EditalReview';
+import DatedStudyPlan from '@/components/DatedStudyPlan';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -11,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getApiErrorMessage } from '@/lib/api-errors';
 import { STUDY_VIEWS, normalizeStudyText, topicRows, blockMinutes, displayStudyDate } from '@/lib/study-workspace';
 import StudyLessons from '@/components/StudyLessons';
+import useStudyDraft from '@/hooks/useStudyDraft';
 import PomodoroTimer from '@/components/PomodoroTimer';
 
 const labels = { edital: 'Edital analisado', verticalizado: 'Edital verticalizado', cronograma: 'Cronograma', estudar: 'Estudar' };
@@ -43,7 +47,6 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
   const [search, setSearch] = useState('');
   const [progress, setProgress] = useState({});
   const [pending, setPending] = useState({});
-  const [notes, setNotes] = useState('');
   const [sessionCompleted, setSessionCompleted] = useState(false);
   const pendingRef = useRef(new Set());
   const generationRef = useRef(0);
@@ -68,6 +71,7 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
     nextParams.set('view', next);
     if (session) {
       nextParams.set('notebook', session.notebookId);
+      if (session.entryId) nextParams.set('entry', session.entryId); else nextParams.delete('entry');
       nextParams.set('topic', session.key ?? '');
       nextParams.set('minutes', String(Math.min(120, Math.max(1, session.minutes || 25))));
     }
@@ -80,11 +84,8 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
   const selectedTopic = selectedDiscipline && topicRows(selectedDiscipline).find(t => t.key === params.get('topic'));
   const selectedMinutes = Math.min(120, Math.max(1, Number(params.get('minutes')) || 25));
   const sessionKey = `${programId}:${params.get('notebook')}:${params.get('topic')}`;
-  const draftsRef = useRef({});
-  useEffect(() => {
-    setNotes(draftsRef.current[sessionKey] || '');
-    setSessionCompleted(false);
-  }, [sessionKey]);
+  const { notes, setNotes, status: draftStatus, retry: retryDraft } = useStudyDraft({ api, userId: user.user_id, notebookId: params.get('notebook'), topicKey: params.get('topic') });
+  useEffect(() => { setSessionCompleted(false); }, [sessionKey]);
 
   const updateTopic = async (discipline, topic, status, checked) => {
     const key = `${discipline.notebook_id}:${topic.key}:${status}`;
@@ -129,9 +130,10 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
                 <summary className="cursor-pointer p-5"><span className="font-medium">{d.nome}</span><span className="block sm:inline sm:ml-4 mt-2 sm:mt-0 text-xs text-[#A1A1AA]">Peso {d.peso} · {d.num_questoes ? `${d.num_questoes} questões · ` : ''}{done}/{rows.length} estudados</span><span className="block mt-2 text-xs text-purple-300">Prioridade {d.prioridade}{d.prioridade_provisoria ? ' · provisória' : ''}</span></summary>
                 <div className="border-t border-[#27272A] p-4 md:p-5 space-y-3">
                   <p className="text-xs text-[#71717A]">Prioridade da disciplina calculada por {d.prioridade_base}. {d.peso_fonte && `Fonte do peso: ${d.peso_fonte}`}</p>
+                  <SourceEvidence api={api} analysisId={edital.analysis_id} sources={d.fontes} />
                   {rows.length ? rows.map(t => <div key={t.key} className={`rounded-xl border border-[#27272A] p-3 ${t.depth ? 'ml-4 md:ml-7' : 'bg-[#15151B]'}`}>
                     <div className="flex flex-wrap items-center justify-between gap-3"><span className={`text-sm ${t.depth ? 'text-[#A1A1AA]' : 'font-medium'}`}>{t.title}</span><Button size="sm" variant="outline" onClick={() => navigate('estudar', { notebookId: d.notebook_id, key: t.key })}><Play className="h-3 w-3 mr-1" />Estudar</Button></div>
-                    <div className="flex flex-wrap gap-4 mt-3">{[['studied', 'Estudado'], ['reviewed', 'Revisado'], ['mastered', 'Dominado']].map(([status, label]) => <label key={status} className="text-xs text-[#A1A1AA] flex items-center gap-2"><input type="checkbox" className="accent-purple-500" checked={!!progress[d.notebook_id]?.[t.key]?.[status]} disabled={!!pending[`${d.notebook_id}:${t.key}:${status}`]} onChange={e => updateTopic(d, t, status, e.target.checked)} />{label}</label>)}</div>
+                    <div className="flex flex-wrap gap-4 mt-3">{[['studied', 'Estudado'], ['reviewed', 'Revisado'], ['mastered', 'Domínio declarado']].map(([status, label]) => <label key={status} className="text-xs text-[#A1A1AA] flex items-center gap-2"><input type="checkbox" className="accent-purple-500" checked={!!progress[d.notebook_id]?.[t.key]?.[status]} disabled={!!pending[`${d.notebook_id}:${t.key}:${status}`]} onChange={e => updateTopic(d, t, status, e.target.checked)} />{label}</label>)}</div>
                   </div>) : <p className={muted}>Nenhum assunto foi extraído para esta disciplina.</p>}
                 </div>
               </details>;
@@ -139,7 +141,12 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
           </div>}
 
           {view === 'cronograma' && <div className="space-y-6">
-            <section className={box}><div className="flex flex-wrap justify-between gap-4"><div><h2 className="text-xl font-semibold">Sua agenda semanal</h2><p className={`${muted} mt-2`}>Escolha um bloco para abrir a página de estudo com a matéria e a duração previstas.</p></div><Button variant="outline" onClick={() => onManageSchedule(programId)}>Ajustes e exportação</Button></div>{data.estrategia?.resumo && <p className={`${muted} mt-4`}>{data.estrategia.resumo}</p>}</section>
+            <DatedStudyPlan api={api} program={program} onStudy={entry => {
+              const discipline = disciplines.find(d => d.notebook_id === entry.notebook_id);
+              const topic = discipline && topicRows(discipline).find(t => !progress[discipline.notebook_id]?.[t.key]?.[entry.kind === 'Revisão' ? 'reviewed' : 'studied']);
+              navigate('estudar', { notebookId: entry.notebook_id, key: topic?.key, minutes: entry.minutes, entryId: entry.entry_id });
+            }} />
+            <section className={box}><div className="flex flex-wrap justify-between gap-4"><div><h2 className="text-xl font-semibold">Modelo semanal de referência</h2><p className={`${muted} mt-2`}>Escolha um bloco para abrir a página de estudo com a matéria e a duração previstas.</p></div><Button variant="outline" onClick={() => onManageSchedule(programId)}>Ajustes e exportação</Button></div>{data.estrategia?.resumo && <p className={`${muted} mt-4`}>{data.estrategia.resumo}</p>}</section>
             {data.cronograma?.length ? data.cronograma.map(day => <section key={day.day} className={box}><div className="flex justify-between mb-4"><h3 className="font-semibold">{day.day_label}</h3><span className="text-xs text-[#71717A]">{day.total_minutes} min planejados</span></div><div className="space-y-3">{day.blocos.map(block => {
               const discipline = disciplines.find(d => d.notebook_id === block.notebook_id);
               const firstTopic = discipline && topicRows(discipline).find(t => !progress[discipline.notebook_id]?.[t.key]?.studied);
@@ -150,9 +157,13 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
           {view === 'estudar' && (selectedDiscipline ? <div className="space-y-6" key={sessionKey}>
             <header><p className="text-xs text-purple-300 mb-2">{selectedDiscipline.nome} · {selectedMinutes} minutos</p><h2 className="text-2xl font-semibold">{selectedTopic?.title || 'Sessão de estudo'}</h2></header>
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
-              <div className="space-y-6"><PomodoroTimer key={`${sessionKey}:${selectedMinutes}`} notebooks={data.notebooks} initialNotebookId={selectedDiscipline.notebook_id} initialMinutes={selectedMinutes} lockNotebook topic={[selectedTopic?.title, notes].filter(Boolean).join('\n\n')} onComplete={() => { setSessionCompleted(true); toast.success('Tempo de estudo e anotações registrados.'); }} />
-                <section className={box}><h3 className="font-semibold mb-3">Anotações da sessão</h3><Textarea aria-label="Anotações da sessão" rows={7} value={notes} onChange={e => { draftsRef.current[sessionKey] = e.target.value; setNotes(e.target.value); }} placeholder="Resumo, dúvidas e questões para revisar…" className="bg-[#050505] border-[#27272A]" /><p className="text-xs text-[#71717A] mt-2">As anotações são registradas com a sessão ao terminar o cronômetro. Mantenha esta página aberta durante o estudo.</p>{sessionCompleted && <p role="status" className="text-sm text-green-400 mt-3">Sessão registrada.</p>}</section></div>
-              <div className="space-y-6"><StudyLessons notebookId={selectedDiscipline.notebook_id} topic={selectedTopic?.title || ''} api={api} /><section className={box}><h3 className="font-semibold mb-3">Progresso do assunto</h3>{selectedTopic ? <div className="space-y-3">{[['studied', 'Marcar como estudado'], ['reviewed', 'Marcar como revisado'], ['mastered', 'Marcar como dominado']].map(([status, label]) => <label key={status} className="flex gap-2 text-sm"><input type="checkbox" className="accent-purple-500" checked={!!progress[selectedDiscipline.notebook_id]?.[selectedTopic.key]?.[status]} disabled={!!pending[`${selectedDiscipline.notebook_id}:${selectedTopic.key}:${status}`]} onChange={e => updateTopic(selectedDiscipline, selectedTopic, status, e.target.checked)} />{label}</label>)}</div> : <p className={muted}>Escolha um assunto no edital verticalizado para acompanhar o progresso.</p>}<Button variant="outline" className="mt-4" onClick={() => onNotebook(data.notebooks.find(n => n.notebook_id === selectedDiscipline.notebook_id))}><BookOpen className="h-4 w-4 mr-2" />Notas e materiais da matéria</Button></section></div>
+              <div className="space-y-6"><PomodoroTimer userId={user.user_id} storageId={sessionKey} key={`${sessionKey}:${selectedMinutes}`} notebooks={data.notebooks} initialNotebookId={selectedDiscipline.notebook_id} initialMinutes={selectedMinutes} lockNotebook topic={[selectedTopic?.title, notes].filter(Boolean).join('\n\n')} onComplete={async () => { setSessionCompleted(true); if (params.get('entry')) { try { await axios.patch(`${api}/study/programs/${programId}/dated-plan/${params.get('entry')}`, { completed: true }); } catch { toast.error('Foco salvo. Marque o bloco concluído na agenda quando a conexão voltar.'); } } }} />
+                <section className={box}><h3 className="font-semibold mb-3">Anotações da sessão</h3><Textarea aria-label="Anotações da sessão" rows={7} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Resumo, dúvidas e questões para revisar…" className="bg-[#050505] border-[#27272A]" /><div className="flex flex-wrap items-center gap-3 mt-2"><p role="status" className="sirius-save-status">{draftStatus}</p><Button variant="ghost" size="sm" onClick={retryDraft}>Salvar agora</Button></div>{sessionCompleted && <p role="status" className="text-sm text-green-400 mt-3">Sessão registrada.</p>}</section></div>
+              <div className="space-y-6"><StudyPerformance api={api} notebookId={selectedDiscipline.notebook_id} onPractice={() => onNotebook(data.notebooks.find(n => n.notebook_id === selectedDiscipline.notebook_id))} /><StudyLessons notebookId={selectedDiscipline.notebook_id} topic={selectedTopic?.title || ''} api={api} /><section className={box}><h3 className="font-semibold mb-3">Progresso do assunto</h3>{selectedTopic ? <div className="space-y-3">{[['studied', 'Marcar como estudado'], ['reviewed', 'Marcar como revisado'], ['mastered', 'Considero que domino este assunto']].map(([status, label]) => <label key={status} className="flex gap-2 text-sm"><input type="checkbox" className="accent-purple-500" checked={!!progress[selectedDiscipline.notebook_id]?.[selectedTopic.key]?.[status]} disabled={!!pending[`${selectedDiscipline.notebook_id}:${selectedTopic.key}:${status}`]} onChange={e => updateTopic(selectedDiscipline, selectedTopic, status, e.target.checked)} />{label}</label>)}</div> : <p className={muted}>Escolha um assunto no edital verticalizado para acompanhar o progresso.</p>}<Button className="mt-4 mr-2" onClick={() => {
+                const rows = topicRows(selectedDiscipline); const index = rows.findIndex(t => t.key === selectedTopic?.key);
+                const next = rows.slice(index + 1).find(t => !progress[selectedDiscipline.notebook_id]?.[t.key]?.studied);
+                if (next) navigate('estudar', { notebookId: selectedDiscipline.notebook_id, key: next.key, minutes: selectedMinutes }); else navigate('verticalizado');
+              }}>Próximo assunto<ChevronRight className="h-4 w-4 ml-2" /></Button><p className="text-xs text-slate-400 mt-3">Domínio é uma autoavaliação. Use questões e revisões para conferir seu aprendizado.</p><Button variant="outline" className="mt-4" onClick={() => onNotebook(data.notebooks.find(n => n.notebook_id === selectedDiscipline.notebook_id))}><BookOpen className="h-4 w-4 mr-2" />Notas e materiais da matéria</Button></section></div>
             </div>
           </div> : <section className={box}><h2 className="text-xl font-semibold mb-2">O que vamos estudar?</h2><p className={muted}>Abra um assunto do edital verticalizado ou um bloco do cronograma para começar.</p><Button className="mt-4" onClick={() => navigate('verticalizado')}>Escolher assunto</Button></section>)}
         </>}

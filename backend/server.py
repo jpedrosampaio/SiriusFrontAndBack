@@ -56,10 +56,10 @@ def extract_pdf_text(content: bytes) -> str:
     try:
         reader = PdfReader(io.BytesIO(content))
         text_parts = []
-        for page in reader.pages:
+        for page_number, page in enumerate(reader.pages, 1):
             extracted = page.extract_text()
             if extracted:
-                text_parts.append(extracted)
+                text_parts.append(f"[PÁGINA {page_number}]\n{extracted}")
         return "\n".join(text_parts)
     except Exception as e:
         logging.warning(f"Failed to extract PDF text: {e}")
@@ -209,14 +209,19 @@ GEMINI_FREE_TIER_RPD = {
 def _today_str_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-async def track_gemini_usage(user_id: str, model: str, delta: int = 1) -> None:
+async def track_gemini_usage(user_id: str, model: str, delta: int = 1, usage=None, feature="text") -> None:
     """Increment daily Gemini usage counter for a user/model (best-effort)."""
     if not user_id:
         return
     try:
+        increments = {"count": delta, f"features.{feature}": delta}
+        for source, target in (("promptTokenCount", "input_tokens"), ("candidatesTokenCount", "output_tokens"), ("totalTokenCount", "total_tokens")):
+            value = (usage or {}).get(source)
+            if type(value) is int and value >= 0:
+                increments[target] = value
         await db.gemini_usage.update_one(
             {"user_id": user_id, "date": _today_str_utc(), "model": model},
-            {"$inc": {"count": delta}, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
+            {"$inc": increments, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
             upsert=True,
         )
     except Exception as e:
@@ -313,7 +318,7 @@ async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_ov
                     text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                     if text:
                         if user_id:
-                            await track_gemini_usage(user_id, model)
+                            await track_gemini_usage(user_id, model, usage=data.get("usageMetadata"))
                         return text, None
                     logging.warning(f"Gemini 200 OK but no text in response (model={model})")
                 else:
@@ -490,12 +495,12 @@ async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_mess
                         logging.warning(f"Gemini PDF response TRUNCATED (MAX_TOKENS) model={model}, trying next model...")
                         if i == len(models_to_try) - 1:
                             if text:
-                                if user_id: await track_gemini_usage(user_id, model)
+                                if user_id: await track_gemini_usage(user_id, model, usage=resp.json().get("usageMetadata"), feature="pdf")
                                 return text, "truncated"
                             return None, "truncated"
                         break  # sai do loop de attempts e tenta o próximo modelo
                     if text:
-                        if user_id: await track_gemini_usage(user_id, model)
+                        if user_id: await track_gemini_usage(user_id, model, usage=resp.json().get("usageMetadata"), feature="pdf")
                         return text, None
                     # 200 sem texto (safety filter). Tenta próximo modelo.
                     logging.warning(f"Gemini PDF 200 but empty text (model={model}, finish={finish_reason}). Body: {resp.text[:400]}")
@@ -1503,7 +1508,7 @@ async def get_topic_progress(request: Request, notebook_id: str, session_token: 
 async def setup_activity_collections():
     # Creating namespaces inside concurrent transactions can conflict or block.
     # Prepare them before serving requests; multiple workers may start together.
-    for name in ("task_instances", "activity_requests"):
+    for name in ("task_instances", "activity_requests", "focus_sessions", "study_streaks", "study_dated_plans", "edital_jobs", "workout_sessions", "workout_logs"):
         try:
             await db.create_collection(name)
         except CollectionInvalid:
@@ -2957,116 +2962,10 @@ async def get_dashboard_stats(request: Request, session_token: Optional[str] = C
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
-    tasks_today = await db.tasks.count_documents({"user_id": user.user_id, "is_template": True})
-    tasks_completed_today = await db.task_instances.count_documents({"user_id": user.user_id, "date": today, "completed": True})
-    
-    habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    habits_completed_today = len([h for h in habits if today in h['completions']])
-    
-    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
-    transactions = await db.transactions.find({"user_id": user.user_id, "date": {"$regex": f"^{current_month}"}}, {"_id": 0}).to_list(1000)
-    income = sum([t['amount'] for t in transactions if t['type'] == 'income'])
-    expenses = sum([t['amount'] for t in transactions if t['type'] == 'expense'])
-    
-    goals = await db.goals.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    avg_progress = sum([len(g.get('daily_checks', [])) for g in goals]) / len(goals) if goals else 0
-    
-    # ===== WORKOUT STATS =====
-    week_start = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
-    workouts_week = await db.workout_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": week_start},
-        "completed": True
-    }, {"_id": 0}).to_list(100)
-    
-    workout_stats = {
-        "workouts_this_week": len(workouts_week),
-        "total_duration_minutes": sum(w.get("duration_minutes", 0) for w in workouts_week),
-        "total_calories_burned": sum(w.get("calories", 0) or 0 for w in workouts_week),
-        "total_xp_earned": sum(w.get("xp_earned", 0) for w in workouts_week)
-    }
-    
-    # ===== NUTRITION STATS =====
-    meals_today = await db.meals.find({"user_id": user.user_id, "date": today}, {"_id": 0}).to_list(100)
-    water_today = await db.water_logs.find({"user_id": user.user_id, "date": today}, {"_id": 0}).to_list(100)
-    nutrition_goals = await db.nutrition_goals.find_one({"user_id": user.user_id}, {"_id": 0})
-    
-    if not nutrition_goals:
-        nutrition_goals = {"daily_calories": 2000, "daily_protein": 150, "daily_carbs": 250, "daily_fat": 65, "water_goal_ml": 2000}
-    
-    nutrition_stats = {
-        "calories_consumed": sum(m.get("total_calories", 0) for m in meals_today),
-        "calories_goal": nutrition_goals.get("daily_calories", 2000),
-        "protein_consumed": round(sum(m.get("total_protein", 0) for m in meals_today), 1),
-        "protein_goal": nutrition_goals.get("daily_protein", 150),
-        "water_consumed_ml": sum(w.get("amount_ml", 0) for w in water_today),
-        "water_goal_ml": nutrition_goals.get("water_goal_ml", 2000),
-        "meals_count": len(meals_today)
-    }
-    
-    # ===== STUDY STATS =====
-    study_sessions_today = await db.study_sessions.find({"user_id": user.user_id, "date": today}, {"_id": 0}).to_list(100)
-    study_streak = await db.study_streaks.find_one({"user_id": user.user_id}, {"_id": 0})
-    flashcards = await db.flashcards.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    due_flashcards = [f for f in flashcards if f.get("next_review", "") <= today]
-    notebooks = await db.notebooks.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    
-    study_stats = {
-        "study_time_today_minutes": sum(s.get("duration_minutes", 0) for s in study_sessions_today),
-        "current_streak": study_streak.get("current_streak", 0) if study_streak else 0,
-        "longest_streak": study_streak.get("longest_streak", 0) if study_streak else 0,
-        "flashcards_due": len(due_flashcards),
-        "total_flashcards": len(flashcards),
-        "notebooks_count": len(notebooks)
-    }
-    
-    # ===== SIMULADOS STATS =====
-    simulados_list = await db.simulados.find({"user_id": user.user_id}, {"_id": 0, "simulado_id": 1}).to_list(200)
-    simulado_attempts = await db.simulado_attempts.find({"user_id": user.user_id}, {"_id": 0}).to_list(500)
-    sim_scores = [a.get("score", 0) for a in simulado_attempts]
-    sim_correct = sum(a.get("correct_count", 0) for a in simulado_attempts)
-    sim_total_q = sum(a.get("total_questions", 0) for a in simulado_attempts)
-    
-    simulado_stats = {
-        "total_simulados": len(simulados_list),
-        "total_attempts": len(simulado_attempts),
-        "average_score": round(sum(sim_scores) / len(sim_scores), 1) if sim_scores else 0,
-        "best_score": round(max(sim_scores), 1) if sim_scores else 0,
-        "total_questions_answered": sim_total_q,
-        "total_correct": sim_correct,
-        "accuracy_rate": round(sim_correct / sim_total_q * 100, 1) if sim_total_q > 0 else 0
-    }
-    
-    # ===== QUESTION LOGS FOR OVERVIEW =====
-    all_question_logs = await db.question_logs.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
-    total_questions_all = sum(q.get("total", 0) for q in all_question_logs)
-    total_correct_all = sum(q.get("correct", 0) for q in all_question_logs)
-    
-    question_overview = {
-        "total_answered": total_questions_all,
-        "total_correct": total_correct_all,
-        "accuracy_rate": round(total_correct_all / total_questions_all * 100, 1) if total_questions_all > 0 else 0
-    }
-    
-    return {
-        "user": {"name": user.name, "xp": user.xp, "rank": user.rank, "picture": user.picture},
-        "tasks_today": tasks_today,
-        "tasks_completed_today": tasks_completed_today,
-        "habits_total": len(habits),
-        "habits_completed_today": habits_completed_today,
-        "income": income,
-        "expenses": expenses,
-        "balance": income - expenses,
-        "goals_total": len(goals),
-        "goals_avg_progress": avg_progress,
-        "workout_stats": workout_stats,
-        "nutrition_stats": nutrition_stats,
-        "study_stats": study_stats,
-        "simulado_stats": simulado_stats,
-        "question_overview": question_overview
-    }
+    from zoneinfo import ZoneInfo
+    from dashboard_service import dashboard_snapshot
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
+    return await dashboard_snapshot(db, user, today)
 
 
 @api_router.get("/stats/analytics")
@@ -5522,75 +5421,10 @@ async def start_workout_session(request: Request, session_token: Optional[str] =
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
     body = await request.json()
-    plan_id = body.get("plan_id")
-    day_index = body.get("day_index", 0)
-    rest_timer_seconds = body.get("rest_timer_seconds", 60)
-    
-    if not plan_id:
-        raise HTTPException(status_code=400, detail="plan_id é obrigatório")
-    
-    # Check for existing active session
-    active = await db.workout_sessions.find_one({
-        "user_id": user.user_id, 
-        "status": "active"
-    }, {"_id": 0})
-    if active:
-        raise HTTPException(status_code=409, detail="Já existe uma sessão de treino ativa. Finalize ou abandone a sessão atual.")
-    
-    # Get the plan
-    plan = await db.workout_plans.find_one({"plan_id": plan_id, "user_id": user.user_id}, {"_id": 0})
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plano de treino não encontrado")
-    
-    # Get exercises for the session (either from specific day or all exercises)
-    days = plan.get("days") or []
-    if type(day_index) is not int or day_index < 0 or (days and day_index >= len(days)) or (not days and day_index != 0):
-        raise HTTPException(status_code=422, detail="Dia de treino invalido. Selecione um dia existente.")
-    if days:
-        session_exercises = days[day_index].get("exercises", [])
-        day_label = days[day_index].get("day_label", f"Dia {day_index + 1}")
-    else:
-        session_exercises = plan.get("exercises", [])
-        day_label = plan.get("name", "Treino")
-    
-    # Prepare exercises with tracking fields
-    exercises = []
-    for ex in session_exercises:
-        exercises.append({
-            "name": ex.get("name", ""),
-            "sets": ex.get("sets", 3),
-            "reps": ex.get("reps", 12),
-            "weight": ex.get("weight", ""),
-            "rest_seconds": ex.get("rest_seconds", rest_timer_seconds),
-            "muscle_group": ex.get("muscle_group", ""),
-            "tutorial": ex.get("tutorial", ""),
-            "video_url": ex.get("video_url", ""),
-            "completed": False,
-            "sets_completed": 0,
-            "time_spent_seconds": 0
-        })
-    
-    session_id = f"session_{uuid.uuid4().hex[:12]}"
-    session_doc = {
-        "session_id": session_id,
-        "user_id": user.user_id,
-        "plan_id": plan_id,
-        "plan_name": f"{plan.get('name', 'Treino')} - {day_label}",
-        "status": "active",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "completed_at": None,
-        "total_duration_seconds": 0,
-        "exercises": exercises,
-        "current_exercise_idx": 0,
-        "rest_timer_seconds": rest_timer_seconds,
-        "feedback": None,
-        "day_index": day_index
-    }
-    
-    await db.workout_sessions.insert_one(session_doc)
-    session_doc.pop('_id', None)
-    
-    return session_doc
+    from workout_session_service import start_session
+    async def apply(mongo_session, balance):
+        return await start_session(db, user, body, mongo_session)
+    return await run_activity_mutation(user.user_id, request.headers.get("Idempotency-Key"), ["start_session", body], apply)
 
 
 @api_router.get("/workout-sessions/active")
@@ -5617,56 +5451,10 @@ async def update_session_exercise(request: Request, session_id: str, exercise_id
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
     body = await request.json()
-    
-    session = await db.workout_sessions.find_one({
-        "session_id": session_id, 
-        "user_id": user.user_id,
-        "status": "active"
-    }, {"_id": 0})
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Sessão não encontrada ou já finalizada")
-    
-    exercises = session.get("exercises", [])
-    if exercise_idx < 0 or exercise_idx >= len(exercises):
-        raise HTTPException(status_code=400, detail="Índice de exercício inválido")
-    
-    # Update exercise fields
-    if "completed" in body:
-        exercises[exercise_idx]["completed"] = body["completed"]
-    if "sets_completed" in body:
-        exercises[exercise_idx]["sets_completed"] = body["sets_completed"]
-    if "sets_data" in body:
-        exercises[exercise_idx]["sets_data"] = body["sets_data"]
-        # Auto-calculate sets_completed from sets_data
-        completed_sets = sum(1 for s in body["sets_data"] if s.get("completed"))
-        exercises[exercise_idx]["sets_completed"] = completed_sets
-    if "time_spent_seconds" in body:
-        exercises[exercise_idx]["time_spent_seconds"] = body["time_spent_seconds"]
-    if "weight" in body:
-        exercises[exercise_idx]["weight"] = body["weight"]
-    
-    # Handle per-set RPE updates from sets_data
-    if "sets_data" in body:
-        for sd in body["sets_data"]:
-            if "rpe" in sd:
-                # already saved via sets_data above
-                pass
-    
-    update_fields = {"exercises": exercises}
-    if "current_exercise_idx" in body:
-        update_fields["current_exercise_idx"] = body["current_exercise_idx"]
-    
-    await db.workout_sessions.update_one(
-        {"session_id": session_id},
-        {"$set": update_fields}
-    )
-    
-    session["exercises"] = exercises
-    if "current_exercise_idx" in body:
-        session["current_exercise_idx"] = body["current_exercise_idx"]
-    
-    return session
+    from workout_session_service import update_exercise
+    async def apply(mongo_session, balance):
+        return await update_exercise(db, user, body, mongo_session, session_id, exercise_idx)
+    return await run_activity_mutation(user.user_id, request.headers.get("Idempotency-Key"), ["update_exercise", session_id, exercise_idx, body], apply)
 
 
 @api_router.post("/workout-sessions/{session_id}/complete")
@@ -5676,94 +5464,10 @@ async def complete_workout_session(request: Request, session_id: str, session_to
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
     body = await request.json()
-    
-    session = await db.workout_sessions.find_one({
-        "session_id": session_id,
-        "user_id": user.user_id,
-        "status": "active"
-    }, {"_id": 0})
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Sessão não encontrada ou já finalizada")
-    
-    completed_at = datetime.now(timezone.utc).isoformat()
-    started_at = session.get("started_at", completed_at)
-    
-    # Calculate total duration
-    start_time = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
-    end_time = datetime.fromisoformat(completed_at.replace('Z', '+00:00'))
-    total_duration_seconds = int((end_time - start_time).total_seconds())
-    
-    # Count completed exercises
-    exercises = session.get("exercises", [])
-    completed_count = sum(1 for ex in exercises if ex.get("completed"))
-    total_count = len(exercises)
-    
-    # Build feedback
-    feedback = {
-        "difficulty": body.get("difficulty", 3),  # 1-5
-        "feeling": body.get("feeling", ""),  # ótimo, bom, regular, cansado, exausto
-        "notes": body.get("notes", ""),
-        "completed_exercises": completed_count,
-        "total_exercises": total_count
-    }
-    
-    # Calculate XP
-    base_xp = 10
-    exercise_bonus = completed_count * 2
-    duration_bonus = (total_duration_seconds // 900) * 5  # +5 XP every 15 min
-    xp_earned = base_xp + exercise_bonus + duration_bonus
-    
-    # Update session
-    await db.workout_sessions.update_one(
-        {"session_id": session_id},
-        {"$set": {
-            "status": "completed",
-            "completed_at": completed_at,
-            "total_duration_seconds": total_duration_seconds,
-            "feedback": feedback
-        }}
-    )
-    
-    # Also log as a workout
-    log_id = f"workout_{uuid.uuid4().hex[:12]}"
-    duration_minutes = max(1, total_duration_seconds // 60)
-    workout_doc = {
-        "log_id": log_id,
-        "user_id": user.user_id,
-        "plan_id": session.get("plan_id"),
-        "activity_type": "weightlifting",
-        "name": session.get("plan_name", "Treino"),
-        "duration_minutes": duration_minutes,
-        "calories": int(duration_minutes * 6),
-        "exercises_completed": [
-            {**ex, "completed": ex.get("completed", False)} 
-            for ex in exercises
-        ],
-        "notes": feedback.get("notes", ""),
-        "xp_earned": xp_earned,
-        "completed": True,
-        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        "session_id": session_id,
-        "created_at": completed_at
-    }
-    await db.workout_logs.insert_one(workout_doc)
-    
-    # Award XP
-    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
-    
-    return {
-        "success": True,
-        "session_id": session_id,
-        "total_duration_seconds": total_duration_seconds,
-        "total_duration_minutes": duration_minutes,
-        "completed_exercises": completed_count,
-        "total_exercises": total_count,
-        "xp_earned": xp_earned,
-        "new_xp": new_xp,
-        "new_rank": new_rank,
-        "feedback": feedback
-    }
+    from workout_session_service import complete_session
+    async def apply(mongo_session, balance):
+        return await complete_session(db, user, body, mongo_session, session_id, award_xp)
+    return await run_activity_mutation(user.user_id, request.headers.get("Idempotency-Key") or f"workout-complete-{session_id}", ["complete_session", session_id, body], apply)
 
 
 @api_router.get("/workouts/next-loads")
@@ -5914,18 +5618,11 @@ async def abandon_workout_session(request: Request, session_id: str, session_tok
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    result = await db.workout_sessions.update_one(
-        {"session_id": session_id, "user_id": user.user_id, "status": "active"},
-        {"$set": {
-            "status": "abandoned",
-            "completed_at": datetime.now(timezone.utc).isoformat()
-        }}
-    )
-    
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Sessão não encontrada")
-    
-    return {"message": "Sessão abandonada"}
+    body = {}
+    from workout_session_service import abandon_session
+    async def apply(mongo_session, balance):
+        return await abandon_session(db, user, body, mongo_session, session_id)
+    return await run_activity_mutation(user.user_id, request.headers.get("Idempotency-Key"), ["abandon_session", session_id, body], apply)
 
 
 @api_router.get("/workout-sessions")
@@ -6934,9 +6631,9 @@ class FocusSession(BaseModel):
 
 class FocusSessionCreate(BaseModel):
     notebook_id: Optional[str] = None
-    focus_minutes: int = 25
-    break_minutes: int = 5
-    notes: Optional[str] = None
+    focus_minutes: int = Field(default=25, ge=1, le=120)
+    break_minutes: int = Field(default=5, ge=1, le=30)
+    notes: Optional[str] = Field(default=None, max_length=110000)
 
 class StudyNote(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -8118,7 +7815,7 @@ async def import_edital(
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
     
-    content = await file.read()
+    content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
     
@@ -8127,7 +7824,7 @@ async def import_edital(
         if not user_api_key:
             raise HTTPException(status_code=400, detail="Configure sua chave Gemini no perfil para usar este recurso.")
         
-        pdf_text = extract_pdf_text(content) or ""
+        pdf_text = (await asyncio.to_thread(extract_pdf_text, content)) or ""
         if not pdf_text.strip():
             raise HTTPException(status_code=400, detail="Não foi possível extrair texto do PDF.")
         text_clip = edital_context(pdf_text).replace("{", "{{").replace("}", "}}")
@@ -8224,7 +7921,7 @@ TEXTO DO EDITAL:
                 "total_study_time_minutes": 0,
                 "total_questions": 0,
                 "correct_questions": 0,
-                "weight": disc.get("peso", 1),
+                "weight": disc.get("peso") or 1,
                 "peso_fonte": disc.get("peso_fonte", ""),
                 "peso_status": disc.get("peso_status", "a_conferir"),
                 "num_questoes_fonte": disc.get("num_questoes_fonte", ""),
@@ -8233,6 +7930,7 @@ TEXTO DO EDITAL:
                 "dificuldade": disc.get("dificuldade", "media"),
                 "topicos": disc.get("topicos", []),
                 "conteudo_programatico": disc.get("conteudo_programatico", []),
+                "fontes": disc.get("fontes", []),
                 "recursos_recomendados": disc.get("recursos_recomendados", ""),
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
@@ -8457,6 +8155,7 @@ async def get_edital_verticalizado(request: Request, program_id: str, session_to
             "color": nb.get("color", "#007AFF"),
             "topicos": topicos,
             "conteudo_programatico": conteudo,
+            "fontes": nb.get("fontes", []),
             "total_assuntos": assuntos_count,
             "total_subtopicos": subtopicos_count,
             "study_hours": round(nb.get("total_study_time_minutes", 0) / 60, 1),
@@ -8807,43 +8506,35 @@ async def complete_focus_session(request: Request, data: FocusSessionCreate, ses
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    # XP: 10 XP per 25 min completed
-    xp_earned = max(3, (data.focus_minutes // 25) * 5)
-    
-    focus_id = f"focus_{uuid.uuid4().hex[:12]}"
-    focus_doc = {
-        "focus_id": focus_id,
-        "user_id": user.user_id,
-        "notebook_id": data.notebook_id,
-        "focus_minutes": data.focus_minutes,
-        "break_minutes": data.break_minutes,
-        "completed": True,
-        "date": today,
-        "notes": data.notes,
-        "xp_earned": xp_earned,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.focus_sessions.insert_one(focus_doc)
-    
-    # Update notebook study time if linked
-    if data.notebook_id:
-        await db.notebooks.update_one(
-            {"notebook_id": data.notebook_id, "user_id": user.user_id},
-            {"$inc": {"total_study_time_minutes": data.focus_minutes}}
-        )
-    
-    # Award XP
-    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
-    
-    # Update study streak
-    await update_study_streak(user.user_id)
-    
-    focus_doc.pop('_id', None)
-    focus_doc["new_xp"] = new_xp
-    focus_doc["new_rank"] = new_rank
-    return focus_doc
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
+    request_key = request.headers.get("Idempotency-Key")
+    fingerprint = ["focus", data.notebook_id, data.focus_minutes, data.break_minutes, data.notes]
+
+    async def apply(session, balance):
+        if data.notebook_id and not await db.notebooks.find_one(
+            {"notebook_id": data.notebook_id, "user_id": user.user_id}, {"_id": 1}, session=session
+        ):
+            raise HTTPException(404, "Matéria não encontrada")
+        xp_earned = max(3, (data.focus_minutes // 25) * 5)
+        focus_doc = {
+            "focus_id": f"focus_{uuid.uuid4().hex[:12]}", "user_id": user.user_id,
+            "notebook_id": data.notebook_id, "focus_minutes": data.focus_minutes,
+            "break_minutes": data.break_minutes, "completed": True, "date": today,
+            "notes": data.notes, "xp_earned": xp_earned,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.focus_sessions.insert_one(focus_doc, session=session)
+        if data.notebook_id:
+            await db.notebooks.update_one(
+                {"notebook_id": data.notebook_id, "user_id": user.user_id},
+                {"$inc": {"total_study_time_minutes": data.focus_minutes}}, session=session)
+        new_xp, new_rank = await award_xp(user.user_id, xp_earned, session=session)
+        await update_study_streak(user.user_id, session=session)
+        focus_doc.pop('_id', None)
+        return {**focus_doc, "new_xp": new_xp, "new_rank": new_rank}
+
+    return await run_activity_mutation(user.user_id, request_key, fingerprint, apply)
 
 @api_router.get("/study/focus/stats")
 async def get_focus_stats(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -8851,37 +8542,24 @@ async def get_focus_stats(request: Request, session_token: Optional[str] = Cooki
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    # Today's sessions
-    today_sessions = await db.focus_sessions.find({"user_id": user.user_id, "date": today}, {"_id": 0}).to_list(100)
-    
-    # Last 7 days
-    seven_days_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-    week_sessions = await db.focus_sessions.find({
-        "user_id": user.user_id,
-        "date": {"$gte": seven_days_ago}
-    }, {"_id": 0}).to_list(500)
-    
-    # All time
-    all_sessions = await db.focus_sessions.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
-    
+    from dashboard_service import aggregate_one
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    today_str = today.strftime("%Y-%m-%d")
+    own = {"user_id": user.user_id}
+    fields = {"sessions": {"$sum": 1}, "total_minutes": {"$sum": "$focus_minutes"}, "xp_earned": {"$sum": "$xp_earned"}}
+    current, total, days = await asyncio.gather(
+        aggregate_one(db.focus_sessions, {**own, "date": today_str}, fields),
+        aggregate_one(db.focus_sessions, own, fields),
+        db.focus_sessions.aggregate([
+            {"$match": {**own, "date": {"$gte": (today - timedelta(days=6)).strftime("%Y-%m-%d"), "$lte": today_str}}},
+            {"$group": {"_id": "$date", **fields}},
+        ]).to_list(7),
+    )
     return {
-        "today": {
-            "sessions": len(today_sessions),
-            "total_minutes": sum(s.get("focus_minutes", 0) for s in today_sessions),
-            "xp_earned": sum(s.get("xp_earned", 0) for s in today_sessions)
-        },
-        "week": {
-            "sessions": len(week_sessions),
-            "total_minutes": sum(s.get("focus_minutes", 0) for s in week_sessions),
-            "daily_minutes": {s.get("date"): 0 for s in week_sessions}  # Will be enriched below
-        },
-        "all_time": {
-            "sessions": len(all_sessions),
-            "total_minutes": sum(s.get("focus_minutes", 0) for s in all_sessions),
-            "total_hours": round(sum(s.get("focus_minutes", 0) for s in all_sessions) / 60, 1)
-        }
+        "today": {"sessions": current.get("sessions", 0), "total_minutes": current.get("total_minutes", 0), "xp_earned": current.get("xp_earned", 0)},
+        "week": {"sessions": sum(d["sessions"] for d in days), "total_minutes": sum(d["total_minutes"] for d in days), "daily_minutes": {d["_id"]: d["total_minutes"] for d in days}},
+        "all_time": {"sessions": total.get("sessions", 0), "total_minutes": total.get("total_minutes", 0), "total_hours": round(total.get("total_minutes", 0) / 60, 1)},
     }
 
 # ========== AI STUDY ASSISTANT ==========
@@ -9312,12 +8990,14 @@ async def create_study_session(request: Request, session_data: StudySessionCreat
     session_doc["new_rank"] = new_rank
     return session_doc
 
-async def update_study_streak(user_id: str):
+async def update_study_streak(user_id: str, session=None):
     """Update user's study streak"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    today = now.strftime("%Y-%m-%d")
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
     
-    streak = await db.study_streaks.find_one({"user_id": user_id}, {"_id": 0})
+    streak = await db.study_streaks.find_one({"user_id": user_id}, {"_id": 0}, session=session)
     
     if not streak:
         streak_id = f"streak_{uuid.uuid4().hex[:12]}"
@@ -9330,7 +9010,7 @@ async def update_study_streak(user_id: str):
             "total_study_days": 1,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
-        await db.study_streaks.insert_one(streak)
+        await db.study_streaks.insert_one(streak, session=session)
         return
     
     last_date = streak.get("last_study_date")
@@ -9349,7 +9029,7 @@ async def update_study_streak(user_id: str):
                 "best_streak": best_streak,
                 "last_study_date": today,
                 "total_study_days": streak.get("total_study_days", 0) + 1
-            }}
+            }}, session=session
         )
     else:
         # Streak broken, start new
@@ -9359,7 +9039,7 @@ async def update_study_streak(user_id: str):
                 "current_streak": 1,
                 "last_study_date": today,
                 "total_study_days": streak.get("total_study_days", 0) + 1
-            }}
+            }}, session=session
         )
 
 @api_router.get("/study/streak")
@@ -9948,7 +9628,7 @@ async def analyze_content_pdf(
     if not gemini_client:
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
     
-    content = await file.read()
+    content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
     
@@ -11066,10 +10746,16 @@ async def analyze_edital_cargos(
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
 
+    return await process_edital_analysis(user, file, force)
+
+
+async def process_edital_analysis(user, file, force=False):
+    import hashlib
+    import re as _re
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
 
-    content = await file.read()
+    content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
 
@@ -11082,7 +10768,7 @@ async def analyze_edital_cargos(
     cached = None
     if not force:
         cached = await db.edital_analyses.find_one(
-            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 3},
+            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 4},
             {"_id": 0}
         )
     if (
@@ -11096,12 +10782,13 @@ async def analyze_edital_cargos(
             "analysis_id": new_analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
-            "analysis_version": 3,
+            "analysis_version": 4,
             "concurso": cached.get("concurso", {}),
             "multiple_cargos": cached.get("multiple_cargos", False),
             "cargos": cached.get("cargos", []),
             "pdf_filename": file.filename,
             "pdf_text": cached.get("pdf_text", ""),
+            "pdf_pages": cached.get("pdf_pages", []),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
             "from_cache": True,
@@ -11118,7 +10805,7 @@ async def analyze_edital_cargos(
         }
 
     # ---- Pré-scan do PDF para dar dicas de cargos/perfis ao modelo ----
-    pdf_text = extract_pdf_text(content) or ""
+    pdf_text = (await asyncio.to_thread(extract_pdf_text, content)) or ""
     hints: List[str] = []
     if pdf_text:
         # Captura linhas contendo palavras-chave de cargo/perfil
@@ -11344,9 +11031,12 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         from study_resources import sourced_deadlines
         if isinstance(parsed.get("concurso"), dict):
             parsed["concurso"]["prazos"] = sourced_deadlines(parsed["concurso"].get("prazos"), pdf_text)
+        from edital_sources import source_pages, locate_subject
+        pages = source_pages(pdf_text)
         for cargo in cargos_list:
             for discipline in cargo.get("disciplinas", []):
                 discipline.update(scoring_evidence(discipline, pdf_text))
+                discipline["fontes"] = locate_subject(discipline.get("nome"), pages)
 
         analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
         # (item 6) — guardamos o texto extraído do PDF para alimentar o chat sobre este edital
@@ -11355,12 +11045,13 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             "analysis_id": analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
-            "analysis_version": 3,
+            "analysis_version": 4,
             "concurso": parsed.get("concurso", {}),
             "multiple_cargos": parsed["multiple_cargos"],
             "cargos": cargos_list,
             "pdf_filename": file.filename,
-            "pdf_text": edital_context(pdf_text),  # preserve late annexes for import and repair
+            "pdf_text": edital_context(pdf_text),
+            "pdf_pages": pages,
             "created_at": datetime.now(timezone.utc).isoformat(),
             # (item 4) — expiração longa para permitir comparação futura de editais
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
@@ -11415,7 +11106,7 @@ async def list_editais(request: Request, session_token: Optional[str] = Cookie(N
 
     cursor = db.edital_analyses.find(
         {"user_id": user.user_id, "cargos": {"$exists": True, "$ne": []}},
-        {"_id": 0, "pdf_text": 0},   # pdf_text pode ser grande, não trazer aqui
+        {"_id": 0, "pdf_text": 0, "pdf_pages": 0},   # pdf_text pode ser grande, não trazer aqui
     ).sort("created_at", -1).limit(200)
     docs = await cursor.to_list(length=200)
 
@@ -11437,7 +11128,7 @@ async def get_edital_analysis(request: Request, analysis_id: str, session_token:
     """Open a saved structured edital analysis without returning its raw PDF text."""
     user = await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
     analysis = await db.edital_analyses.find_one(
-        {"analysis_id": analysis_id, "user_id": user.user_id}, {"_id": 0, "pdf_text": 0}
+        {"analysis_id": analysis_id, "user_id": user.user_id}, {"_id": 0, "pdf_text": 0, "pdf_pages": 0}
     )
     if not analysis:
         raise HTTPException(status_code=404, detail="Análise não encontrada. Reenvie o edital para analisá-lo novamente.")
@@ -11825,7 +11516,7 @@ REGRAS CRÍTICAS:
                 "total_study_time_minutes": 0,
                 "total_questions": 0,
                 "correct_questions": 0,
-                "weight": disc.get("peso", 1),
+                "weight": disc.get("peso") or 1,
                 "peso_fonte": disc.get("peso_fonte", ""),
                 "peso_status": disc.get("peso_status", "a_conferir"),
                 "num_questoes_fonte": disc.get("num_questoes_fonte", ""),
@@ -11835,6 +11526,7 @@ REGRAS CRÍTICAS:
                 "grupo": disc.get("grupo", ""),
                 "topicos": disc.get("topicos", []),
                 "conteudo_programatico": disc.get("conteudo_programatico", []),
+                "fontes": disc.get("fontes", []),
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             await db.notebooks.insert_one(nb_doc)
@@ -11947,7 +11639,7 @@ async def study_ai_chat_with_file(
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail="Tipo de arquivo não suportado. Use PDF ou imagens (JPG, PNG, GIF, WebP).")
     
-    content = await file.read()
+    content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
     
@@ -12416,7 +12108,7 @@ async def correct_essay(
     if not gemini_client:
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
     
-    content = await file.read()
+    content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
     
@@ -13437,7 +13129,7 @@ async def import_workout_plan(
     if not gemini_client:
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
 
-    content = await file.read()
+    content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
 
@@ -14184,7 +13876,8 @@ async def global_search(request: Request, q: str = "", session_token: Optional[s
     if not q or len(q) < 2:
         return {"results": []}
     
-    query_lower = q.lower()
+    import re
+    q = re.escape(q.strip()[:100])
     results = []
     
     # Search transactions
@@ -14603,6 +14296,11 @@ async def get_calendar_events(request: Request, start: str = None, end: str = No
             "ref_id": m.get("meal_id", "")
         })
     
+    dated = await db.study_dated_plans.find({"user_id": user.user_id}, {"_id": 0, "program_id": 1, "entries": 1}).to_list(500)
+    for plan in dated:
+        for entry in plan.get("entries", []):
+            if start <= entry["date"] <= end:
+                events.append({"id": entry["entry_id"], "type": "study", "date": entry["date"], "title": entry["name"] + " · " + entry["kind"], "completed": entry["completed"], "duration_minutes": entry["minutes"], "link": f"/studies?program={plan['program_id']}&view=cronograma"})
     return {"events": events, "start": start, "end": end}
 
 
@@ -15661,6 +15359,24 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
         return {"reply": f"⚠️ Erro no servidor: {str(e)[:200]}"}
 
 
+from study_workspace_routes import workspace_router
+api_router.include_router(workspace_router(db, get_current_user, run_activity_mutation))
+from edital_review_routes import review_router
+api_router.include_router(review_router(db, get_current_user))
+from edital_jobs import EditalJobs
+
+async def process_queued_edital(user_id, file, force):
+    stored_user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not stored_user:
+        raise HTTPException(404, "Usuário não encontrado")
+    return await process_edital_analysis(User(**stored_user), file, force)
+
+edital_jobs = EditalJobs(db, get_current_user, process_queued_edital, run_activity_mutation)
+api_router.include_router(edital_jobs.router)
+
+from operations import install_request_metrics, ensure_query_indexes
+install_request_metrics(app)
+
 # Include router AFTER all endpoints are defined
 app.include_router(api_router)
 
@@ -15681,6 +15397,8 @@ logger = logging.getLogger(__name__)
 @app.on_event("startup")
 async def startup_activity_storage():
     await setup_activity_collections()
+    await ensure_query_indexes(db)
+    await edital_jobs.start()
 
 
 @app.on_event("startup")
@@ -15723,4 +15441,5 @@ async def startup_setup():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    await edital_jobs.stop()
     client.close()

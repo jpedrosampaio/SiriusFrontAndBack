@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
@@ -51,7 +52,7 @@ export default function Profile() {
 
   const fetchUser = async () => {
     try {
-      const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
+      const res = await getCurrentUser();
       setUser(res.data);
       setEditForm({ name: res.data.name || '', birth_date: res.data.birth_date || '', bio: res.data.bio || '' });
     } catch (error) {
@@ -161,7 +162,7 @@ export default function Profile() {
   // Gemini API Key functions
   const fetchGeminiKeyStatus = async () => {
     try {
-      const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
+      const res = await getCurrentUser();
       setUser(res.data);
       setGeminiKeyForm(res.data.gemini_api_key || "");
     } catch (error) {
