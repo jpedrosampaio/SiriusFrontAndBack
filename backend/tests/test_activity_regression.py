@@ -42,6 +42,8 @@ def load_routes(client, db):
     ns["get_current_user"] = auth
     app = FastAPI()
     app.include_router(ns["api_router"])
+    from study_workspace_routes import workspace_router
+    app.include_router(workspace_router(db, auth, ns['run_activity_mutation']), prefix='/api')
     return ns, app
 
 
@@ -159,6 +161,22 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
         result = await dashboard_snapshot(self.db, SimpleNamespace(user_id='alice', name='Alice', xp=0, rank='Recruta', picture=None), '2026-09-14')
         self.assertEqual(result['income'], 1005)
         self.assertEqual(result['study_stats']['study_time_today_minutes'], 25)
+
+    async def test_dated_plan_preserves_done_blocks_and_rejects_overbooking(self):
+        await self.db.study_programs.insert_one({'user_id': 'alice', 'program_id': 'p', 'target_date': '2026-10-30'})
+        await self.db.notebooks.insert_one({'user_id': 'alice', 'program_id': 'p', 'notebook_id': 'nb', 'name': 'Direito', 'weight': 2})
+        url = '/api/study/programs/p/dated-plan'
+        settings = {'start_date': '2026-09-28', 'end_date': '2026-10-02', 'availability': [60, 60, 60, 60, 60, 0, 0], 'block_minutes': 60}
+        generated = await self.http.post(url, json=settings)
+        self.assertEqual(generated.status_code, 200, generated.text)
+        entries = generated.json()['entries']
+        entry = entries[0]
+        self.assertEqual((await self.http.patch(url + '/' + entry['entry_id'], json={'date': entries[1]['date']})).status_code, 422)
+        self.assertEqual((await self.http.patch(url + '/' + entry['entry_id'], json={'completed': True})).status_code, 200)
+        regenerated = await self.http.post(url, json=settings)
+        self.assertEqual(regenerated.status_code, 200, regenerated.text)
+        self.assertTrue(any(e['entry_id'] == entry['entry_id'] and e['completed'] for e in regenerated.json()['entries']))
+        self.assertEqual((await self.http.get(url, headers={'Authorization': 'Bearer bob'})).status_code, 404)
 
     async def test_repeated_task_completion_and_undo_each_apply_once(self):
         results = await asyncio.gather(*(self.task() for _ in range(20)))

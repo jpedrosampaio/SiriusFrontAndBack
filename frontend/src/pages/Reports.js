@@ -174,12 +174,12 @@ export default function Reports() {
           </div>
 
           <Card className="bg-[#0A0A0A] border-[#27272A] p-6 mb-8">
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <Sparkles className="w-8 h-8 text-[#00F0FF]" />
-              <div className="flex-1">
-                <h3 className="font-heading text-xl mb-2">GERAR NOVO RELATÓRIO</h3>
-                <div className="flex items-center space-x-4">
-                  <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full">
+                <h3 className="font-heading text-xl mb-2">Gerar novo relatório</h3>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex-1 min-w-0 w-full">
                     <Select value={reportType} onValueChange={setReportType}>
                       <SelectTrigger data-testid="report-type-select" className="bg-[#121212] border-[#27272A] text-white">
                         <SelectValue />

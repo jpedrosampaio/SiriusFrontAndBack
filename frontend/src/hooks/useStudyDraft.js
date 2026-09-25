@@ -7,6 +7,11 @@ export default function useStudyDraft({ api, userId, notebookId, topicKey }) {
   const [draft, setDraft] = useState({ key, text: readSaved(key)?.text || '' });
   const [status, setStatus] = useState('Carregando anotações…');
   const [reload, setReload] = useState(0);
+  useEffect(() => {
+    const reconnect = () => setReload(n => n + 1);
+    window.addEventListener('online', reconnect);
+    return () => window.removeEventListener('online', reconnect);
+  }, []);
   const revision = useRef(0);
   const current = useRef(key); current.current = key;
   const timer = useRef(null);

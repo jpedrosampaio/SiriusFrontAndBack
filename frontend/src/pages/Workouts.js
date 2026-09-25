@@ -866,19 +866,20 @@ export default function Workouts() {
 
   const [setInputIdx, setSetInputIdx] = useState(null); // index of exercise awaiting set weight input
   const [setInputWeight, setSetInputWeight] = useState("");
+  const [setInputReps, setSetInputReps] = useState("");
   const [setInputRpe, setSetInputRpe] = useState(""); // RPE for current set
   const setDraftKey = user && activeSession ? `sirius-workout-draft:${user.user_id}:${activeSession.session_id}` : null;
   const restoredDraftKey = useRef(null);
   useEffect(() => {
     if (!setDraftKey || restoredDraftKey.current === setDraftKey) return;
     const draft = readSaved(setDraftKey);
-    if (draft) { setSetInputIdx(draft.index); setSetInputWeight(draft.weight || ''); setSetInputRpe(draft.rpe || ''); }
+    if (draft) { setSetInputIdx(draft.index); setSetInputWeight(draft.weight || ''); setSetInputRpe(draft.rpe || ''); setSetInputReps(draft.reps || ''); }
     restoredDraftKey.current = setDraftKey;
   }, [setDraftKey]);
   useEffect(() => {
     if (!setDraftKey || restoredDraftKey.current !== setDraftKey) return;
-    if (setInputIdx !== null) writeSaved(setDraftKey, { index: setInputIdx, weight: setInputWeight, rpe: setInputRpe });
-  }, [setDraftKey, setInputIdx, setInputWeight, setInputRpe]);
+    if (setInputIdx !== null) writeSaved(setDraftKey, { index: setInputIdx, weight: setInputWeight, rpe: setInputRpe, reps: setInputReps });
+  }, [setDraftKey, setInputIdx, setInputWeight, setInputRpe, setInputReps]);
   const [nextLoads, setNextLoads] = useState(null); // suggested next weights
   const [exerciseHistory, setExerciseHistory] = useState({}); // {exerciseIdx: history}
 
@@ -887,6 +888,7 @@ export default function Workouts() {
     const ex = activeSession.exercises[idx];
     // Show weight input before completing the set
     setSetInputIdx(idx);
+    setSetInputReps(String(ex.reps || 12).match(/\d+/)?.[0] || '12');
     setSetInputWeight(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.weight || ex.weight || "" : ex.weight || "");
     setSetInputRpe(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.rpe || "" : "");
   };
@@ -895,10 +897,13 @@ export default function Workouts() {
     if (workoutBusy.current) return;
     if (!activeSession) return;
     const ex = activeSession.exercises[idx];
+    const reps = Number(setInputReps);
+    if (!Number.isInteger(reps) || reps < 1 || reps > 999) { toast.error('Informe de 1 a 999 repetições.'); return; }
+    if (setInputRpe && (!Number.isFinite(Number(setInputRpe)) || Number(setInputRpe) < 1 || Number(setInputRpe) > 10)) { toast.error('O esforço percebido deve estar entre 1 e 10.'); return; }
     const setsData = [...(ex.sets_data || [])];
     const newSet = {
       weight: setInputWeight,
-      reps: ex.reps,
+      reps,
       completed: true,
       rpe: setInputRpe || ""
     };
@@ -3211,10 +3216,10 @@ export default function Workouts() {
                               <div className="flex items-center gap-2">
                                 {/* Sets progress */}
                                 {!ex.completed && (
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex flex-wrap items-center gap-2">
                                     <span className="text-xs text-[#A1A1AA]">{setsProgress}/{ex.sets}</span>
                                     {setInputIdx === idx ? (
-                                      <div className="flex items-center gap-1">
+                                      <div className="flex flex-wrap items-center gap-2">
                                         <input
                                           type="text"
                                           aria-label="Carga da série" inputMode="decimal" value={setInputWeight}
@@ -3224,17 +3229,18 @@ export default function Workouts() {
                                           autoFocus
                                           onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
                                         />
+                                        <input type="number" min={1} max={999} inputMode="numeric" aria-label="Repetições da série" value={setInputReps} onChange={e => setSetInputReps(e.target.value)} placeholder="reps" className="w-16 h-11 px-2 text-sm bg-[#18181B] border border-slate-600 rounded text-white text-center" />
                                         <input
                                           type="text"
                                           aria-label="Esforço percebido da série (RPE)" inputMode="decimal" value={setInputRpe}
                                           onChange={(e) => setSetInputRpe(e.target.value)}
-                                          placeholder="RPE"
+                                          placeholder="RPE 1–10"
                                           className="w-16 h-11 px-2 text-sm bg-[#18181B] border border-[#A855F7] rounded text-white text-center"
                                           onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
                                         />
                                         <Button 
                                           variant="outline" size="sm"
-                                          onClick={() => confirmSet(idx)}
+                                          aria-label="Salvar série" disabled={sessionSaving} onClick={() => confirmSet(idx)}
                                           className="h-7 px-2 text-xs border-green-500 text-green-400 hover:bg-green-500 hover:text-black"
                                         >
                                           <Check className="w-3 h-3" />
@@ -3243,7 +3249,7 @@ export default function Workouts() {
                                     ) : (
                                       <Button 
                                         variant="outline" size="sm"
-                                        onClick={() => handleIncrementSets(idx)}
+                                        aria-label={`Registrar série de ${ex.name}`} disabled={sessionSaving} onClick={() => handleIncrementSets(idx)}
                                         className="h-7 px-2 text-xs border-[#00F0FF] text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black"
                                       >
                                         +1 série

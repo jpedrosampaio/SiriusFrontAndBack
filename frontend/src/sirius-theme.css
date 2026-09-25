@@ -103,6 +103,7 @@ button, a, input, select, textarea, summary { -webkit-tap-highlight-color: trans
   .sirius-dialog h2 { padding-right: 36px; }
   main input:not([type=checkbox]):not([type=radio]), main textarea, [role=dialog] input:not([type=checkbox]):not([type=radio]), [role=dialog] textarea { font-size: 16px; }
   main button, main [role=tab] { min-height: 40px; }
+  .sirius-button { max-width: 100%; white-space: normal; height: auto; min-height: 40px; text-align: center; line-height: 1.4; }
   main input[type=checkbox] { width: 18px; height: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
