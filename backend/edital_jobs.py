@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Cookie, File, HTTPException, Query, Request, UploadFile
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 from pymongo import ReturnDocument
+from gridfs.errors import NoFile
 
 
 class EditalJobs:
@@ -76,8 +77,10 @@ class EditalJobs:
                 for item in stale:
                     try:
                         await self.files.delete(item['file_id'])
-                    except Exception:
+                    except NoFile:
                         pass
+                    except Exception:
+                        continue  # Keep the reference so a transient failure can be retried.
                     await self.db.edital_jobs.update_one({'_id': item['_id']}, {'$unset': {'file_id': ''}})
                 job = await self.db.edital_jobs.find_one_and_update({'status': 'queued'}, {'$set': {'status': 'running', 'phase': 'Lendo PDF e analisando cargos e disciplinas', 'lease_until': now + timedelta(seconds=90)}}, sort=[('created_at', 1)], return_document=ReturnDocument.AFTER)
                 if job:

@@ -29,8 +29,8 @@ export default function useStudyDraft({ api, userId, notebookId, topicKey }) {
         if (current.current !== savedKey) return;
         revision.current = response.data.revision;
         const latest = readSaved(savedKey);
-        if (latestText.current === text) { writeSaved(savedKey, { text, dirty: false, revision: response.data.revision }); dirty.current = false; setStatus('Salvo na sua conta'); }
-        else { if (latest) writeSaved(savedKey, { ...latest, revision: response.data.revision }); setStatus('Salvando alterações mais recentes…'); }
+        if (latestText.current === text && (!latest || latest.text === text)) { writeSaved(savedKey, { text, dirty: false, revision: Math.max(latest?.revision || 0, response.data.revision) }); dirty.current = false; setStatus('Salvo na sua conta'); }
+        else { if (latest) writeSaved(savedKey, { ...latest, revision: Math.max(latest.revision || 0, response.data.revision) }); setStatus('Salvando alterações mais recentes…'); }
       } catch (error) {
         if (current.current !== savedKey) return;
         if (error.response?.status === 409) ready.current = false;
