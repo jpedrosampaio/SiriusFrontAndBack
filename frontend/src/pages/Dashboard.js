@@ -175,11 +175,12 @@ export default function Dashboard() {
       <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pt-[72px] md:pt-0 pb-24 md:pb-8 page-enter`}>
         <PullToRefresh onRefresh={fetchData}>
         <div className="max-w-7xl mx-auto">
-          <div className="mb-6 md:mb-8 pt-12 md:pt-0">
+          <div className="sirius-page-heading sirius-hero mb-6 md:mb-8 mt-4 md:mt-8">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
-                <h1 className="font-heading text-2xl md:text-4xl mb-2" data-testid="dashboard-title">CENTRO DE COMANDO</h1>
-                <p className="text-[#A1A1AA] text-sm md:text-base">Visão geral das operações</p>
+                <div className="sirius-eyebrow">Visão geral · seu dia no Sirius</div>
+                <h1 className="font-heading text-2xl md:text-4xl mb-2" data-testid="dashboard-title">Olá, {(user?.name || 'você').split(' ')[0]}.</h1>
+                <p className="text-[#A1A1AA] text-sm md:text-base">Um passo de cada vez. Acompanhe o que importa hoje.</p>
               </div>
               {/* Global Search */}
               <div className="relative w-full md:w-80">

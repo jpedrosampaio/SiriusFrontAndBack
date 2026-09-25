@@ -15,6 +15,10 @@ import study_resources as resources
 
 
 class PriorityTests(unittest.TestCase):
+    def test_normalized_syllabus_keeps_original_progress_keys(self):
+        result = resources.normalize_content([None, {'assunto': 'Direito', 'subtopicos': [None, 'Garantias']}], preserve_keys=True)
+        self.assertEqual(result, [{'assunto': 'Direito', 'subtopicos': ['Garantias'], 'topic_key': '1', 'subtopic_keys': ['1_1']}])
+
     def test_deadlines_require_both_a_real_excerpt_and_the_literal_date(self):
         valid = {'label': 'Inscrições', 'data': '20/10/2026', 'fonte': 'Inscrições até 20/10/2026'}
         self.assertEqual(resources.sourced_deadlines([valid, dict(valid, data='21/10/2026'), dict(valid, fonte='invented'), None], 'Inscrições até 20/10/2026'), [valid])

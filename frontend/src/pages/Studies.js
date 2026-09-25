@@ -1356,10 +1356,11 @@ export default function Studies() {
       <Sidebar user={user} />
       <main className="flex-1 md:ml-64 p-3 md:p-6 pb-24 md:pb-8 pt-[72px] md:pt-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-3">
+        <div className="sirius-page-heading sirius-hero flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-heading text-[#00F0FF]">Área de Estudos</h1>
-            <p className="text-[#A1A1AA] text-sm">Organize, estude e evolua com inteligência</p>
+            <div className="sirius-eyebrow">Aprendizado com direção</div>
+            <h1 className="text-2xl md:text-3xl font-heading mb-2">Seu espaço de estudos.</h1>
+            <p className="text-[#A1A1AA] text-sm">Do edital à próxima sessão, cada assunto no seu lugar.</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <ExportButtons module="study" />

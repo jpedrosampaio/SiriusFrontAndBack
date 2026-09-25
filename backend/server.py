@@ -8434,7 +8434,7 @@ async def get_edital_verticalizado(request: Request, program_id: str, session_to
     progress_by_notebook = {doc["notebook_id"]: doc.get("topics", {}) for doc in progress_documents}
     
     for nb in notebooks:
-        conteudo = normalize_content(nb.get("conteudo_programatico"), nb.get("topicos", []))
+        conteudo = normalize_content(nb.get("conteudo_programatico"), nb.get("topicos", []), preserve_keys=True)
         topicos = nb.get("topicos", [])
         
         # Count total assuntos

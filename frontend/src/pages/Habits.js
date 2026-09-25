@@ -222,7 +222,7 @@ export default function Habits() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 md:mb-8 md:pt-0 gap-3">
             <div>
-              <h1 className="font-heading text-3xl md:text-4xl mb-1 md:mb-2" data-testid="habits-title">HÁBITOS</h1>
+              <h1 className="font-heading text-3xl md:text-4xl mb-1 md:mb-2" data-testid="habits-title">Hábitos e constância</h1>
               <p className="text-[#A1A1AA] text-sm">Construa sequências inquebráveis</p>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-3">

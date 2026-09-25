@@ -10,6 +10,7 @@ test('nested topic keys preserve existing progress indexes, including malformed 
     ['1', 'Constituição', 0], ['1_0', 'Direitos', 1], ['1_2', 'Garantias', 1], ['2', 'Legislação', 0],
   ]);
   assert.equal(topicRows({ topicos: ['Revisão'] })[0].key, '0');
+  assert.deepEqual(topicRows({ conteudo_programatico: [{ assunto: 'Direito', subtopicos: ['Garantias'], topic_key: '1', subtopic_keys: ['1_1'] }] }).map(t => t.key), ['1', '1_1']);
   assert.equal(topicRows({ conteudo_programatico: [{ assunto: 'Direito', subtopicos: 'Princípios' }] })[1].title, 'Princípios');
   assert.deepEqual(topicRows({ conteudo_programatico: 'invalid', topicos: null }), []);
 });

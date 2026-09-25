@@ -55,6 +55,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ACTIVITY_TEST_MONGO_URI: mongodb://localhost:27017/?replicaSet=rs0
+      # The test deliberately launches 20 concurrent writers. Motor's CPU-based
+      # default on small runners can fill its pool with writes waiting on a
+      # transaction, leaving no worker for that transaction to finish.
+      MOTOR_MAX_WORKERS: '100'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

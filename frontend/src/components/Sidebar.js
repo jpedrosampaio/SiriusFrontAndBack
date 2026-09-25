@@ -2,7 +2,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Home, CheckSquare, TrendingUp, DollarSign, Target, MessageSquare, FileText, User, LogOut, Menu, X, Dumbbell, Bell, Apple, BookOpen, Trophy, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useState, useEffect, memo } from "react";
+import { Fragment, useState, useEffect, memo } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { clearToken } from "@/lib/api";
@@ -126,18 +126,18 @@ function Sidebar({ user }) {
   };
 
   const menuItems = [
-    { icon: Home, label: "Dashboard", path: "/dashboard" },
+    { icon: Home, label: "Visão geral", path: "/dashboard", group: "Meu dia" },
     { icon: CheckSquare, label: "Tarefas", path: "/tasks" },
     { icon: TrendingUp, label: "Hábitos", path: "/habits" },
-    { icon: Dumbbell, label: "Treinos", path: "/workouts" },
+    { icon: Calendar, label: "Calendário", path: "/calendar" },
+    { icon: Dumbbell, label: "Treinos", path: "/workouts", group: "Desenvolvimento" },
     { icon: Apple, label: "Alimentação", path: "/nutrition" },
     { icon: BookOpen, label: "Estudos", path: "/studies" },
     { icon: DollarSign, label: "Finanças", path: "/finance" },
     { icon: Target, label: "Metas", path: "/goals" },
-    { icon: MessageSquare, label: "Assistente", path: "/chat" },
+    { icon: MessageSquare, label: "Assistente", path: "/chat", group: "Meu espaço" },
     { icon: Bell, label: "Notificações", path: "/notifications" },
     { icon: Trophy, label: "Conquistas", path: "/achievements" },
-    { icon: Calendar, label: "Calendário", path: "/calendar" },
     { icon: FileText, label: "Relatórios", path: "/reports" },
     { icon: User, label: "Perfil", path: "/profile" }
   ];
@@ -150,23 +150,25 @@ function Sidebar({ user }) {
   return (
     <>
       {/* Sidebar - desktop only, no mobile hamburger needed (MobileNav handles it) */}
-      <div className={`bg-[#0A0A0A] border-r border-[#27272A] flex flex-col h-screen fixed left-0 top-0 z-40 hidden md:flex transition-all duration-300 ${
+      <div data-collapsed={collapsed} className={`sirius-sidebar border-r flex flex-col h-screen fixed left-0 top-0 z-40 hidden md:flex transition-all duration-300 ${
         collapsed ? 'w-16' : 'w-64'
       }`}>
-        <div className="p-4 border-b border-[#27272A] flex items-center justify-between">
+        <div className="px-4 py-5 flex items-center justify-between">
           {collapsed ? (
             <SiriusLogo size="w-8 h-8" />
           ) : (
-            <div className="flex items-center space-x-3 mb-2">
-              <SiriusLogo />
+            <div className="flex items-center space-x-2">
+              <SiriusLogo size="w-10 h-10" />
               <div>
-                <span className="font-heading text-2xl bg-gradient-to-r from-[#00F0FF] to-[#007AFF] bg-clip-text text-transparent">SIRIUS</span>
-                <p className="text-[8px] text-[#52525B] uppercase tracking-widest">Discipline System</p>
+                <span className="text-xl font-semibold tracking-[0.12em] text-white">SIRIUS</span>
+                <p className="text-[10px] text-[#A1A1AA]">Seu espaço para evoluir</p>
               </div>
             </div>
           )}
           <button
             onClick={toggleCollapse}
+            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+            aria-expanded={!collapsed}
             className="p-1 rounded-lg hover:bg-[#121212] text-[#52525B] hover:text-white transition-colors"
           >
             <Menu className="w-4 h-4" />
@@ -174,9 +176,9 @@ function Sidebar({ user }) {
         </div>
         
         {!collapsed && user && (
-          <div className="px-4 pb-4 border-b border-[#27272A]">
+          <div className="mx-3 p-3 rounded-xl bg-[#121212] border border-[#27272A]">
             <div className="flex items-center space-x-3">
-              <Avatar className="w-10 h-10 border-2 border-[#007AFF]">
+              <Avatar className="w-9 h-9 border border-[#27272A]">
                 <AvatarImage src={user.picture} />
                 <AvatarFallback className="bg-[#007AFF] text-white font-heading text-sm">
                   {(user.name || 'U').charAt(0).toUpperCase()}
@@ -185,7 +187,7 @@ function Sidebar({ user }) {
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate text-sm">{user.name || 'Usuário'}</p>
                 <div className="flex items-center space-x-2">
-                  <span className="rank-badge bg-[#007AFF] text-white px-1.5 py-0.5 rounded-sm text-[10px]">
+                  <span className="text-blue-200 text-[10px]">
                     {user.rank || 'Recruta'}
                   </span>
                   <span className="font-data text-xs text-[#A1A1AA]">{user.xp ?? 0} XP</span>
@@ -195,24 +197,24 @@ function Sidebar({ user }) {
           </div>
         )}
 
-        <nav className="flex-1 overflow-y-auto py-4">
+        <nav aria-label="Menu principal" className="flex-1 overflow-y-auto px-3 py-3">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
             return (
+              <Fragment key={item.path}>
+              {item.group && !collapsed && <p className="sirius-nav-group">{item.group}</p>}
               <button
-                key={item.path}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={item.label}
+                title={collapsed ? item.label : undefined}
                 onClick={() => handleNavigate(item.path)}
-                className={`w-full flex items-center ${collapsed ? 'justify-center px-2' : 'space-x-3 px-6'} py-3 transition-colors relative ${
-                  isActive
-                    ? "bg-[#007AFF]/10 text-[#007AFF]"
-                    : "text-[#A1A1AA] hover:bg-[#121212] hover:text-white"
-                }`}
+                className={`sirius-nav-item w-full flex items-center ${collapsed ? 'justify-center px-1' : 'space-x-3 px-3'} py-2 transition-colors relative`}
               >
-                {isActive && !collapsed && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-[#007AFF] rounded-r" />}
                 <Icon className={`${collapsed ? 'w-5 h-5' : 'w-5 h-5'} flex-shrink-0`} />
-                {!collapsed && <span className="uppercase text-xs tracking-wider font-medium">{item.label}</span>}
+                {!collapsed && <span className="text-[13px] font-medium">{item.label}</span>}
               </button>
+              </Fragment>
             );
           })}
         </nav>

@@ -496,8 +496,9 @@ export default function Nutrition() {
             <h1 className="text-3xl font-heading text-[#00F0FF]">Alimentação</h1>
             <p className="text-[#A1A1AA]">Controle sua nutrição e alcance seus objetivos</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3 max-w-full">
             <ExportButtons module="nutrition" />
+            <div className="flex items-center gap-2">
             <Button variant="outline" size="icon" onClick={() => changeDate(-1)}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
@@ -510,6 +511,7 @@ export default function Nutrition() {
             <Button variant="outline" size="icon" onClick={() => changeDate(1)}>
               <ChevronRight className="w-4 h-4" />
             </Button>
+            </div>
           </div>
         </div>
 

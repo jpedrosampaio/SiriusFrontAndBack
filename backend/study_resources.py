@@ -17,11 +17,11 @@ def positive_number(value):
         return None
 
 
-def normalize_content(content, topics=()):
+def normalize_content(content, topics=(), preserve_keys=False):
     if isinstance(content, str):
         content = [content]
     result = []
-    for item in content or topics or []:
+    for index, item in enumerate(content or topics or []):
         if isinstance(item, str):
             item = {"assunto": item}
         if not isinstance(item, dict) or not isinstance(item.get("assunto"), str):
@@ -29,7 +29,13 @@ def normalize_content(content, topics=()):
         subs = item.get("subtopicos") or []
         if isinstance(subs, str):
             subs = [subs]
-        result.append({"assunto": item["assunto"], "subtopicos": [s for s in subs if isinstance(s, str)]})
+        if not isinstance(subs, list):
+            subs = []
+        row = {"assunto": item["assunto"], "subtopicos": [s for s in subs if isinstance(s, str)]}
+        if preserve_keys:
+            row["topic_key"] = str(index)
+            row["subtopic_keys"] = [f"{index}_{i}" for i, sub in enumerate(subs) if isinstance(sub, str)]
+        result.append(row)
     return result
 
 

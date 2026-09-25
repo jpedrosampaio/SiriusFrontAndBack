@@ -10,7 +10,8 @@ export function topicRows(discipline) {
     const parent = typeof item === 'string' ? item : item?.assunto;
     if (typeof parent !== 'string' || !parent.trim()) return [];
     const subtopics = item && Array.isArray(item.subtopicos) ? item.subtopicos : typeof item?.subtopicos === 'string' ? [item.subtopicos] : [];
-    return [{ key: String(index), title: parent, depth: 0 }, ...subtopics.map((title, subindex) => ({ key: `${index}_${subindex}`, title, depth: 1, parent })).filter(row => typeof row.title === 'string' && row.title.trim())];
+    const key = item?.topic_key ?? String(index);
+    return [{ key, title: parent, depth: 0 }, ...subtopics.map((title, subindex) => ({ key: item?.subtopic_keys?.[subindex] ?? `${key}_${subindex}`, title, depth: 1, parent })).filter(row => typeof row.title === 'string' && row.title.trim())];
   });
 }
 

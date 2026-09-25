@@ -537,7 +537,7 @@ export default function Finance() {
           <div className="mb-8">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
-                <h1 className="font-heading text-3xl md:text-4xl mb-2">FINANÇAS</h1>
+                <h1 className="font-heading text-3xl md:text-4xl mb-2">Suas finanças</h1>
                 <p className="text-[#A1A1AA]">Controle total do seu dinheiro</p>
               </div>
               <ExportButtons module="finance" />

@@ -1,7 +1,7 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { Home, CheckSquare, TrendingUp, DollarSign, MessageSquare, MoreHorizontal } from "lucide-react";
 import { useState, useEffect, memo } from "react";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Target, Dumbbell, Apple, BookOpen, Bell, FileText, User, LogOut, Clock, Trophy, Calendar, Award } from "lucide-react";
 import axios from "axios";
 import { toast } from "sonner";
@@ -72,11 +72,11 @@ function MobileNav({ user }) {
   return (
     <>
       {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 bg-[#0A0A0A]/95 backdrop-blur-lg border-b border-[#1A1A1A] z-50 safe-area-inset-top">
+      <div className="sirius-mobile-bar md:hidden fixed top-0 left-0 right-0 border-b z-50 safe-area-inset-top">
         <div className="flex items-center justify-between px-4 h-14">
           <div className="flex items-center space-x-2">
             <SiriusLogo size="w-7 h-7" />
-            <span className="font-heading text-base bg-gradient-to-r from-[#00F0FF] to-[#007AFF] bg-clip-text text-transparent">SIRIUS</span>
+            <span className="font-semibold tracking-[0.12em] text-base text-white">SIRIUS</span>
           </div>
           {user && (
             <div className="flex items-center space-x-2">
@@ -91,7 +91,7 @@ function MobileNav({ user }) {
       </div>
 
       {/* Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A]/95 backdrop-blur-lg border-t border-[#1A1A1A] z-50 safe-area-inset-bottom">
+      <nav aria-label="Navegação principal" className="sirius-mobile-bar md:hidden fixed bottom-0 left-0 right-0 border-t z-50 safe-area-inset-bottom">
         <div className="flex items-center justify-around h-[60px] px-1">
           {mainItems.map((item) => {
             const Icon = item.icon;
@@ -99,6 +99,7 @@ function MobileNav({ user }) {
             return (
               <button
                 key={item.path}
+                aria-current={isActive ? "page" : undefined}
                 onClick={() => navigate(item.path)}
                 className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all duration-200 min-w-[56px] tab-bounce ${
                   isActive
@@ -129,6 +130,8 @@ function MobileNav({ user }) {
               </button>
             </SheetTrigger>
             <SheetContent side="bottom" className="bg-[#0A0A0A] border-t border-[#1A1A1A] rounded-t-3xl px-4 pb-8 sheet-content">
+              <SheetTitle className="sr-only">Todos os módulos</SheetTitle>
+              <SheetDescription className="sr-only">Escolha o espaço que deseja abrir no Sirius.</SheetDescription>
               <div className="w-10 h-1 bg-[#27272A] rounded-full mx-auto mb-5" />
               
               {/* User info */}

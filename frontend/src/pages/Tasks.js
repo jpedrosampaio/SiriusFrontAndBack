@@ -245,7 +245,7 @@ export default function Tasks() {
           {/* Header */}
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 md:mb-8 gap-4">
             <div>
-              <h1 className="font-heading text-2xl md:text-4xl mb-1 md:mb-2" data-testid="tasks-title">TAREFAS</h1>
+              <h1 className="font-heading text-2xl md:text-4xl mb-1 md:mb-2" data-testid="tasks-title">Suas tarefas</h1>
               <p className="text-[#A1A1AA] text-sm md:text-base">
                 Execute com precisão · <span className="font-data text-white">{totalDone}/{totalTasks}</span> concluídas
               </p>

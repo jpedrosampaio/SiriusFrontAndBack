@@ -14,7 +14,7 @@ import StudyLessons from '@/components/StudyLessons';
 import PomodoroTimer from '@/components/PomodoroTimer';
 
 const labels = { edital: 'Edital analisado', verticalizado: 'Edital verticalizado', cronograma: 'Cronograma', estudar: 'Estudar' };
-const box = 'rounded-2xl border border-[#27272A] bg-[#101014] p-5 md:p-6';
+const box = 'sirius-study-panel rounded-2xl border border-[#27272A] bg-[#101014] p-5 md:p-6';
 const muted = 'text-sm text-[#A1A1AA]';
 
 export function EditalOverview({ concurso = {}, cargo = {}, filename, targetDate }) {
@@ -107,12 +107,12 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
     <main className="flex-1 min-w-0 md:ml-64 px-4 md:px-8 pt-[84px] md:pt-8 pb-24">
       <div className="max-w-6xl mx-auto space-y-6">
         <Button variant="ghost" onClick={onBack} className="-ml-3 text-[#A1A1AA]"><ArrowLeft className="h-4 w-4 mr-2" />Meus estudos</Button>
-        <header className="space-y-3">
+        <header className="sirius-page-heading sirius-hero space-y-3">
           <span className="inline-flex rounded-full border border-purple-500/30 px-3 py-1 text-xs text-purple-300">Plano de estudos</span>
           <h1 className="text-2xl md:text-3xl font-semibold leading-tight">{program?.name || 'Carregando plano…'}</h1>
-          {program && <p className={muted}>{edital.concurso?.banca || 'Banca não informada'} · {disciplines.length} disciplinas · {studiedTopics}/{totalTopics} assuntos estudados</p>}
+          {program && <><p className={muted}>{edital.concurso?.banca || 'Banca não informada'} · {disciplines.length} disciplinas · {studiedTopics}/{totalTopics} assuntos estudados</p><div className="max-w-md pt-2"><div className="h-1.5 rounded-full bg-slate-700 overflow-hidden" role="progressbar" aria-label="Assuntos estudados" aria-valuenow={studiedTopics} aria-valuemin={0} aria-valuemax={Math.max(1, totalTopics)}><div className="h-full bg-blue-300 rounded-full transition-all" style={{ width: `${totalTopics ? studiedTopics / totalTopics * 100 : 0}%` }} /></div></div></>}
         </header>
-        <nav aria-label="Organização do plano" className="flex gap-1 overflow-x-auto border-b border-[#27272A]">{STUDY_VIEWS.map(name => <button key={name} aria-current={view === name ? 'page' : undefined} onClick={() => navigate(name)} className={`shrink-0 px-4 py-3 text-sm border-b-2 ${view === name ? 'border-purple-400 text-purple-300' : 'border-transparent text-[#A1A1AA] hover:text-white'}`}>{labels[name]}</button>)}</nav>
+        <nav aria-label="Organização do plano" className="sirius-study-nav flex overflow-x-auto">{STUDY_VIEWS.map((name, index) => <button key={name} aria-current={view === name ? 'page' : undefined} onClick={() => navigate(name)} className="shrink-0 text-sm text-[#A1A1AA] hover:text-white"><span className="mr-2 opacity-60 text-xs">0{index + 1}</span>{labels[name]}</button>)}</nav>
         {error ? <section className={box} role="alert"><p>{error}</p><Button onClick={load} className="mt-4">Tentar novamente</Button></section> : !data ? <div role="status" className="py-20 flex justify-center"><Loader2 className="animate-spin" /></div> : <>
           {view === 'edital' && <div className="space-y-6">
             <EditalOverview concurso={edital.concurso} cargo={edital.cargo_selecionado} filename={edital.pdf_filename} targetDate={program.target_date} />
@@ -125,7 +125,7 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
             {!filteredDisciplines.length && <p className={muted}>Nenhuma disciplina ou assunto encontrado.</p>}
             {filteredDisciplines.map(d => {
               const rows = topicRows(d), done = rows.filter(t => progress[d.notebook_id]?.[t.key]?.studied).length;
-              return <details key={d.notebook_id} open={search ? true : undefined} className="rounded-2xl border border-[#27272A] bg-[#101014] overflow-hidden">
+              return <details key={d.notebook_id} open={search ? true : undefined} className="sirius-study-panel rounded-2xl border border-[#27272A] bg-[#101014] overflow-hidden">
                 <summary className="cursor-pointer p-5"><span className="font-medium">{d.nome}</span><span className="block sm:inline sm:ml-4 mt-2 sm:mt-0 text-xs text-[#A1A1AA]">Peso {d.peso} · {d.num_questoes ? `${d.num_questoes} questões · ` : ''}{done}/{rows.length} estudados</span><span className="block mt-2 text-xs text-purple-300">Prioridade {d.prioridade}{d.prioridade_provisoria ? ' · provisória' : ''}</span></summary>
                 <div className="border-t border-[#27272A] p-4 md:p-5 space-y-3">
                   <p className="text-xs text-[#71717A]">Prioridade da disciplina calculada por {d.prioridade_base}. {d.peso_fonte && `Fonte do peso: ${d.peso_fonte}`}</p>
