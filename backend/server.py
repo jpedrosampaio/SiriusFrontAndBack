@@ -1199,6 +1199,10 @@ async def run_activity_mutation(user_id, request_key, fingerprint, apply):
         )
         if balance is None:
             raise HTTPException(status_code=404, detail="User not found")
+        # This transaction already owns the user write lock and an authoritative
+        # snapshot. Avoid another read queued behind non-transactional XP writers.
+        # with_transaction retries reset this cache from the new snapshot.
+        session._sirius_xp_balances = {user_id: balance.get('xp', 0)}
         if receipt_id is not None:
             previous = await db.activity_requests.find_one({"_id": receipt_id}, session=session)
             if previous is not None:
@@ -2750,6 +2754,14 @@ def calculate_rank(xp: int) -> str:
 async def award_xp(user_id: str, amount: int, session=None):
     """Apply an XP delta using compare-and-set, keeping XP and rank together."""
     session_options = {"session": session} if session is not None else {}
+    balances = getattr(session, '_sirius_xp_balances', {}) if session is not None else {}
+    if user_id in balances:
+        new_xp = max(0, balances[user_id] + amount)
+        new_rank = calculate_rank(new_xp)
+        result = await db.users.update_one({'user_id': user_id}, {'$set': {'xp': new_xp, 'rank': new_rank}}, session=session)
+        if not result.matched_count: raise HTTPException(404, 'User not found')
+        balances[user_id] = new_xp
+        return new_xp, new_rank
     for _ in range(100):
         user_doc = await db.users.find_one({"user_id": user_id}, {"xp": 1}, **session_options)
         if user_doc is None:

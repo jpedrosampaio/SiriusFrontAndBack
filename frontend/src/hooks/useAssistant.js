@@ -32,12 +32,15 @@ export function useAssistant(page, enabled = true) {
     if (!enabled) return;
     refresh();
     window.addEventListener('sirius-conversation-updated', refresh);
-    const reset = () => { generation.current += 1; aborter.current?.abort(); setMessages([]); setConversations([]); pending.current = null; sessionStorage.removeItem('sirius-conversation'); setConversationId('primary'); };
+    return () => { generation.current += 1; aborter.current?.abort(); window.removeEventListener('sirius-conversation-updated', refresh); };
+  }, [enabled, refresh]);
+  useEffect(() => {
+    const reset = () => { generation.current += 1; aborter.current?.abort(); window.speechSynthesis?.cancel(); setMessages([]); setConversations([]); pending.current = null; sessionStorage.removeItem('sirius-conversation'); setConversationId('primary'); };
     window.addEventListener('sirius-auth-changed', reset);
     const storageReset = event => { if (!event.key || event.key === 'sirius_session_token') reset(); };
     window.addEventListener('storage', storageReset);
-    return () => { generation.current += 1; aborter.current?.abort(); window.removeEventListener('sirius-conversation-updated', refresh); window.removeEventListener('sirius-auth-changed', reset); window.removeEventListener('storage', storageReset); };
-  }, [enabled, refresh]);
+    return () => { window.removeEventListener('sirius-auth-changed', reset); window.removeEventListener('storage', storageReset); };
+  }, []);
   const send = useCallback(async text => {
     if (busy.current || !text.trim()) return false;
     busy.current = true;

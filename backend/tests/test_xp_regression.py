@@ -23,6 +23,16 @@ def load_xp(db):
 
 
 class XPRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_locked_transaction_uses_its_snapshot_and_updates_cache(self):
+        users = SimpleNamespace(find_one=AsyncMock(), update_one=AsyncMock(return_value=SimpleNamespace(matched_count=1)))
+        session = SimpleNamespace(_sirius_xp_balances={'alice': 198})
+        ns = load_xp(SimpleNamespace(users=users))
+        self.assertEqual(await ns['award_xp']('alice', 8, session), (206, 'Soldado'))
+        self.assertEqual(await ns['award_xp']('alice', -3, session), (203, 'Soldado'))
+        self.assertEqual(session._sirius_xp_balances['alice'], 203)
+        users.find_one.assert_not_awaited()
+        self.assertIs(users.update_one.call_args.kwargs['session'], session)
+
     async def test_retries_stale_balance_and_returns_applied_rank(self):
         users = SimpleNamespace(
             find_one=AsyncMock(side_effect=[{"xp": 190}, {"xp": 198}]),

@@ -34,6 +34,7 @@ function ActionCard({ action }) {
   const [status, setStatus] = useState(action.status);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => setStatus(action.status), [action.status]);
   const expired = new Date(action.expires_at).getTime() <= Date.now();
   const apply = async operation => {
     setBusy(true); setError('');
