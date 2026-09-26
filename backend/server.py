@@ -1154,6 +1154,12 @@ async def get_topic_progress(request: Request, notebook_id: str, session_token: 
     return progress_doc or {"topics": {}}
 
 async def setup_activity_collections():
+    # All activity/XP writers locate the locked user by user_id. A collection
+    # scan under mixed transactional/non-transactional contention is avoidable.
+    try:
+        await db.users.create_index('user_id')
+    except OperationFailure as exc:
+        if exc.code not in (85, 86): raise  # Keep an existing equivalent unique index.
     # Creating namespaces inside concurrent transactions can conflict or block.
     # Prepare them before serving requests; multiple workers may start together.
     for name in ("ai_events", "task_instances", "activity_requests", "focus_sessions", "study_streaks", "study_dated_plans", "study_topic_reviews", "question_logs", "edital_jobs", "workout_sessions", "workout_logs"):
