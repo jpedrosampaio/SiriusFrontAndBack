@@ -69,31 +69,18 @@ def extract_pdf_text(content: bytes) -> str:
 # ==================== FUZZY DEDUP DE CARGOS ====================
 
 def _normalize_cargo_name(name: str) -> str:
-    """Normalize a cargo name for fuzzy comparison:
-    - lowercase
-    - strip accents
-    - remove common noise words (junior, senior, pleno, i, ii, iii, etc.)
-    - collapse whitespace/punctuation
-    """
+    """Normalize typography only; role qualifiers are part of its identity."""
     import unicodedata, re as _re
-    if not name:
-        return ""
-    s = unicodedata.normalize("NFD", name).encode("ascii", "ignore").decode("ascii").lower()
-    # remove punctuation
-    s = _re.sub(r"[^a-z0-9\s]", " ", s)
-    # remove noise
-    NOISE = {"junior", "jr", "senior", "sr", "pleno", "i", "ii", "iii", "iv",
-             "a", "de", "do", "da", "das", "dos", "e", "para", "com"}
-    tokens = [t for t in s.split() if t and t not in NOISE]
-    return " ".join(tokens).strip()
+    value = unicodedata.normalize("NFD", name or "").encode("ascii", "ignore").decode("ascii").lower()
+    return " ".join(_re.sub(r"[^a-z0-9\s]", " ", value).split())
 
 
 def dedup_cargos_fuzzy(cargos: List[dict], threshold: float = 0.90) -> List[dict]:
-    """Merge cargos whose normalized names have SequenceMatcher.ratio >= threshold.
-    When merging, we keep the FIRST cargo's fields and merge disciplinas by name (union).
-    Returns the deduped list AND logs the merges.
+    """Union only identical role identities. Threshold retained for call compatibility.
+
+    Similarity is not evidence that two official positions are interchangeable.
+    Missing versus explicit qualifiers are deliberately kept separate.
     """
-    from difflib import SequenceMatcher
     if not cargos:
         return cargos
     out: List[dict] = []
@@ -108,7 +95,9 @@ def dedup_cargos_fuzzy(cargos: List[dict], threshold: float = 0.90) -> List[dict
         for i, existing in enumerate(norms):
             if not existing:
                 continue
-            if existing == cnorm or SequenceMatcher(None, existing, cnorm).ratio() >= threshold:
+            identity_fields = ("codigo", "codigo_cargo", "especialidade", "area", "nivel")
+            same_identity = all(_normalize_cargo_name(str(out[i].get(key) or "")) == _normalize_cargo_name(str(c.get(key) or "")) for key in identity_fields)
+            if existing == cnorm and same_identity:
                 matched_idx = i; break
         if matched_idx == -1:
             out.append(c); norms.append(cnorm)
@@ -1625,19 +1614,16 @@ async def get_tasks(request: Request, date: Optional[str] = None, recurrence: Op
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not date:
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
-    query = {"user_id": user.user_id, "is_template": True}
-    if recurrence:
-        query["recurrence"] = recurrence
-    all_tasks = await db.tasks.find(query, {"_id": 0}).to_list(1000)
+    from task_recurrence import tasks_on_date
+    from zoneinfo import ZoneInfo
+    date = validate_activity_date(date or datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d"))
+    all_tasks = await tasks_on_date(db, user.user_id, date, recurrence)
     task_ids = [task["task_id"] for task in all_tasks]
     instances = []
     if task_ids:
         instances = await db.task_instances.find({
             "user_id": user.user_id, "date": date, "task_id": {"$in": task_ids}
-        }, {"_id": 0}).to_list(1000)
+        }, {"_id": 0}).to_list(None)
     instances_by_task = {}
     for instance in instances:
         previous = instances_by_task.get(instance["task_id"])
@@ -1672,6 +1658,9 @@ async def create_task(request: Request, task_data: TaskCreate, session_token: Op
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
+    validate_activity_date(task_data.date)
+    if task_data.recurrence not in ("once", "daily", "weekly", "monthly"):
+        raise HTTPException(422, "Recorr?ncia inv?lida")
     task_id = f"task_{uuid.uuid4().hex[:12]}"
     task_doc = {
         "task_id": task_id,
@@ -1681,6 +1670,7 @@ async def create_task(request: Request, task_data: TaskCreate, session_token: Op
         "priority": task_data.priority,
         "xp_reward": 5 if task_data.priority == "low" else 10 if task_data.priority == "medium" else 15,
         "recurrence": task_data.recurrence,
+        "date": task_data.date,
         "is_template": True,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -2901,41 +2891,21 @@ async def get_reports(request: Request, type: Optional[str] = None, session_toke
     return reports
 
 @api_router.post("/reports/generate")
-async def generate_report(request: Request, report_type: str, period: str, session_token: Optional[str] = Cookie(None)):
+async def generate_report(request: Request, report_type: str, period: str, start: Optional[str] = None, end: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    tasks = await db.tasks.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    task_instances = await db.task_instances.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    transactions = await db.transactions.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    goals = await db.goals.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    
-    # Count completed task instances
-    completed_task_instances = len([t for t in task_instances if t.get('completed', False)])
-    
-    data = {
-        "tasks": len(tasks),
-        "tasks_completed": completed_task_instances,
-        "habits": len(habits),
-        "total_habits_completions": sum([len(h['completions']) for h in habits]),
-        "income": sum([t['amount'] for t in transactions if t['type'] == 'income']),
-        "expenses": sum([t['amount'] for t in transactions if t['type'] == 'expense']),
-        "goals": len(goals),
-        "goals_progress": sum([g['progress'] for g in goals]) / len(goals) if goals else 0
-    }
-    
+    from report_metrics import report_window, period_metrics
+    from zoneinfo import ZoneInfo
     try:
-        prompt = f"""Você é um analista de produtividade e finanças. Gere um relatório {report_type} para o período {period} baseado nos seguintes dados:
+        first, last = report_window(report_type, datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat(), start, end)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    data = await period_metrics(db, user.user_id, first, last)
+    period = f"{first} a {last}"
+    try:
+        prompt = f"Interprete em portugu?s estas m?tricas j? calculadas do relat?rio {report_type}, per?odo {period}. N?o invente totais nem tend?ncias sem compara??o. Respeite as defini??es dos campos, diferencie aus?ncia de registros de aus?ncia de atividade. Dados: {json.dumps(data, ensure_ascii=False)}"
 
-Tarefas: {data['tasks']} total, {data['tasks_completed']} concluídas
-Hábitos: {data['habits']} total, {data['total_habits_completions']} completações
-Receitas: R$ {data['income']:.2f}
-Despesas: R$ {data['expenses']:.2f}
-Metas: {data['goals']} total, {data['goals_progress']:.1f}% progresso médio
-
-Forneça insights, padrões identificados e sugestões de otimização em português."""
-        
         # Use Emergent LLM API
         insights = await call_llm(prompt, f"report_{user.user_id}", user_id=user.user_id)
         
@@ -14182,10 +14152,15 @@ async def get_calendar_events(request: Request, start: str = None, end: str = No
         next_month = today.replace(day=28) + timedelta(days=4)
         end = next_month.replace(day=1).strftime("%Y-%m-%d")
     
+    from task_recurrence import expand_task_dates
+    try:
+        expand_task_dates({}, start, end)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     events = []
     
     # Tasks
-    task_templates = await db.tasks.find({"user_id": user.user_id, "is_template": True}, {"_id": 0}).to_list(500)
+    task_templates = await db.tasks.find({"user_id": user.user_id, "is_template": True}, {"_id": 0}).to_list(None)
     task_instances = await db.task_instances.find({
         "user_id": user.user_id,
         "date": {"$gte": start, "$lte": end}
@@ -14196,40 +14171,15 @@ async def get_calendar_events(request: Request, start: str = None, end: str = No
         key = f"{inst['task_id']}_{inst['date']}"
         instance_map[key] = inst
     
+    from task_recurrence import expand_task_dates
     for t in task_templates:
-        rec = t.get("recurrence", "once")
-        if rec == "daily":
-            d = datetime.strptime(start, "%Y-%m-%d")
-            end_d = datetime.strptime(end, "%Y-%m-%d")
-            while d <= end_d:
-                ds = d.strftime("%Y-%m-%d")
-                inst = instance_map.get(f"{t['task_id']}_{ds}")
-                events.append({
-                    "id": f"task_{t['task_id']}_{ds}",
-                    "title": t["title"],
-                    "date": ds,
-                    "type": "task",
-                    "color": "#007AFF",
-                    "completed": inst.get("completed", False) if inst else False,
-                    "priority": t.get("priority", "medium"),
-                    "ref_id": t["task_id"]
-                })
-                d += timedelta(days=1)
-        elif rec == "once":
-            created = t.get("created_at", "")[:10]
-            if start <= created <= end:
-                inst = instance_map.get(f"{t['task_id']}_{created}")
-                events.append({
-                    "id": f"task_{t['task_id']}",
-                    "title": t["title"],
-                    "date": created,
-                    "type": "task",
-                    "color": "#007AFF",
-                    "completed": inst.get("completed", False) if inst else False,
-                    "priority": t.get("priority", "medium"),
-                    "ref_id": t["task_id"]
-                })
-    
+        for ds in expand_task_dates(t, start, end):
+            inst = instance_map.get(f"{t['task_id']}_{ds}")
+            events.append({"id": f"task_{t['task_id']}_{ds}", "title": t["title"],
+                           "date": ds, "type": "task", "color": "#007AFF",
+                           "completed": bool(inst and inst.get("completed")),
+                           "priority": t.get("priority", "medium"), "ref_id": t["task_id"]})
+
     # Habits
     habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(500)
     for h in habits:
@@ -14312,9 +14262,12 @@ async def get_cross_module_suggestions(request: Request, session_token: Optional
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    suggestions = []
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
+    from dashboard_service import dashboard_snapshot
+    from cross_module_rules import suggestions_from_snapshot
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat()
+    return {"suggestions": suggestions_from_snapshot(await dashboard_snapshot(db, user, today))}
+
 
 # ===== EXPORT ENDPOINTS =====
 from io import BytesIO

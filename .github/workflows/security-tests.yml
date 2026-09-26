@@ -49,6 +49,7 @@ jobs:
       - name: XP tests against disposable MongoDB
         run: |
           python -m unittest discover -s backend/tests -p test_xp_regression.py -v
+          python -m unittest discover -s backend/tests -p test_metrics_regression.py -v
           python -m unittest discover -s backend/tests -p test_activity_regression.py -v
 
   activity-transactions:
