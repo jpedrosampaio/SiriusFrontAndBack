@@ -12,7 +12,7 @@ test('route and page share one request; a late response cannot repopulate cache 
     axios: { get() { return new Promise(resolve => pending.push(resolve)); }, interceptors: { request: { use() {} }, response: { use() {} } } },
     process: { env: {} }, OFFLINE_MODE: false, OFFLINE_USER: {}, OFFLINE_DEMO_DATA: {}, getApiErrorMessage() {},
     localStorage: { getItem: key => storage.get(key), setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) },
-    window: { addEventListener() {} },
+    window: { addEventListener() {}, dispatchEvent() {} }, Event,
   });
   vm.runInContext(source, context);
   const route = vm.runInContext('getCurrentUser()', context);

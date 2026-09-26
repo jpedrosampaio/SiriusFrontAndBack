@@ -59,3 +59,20 @@ class MetricsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot['goals_avg_progress'], 50)
         self.assertEqual(snapshot['tasks_today'], 1)
         self.assertEqual(snapshot['tasks_completed_today'], 1)
+
+    async def test_conversation_ownership_replay_and_bounded_context(self):
+        from assistant_service import Conversations
+        from unittest.mock import AsyncMock
+        llm = AsyncMock(return_value='Resposta')
+        service = Conversations(self.db, llm)
+        body = SimpleNamespace(conversation_id='primary', request_id='request-001', message='Lembre de português')
+        first = await service.send('alice', body, 'system')
+        replay = await service.send('alice', body, 'system')
+        self.assertEqual(first, replay)
+        self.assertEqual(llm.await_count, 1)
+        self.assertEqual((await service.read('bob'))['messages'], [])
+        body.request_id = 'request-002'
+        body.message = 'Qual matéria eu mencionei?'
+        await service.send('alice', body, 'system')
+        self.assertIn('Lembre de português', llm.call_args.args[0])
+        self.assertEqual(len((await service.read('alice'))['messages']), 4)

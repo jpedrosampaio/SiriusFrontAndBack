@@ -36,10 +36,12 @@ export const getToken = () => {
 };
 export const setToken = (token) => {
   invalidateUser();
+  window.dispatchEvent(new Event('sirius-auth-changed'));
   if (!OFFLINE_MODE) localStorage.setItem(TOKEN_KEY, token);
 };
 export const clearToken = () => {
   invalidateUser();
+  window.dispatchEvent(new Event('sirius-auth-changed'));
   if (!OFFLINE_MODE) localStorage.removeItem(TOKEN_KEY);
 };
 
