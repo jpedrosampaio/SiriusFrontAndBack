@@ -1,3 +1,4 @@
+import WorkoutComparison from '@/components/WorkoutComparison';
 import { lazy, Suspense } from 'react';
 import { readSaved, writeSaved } from "@/lib/session-storage";
 import { createActivityRequests } from "@/lib/activity-requests";
@@ -2728,7 +2729,8 @@ export default function Workouts() {
                                   </div>
                                 )}
                                 
-                                {/* Previous workout comparison */}
+                                {exerciseHistory[idx]?.length > 0 && <WorkoutComparison current={ex} previous={exerciseHistory[idx][0]} />}
+                            {/* Previous workout comparison */}
                                 {!ex.completed && (
                                   <Button 
                                     variant="ghost" size="sm" 
@@ -2774,6 +2776,7 @@ export default function Workouts() {
                               </div>
                             )}
 
+                            {exerciseHistory[idx]?.length > 0 && <WorkoutComparison current={ex} previous={exerciseHistory[idx][0]} />}
                             {/* Previous workout comparison */}
                             {exerciseHistory[idx] && exerciseHistory[idx].length > 0 && (
                               <div className="mt-2 ml-11 bg-[#00F0FF]/5 border border-[#00F0FF]/20 rounded p-2">
@@ -2781,12 +2784,12 @@ export default function Workouts() {
                                   <TrendingUp className="w-3 h-3" /> Último treino
                                 </p>
                                 {exerciseHistory[idx].slice(0, 3).map((h, hi) => (
-                                  <div key={hi} className="text-[10px] text-[#A1A1AA] flex items-center gap-2">
+                                  <div key={hi} className="text-[10px] text-[#A1A1AA] flex flex-wrap items-center gap-2">
                                     <span>{h.date?.slice(5)}</span>
                                     {h.sets_data?.length > 0 ? (
                                       h.sets_data.map((sd, si) => (
                                         <span key={si} className="text-[#71717A]">
-                                          {sd.weight}kg{sd.rpe ? ` @${sd.rpe}` : ""}
+                                          {sd.weight}kg × {sd.reps || "—"} rep{sd.rpe ? ` @${sd.rpe}` : ""}
                                         </span>
                                       ))
                                     ) : (

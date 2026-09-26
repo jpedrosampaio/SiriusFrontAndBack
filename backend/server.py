@@ -5164,6 +5164,7 @@ async def get_next_workout_loads(request: Request, plan_id: Optional[str] = None
 @api_router.get("/workouts/exercise-history")
 async def get_exercise_history(request: Request, exercise_name: str, session_token: Optional[str] = Cookie(None)):
     """Get the last 5 workout logs containing a specific exercise."""
+    import re
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
@@ -5174,13 +5175,13 @@ async def get_exercise_history(request: Request, exercise_name: str, session_tok
     logs = await db.workout_logs.find({
         "user_id": user.user_id,
         "completed": True,
-        "exercises_completed": {"$elemMatch": {"name": {"$regex": exercise_name, "$options": "i"}}}
+        "exercises_completed": {"$elemMatch": {"name": {"$regex": "^" + re.escape(exercise_name.strip()) + "$", "$options": "i"}}}
     }, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
     
     history = []
     for log in logs:
         for ex in log.get("exercises_completed", []):
-            if exercise_name.lower() in ex.get("name", "").lower():
+            if exercise_name.strip().casefold() == ex.get("name", "").strip().casefold():
                 history.append({
                     "date": log.get("date", ""),
                     "log_name": log.get("name", ""),
