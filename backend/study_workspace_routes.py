@@ -8,6 +8,9 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from datetime import date as CalendarDate, timedelta
 from study_planner import build_plan
+from study_adaptation import adapt_notebooks, next_review
+from zoneinfo import ZoneInfo
+import uuid
 
 
 class DraftUpdate(BaseModel):
@@ -20,6 +23,13 @@ class PlanSettings(BaseModel):
     end_date: CalendarDate
     availability: list[int] = Field(min_length=7, max_length=7)
     block_minutes: int = Field(default=50, ge=15, le=120)
+    adaptive: bool = False
+
+
+class TopicPractice(BaseModel):
+    topic_key: str = Field(pattern=r'^\d+(?:_\d+)?$')
+    total: int = Field(ge=1, le=1000)
+    correct: int = Field(ge=0, le=1000)
 
 
 class PlanEntryUpdate(BaseModel):
@@ -38,6 +48,44 @@ def workspace_router(db, authenticate, mutate):
 
     def key(user_id, notebook_id, topic_key):
         return hashlib.sha256(f'{user_id}:{notebook_id}:{topic_key}'.encode()).hexdigest()
+
+    @router.get('/notebooks/{notebook_id}/reviews')
+    async def reviews(request: Request, notebook_id: str, session_token: Optional[str] = Cookie(None)):
+        user_id = await owner(request, session_token, notebook_id)
+        return await db.study_topic_reviews.find({'user_id': user_id, 'notebook_id': notebook_id}, {'_id': 0}).sort('due_date', 1).to_list(1000)
+
+    @router.post('/notebooks/{notebook_id}/practice')
+    async def practice(request: Request, notebook_id: str, body: TopicPractice, session_token: Optional[str] = Cookie(None)):
+        user_id = await owner(request, session_token, notebook_id)
+        if body.correct > body.total:
+            raise HTTPException(422, 'Acertos não podem superar o total.')
+        if not request.headers.get('Idempotency-Key'):
+            raise HTTPException(422, 'Idempotency-Key obrigatório.')
+        today = datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()
+        async def apply(session, balance):
+            notebook = await db.notebooks.find_one({'user_id': user_id, 'notebook_id': notebook_id}, session=session)
+            topics = notebook.get('conteudo_programatico') or notebook.get('topicos') or []
+            indexes = [int(value) for value in body.topic_key.split('_')]
+            if indexes[0] >= len(topics):
+                raise HTTPException(422, 'Assunto não encontrado no conteúdo da disciplina.')
+            topic = topics[indexes[0]]
+            title = topic.get('assunto', '') if isinstance(topic, dict) else str(topic)
+            if len(indexes) == 2:
+                children = topic.get('subtopicos', []) if isinstance(topic, dict) else []
+                if not isinstance(children, list) or indexes[1] >= len(children):
+                    raise HTTPException(422, 'Subtópico não encontrado.')
+                title = children[indexes[1]]
+            values = {'user_id': user_id, 'notebook_id': notebook_id, 'program_id': notebook.get('program_id'),
+                      'topic_key': body.topic_key, 'title': title, 'total': body.total, 'correct': body.correct,
+                      'incorrect': body.total - body.correct, 'date': today, 'source': 'topic_practice',
+                      'created_at': datetime.now(timezone.utc).isoformat()}
+            await db.question_logs.insert_one({**values, 'log_id': 'qlog_' + uuid.uuid4().hex}, session=session)
+            review = {**values, 'due_date': next_review(today, body.total, body.correct),
+                      'accuracy': round(body.correct / body.total * 100, 1)}
+            await db.study_topic_reviews.replace_one({'_id': key(user_id, notebook_id, body.topic_key)}, review, upsert=True, session=session)
+            await db.notebooks.update_one({'user_id': user_id, 'notebook_id': notebook_id}, {'$inc': {'total_questions': body.total, 'correct_questions': body.correct}}, session=session)
+            return review
+        return await mutate(user_id, request.headers.get('Idempotency-Key'), ['topic-practice', notebook_id, body.model_dump()], apply)
 
     @router.get('/notebooks/{notebook_id}/learning-summary')
     async def learning_summary(request: Request, notebook_id: str, session_token: Optional[str] = Cookie(None)):
@@ -112,6 +160,13 @@ def workspace_router(db, authenticate, mutate):
                 raise HTTPException(422, 'Adicione disciplinas antes de planejar.')
             previous = await db.study_dated_plans.find_one({'_id': f'{user_id}:{program_id}'}, session=session) or {}
             completed = [e for e in previous.get('entries', []) if e.get('completed')]
+            if body.adaptive:
+                rows = await db.question_logs.aggregate([
+                    {'$match': {'user_id': user_id, 'program_id': program_id}},
+                    {'$group': {'_id': '$notebook_id', 'total': {'$sum': '$total'}, 'correct': {'$sum': '$correct'}}}
+                ], session=session).to_list(None)
+                overdue = {e.get('notebook_id') for e in previous.get('entries', []) if not e.get('completed') and e['date'] < body.start_date.isoformat()}
+                notebooks = adapt_notebooks(notebooks, {r['_id']: r for r in rows}, overdue)
             entries = build_plan(program_id, notebooks, body.availability, body.start_date.isoformat(), body.end_date.isoformat(), body.block_minutes, completed)
             result = {**own, 'settings': settings, 'entries': entries, 'updated_at': datetime.now(timezone.utc).isoformat()}
             await db.study_dated_plans.replace_one({'_id': f'{user_id}:{program_id}'}, result, upsert=True, session=session)

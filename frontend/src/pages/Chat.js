@@ -1,3 +1,4 @@
+import { useAssistant } from '@/hooks/useAssistant';
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
@@ -6,10 +7,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageSquare, Send, User, Bot, Loader2, Sparkles, ChefHat, Dumbbell, BookOpen, DollarSign, Save } from "lucide-react";
+import { Send, User, Bot, Loader2, Sparkles, ChefHat, Dumbbell, BookOpen, DollarSign, Save } from "lucide-react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
-import { ChatSkeleton } from "@/components/SkeletonLoader";
-import { motion, AnimatePresence } from "framer-motion";
+
+import { motion } from "framer-motion";
 import axios from "axios";
 import { toast } from "sonner";
 
@@ -18,20 +19,24 @@ const API = `${BACKEND_URL}/api`;
 
 export default function Chat() {
   const [user, setUser] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const { messages, sending: loading, error, send, refresh } = useAssistant('/chat');
   const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [archive, setArchive] = useState(null);
+  const [archiveCursor, setArchiveCursor] = useState(null);
+  const loadArchive = async () => {
+    try {
+      const { data } = await axios.get(`${API}/chat/general/archive`, { params: { before: archiveCursor } });
+      setArchive(previous => [...(previous || []), ...data.messages]); setArchiveCursor(data.next_cursor);
+    } catch (err) { toast.error('Não foi possível carregar o histórico antigo.'); }
+  };
+
   const scrollRef = useRef(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [userRes, msgsRes] = await Promise.all([
-          getCurrentUser(),
-          axios.get(`${API}/chat/general/messages`, { withCredentials: true })
-        ]);
+        const userRes = await getCurrentUser();
         setUser(userRes.data);
-        setMessages(Array.isArray(msgsRes.data) ? msgsRes.data : []);
       } catch (e) { console.error(e); }
     };
     load();
@@ -45,27 +50,7 @@ export default function Chat() {
     e.preventDefault();
     if (!content.trim()) return;
 
-    setLoading(true);
-    const userMsg = { message_id: `temp_${Date.now()}`, role: "user", content, created_at: new Date().toISOString() };
-    setMessages(prev => [...prev, userMsg]);
-    const text = content;
-    setContent("");
-
-    try {
-      const res = await axios.post(`${API}/chat/general`, { content: text }, { withCredentials: true });
-      const { user_message, ai_message, saved_item } = res.data;
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.message_id !== userMsg.message_id);
-        return [...filtered, user_message, ai_message];
-      });
-      if (saved_item) {
-        const typeLabels = { recipe: "Receita", workout: "Treino", study: "Cronograma" };
-        toast.success(`${typeLabels[saved_item.type] || 'Item'} "${saved_item.name}" salvo automaticamente! ✨`);
-      }
-    } catch (err) {
-      toast.error("Erro ao enviar mensagem");
-      setMessages(prev => prev.filter(m => m.message_id !== userMsg.message_id));
-    } finally { setLoading(false); }
+    if (await send(content.trim())) setContent("");
   };
 
   const intentIcons = { recipe: ChefHat, workout: Dumbbell, study: BookOpen, finance: DollarSign };
@@ -77,11 +62,17 @@ export default function Chat() {
       <div className="flex-1 ml-0 md:ml-64 flex flex-col h-screen">
         <div className="p-4 md:p-6 border-b border-[#27272A] pt-[72px] md:pt-6">
           <h1 className="font-heading text-xl md:text-3xl mb-1">Converse com o Sirius</h1>
-          <p className="text-xs md:text-sm text-[#A1A1AA]">Chat integrado: finanças, estudos, treinos, receitas e mais. Peça algo e ele salva no app!</p>
+          <p className="text-xs md:text-sm text-[#A1A1AA]">A mesma conversa do assistente flutuante. Revise as sugestões antes de aplicá-las nos módulos.</p>
         </div>
 
+        {error && <div role="alert" className="px-4 text-amber-300">{error} <button className="underline" onClick={refresh}>Recarregar</button></div>}
         <div ref={scrollRef} className="flex-1 p-4 md:p-6 overflow-y-auto pb-36 md:pb-28">
           <div className="max-w-4xl mx-auto space-y-4">
+            <details className="text-sm text-zinc-400"><summary>Histórico anterior à conversa unificada</summary>
+              <p className="my-2">Arquivo somente para consulta; não é enviado inteiro à IA.</p>
+              {archive?.map(message => <p key={message.message_id} className="p-2 whitespace-pre-wrap break-words">{message.role}: {message.content}</p>)}
+              {(archive === null || archiveCursor) && <Button variant="outline" onClick={loadArchive}>Carregar mensagens antigas</Button>}
+            </details>
             {messages.length === 0 ? (
               <Card className="bg-[#0A0A0A] border-[#27272A] p-6 md:p-8 text-center">
                 <Sparkles className="w-10 h-10 md:w-12 md:h-12 text-[#00F0FF] mx-auto mb-4" />

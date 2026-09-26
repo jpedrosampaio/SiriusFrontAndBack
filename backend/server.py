@@ -27,10 +27,6 @@ import asyncio
 import requests
 import httpx
 import secrets
-try:
-    from google.genai import types
-except ImportError:
-    types = None
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -43,7 +39,6 @@ GOOGLE_GEMINI_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY', '')
 
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_FALLBACK_MODEL = "gemini-flash-latest"
-gemini_client = None
 
 FREETTS_URL = os.environ.get('FREETTS_URL', 'https://api.freetts.org')
 FREE_TTS_VOICE = os.environ.get('FREE_TTS_VOICE', 'pt-BR-FranciscaNeural')
@@ -69,31 +64,18 @@ def extract_pdf_text(content: bytes) -> str:
 # ==================== FUZZY DEDUP DE CARGOS ====================
 
 def _normalize_cargo_name(name: str) -> str:
-    """Normalize a cargo name for fuzzy comparison:
-    - lowercase
-    - strip accents
-    - remove common noise words (junior, senior, pleno, i, ii, iii, etc.)
-    - collapse whitespace/punctuation
-    """
+    """Normalize typography only; role qualifiers are part of its identity."""
     import unicodedata, re as _re
-    if not name:
-        return ""
-    s = unicodedata.normalize("NFD", name).encode("ascii", "ignore").decode("ascii").lower()
-    # remove punctuation
-    s = _re.sub(r"[^a-z0-9\s]", " ", s)
-    # remove noise
-    NOISE = {"junior", "jr", "senior", "sr", "pleno", "i", "ii", "iii", "iv",
-             "a", "de", "do", "da", "das", "dos", "e", "para", "com"}
-    tokens = [t for t in s.split() if t and t not in NOISE]
-    return " ".join(tokens).strip()
+    value = unicodedata.normalize("NFD", name or "").encode("ascii", "ignore").decode("ascii").lower()
+    return " ".join(_re.sub(r"[^a-z0-9\s]", " ", value).split())
 
 
 def dedup_cargos_fuzzy(cargos: List[dict], threshold: float = 0.90) -> List[dict]:
-    """Merge cargos whose normalized names have SequenceMatcher.ratio >= threshold.
-    When merging, we keep the FIRST cargo's fields and merge disciplinas by name (union).
-    Returns the deduped list AND logs the merges.
+    """Union only identical role identities. Threshold retained for call compatibility.
+
+    Similarity is not evidence that two official positions are interchangeable.
+    Missing versus explicit qualifiers are deliberately kept separate.
     """
-    from difflib import SequenceMatcher
     if not cargos:
         return cargos
     out: List[dict] = []
@@ -108,7 +90,9 @@ def dedup_cargos_fuzzy(cargos: List[dict], threshold: float = 0.90) -> List[dict
         for i, existing in enumerate(norms):
             if not existing:
                 continue
-            if existing == cnorm or SequenceMatcher(None, existing, cnorm).ratio() >= threshold:
+            identity_fields = ("codigo", "codigo_cargo", "especialidade", "area", "nivel")
+            same_identity = all(_normalize_cargo_name(str(out[i].get(key) or "")) == _normalize_cargo_name(str(c.get(key) or "")) for key in identity_fields)
+            if existing == cnorm and same_identity:
                 matched_idx = i; break
         if matched_idx == -1:
             out.append(c); norms.append(cnorm)
@@ -280,286 +264,61 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
         return "⚠️ Sua chave de API Gemini é inválida. Verifique em https://makersuite.google.com/app/apikey"
     return "⚠️ Erro ao contactar API Gemini. Verifique se sua chave é válida em https://makersuite.google.com/app/apikey"
 
-async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None, user_id: Optional[str] = None, response_schema: Optional[dict] = None) -> tuple[Optional[str], Optional[str]]:
-    """Call Gemini API, returns (response_text, error_type).
-    error_type: None on success, 'quota' on 429, 'invalid' on 400/401/403, 'other' otherwise.
-    If `user_id` is provided, successful calls are counted in `db.gemini_usage` for quota tracking.
-    If `response_schema` is provided, uses Structured Output (responseMimeType=application/json)."""
-    from urllib.parse import quote
-    models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
-    if GEMINI_MODEL not in models_to_try:
-        models_to_try.insert(0, GEMINI_MODEL)
-    
-    def _build_payload(model: str, include_schema: bool) -> dict:
-        p: dict = {"contents": [{"parts": [{"text": prompt}]}]}
-        if system_message:
-            p["systemInstruction"] = {"parts": [{"text": system_message}]}
-        if include_schema and response_schema is not None:
-            p["generationConfig"] = {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseSchema": response_schema,
-            }
-        return p
 
-    last_error = None
-    for model in models_to_try:
-        timeout = timeout_override or (90 if "2.5" in model else 30)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
-        
-        for attempt in range(2):
-            include_schema = (attempt == 0 and response_schema is not None)
-            try:
-                payload = _build_payload(model, include_schema)
-                resp = await asyncio.to_thread(requests.post, url, json=payload, timeout=timeout)
-                logging.info(f"Gemini call (model={model} schema={include_schema} timeout={timeout}s): status={resp.status_code}")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                    if text:
-                        if user_id:
-                            await track_gemini_usage(user_id, model, usage=data.get("usageMetadata"))
-                        return text, None
-                    logging.warning(f"Gemini 200 OK but no text in response (model={model})")
-                else:
-                    logging.error(f"Gemini API error (model={model}): {resp.status_code} - {resp.text[:500]}")
-                if resp.status_code in (400, 401, 403) and include_schema:
-                    logging.warning(f"Gemini {model} rejeitou schema — tentando sem schema")
-                    continue
-                if resp.status_code in (400, 401, 403):
-                    return None, "invalid"
-                if resp.status_code == 429:
-                    last_error = "quota"
-                    break
-                last_error = "other"
-                break
-            except Exception as e:
-                logging.error(f"Gemini error (model={model}): {e}")
-                last_error = "other"
-                break
-    return None, last_error
+def gemini_inline_part(data, mime_type):
+    return {"inlineData": {"mimeType": mime_type, "data": base64.b64encode(data).decode('ascii')}}
+
+
+def gemini_file_part(file_uri, mime_type):
+    return {"fileData": {"mimeType": mime_type, "fileUri": file_uri}}
+
+
+async def upload_gemini_path(path, user_id):
+    from gemini_service import upload_to_gemini as upload
+    from types import SimpleNamespace
+    import mimetypes
+    key = await get_user_api_key(user_id)
+    if not key:
+        raise HTTPException(400, 'Configure sua chave Gemini no perfil.')
+    if Path(path).stat().st_size > 25 * 1024 * 1024:
+        raise HTTPException(413, 'Arquivo excede 25 MB.')
+    content = await asyncio.to_thread(Path(path).read_bytes)
+    uri = await upload(content, key, mimetypes.guess_type(str(path))[0] or 'application/octet-stream')
+    if not uri:
+        raise HTTPException(502, 'Não foi possível processar o arquivo na IA.')
+    return SimpleNamespace(uri=uri)
+
+
+async def request_gemini(*, model, contents, config, user_id):
+    from gemini_service import call_gemini as generate
+    from types import SimpleNamespace
+    key = await get_user_api_key(user_id)
+    if not key:
+        raise HTTPException(400, 'Configure sua chave Gemini no perfil.')
+    config = dict(config or {})
+    system = config.pop('system_instruction', '')
+    schema = config.pop('response_schema', None)
+    fields = {'response_mime_type': 'responseMimeType', 'max_output_tokens': 'maxOutputTokens',
+              'temperature': 'temperature', 'top_p': 'topP', 'top_k': 'topK'}
+    options = {fields[k]: v for k, v in config.items() if k in fields}
+    parts = [{'text': item} if isinstance(item, str) else item for item in (contents if isinstance(contents, list) else [contents])]
+    text, error = await generate('', system, key, user_id=user_id, response_schema=schema,
+                                 usage_callback=track_gemini_usage, parts=parts, config_options=options)
+    if not text:
+        raise HTTPException(429 if error == 'quota' else 502, 'A IA não respondeu. Confira sua chave e tente novamente.')
+    return SimpleNamespace(text=text)
+
+async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None, user_id: Optional[str] = None, response_schema: Optional[dict] = None) -> tuple[Optional[str], Optional[str]]:
+    from gemini_service import call_gemini as generate
+    return await generate(prompt, system_message, api_key, timeout_override, user_id, response_schema, usage_callback=track_gemini_usage)
 
 async def upload_to_gemini(pdf_content: bytes, api_key: str) -> Optional[str]:
-    """Upload a PDF to Gemini's file API using multipart/form-data (like curl -F) and return the file URI."""
-    import uuid
-    from urllib.parse import quote
-    upload_url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={quote(api_key)}"
-    
-    boundary = f"---{uuid.uuid4().hex}"
-    
-    metadata = b'{"file":{"display_name":"edital.pdf"}}'
-    
-    parts = []
-    parts.append(f"--{boundary}\r\n".encode())
-    parts.append(b'Content-Disposition: form-data; name="metadata"\r\n')
-    parts.append(b'Content-Type: application/json; charset=UTF-8\r\n\r\n')
-    parts.append(metadata)
-    parts.append(b'\r\n')
-    parts.append(f"--{boundary}\r\n".encode())
-    parts.append(b'Content-Disposition: form-data; name="media"; filename="edital.pdf"\r\n')
-    parts.append(b'Content-Type: application/pdf\r\n\r\n')
-    parts.append(pdf_content)
-    parts.append(b'\r\n')
-    parts.append(f"--{boundary}--\r\n".encode())
-    
-    body = b"".join(parts)
-    
-    try:
-        resp = await asyncio.to_thread(requests.post, 
-            upload_url,
-            data=body,
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-            timeout=120
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            file_uri = data.get("file", {}).get("uri")
-            file_name = data.get("file", {}).get("name", "")
-            file_state = data.get("file", {}).get("state", "PROCESSING")
-            logging.info(f"Gemini file upload success: {file_uri} (state={file_state})")
-            
-            # Poll until file is ACTIVE
-            file_get_url = f"https://generativelanguage.googleapis.com/v1beta/{file_name}?key={quote(api_key)}"
-            for attempt in range(10):
-                if file_state == "ACTIVE":
-                    break
-                await asyncio.sleep(2)
-                try:
-                    sr = await asyncio.to_thread(requests.get, file_get_url, timeout=15)
-                    if sr.status_code == 200:
-                        file_state = sr.json().get("file", {}).get("state", "PROCESSING")
-                        logging.info(f"Gemini file poll attempt {attempt+1}: state={file_state}")
-                except Exception:
-                    pass
-            
-            if file_state != "ACTIVE":
-                logging.error(f"Gemini file never became ACTIVE, final state: {file_state}")
-                return None
-            
-            return file_uri
-        logging.error(f"Gemini file upload failed: {resp.status_code} - {resp.text[:2000]}")
-    except Exception as e:
-        logging.error(f"Gemini file upload error: {e}")
-    return None
+    from gemini_service import upload_to_gemini as generate
+    return await generate(pdf_content, api_key)
 
 async def call_gemini_with_pdf(pdf_content: bytes, prompt_text: str, system_message: str, api_key: str, timeout: int = 120, response_schema: Optional[dict] = None, user_id: Optional[str] = None, inline_max_bytes: int = 15 * 1024 * 1024) -> tuple[Optional[str], Optional[str]]:
-    """Upload a PDF and call Gemini with the file. Returns (response_text, error_type).
-    Tries current free-tier models in order (2.5-flash preferred; 2.5-flash-lite has largest daily free quota).
-    When `response_schema` is passed, Gemini is forced to return JSON matching that schema (Structured Output).
-    If `user_id` is provided, successful calls are counted in `db.gemini_usage`.
-
-    Performance: for PDFs ≤ `inline_max_bytes` (default 15 MB) we send the PDF INLINE (base64)
-    in a single request, avoiding the separate `/upload/v1beta/files` roundtrip (economiza ~5–25 s
-    dependendo do tamanho e latência de rede). Above the threshold we fall back to the Files API.
-    """
-    import base64
-    from urllib.parse import quote
-
-    inline_ok = len(pdf_content) <= inline_max_bytes
-    file_uri: Optional[str] = None
-    if not inline_ok:
-        file_uri = await upload_to_gemini(pdf_content, api_key)
-        if not file_uri:
-            return None, "other"
-
-    # Build the PDF part once
-    if inline_ok:
-        pdf_part = {"inlineData": {"mimeType": "application/pdf", "data": base64.b64encode(pdf_content).decode("ascii")}}
-        logging.info(f"Gemini PDF: sending INLINE ({len(pdf_content)/1024:.0f} KB) — sem upload API")
-    else:
-        pdf_part = {"fileData": {"mimeType": "application/pdf", "fileUri": file_uri}}
-        logging.info(f"Gemini PDF: sending via FILE URI ({len(pdf_content)/1024/1024:.1f} MB)")
-
-    # gemini-1.5-flash was retired by Google and now returns 404.
-    # gemini-2.0-flash / 2.0-flash-lite often hit 429 (very low free-tier daily quota).
-    # We prefer 2.5-flash (best quality) and the "latest" aliases which Google keeps updated
-    # (gemini-flash-lite-latest has the highest free-tier daily quota).
-    #
-    # IMPORTANTE: `thinkingConfig` só é aceito por modelos da família 2.5 (gemini-2.5-flash,
-    # gemini-2.5-pro). Enviar esse campo para `flash-latest`/`flash-lite-latest` retorna
-    # 400 INVALID_ARGUMENT. Por isso montamos o payload por modelo.
-    models_to_try = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
-
-    def _build_payload(model: str, include_schema: bool, include_thinking: bool) -> Dict[str, Any]:
-        gc: Dict[str, Any] = {
-            "temperature": 0,
-            "maxOutputTokens": 65536,
-        }
-        if include_thinking and model.startswith("gemini-2.5"):
-            # thinkingBudget=0 desliga o "thinking" no 2.5-flash → ~3-5x mais rápido
-            gc["thinkingConfig"] = {"thinkingBudget": 0}
-        if include_schema and response_schema is not None:
-            gc["responseMimeType"] = "application/json"
-            gc["responseSchema"] = response_schema
-        p: Dict[str, Any] = {
-            "contents": [{"parts": [{"text": prompt_text}, pdf_part]}],
-            "generationConfig": gc,
-        }
-        if system_message:
-            p["systemInstruction"] = {"parts": [{"text": system_message}]}
-        return p
-
-    def _extract_text_and_finish(resp_json: dict) -> tuple[str, str, int]:
-        candidate = (resp_json.get("candidates") or [{}])[0]
-        finish = candidate.get("finishReason", "?")
-        parts = ((candidate.get("content") or {}).get("parts") or [])
-        text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
-        return text, finish, len(parts)
-
-    for i, model in enumerate(models_to_try):
-        # Timeouts agressivos por modelo: 2.5-flash falha rápido, flash-latest muitas vezes
-        # demora além do normal para PDFs grandes, flash-lite-latest ganha tempo extra.
-        if "2.5" in model:
-            model_timeout = min(timeout, 30)
-        elif "flash-latest" in model and "lite" not in model:
-            model_timeout = min(timeout, 30)
-        else:
-            model_timeout = timeout
-        # Cada modelo tem até 2 tentativas: (1) payload completo; (2) sem schema/thinking se der 400.
-        for attempt in range(2):
-            include_schema = (attempt == 0)
-            include_thinking = (attempt == 0)
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={quote(api_key)}"
-                payload = _build_payload(model, include_schema, include_thinking)
-                resp = await asyncio.to_thread(requests.post, url, json=payload, timeout=model_timeout)
-                logging.info(
-                    f"Gemini PDF call (model={model}, attempt={attempt+1}, schema={include_schema}, "
-                    f"thinking={include_thinking}, timeout={model_timeout}s): status={resp.status_code}"
-                )
-
-                if resp.status_code == 200:
-                    text, finish_reason, n_parts = _extract_text_and_finish(resp.json())
-                    logging.info(f"Gemini PDF 200: model={model} finish={finish_reason} text_len={len(text)} parts={n_parts}")
-                    if finish_reason == "MAX_TOKENS":
-                        logging.warning(f"Gemini PDF response TRUNCATED (MAX_TOKENS) model={model}, trying next model...")
-                        if i == len(models_to_try) - 1:
-                            if text:
-                                if user_id: await track_gemini_usage(user_id, model, usage=resp.json().get("usageMetadata"), feature="pdf")
-                                return text, "truncated"
-                            return None, "truncated"
-                        break  # sai do loop de attempts e tenta o próximo modelo
-                    if text:
-                        if user_id: await track_gemini_usage(user_id, model, usage=resp.json().get("usageMetadata"), feature="pdf")
-                        return text, None
-                    # 200 sem texto (safety filter). Tenta próximo modelo.
-                    logging.warning(f"Gemini PDF 200 but empty text (model={model}, finish={finish_reason}). Body: {resp.text[:400]}")
-                    if i == len(models_to_try) - 1:
-                        return None, "empty"
-                    break
-
-                elif resp.status_code == 400:
-                    # INVALID_ARGUMENT — geralmente causado por campo não suportado no generationConfig
-                    # (ex: thinkingConfig em flash-latest ou responseSchema muito complexo).
-                    body = resp.text[:500]
-                    logging.warning(f"Gemini PDF 400 (model={model}, attempt={attempt+1}): {body}")
-                    if attempt == 0:
-                        # Retry sem thinkingConfig e sem responseSchema no mesmo modelo
-                        logging.info(f"Gemini PDF: retry model={model} sem thinkingConfig/responseSchema...")
-                        continue
-                    # Segunda tentativa também deu 400 → chave inválida ou modelo indisponível
-                    if i == len(models_to_try) - 1:
-                        logging.error(f"Gemini PDF: todos os modelos rejeitaram (última: {model}). Último body: {body}")
-                        return None, "invalid"
-                    break  # próximo modelo
-
-                elif resp.status_code in (401, 403):
-                    logging.error(f"Gemini PDF auth error (model={model}): {resp.status_code} - {resp.text[:300]}")
-                    return None, "invalid"
-
-                elif resp.status_code == 404:
-                    # Modelo não disponível para essa chave/região — tenta o próximo modelo
-                    logging.warning(f"Gemini PDF 404 model={model} (indisponível p/ esta chave), trying next...")
-                    if i == len(models_to_try) - 1:
-                        return None, "invalid"
-                    break
-
-                elif resp.status_code == 429:
-                    if i == len(models_to_try) - 1:
-                        return None, "quota"
-                    logging.warning(f"Gemini PDF quota model={model}, trying next...")
-                    break
-
-                else:
-                    if i == len(models_to_try) - 1:
-                        logging.error(f"Gemini PDF API error (model={model}): {resp.status_code} - {resp.text[:500]}")
-                        return None, "other"
-                    logging.warning(f"Gemini PDF fail model={model}: {resp.status_code}, trying next...")
-                    break
-            except requests.exceptions.Timeout:
-                if i == len(models_to_try) - 1:
-                    logging.error("Gemini PDF timeout for all models")
-                    return None, "timeout"
-                logging.warning(f"Gemini PDF timeout model={model}, trying next...")
-                break
-            except Exception as e:
-                if i == len(models_to_try) - 1:
-                    logging.error(f"Gemini PDF call error (model={model}): {e}", exc_info=True)
-                    return None, "other"
-                logging.warning(f"Gemini PDF error model={model}: {e}, trying next...")
-                break
-
-    return None, "other"
+    from gemini_service import call_gemini_with_pdf as generate
+    return await generate(pdf_content, prompt_text, system_message, api_key, timeout, response_schema, user_id, inline_max_bytes, usage_callback=track_gemini_usage)
 
 
 app = FastAPI()
@@ -1508,7 +1267,7 @@ async def get_topic_progress(request: Request, notebook_id: str, session_token: 
 async def setup_activity_collections():
     # Creating namespaces inside concurrent transactions can conflict or block.
     # Prepare them before serving requests; multiple workers may start together.
-    for name in ("task_instances", "activity_requests", "focus_sessions", "study_streaks", "study_dated_plans", "edital_jobs", "workout_sessions", "workout_logs"):
+    for name in ("task_instances", "activity_requests", "focus_sessions", "study_streaks", "study_dated_plans", "study_topic_reviews", "question_logs", "edital_jobs", "workout_sessions", "workout_logs"):
         try:
             await db.create_collection(name)
         except CollectionInvalid:
@@ -1625,19 +1384,16 @@ async def get_tasks(request: Request, date: Optional[str] = None, recurrence: Op
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not date:
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
-    query = {"user_id": user.user_id, "is_template": True}
-    if recurrence:
-        query["recurrence"] = recurrence
-    all_tasks = await db.tasks.find(query, {"_id": 0}).to_list(1000)
+    from task_recurrence import tasks_on_date
+    from zoneinfo import ZoneInfo
+    date = validate_activity_date(date or datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d"))
+    all_tasks = await tasks_on_date(db, user.user_id, date, recurrence)
     task_ids = [task["task_id"] for task in all_tasks]
     instances = []
     if task_ids:
         instances = await db.task_instances.find({
             "user_id": user.user_id, "date": date, "task_id": {"$in": task_ids}
-        }, {"_id": 0}).to_list(1000)
+        }, {"_id": 0}).to_list(None)
     instances_by_task = {}
     for instance in instances:
         previous = instances_by_task.get(instance["task_id"])
@@ -1672,6 +1428,9 @@ async def create_task(request: Request, task_data: TaskCreate, session_token: Op
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
+    validate_activity_date(task_data.date)
+    if task_data.recurrence not in ("once", "daily", "weekly", "monthly"):
+        raise HTTPException(422, "Recorrência inválida")
     task_id = f"task_{uuid.uuid4().hex[:12]}"
     task_doc = {
         "task_id": task_id,
@@ -1681,6 +1440,7 @@ async def create_task(request: Request, task_data: TaskCreate, session_token: Op
         "priority": task_data.priority,
         "xp_reward": 5 if task_data.priority == "low" else 10 if task_data.priority == "medium" else 15,
         "recurrence": task_data.recurrence,
+        "date": task_data.date,
         "is_template": True,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -2681,7 +2441,7 @@ async def analyze_image_for_expenses(
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=503, detail="Serviço de IA não disponível")
     
     # Validate file type
@@ -2763,14 +2523,8 @@ Se não conseguir identificar gastos na imagem, retorne:
 
         # Call Gemini with image - use proper multimodal format
         try:
-            image_part = types.Part.from_bytes(data=image_content, mime_type=content_type)
-            response = gemini_client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=[prompt, image_part],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                )
-            )
+            image_part = gemini_inline_part(data=image_content, mime_type=content_type)
+            response = await request_gemini(model=GEMINI_MODEL, contents=[prompt, image_part], config=dict(response_mime_type='application/json'), user_id=user.user_id)
             ai_response_text = response.text
         except Exception as gemini_error:
             logging.error(f"Gemini Vision error (first attempt): {gemini_error}")
@@ -2778,17 +2532,8 @@ Se não conseguir identificar gastos na imagem, retorne:
             try:
                 import base64 as b64
                 b64_data = b64.standard_b64encode(image_content).decode("utf-8")
-                image_part = types.Part.from_bytes(
-                    data=base64.b64decode(b64_data) if isinstance(b64_data, str) else image_content,
-                    mime_type="image/jpeg"
-                )
-                response = gemini_client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=[prompt, image_part],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
-                    )
-                )
+                image_part = gemini_inline_part(data=base64.b64decode(b64_data) if isinstance(b64_data, str) else image_content, mime_type='image/jpeg')
+                response = await request_gemini(model=GEMINI_MODEL, contents=[prompt, image_part], config=dict(response_mime_type='application/json'), user_id=user.user_id)
                 ai_response_text = response.text
             except Exception as retry_error:
                 logging.error(f"Gemini Vision retry also failed: {retry_error}")
@@ -2901,41 +2646,21 @@ async def get_reports(request: Request, type: Optional[str] = None, session_toke
     return reports
 
 @api_router.post("/reports/generate")
-async def generate_report(request: Request, report_type: str, period: str, session_token: Optional[str] = Cookie(None)):
+async def generate_report(request: Request, report_type: str, period: str, start: Optional[str] = None, end: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    tasks = await db.tasks.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    task_instances = await db.task_instances.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    transactions = await db.transactions.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    goals = await db.goals.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    
-    # Count completed task instances
-    completed_task_instances = len([t for t in task_instances if t.get('completed', False)])
-    
-    data = {
-        "tasks": len(tasks),
-        "tasks_completed": completed_task_instances,
-        "habits": len(habits),
-        "total_habits_completions": sum([len(h['completions']) for h in habits]),
-        "income": sum([t['amount'] for t in transactions if t['type'] == 'income']),
-        "expenses": sum([t['amount'] for t in transactions if t['type'] == 'expense']),
-        "goals": len(goals),
-        "goals_progress": sum([g['progress'] for g in goals]) / len(goals) if goals else 0
-    }
-    
+    from report_metrics import report_window, period_metrics
+    from zoneinfo import ZoneInfo
     try:
-        prompt = f"""Você é um analista de produtividade e finanças. Gere um relatório {report_type} para o período {period} baseado nos seguintes dados:
+        first, last = report_window(report_type, datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat(), start, end)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    data = await period_metrics(db, user.user_id, first, last)
+    period = f"{first} a {last}"
+    try:
+        prompt = f"Interprete em português estas métricas já calculadas do relatório {report_type}, período {period}. Não invente totais nem tendências sem comparação. Respeite as definições dos campos, diferencie ausência de registros de ausência de atividade. Dados: {json.dumps(data, ensure_ascii=False)}"
 
-Tarefas: {data['tasks']} total, {data['tasks_completed']} concluídas
-Hábitos: {data['habits']} total, {data['total_habits_completions']} completações
-Receitas: R$ {data['income']:.2f}
-Despesas: R$ {data['expenses']:.2f}
-Metas: {data['goals']} total, {data['goals_progress']:.1f}% progresso médio
-
-Forneça insights, padrões identificados e sugestões de otimização em português."""
-        
         # Use Emergent LLM API
         insights = await call_llm(prompt, f"report_{user.user_id}", user_id=user.user_id)
         
@@ -2965,7 +2690,10 @@ async def get_dashboard_stats(request: Request, session_token: Optional[str] = C
     from zoneinfo import ZoneInfo
     from dashboard_service import dashboard_snapshot
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
-    return await dashboard_snapshot(db, user, today)
+    result = await dashboard_snapshot(db, user, today)
+    from cross_module_rules import suggestions_from_snapshot
+    result["suggestions"] = suggestions_from_snapshot(result)
+    return result
 
 
 @api_router.get("/stats/analytics")
@@ -2974,118 +2702,10 @@ async def get_analytics_data(request: Request, days: int = 7, session_token: Opt
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if days > 90:
-        days = 90
-    
-    # Generate date range
-    today = datetime.now(timezone.utc)
-    date_range = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
-    
-    # Fetch all required data in parallel
-    habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    
-    # Task instances for date range
-    task_instances = await db.task_instances.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Transactions for date range
-    transactions = await db.transactions.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Study sessions
-    study_sessions = await db.study_sessions.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Workout logs
-    workout_logs = await db.workout_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]},
-        "completed": True
-    }, {"_id": 0}).to_list(1000)
-    
-    # Question logs
-    question_logs = await db.question_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # XP history from various collections
-    xp_logs = await db.xp_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Build daily data
-    daily_data = []
-    cumulative_xp = 0
-    
-    for date in date_range:
-        day_label = date[5:]  # MM-DD format
-        
-        # Tasks
-        tasks_done = len([t for t in task_instances if t.get("date") == date and t.get("completed")])
-        
-        # Habits
-        habits_done = len([h for h in habits if date in h.get("completions", [])])
-        habits_total = len(habits)
-        
-        # Finance
-        day_income = sum(t["amount"] for t in transactions if t.get("date") == date and t.get("type") == "income")
-        day_expenses = sum(t["amount"] for t in transactions if t.get("date") == date and t.get("type") == "expense")
-        
-        # Study
-        study_minutes = sum(s.get("duration_minutes", 0) for s in study_sessions if s.get("date") == date)
-        
-        # Workouts
-        workouts_done = len([w for w in workout_logs if w.get("date") == date])
-        workout_minutes = sum(w.get("duration_minutes", 0) for w in workout_logs if w.get("date") == date)
-        
-        # Questions
-        questions_answered = sum(q.get("total", 0) for q in question_logs if q.get("date") == date)
-        questions_correct = sum(q.get("correct", 0) for q in question_logs if q.get("date") == date)
-        
-        # XP
-        day_xp = sum(x.get("amount", 0) for x in xp_logs if x.get("date") == date)
-        cumulative_xp += day_xp
-        
-        daily_data.append({
-            "date": date,
-            "label": day_label,
-            "tasks": tasks_done,
-            "habits": habits_done,
-            "habits_total": habits_total,
-            "income": round(day_income, 2),
-            "expenses": round(day_expenses, 2),
-            "balance": round(day_income - day_expenses, 2),
-            "study_min": study_minutes,
-            "workouts": workouts_done,
-            "workout_min": workout_minutes,
-            "questions": questions_answered,
-            "correct": questions_correct,
-            "xp": day_xp,
-            "xp_cumulative": cumulative_xp,
-        })
-    
-    return {
-        "days": days,
-        "data": daily_data,
-        "totals": {
-            "tasks": sum(d["tasks"] for d in daily_data),
-            "habits_avg": round(sum(d["habits"] for d in daily_data) / max(len(daily_data), 1), 1),
-            "income": round(sum(d["income"] for d in daily_data), 2),
-            "expenses": round(sum(d["expenses"] for d in daily_data), 2),
-            "study_hours": round(sum(d["study_min"] for d in daily_data) / 60, 1),
-            "workouts": sum(d["workouts"] for d in daily_data),
-            "questions": sum(d["questions"] for d in daily_data),
-            "xp_earned": sum(d["xp"] for d in daily_data),
-        }
-    }
+    if days < 1:
+        raise HTTPException(422, "days must be positive")
+    from analytics_service import analytics_snapshot
+    return await analytics_snapshot(db, user.user_id, days)
 
 
 @api_router.post("/goals/{goal_id}/check")
@@ -5070,11 +4690,11 @@ IMPORTANTE:
         expected_weeks, expected_frequency = calendar_shape(gen_data)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    contract = f"\nCALEND?RIO OBRIGAT?RIO: {expected_weeks} semanas, {expected_frequency} dias por semana, {expected_weeks * expected_frequency} dias no total."
+    contract = f"\nCALENDÁRIO OBRIGATÓRIO: {expected_weeks} semanas, {expected_frequency} dias por semana, {expected_weeks * expected_frequency} dias no total."
     if gen_data.generation_mode == "tipo_treino":
-        contract += " Retorne splits completos para todas as divis?es solicitadas; o servidor expandir? o calend?rio."
+        contract += " Retorne splits completos para todas as divisões solicitadas; o servidor expandir? o calendário."
     else:
-        contract += " Retorne TODOS os dias em days, ordenados por semana e dia, com week inteiro a partir de 1 e day_name semN_diaN. N?o resuma nem omita semanas."
+        contract += " Retorne TODOS os dias em days, ordenados por semana e dia, com week inteiro a partir de 1 e day_name semN_diaN. Não resuma nem omita semanas."
     prompt += contract
     plan_data = None
     response_text = ""
@@ -5085,7 +4705,7 @@ IMPORTANTE:
             response_text = await call_llm(
                 prompt + correction + "\nResponda APENAS com JSON puro, sem markdown, sem texto extra.",
                 f"workout_{user.user_id}",
-                "Voc? ? um personal trainer profissional certificado. Sempre responda SOMENTE em JSON v?lido, sem nenhum texto adicional.",
+                "Voc? ? um personal trainer profissional certificado. Sempre responda SOMENTE em JSON válido, sem nenhum texto adicional.",
                 user_id=user.user_id
             )
             if response_text and response_text.startswith("?"):
@@ -5095,8 +4715,8 @@ IMPORTANTE:
                 break
             except (ValueError, TypeError) as exc:
                 if attempt == 1:
-                    raise HTTPException(status_code=502, detail="A IA n?o retornou um calend?rio completo e consistente. Nenhum treino foi salvo. Tente gerar novamente.")
-                correction = f"\nA resposta anterior estava incompleta ou inv?lida: {exc}. Gere novamente o JSON completo respeitando o calend?rio obrigat?rio."
+                    raise HTTPException(status_code=502, detail="A IA não retornou um calendário completo e consistente. Nenhum treino foi salvo. Tente gerar novamente.")
+                correction = f"\nA resposta anterior estava incompleta ou inválida: {exc}. Gere novamente o JSON completo respeitando o calendário obrigatório."
 
         logging.info("Successfully parsed workout plan")
         
@@ -5544,6 +5164,7 @@ async def get_next_workout_loads(request: Request, plan_id: Optional[str] = None
 @api_router.get("/workouts/exercise-history")
 async def get_exercise_history(request: Request, exercise_name: str, session_token: Optional[str] = Cookie(None)):
     """Get the last 5 workout logs containing a specific exercise."""
+    import re
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
@@ -5554,13 +5175,13 @@ async def get_exercise_history(request: Request, exercise_name: str, session_tok
     logs = await db.workout_logs.find({
         "user_id": user.user_id,
         "completed": True,
-        "exercises_completed": {"$elemMatch": {"name": {"$regex": exercise_name, "$options": "i"}}}
+        "exercises_completed": {"$elemMatch": {"name": {"$regex": "^" + re.escape(exercise_name.strip()) + "$", "$options": "i"}}}
     }, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
     
     history = []
     for log in logs:
         for ex in log.get("exercises_completed", []):
-            if exercise_name.lower() in ex.get("name", "").lower():
+            if exercise_name.strip().casefold() == ex.get("name", "").strip().casefold():
                 history.append({
                     "date": log.get("date", ""),
                     "log_name": log.get("name", ""),
@@ -6005,18 +5626,9 @@ async def analyze_pdf_measurement(
             tmp_file.write(content)
             tmp_path = tmp_file.name
         
-        uploaded_file = gemini_client.files.upload(file=tmp_path)
+        uploaded_file = await upload_gemini_path(tmp_path, user.user_id)
         
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded_file.uri, mime_type="application/pdf"),
-                "Analise este documento de avaliação física/bioimpedância e extraia todos os dados em JSON:"
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_message
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=[gemini_file_part(file_uri=uploaded_file.uri, mime_type='application/pdf'), 'Analise este documento de avaliação física/bioimpedância e extraia todos os dados em JSON:'], config=dict(system_instruction=system_message), user_id=user.user_id)
         
         # Clean up temp file
         os.unlink(tmp_path)
@@ -7317,54 +6929,12 @@ Forneça a resposta em formato JSON com a seguinte estrutura:
     "tips": "Dica extra"
 }}"""
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=503, detail="Serviço de IA não disponível")
     
     try:
         # Call Gemini directly with response_mime_type for guaranteed JSON output
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction="Você é um nutricionista e chef experiente. Forneça receitas saudáveis e práticas. Sempre responda em JSON válido.",
-                response_mime_type="application/json",
-                response_schema={
-                    "type": "OBJECT",
-                    "required": ["name", "description", "ingredients", "instructions"],
-                    "properties": {
-                        "name": {"type": "STRING"},
-                        "description": {"type": "STRING"},
-                        "ingredients": {
-                            "type": "ARRAY",
-                            "items": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "name": {"type": "STRING"},
-                                    "quantity": {"type": "STRING"},
-                                    "unit": {"type": "STRING"}
-                                }
-                            }
-                        },
-                        "instructions": {
-                            "type": "ARRAY",
-                            "items": {"type": "STRING"}
-                        },
-                        "prep_time_minutes": {"type": "INTEGER"},
-                        "cook_time_minutes": {"type": "INTEGER"},
-                        "servings": {"type": "INTEGER"},
-                        "calories_per_serving": {"type": "INTEGER"},
-                        "protein_per_serving": {"type": "INTEGER"},
-                        "carbs_per_serving": {"type": "INTEGER"},
-                        "fat_per_serving": {"type": "INTEGER"},
-                        "tags": {
-                            "type": "ARRAY",
-                            "items": {"type": "STRING"}
-                        },
-                        "tips": {"type": "STRING"}
-                    }
-                }
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=prompt, config=dict(system_instruction='Você é um nutricionista e chef experiente. Forneça receitas saudáveis e práticas. Sempre responda em JSON válido.', response_mime_type='application/json', response_schema={'type': 'OBJECT', 'required': ['name', 'description', 'ingredients', 'instructions'], 'properties': {'name': {'type': 'STRING'}, 'description': {'type': 'STRING'}, 'ingredients': {'type': 'ARRAY', 'items': {'type': 'OBJECT', 'properties': {'name': {'type': 'STRING'}, 'quantity': {'type': 'STRING'}, 'unit': {'type': 'STRING'}}}}, 'instructions': {'type': 'ARRAY', 'items': {'type': 'STRING'}}, 'prep_time_minutes': {'type': 'INTEGER'}, 'cook_time_minutes': {'type': 'INTEGER'}, 'servings': {'type': 'INTEGER'}, 'calories_per_serving': {'type': 'INTEGER'}, 'protein_per_serving': {'type': 'INTEGER'}, 'carbs_per_serving': {'type': 'INTEGER'}, 'fat_per_serving': {'type': 'INTEGER'}, 'tags': {'type': 'ARRAY', 'items': {'type': 'STRING'}}, 'tips': {'type': 'STRING'}}}), user_id=user.user_id)
         
         response_text = response.text.strip()
         
@@ -7452,7 +7022,7 @@ async def import_meal_plan(
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=503, detail="Serviço de IA indisponível")
     
     allowed_types = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic"]
@@ -7469,7 +7039,7 @@ async def import_meal_plan(
             tmp.write(content)
             tmp_path = tmp.name
         
-        uploaded_file = gemini_client.files.upload(file=tmp_path)
+        uploaded_file = await upload_gemini_path(tmp_path, user.user_id)
         
         mime = file.content_type
         prompt = """Analise este plano alimentar/dieta e extraia TODAS as refeições em formato JSON estruturado.
@@ -7523,16 +7093,7 @@ Responda APENAS com JSON válido neste formato:
 
 IMPORTANTE: Retorne APENAS o JSON, sem markdown, sem ```json."""
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded_file.uri, mime_type=mime),
-                prompt
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction="Você é um nutricionista especialista. Extraia com precisão todas as informações do plano alimentar."
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=[gemini_file_part(file_uri=uploaded_file.uri, mime_type=mime), prompt], config=dict(system_instruction='Você é um nutricionista especialista. Extraia com precisão todas as informações do plano alimentar.'), user_id=user.user_id)
         
         response_text = response.text.strip()
         if response_text.startswith("```"):
@@ -9625,7 +9186,7 @@ async def analyze_content_pdf(
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
     
     content = await file.read(20 * 1024 * 1024 + 1)
@@ -9638,7 +9199,7 @@ async def analyze_content_pdf(
             tmp_file.write(content)
             tmp_path = tmp_file.name
         
-        uploaded_file = gemini_client.files.upload(file=tmp_path)
+        uploaded_file = await upload_gemini_path(tmp_path, user.user_id)
         
         # Build generation instructions
         gen_parts = []
@@ -9691,16 +9252,7 @@ REGRAS:
 - Tudo em português
 - JSON deve ser válido e bem formatado"""
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded_file.uri, mime_type="application/pdf"),
-                "Analise este documento de estudo e gere materiais de revisão completos em JSON:"
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=[gemini_file_part(file_uri=uploaded_file.uri, mime_type='application/pdf'), 'Analise este documento de estudo e gere materiais de revisão completos em JSON:'], config=dict(system_instruction=system_msg), user_id=user.user_id)
         
         os.unlink(tmp_path)
         
@@ -9997,7 +9549,7 @@ async def import_simulado_pdf(
             tmp_file.write(content)
             tmp_path = tmp_file.name
         
-        uploaded_file = gemini_client.files.upload(file=tmp_path)
+        uploaded_file = await upload_gemini_path(tmp_path, user.user_id)
         
         type_instruction = ""
         if question_type == "multipla_escolha":
@@ -10058,16 +9610,7 @@ Responda APENAS com um JSON válido no formato:
   }}
 }}"""
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded_file.uri, mime_type="application/pdf"),
-                "Extraia todas as questões deste documento de prova/simulado e retorne em JSON:"
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=[gemini_file_part(file_uri=uploaded_file.uri, mime_type='application/pdf'), 'Extraia todas as questões deste documento de prova/simulado e retorne em JSON:'], config=dict(system_instruction=system_msg), user_id=user.user_id)
         
         # Clean up temp file
         os.unlink(tmp_path)
@@ -10139,7 +9682,7 @@ async def generate_simulado(request: Request, data: SimuladoCreate, session_toke
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
     
     num_q = data.num_questions
@@ -10225,13 +9768,7 @@ Responda APENAS com JSON válido no formato:
     prompt += "\nRetorne APENAS o JSON com as questões."
     
     try:
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=prompt, config=dict(system_instruction=system_msg), user_id=user.user_id)
         
         json_str = response.text.strip()
         if json_str.startswith("```json"):
@@ -10768,7 +10305,7 @@ async def process_edital_analysis(user, file, force=False):
     cached = None
     if not force:
         cached = await db.edital_analyses.find_one(
-            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 4},
+            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 5},
             {"_id": 0}
         )
     if (
@@ -10782,7 +10319,7 @@ async def process_edital_analysis(user, file, force=False):
             "analysis_id": new_analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
-            "analysis_version": 4,
+            "analysis_version": 5,
             "concurso": cached.get("concurso", {}),
             "multiple_cargos": cached.get("multiple_cargos", False),
             "cargos": cached.get("cargos", []),
@@ -11033,6 +10570,8 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             parsed["concurso"]["prazos"] = sourced_deadlines(parsed["concurso"].get("prazos"), pdf_text)
         from edital_sources import source_pages, locate_subject
         pages = source_pages(pdf_text)
+        from edital_audit import audit_cargos
+        audit_cargos(cargos_list, pages)
         for cargo in cargos_list:
             for discipline in cargo.get("disciplinas", []):
                 discipline.update(scoring_evidence(discipline, pdf_text))
@@ -11045,7 +10584,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             "analysis_id": analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
-            "analysis_version": 4,
+            "analysis_version": 5,
             "concurso": parsed.get("concurso", {}),
             "multiple_cargos": parsed["multiple_cargos"],
             "cargos": cargos_list,
@@ -11366,6 +10905,10 @@ async def import_edital_with_cargo(
         raise HTTPException(status_code=400, detail="Cargo inválido")
     
     selected_cargo = cargos[cargo_index]
+    from edital_audit import audit_cargos
+    audit_cargos([selected_cargo], analysis.get('pdf_pages', []))
+    if selected_cargo.get('conferencia', {}).get('missing'):
+        raise HTTPException(status_code=422, detail=selected_cargo['disciplinas_aviso'])
     concurso_info = analysis.get("concurso", {})
     concurso_info["cargo"] = selected_cargo.get("nome", "")
     concurso_info["vagas"] = selected_cargo.get("vagas", "")
@@ -11632,7 +11175,7 @@ async def study_ai_chat_with_file(
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
     
     allowed_types = ["application/pdf", "image/jpeg", "image/png", "image/gif", "image/webp"]
@@ -11650,7 +11193,7 @@ async def study_ai_chat_with_file(
             tmp_file.write(content)
             tmp_path = tmp_file.name
         
-        uploaded_gemini_file = gemini_client.files.upload(file=tmp_path)
+        uploaded_gemini_file = await upload_gemini_path(tmp_path, user.user_id)
         
         context_prompts = {
             "summarize": "Faça um resumo completo e organizado do conteúdo deste documento. Use tópicos, subtópicos e destaque os pontos-chave. Responda em português.",
@@ -11663,16 +11206,7 @@ async def study_ai_chat_with_file(
         system_msg = context_prompts.get(context_type, context_prompts["general"])
         user_prompt = message if message else "Analise este documento e faça um resumo detalhado."
         
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded_gemini_file.uri, mime_type=file.content_type),
-                user_prompt
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=[gemini_file_part(file_uri=uploaded_gemini_file.uri, mime_type=file.content_type), user_prompt], config=dict(system_instruction=system_msg), user_id=user.user_id)
         
         os.unlink(tmp_path)
         
@@ -11703,7 +11237,7 @@ async def generate_mindmap(
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
     
     system_msg = """Você é um especialista em criar mapas mentais estruturados para estudo.
@@ -11757,8 +11291,8 @@ REGRAS:
                 tmp_file.write(file_content)
                 tmp_path = tmp_file.name
             
-            uploaded_gemini_file = gemini_client.files.upload(file=tmp_path)
-            contents.append(types.Part.from_uri(file_uri=uploaded_gemini_file.uri, mime_type=file.content_type))
+            uploaded_gemini_file = await upload_gemini_path(tmp_path, user.user_id)
+            contents.append(gemini_file_part(file_uri=uploaded_gemini_file.uri, mime_type=file.content_type))
             contents.append("Crie um mapa mental completo a partir do conteúdo deste documento:")
             os.unlink(tmp_path)
         elif text:
@@ -11780,13 +11314,7 @@ REGRAS:
         else:
             raise HTTPException(status_code=400, detail="Forneça um arquivo, texto, tópico ou notebook_id")
         
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=contents, config=dict(system_instruction=system_msg), user_id=user.user_id)
         
         json_str = response.text.strip()
         if json_str.startswith("```json"):
@@ -12105,7 +11633,7 @@ async def correct_essay(
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
     
     content = await file.read(20 * 1024 * 1024 + 1)
@@ -12178,16 +11706,12 @@ Responda APENAS com JSON válido:
                 tmp.write(content)
                 tmp_path = tmp.name
             mime = file.content_type or ('application/pdf' if ext == '.pdf' else 'image/jpeg')
-            uploaded = gemini_client.files.upload(file=tmp_path)
-            contents.append(types.Part.from_uri(file_uri=uploaded.uri, mime_type=mime))
+            uploaded = await upload_gemini_path(tmp_path, user.user_id)
+            contents.append(gemini_file_part(file_uri=uploaded.uri, mime_type=mime))
             contents.append(f"Corrija esta redação detalhadamente. {instructions}")
             os.unlink(tmp_path)
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(system_instruction=system_msg)
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=contents, config=dict(system_instruction=system_msg), user_id=user.user_id)
 
         json_str = response.text.strip()
         if json_str.startswith("```json"): json_str = json_str[7:]
@@ -12273,714 +11797,26 @@ Use temas ATUAIS e RELEVANTES de {datetime.now().year}. Varie entre:
 
 @api_router.post("/chat/general")
 async def general_integrated_chat(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
-    """General chat that integrates with all app features - can create recipes, workouts, cronograms, etc."""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-
-    content = data.get("content", "").strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="Mensagem vazia")
-
-    # Save user message
-    msg_id = f"msg_{uuid.uuid4().hex[:12]}"
-    user_msg = {
-        "message_id": msg_id,
-        "user_id": user.user_id,
-        "role": "user",
-        "content": content,
-        "chat_type": "general",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.chat_messages.insert_one(user_msg.copy())
-
-    content_lower = content.lower()
-
-    # Detect intent with expanded keywords
-    recipe_kw = ["receita", "recipe", "cozinhar", "preparar comida", "fazer um prato", "sugerir comida", "o que comer", "cardápio", "refeição"]
-    workout_kw = ["treino", "exercício", "exercicio", "ficha de treino", "workout", "malhar", "academia", "musculação", "ficha"]
-    study_kw = ["cronograma de estudo", "plano de estudo", "matéria de concurso"]
-    
-    # Financial transaction keywords (register money in/out)
-    finance_income_kw = ['ganhei', 'recebi', 'entrou', 'salário', 'salario', 'renda', 'recebimento', 
-                         'depósito', 'deposito', 'pix recebido', 'crédito', 'credito', 'freelance', 
-                         'bônus', 'bonus', 'comissão', 'comissao', 'vendi', 'entrada de']
-    finance_expense_kw = ['gastei', 'paguei', 'comprei', 'compra de', 'boleto', 'parcela', 'débito', 
-                          'debito', 'saída', 'saida', 'pix enviado', 'transferi', 'conta de luz',
-                          'conta de água', 'aluguel de', 'supermercado', 'mercado', 'restaurante']
-    finance_report_kw = ['relatório financeiro', 'relatorio financeiro', 'resumo financeiro', 'como estão minhas finanças',
-                         'como está meu saldo', 'quanto gastei', 'quanto ganhei', 'balanço financeiro',
-                         'extrato', 'situação financeira', 'previsão financeira', 'projeção financeira']
-    
-    # Task/Goal keywords
-    task_kw = ['tarefa', 'task', 'adicionar tarefa', 'criar tarefa', 'nova tarefa', 'to-do', 'todo',
-               'lembrete', 'reminder', 'preciso fazer', 'tenho que fazer', 'não esquecer']
-    goal_kw = ['criar meta', 'definir meta', 'quero alcançar', 'nova meta',
-               'minha meta é', 'minha meta e', 'definir objetivo', 'novo objetivo', 'criar objetivo']
-    
-    import re
-    amount_pattern = r'(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)'
-    amount_matches = re.findall(amount_pattern, content)
-    has_amount = len(amount_matches) > 0
-
-    intent = "general"
-    if any(k in content_lower for k in recipe_kw): intent = "recipe"
-    elif any(k in content_lower for k in workout_kw): intent = "workout"
-    elif has_amount and any(k in content_lower for k in finance_income_kw) and any(k in content_lower for k in finance_expense_kw): intent = "finance_mixed"
-    elif has_amount and any(k in content_lower for k in finance_income_kw): intent = "finance_income"
-    elif has_amount and any(k in content_lower for k in finance_expense_kw): intent = "finance_expense"
-    elif any(k in content_lower for k in finance_report_kw): intent = "finance_report"
-    elif any(k in content_lower for k in task_kw): intent = "task"
-    elif any(k in content_lower for k in goal_kw): intent = "goal"
-    elif any(k in content_lower for k in study_kw): intent = "study"
-    elif any(k in content_lower for k in ['gasto', 'despesa', 'receita financeira', 'saldo', 'orçamento', 'economizar', 'investir']): intent = "finance_general"
-
-    saved_item = None
-    ai_response_text = ""
-
-    try:
-        if intent == "recipe":
-            prompt = f"""O usuário pediu: "{content}"
-Gere uma receita completa. Responda em texto normal formatado com markdown.
-Inclua: nome, tempo de preparo, ingredientes, modo de preparo, informações nutricionais.
-Ao final, inclua um bloco JSON separado com:
-```json
-{{"name": "Nome da Receita", "description": "Descrição curta", "prep_time_minutes": 15, "cook_time_minutes": 30, "servings": 4, "calories_per_serving": 350, "protein_per_serving": 25, "carbs_per_serving": 30, "fat_per_serving": 12, "ingredients": ["ingrediente 1", "ingrediente 2"], "instructions": ["Passo 1", "Passo 2"], "meal_type": "lunch", "diet_type": "balanced"}}
-```"""
-            response = await call_llm(prompt, f"general_chat_{user.user_id}", "Você é um chef e nutricionista. Gere receitas detalhadas e saudáveis.", user_id=user.user_id)
-            ai_response_text = response
-
-            # Try to extract and save recipe
-            try:
-                if "```json" in response:
-                    json_part = response.split("```json")[1].split("```")[0].strip()
-                    recipe_data = json.loads(json_part)
-                    recipe_id = f"recipe_{uuid.uuid4().hex[:12]}"
-                    recipe_doc = {
-                        "recipe_id": recipe_id,
-                        "user_id": user.user_id,
-                        **recipe_data,
-                        "created_at": datetime.now(timezone.utc).isoformat()
-                    }
-                    await db.recipes.insert_one(recipe_doc)
-                    saved_item = {"type": "recipe", "id": recipe_id, "name": recipe_data.get("name", "")}
-            except Exception: pass
-
-        elif intent == "workout":
-            prompt = f"""O usuário pediu: "{content}"
-Gere um plano de treino completo. Responda em texto normal formatado com markdown.
-Ao final, inclua um bloco JSON:
-```json
-{{"name": "Nome do Treino", "description": "Descrição", "exercises": [{{"name": "Exercício", "sets": 3, "reps": "12", "weight": "", "notes": "Observações"}}]}}
-```"""
-            response = await call_llm(prompt, f"general_chat_{user.user_id}", "Você é um personal trainer especialista.", user_id=user.user_id)
-            ai_response_text = response
-
-            try:
-                if "```json" in response:
-                    json_part = response.split("```json")[1].split("```")[0].strip()
-                    plan_data = json.loads(json_part)
-                    plan_id = f"plan_{uuid.uuid4().hex[:12]}"
-                    plan_doc = {
-                        "plan_id": plan_id,
-                        "user_id": user.user_id,
-                        **plan_data,
-                        "created_at": datetime.now(timezone.utc).isoformat()
-                    }
-                    await db.workout_plans.insert_one(plan_doc)
-                    saved_item = {"type": "workout", "id": plan_id, "name": plan_data.get("name", "")}
-            except Exception: pass
-
-        # FINANCE: Register Income
-        elif intent == "finance_income":
-            prompt = f'''Extraia TODAS as receitas/entradas financeiras desta mensagem.
-Mensagem: "{content}"
-Responda APENAS com JSON array:
-[{{"amount": 5000.0, "category": "salário", "description": "salário mensal"}}]
-Categorias: salário, freelance, investimentos, vendas, reembolso, outros
-Extraia o valor numérico exato. SOMENTE o JSON array.'''
-            response = await call_llm(prompt, f"general_fin_{user.user_id}", user_id=user.user_id)
-            try:
-                clean = response.strip()
-                if "```" in clean: clean = clean.split("```")[1].replace("json", "").strip()
-                start_i = clean.find('['); end_i = clean.rfind(']') + 1
-                items = json.loads(clean[start_i:end_i]) if start_i != -1 and end_i > start_i else []
-                if not isinstance(items, list): items = [items]
-                
-                registered = []
-                for td in items:
-                    amt = float(td.get("amount", 0))
-                    if amt > 0:
-                        tid = f"trans_{uuid.uuid4().hex[:12]}"
-                        tdoc = {"transaction_id": tid, "user_id": user.user_id, "type": "income", "amount": amt,
-                                "category": td.get("category", "outros"), "description": td.get("description", ""),
-                                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "created_at": datetime.now(timezone.utc).isoformat()}
-                        await db.transactions.insert_one(tdoc)
-                        registered.append({"type": "income", "amount": amt, "category": td.get("category", "outros"), "description": td.get("description", "")})
-                
-                if registered:
-                    saved_item = {"type": "transactions", "items": registered}
-                    total = sum(r["amount"] for r in registered)
-                    ai_response_text = f"✅ **{len(registered)} receita(s) registrada(s)!**\n\n"
-                    for r in registered:
-                        ai_response_text += f"💰 +R$ {r['amount']:.2f} | {r['category']} | {r['description']}\n"
-                    ai_response_text += f"\n**Total registrado: R$ {total:.2f}**\n\n💡 As transações já estão disponíveis na aba Finanças!"
-                else:
-                    ai_response_text = "Não consegui identificar o valor. Pode repetir? Ex: 'Recebi 3000 de salário'"
-            except Exception as e:
-                ai_response_text = f"Não consegui processar. Tente: 'Recebi 3000 de salário'. Erro: {str(e)}"
-
-        # FINANCE: Register Expense
-        elif intent == "finance_expense":
-            prompt = f'''Extraia TODAS as despesas/gastos desta mensagem.
-Mensagem: "{content}"
-Responda APENAS com JSON array:
-[{{"amount": 150.0, "category": "alimentação", "description": "supermercado"}}]
-Categorias: alimentação, transporte, moradia, saúde, educação, lazer, outros
-Extraia o valor numérico exato. SOMENTE o JSON array.'''
-            response = await call_llm(prompt, f"general_fin_{user.user_id}", user_id=user.user_id)
-            try:
-                clean = response.strip()
-                if "```" in clean: clean = clean.split("```")[1].replace("json", "").strip()
-                start_i = clean.find('['); end_i = clean.rfind(']') + 1
-                items = json.loads(clean[start_i:end_i]) if start_i != -1 and end_i > start_i else []
-                if not isinstance(items, list): items = [items]
-                
-                registered = []
-                for td in items:
-                    amt = float(td.get("amount", 0))
-                    if amt > 0:
-                        tid = f"trans_{uuid.uuid4().hex[:12]}"
-                        tdoc = {"transaction_id": tid, "user_id": user.user_id, "type": "expense", "amount": amt,
-                                "category": td.get("category", "outros"), "description": td.get("description", ""),
-                                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "created_at": datetime.now(timezone.utc).isoformat()}
-                        await db.transactions.insert_one(tdoc)
-                        registered.append({"type": "expense", "amount": amt, "category": td.get("category", "outros"), "description": td.get("description", "")})
-                
-                if registered:
-                    saved_item = {"type": "transactions", "items": registered}
-                    total = sum(r["amount"] for r in registered)
-                    ai_response_text = f"✅ **{len(registered)} despesa(s) registrada(s)!**\n\n"
-                    for r in registered:
-                        ai_response_text += f"🔴 -R$ {r['amount']:.2f} | {r['category']} | {r['description']}\n"
-                    ai_response_text += f"\n**Total registrado: R$ {total:.2f}**\n\n💡 As transações já estão disponíveis na aba Finanças!"
-                else:
-                    ai_response_text = "Não consegui identificar o valor. Pode repetir? Ex: 'Gastei 50 no mercado'"
-            except Exception as e:
-                ai_response_text = f"Não consegui processar. Tente: 'Gastei 150 no supermercado'. Erro: {str(e)}"
-
-        # FINANCE: Mixed transactions
-        elif intent == "finance_mixed":
-            prompt = f'''Extraia TODAS as transações financeiras desta mensagem (receitas E despesas).
-Mensagem: "{content}"
-Responda APENAS com JSON array:
-[{{"type": "income", "amount": 5000.0, "category": "salário", "description": "salário"}}, {{"type": "expense", "amount": 50.0, "category": "alimentação", "description": "mercado"}}]
-Categorias receita: salário, freelance, investimentos, vendas, reembolso, outros
-Categorias despesa: alimentação, transporte, moradia, saúde, educação, lazer, outros
-SOMENTE o JSON array.'''
-            response = await call_llm(prompt, f"general_fin_{user.user_id}", user_id=user.user_id)
-            try:
-                clean = response.strip()
-                if "```" in clean: clean = clean.split("```")[1].replace("json", "").strip()
-                start_i = clean.find('['); end_i = clean.rfind(']') + 1
-                items = json.loads(clean[start_i:end_i]) if start_i != -1 and end_i > start_i else []
-                if not isinstance(items, list): items = [items]
-                
-                registered = []
-                for td in items:
-                    amt = float(td.get("amount", 0))
-                    t_type = td.get("type", "expense")
-                    if t_type not in ["income", "expense"]: t_type = "expense"
-                    if amt > 0:
-                        tid = f"trans_{uuid.uuid4().hex[:12]}"
-                        tdoc = {"transaction_id": tid, "user_id": user.user_id, "type": t_type, "amount": amt,
-                                "category": td.get("category", "outros"), "description": td.get("description", ""),
-                                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "created_at": datetime.now(timezone.utc).isoformat()}
-                        await db.transactions.insert_one(tdoc)
-                        registered.append({"type": t_type, "amount": amt, "category": td.get("category", "outros"), "description": td.get("description", "")})
-                
-                if registered:
-                    saved_item = {"type": "transactions", "items": registered}
-                    total_in = sum(r["amount"] for r in registered if r["type"] == "income")
-                    total_out = sum(r["amount"] for r in registered if r["type"] == "expense")
-                    ai_response_text = f"✅ **{len(registered)} transação(ões) registrada(s)!**\n\n"
-                    for r in registered:
-                        emoji = "💰" if r["type"] == "income" else "🔴"
-                        sinal = "+" if r["type"] == "income" else "-"
-                        ai_response_text += f"{emoji} {sinal}R$ {r['amount']:.2f} | {r['category']} | {r['description']}\n"
-                    if total_in > 0: ai_response_text += f"\n💚 Total receitas: R$ {total_in:.2f}"
-                    if total_out > 0: ai_response_text += f"\n🔴 Total despesas: R$ {total_out:.2f}"
-                    ai_response_text += "\n\n💡 As transações já estão disponíveis na aba Finanças!"
-                else:
-                    ai_response_text = "Não consegui identificar os valores. Pode detalhar melhor?"
-            except Exception:
-                ai_response_text = "Não consegui processar as transações mistas. Tente uma de cada vez."
-
-        # FINANCE: Report
-        elif intent == "finance_report":
-            current_month = datetime.now(timezone.utc).strftime("%Y-%m")
-            transactions_list = await db.transactions.find(
-                {"user_id": user.user_id, "date": {"$regex": f"^{current_month}"}}, {"_id": 0}
-            ).to_list(500)
-            total_income = sum(t['amount'] for t in transactions_list if t['type'] == 'income')
-            total_expense = sum(t['amount'] for t in transactions_list if t['type'] == 'expense')
-            bal = total_income - total_expense
-            
-            expense_by_cat = {}
-            for t in transactions_list:
-                if t['type'] == 'expense':
-                    expense_by_cat[t['category']] = expense_by_cat.get(t['category'], 0) + t['amount']
-            
-            context_str = f"""Dados financeiros do mês ({current_month}):
-- Receitas: R$ {total_income:.2f}
-- Despesas: R$ {total_expense:.2f}
-- Saldo: R$ {bal:.2f}
-- Transações: {len(transactions_list)}
-- Despesas por categoria: {json.dumps(expense_by_cat, ensure_ascii=False)}"""
-            
-            prompt = f"""{context_str}
-
-O usuário pediu: "{content}"
-
-Gere um relatório/análise financeira detalhado com base nos dados acima. Inclua insights, dicas e sugestões. Use markdown para formatar. Seja objetivo e prático."""
-            
-            response = await call_llm(prompt, f"general_fin_{user.user_id}", "Você é um consultor financeiro pessoal especialista.", user_id=user.user_id)
-            ai_response_text = response
-
-        # TASK: Create task
-        elif intent == "task":
-            prompt = f'''O usuário quer criar uma tarefa/lembrete. Extraia as informações:
-Mensagem: "{content}"
-Responda SOMENTE com JSON:
-{{"title": "Título da tarefa", "description": "Descrição detalhada", "due_date": "YYYY-MM-DD ou null", "priority": "high/medium/low", "category": "pessoal/trabalho/estudos/saúde/outros"}}'''
-            response = await call_llm(prompt, f"general_task_{user.user_id}", user_id=user.user_id)
-            try:
-                clean = response.strip()
-                if "```" in clean: clean = clean.split("```")[1].replace("json", "").strip()
-                start_i = clean.find('{'); end_i = clean.rfind('}') + 1
-                task_data = json.loads(clean[start_i:end_i])
-                
-                task_id = f"task_{uuid.uuid4().hex[:12]}"
-                task_doc = {
-                    "task_id": task_id,
-                    "user_id": user.user_id,
-                    "title": task_data.get("title", content[:50]),
-                    "description": task_data.get("description", ""),
-                    "due_date": task_data.get("due_date"),
-                    "priority": task_data.get("priority", "medium"),
-                    "category": task_data.get("category", "pessoal"),
-                    "completed": False,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                await db.tasks.insert_one(task_doc)
-                saved_item = {"type": "task", "id": task_id, "title": task_data.get("title", "")}
-                
-                ai_response_text = f"""✅ **Tarefa criada com sucesso!**
-
-📋 **{task_data.get('title', '')}**
-{f"📝 {task_data.get('description', '')}" if task_data.get('description') else ""}
-{f"📅 Prazo: {task_data.get('due_date')}" if task_data.get('due_date') else ""}
-🔴 Prioridade: {task_data.get('priority', 'medium')}
-
-💡 A tarefa está disponível na aba Tarefas!"""
-            except Exception:
-                ai_response_text = "Não consegui criar a tarefa. Tente: 'Criar tarefa: Estudar direito constitucional até sexta'"
-
-        # GOAL: Create goal
-        elif intent == "goal":
-            prompt = f'''O usuário quer definir uma meta/objetivo. Extraia as informações:
-Mensagem: "{content}"
-Responda SOMENTE com JSON:
-{{"title": "Título da meta", "description": "Descrição", "target_date": "YYYY-MM-DD ou null", "category": "financeiro/saúde/estudos/carreira/pessoal/outros", "target_value": null, "current_value": 0}}'''
-            response = await call_llm(prompt, f"general_goal_{user.user_id}", user_id=user.user_id)
-            try:
-                clean = response.strip()
-                if "```" in clean: clean = clean.split("```")[1].replace("json", "").strip()
-                start_i = clean.find('{'); end_i = clean.rfind('}') + 1
-                goal_data = json.loads(clean[start_i:end_i])
-                
-                goal_id = f"goal_{uuid.uuid4().hex[:12]}"
-                goal_doc = {
-                    "goal_id": goal_id,
-                    "user_id": user.user_id,
-                    "title": goal_data.get("title", content[:50]),
-                    "description": goal_data.get("description", ""),
-                    "target_date": goal_data.get("target_date"),
-                    "category": goal_data.get("category", "pessoal"),
-                    "target_value": goal_data.get("target_value"),
-                    "current_value": goal_data.get("current_value", 0),
-                    "completed": False,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                await db.goals.insert_one(goal_doc)
-                saved_item = {"type": "goal", "id": goal_id, "title": goal_data.get("title", "")}
-                
-                ai_response_text = f"""✅ **Meta criada com sucesso!**
-
-🎯 **{goal_data.get('title', '')}**
-{f"📝 {goal_data.get('description', '')}" if goal_data.get('description') else ""}
-{f"📅 Prazo: {goal_data.get('target_date')}" if goal_data.get('target_date') else ""}
-📂 Categoria: {goal_data.get('category', 'pessoal')}
-
-💡 A meta está disponível na aba Metas!"""
-            except Exception:
-                ai_response_text = "Não consegui criar a meta. Tente: 'Minha meta é economizar 5000 até dezembro'"
-
-        else:
-            # General / finance_general / study - enriched with DEEP FULL app context
-            current_month = datetime.now(timezone.utc).strftime("%Y-%m")
-            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            now_utc = datetime.now(timezone.utc)
-            week_ago_str = (now_utc - timedelta(days=7)).strftime("%Y-%m-%d")
-            last_month = (now_utc.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-            
-            # === USER PROFILE CONTEXT ===
-            user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1, "email": 1, "birth_date": 1, "bio": 1, "xp": 1, "rank": 1, "health_condition": 1, "created_at": 1})
-            user_name = user_doc.get("name", "Usuário") if user_doc else "Usuário"
-            user_rank = user_doc.get("rank", "Recruta") if user_doc else "Recruta"
-            user_xp = user_doc.get("xp", 0) if user_doc else 0
-            user_bio = user_doc.get("bio", "") if user_doc else ""
-            user_birth = user_doc.get("birth_date", "") if user_doc else ""
-            health_cond = user_doc.get("health_condition", "") if user_doc else ""
-            user_age = ""
-            if user_birth:
-                try:
-                    bd = datetime.fromisoformat(user_birth)
-                    user_age = str(now_utc.year - bd.year - ((now_utc.month, now_utc.day) < (bd.month, bd.day)))
-                except Exception: pass
-            
-            # === FINANCE CONTEXT (current + last month for trends) ===
-            fin_trans = await db.transactions.find({"user_id": user.user_id, "date": {"$regex": f"^{current_month}"}}, {"_id": 0}).to_list(100)
-            total_in = sum(t['amount'] for t in fin_trans if t['type'] == 'income')
-            total_out = sum(t['amount'] for t in fin_trans if t['type'] == 'expense')
-            expense_cats = {}
-            for t in fin_trans:
-                if t['type'] == 'expense':
-                    expense_cats[t['category']] = expense_cats.get(t['category'], 0) + t['amount']
-            top_expenses = sorted(expense_cats.items(), key=lambda x: x[1], reverse=True)[:5]
-            
-            # Last month comparison
-            last_month_trans = await db.transactions.find({"user_id": user.user_id, "date": {"$regex": f"^{last_month}"}}, {"_id": 0}).to_list(100)
-            lm_in = sum(t['amount'] for t in last_month_trans if t['type'] == 'income')
-            lm_out = sum(t['amount'] for t in last_month_trans if t['type'] == 'expense')
-            
-            budgets = await db.budgets.find({"user_id": user.user_id, "month": current_month}, {"_id": 0}).to_list(20)
-            budget_alerts = []
-            budget_status = []
-            for b in budgets:
-                spent = expense_cats.get(b.get("category", ""), 0)
-                if b.get("amount", 0) > 0:
-                    pct = int(spent / b["amount"] * 100)
-                    budget_status.append(f"{b['category']}: R$ {spent:.0f}/{b['amount']:.0f} ({pct}%)")
-                    if pct >= 80:
-                        budget_alerts.append(f"{b['category']}: {pct}% usado (R$ {spent:.0f}/{b['amount']:.0f})")
-            
-            # Credit cards
-            credit_cards = await db.credit_cards.find({"user_id": user.user_id}, {"_id": 0, "name": 1, "limit": 1, "current_balance": 1}).to_list(10)
-            cc_info = []
-            for cc in credit_cards:
-                cc_info.append(f"{cc.get('name','Cartão')}: R$ {cc.get('current_balance',0):.0f}/{cc.get('limit',0):.0f}")
-            
-            # Projections for next month
-            next_month_dt = (now_utc.replace(day=28) + timedelta(days=4)).replace(day=1)
-            next_month_str = next_month_dt.strftime("%Y-%m")
-            projections = await db.projections.find({"user_id": user.user_id, "month": next_month_str}, {"_id": 0, "description": 1, "amount": 1, "type": 1}).to_list(20)
-            proj_total = sum(p.get("amount", 0) for p in projections)
-            
-            # === GOALS CONTEXT ===
-            goals = await db.goals.find({"user_id": user.user_id, "completed": False}, {"_id": 0, "title": 1, "category": 1, "target_date": 1, "target_value": 1, "current_value": 1}).to_list(10)
-            completed_goals = await db.goals.count_documents({"user_id": user.user_id, "completed": True})
-            goals_text = []
-            for g in goals:
-                prog = ""
-                if g.get("target_value") and g.get("current_value") is not None:
-                    pct = int((g["current_value"] / g["target_value"]) * 100) if g["target_value"] > 0 else 0
-                    prog = f" ({pct}% concluído)"
-                deadline = f" - prazo: {g['target_date']}" if g.get("target_date") else ""
-                goals_text.append(f"• {g['title']} [{g.get('category','geral')}]{prog}{deadline}")
-            
-            # === WORKOUT CONTEXT (deep) ===
-            recent_workouts = await db.workout_logs.find(
-                {"user_id": user.user_id}, {"_id": 0, "date": 1, "duration_minutes": 1, "calories": 1, "exercises": 1}
-            ).sort("created_at", -1).to_list(15)
-            last_workout_date = recent_workouts[0].get("date", "nunca") if recent_workouts else "nunca"
-            workouts_this_week = len([w for w in recent_workouts if w.get("date", "") >= week_ago_str])
-            workouts_this_month = len([w for w in recent_workouts if w.get("date", "").startswith(current_month)])
-            total_workout_min = sum(w.get("duration_minutes", 0) for w in recent_workouts[:7])
-            total_workout_cals = sum(w.get("calories", 0) for w in recent_workouts[:7])
-            
-            workout_plans = await db.workout_plans.find({"user_id": user.user_id}, {"_id": 0, "name": 1, "objective": 1, "level": 1}).to_list(5)
-            
-            # Recent sessions with feedback
-            recent_sessions = await db.workout_sessions.find(
-                {"user_id": user.user_id, "status": "completed"}, {"_id": 0, "difficulty": 1, "feeling": 1, "notes": 1, "completed_at": 1}
-            ).sort("completed_at", -1).to_list(5)
-            avg_difficulty = sum(s.get("difficulty", 3) for s in recent_sessions) / len(recent_sessions) if recent_sessions else 0
-            feelings = [s.get("feeling", "") for s in recent_sessions if s.get("feeling")]
-            
-            # === NUTRITION CONTEXT (deep) ===
-            today_meals = await db.meals.find({"user_id": user.user_id, "date": today_str}, {"_id": 0}).to_list(20)
-            today_cals = sum(m.get("calories", 0) for m in today_meals)
-            today_protein = sum(m.get("protein", 0) for m in today_meals)
-            today_carbs = sum(m.get("carbs", 0) for m in today_meals)
-            today_fat = sum(m.get("fat", 0) for m in today_meals)
-            nutrition_goals = await db.nutrition_goals.find_one({"user_id": user.user_id}, {"_id": 0})
-            cal_goal = nutrition_goals.get("calories", 2000) if nutrition_goals else 2000
-            protein_goal = nutrition_goals.get("protein", 150) if nutrition_goals else 150
-            water_today = await db.water_logs.find_one({"user_id": user.user_id, "date": today_str}, {"_id": 0})
-            water_ml = water_today.get("total_ml", 0) if water_today else 0
-            water_goal = nutrition_goals.get("water_ml", 2500) if nutrition_goals else 2500
-            
-            # Week average nutrition
-            week_meals = await db.meals.find({"user_id": user.user_id, "date": {"$gte": week_ago_str}}, {"_id": 0, "calories": 1, "date": 1}).to_list(100)
-            meals_by_day = {}
-            for m in week_meals:
-                d = m.get("date", "")
-                meals_by_day[d] = meals_by_day.get(d, 0) + m.get("calories", 0)
-            avg_cals_week = int(sum(meals_by_day.values()) / max(len(meals_by_day), 1)) if meals_by_day else 0
-            
-            # Active diets
-            active_diets = await db.diets.find({"user_id": user.user_id, "active": True}, {"_id": 0, "name": 1, "type": 1}).to_list(5)
-            
-            # === STUDY CONTEXT (deep) ===
-            study_streak_doc = await db.study_streaks.find_one({"user_id": user.user_id}, {"_id": 0})
-            study_streak = study_streak_doc.get("current_streak", 0) if study_streak_doc else 0
-            longest_study_streak = study_streak_doc.get("longest_streak", 0) if study_streak_doc else 0
-            focus_today = await db.focus_sessions.find({"user_id": user.user_id, "date": today_str}, {"_id": 0}).to_list(20)
-            focus_min_today = sum(f.get("duration_minutes", 0) for f in focus_today)
-            
-            # Study programs
-            study_programs = await db.study_programs.find({"user_id": user.user_id, "status": "active"}, {"_id": 0, "name": 1, "source_type": 1, "target_date": 1}).to_list(5)
-            
-            # Flashcards due for review
-            flashcard_decks = await db.flashcard_decks.find({"user_id": user.user_id}, {"_id": 0, "name": 1, "cards": 1}).to_list(10)
-            total_cards = 0
-            cards_due = 0
-            for deck in flashcard_decks:
-                for card in deck.get("cards", []):
-                    total_cards += 1
-                    nr = card.get("next_review", "")
-                    if nr and nr <= today_str:
-                        cards_due += 1
-            
-            # Study notebooks with recent activity
-            notebooks = await db.notebooks.find({"user_id": user.user_id}, {"_id": 0, "name": 1, "study_time_minutes": 1, "total_questions": 1, "correct_questions": 1}).to_list(20)
-            top_subjects = sorted(notebooks, key=lambda n: n.get("study_time_minutes", 0), reverse=True)[:5]
-            
-            # Question stats
-            total_q = sum(n.get("total_questions", 0) for n in notebooks)
-            correct_q = sum(n.get("correct_questions", 0) for n in notebooks)
-            accuracy = int(correct_q / total_q * 100) if total_q > 0 else 0
-            
-            # === HABITS & TASKS CONTEXT (deep) ===
-            habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0, "name": 1, "frequency": 1}).to_list(20)
-            habits_completed = await db.habits.count_documents({"user_id": user.user_id, f"completions.{today_str}": True})
-            tasks_total = await db.tasks.count_documents({"user_id": user.user_id})
-            tasks_completed = await db.task_instances.count_documents({"user_id": user.user_id, "date": today_str, "completed": True})
-            
-            # Pending tasks
-            pending_tasks = await db.tasks.find({"user_id": user.user_id}, {"_id": 0, "title": 1, "priority": 1}).to_list(10)
-            high_priority_tasks = [t for t in pending_tasks if t.get("priority") == "high"]
-            
-            # Global streaks
-            streaks_doc = await db.global_streaks.find_one({"user_id": user.user_id}, {"_id": 0})
-            global_streak = streaks_doc.get("current_streak", 0) if streaks_doc else 0
-            
-            # === BUILD COMPREHENSIVE CONTEXT ===
-            context_parts = []
-            
-            # User profile
-            profile_line = f"👤 PERFIL: {user_name}"
-            if user_age: profile_line += f", {user_age} anos"
-            profile_line += f" | Rank: {user_rank} ({user_xp} XP) | Streak global: {global_streak} dias"
-            if user_bio: profile_line += f"\n   Bio: {user_bio}"
-            if health_cond: profile_line += f"\n   Condição de saúde: {health_cond}"
-            context_parts.append(profile_line)
-            
-            # Finance
-            fin_line = f"💰 FINANÇAS ({current_month}): Receitas R$ {total_in:.2f} | Despesas R$ {total_out:.2f} | Saldo R$ {total_in - total_out:.2f}"
-            if lm_out > 0:
-                change_pct = int(((total_out - lm_out) / lm_out) * 100) if lm_out > 0 else 0
-                trend = "↑" if change_pct > 0 else "↓" if change_pct < 0 else "="
-                fin_line += f"\n   Vs mês anterior: {trend} {abs(change_pct)}% nas despesas (era R$ {lm_out:.0f})"
-            context_parts.append(fin_line)
-            if top_expenses:
-                context_parts.append(f"   Top gastos: {', '.join(f'{c}: R$ {v:.0f}' for c,v in top_expenses)}")
-            if budget_status:
-                context_parts.append(f"   Orçamentos: {' | '.join(budget_status)}")
-            if budget_alerts:
-                context_parts.append(f"   ⚠️ Alertas: {'; '.join(budget_alerts)}")
-            if cc_info:
-                context_parts.append(f"   💳 Cartões: {' | '.join(cc_info)}")
-            if projections:
-                context_parts.append(f"   📊 Projeções próximo mês: R$ {proj_total:.0f} em {len(projections)} itens")
-            
-            # Workouts
-            wk_line = f"🏋️ TREINOS: Último treino: {last_workout_date} | Esta semana: {workouts_this_week} treinos ({total_workout_min}min, ~{total_workout_cals} kcal)"
-            context_parts.append(wk_line)
-            if workout_plans:
-                plan_names = ', '.join(p.get('name','')[:25] + " (" + p.get('objective','') + ")" for p in workout_plans)
-                context_parts.append(f"   Fichas: {plan_names}")
-            if recent_sessions:
-                context_parts.append(f"   Dificuldade média: {avg_difficulty:.1f}/5 | Sentimentos recentes: {', '.join(feelings[:3])}")
-            
-            # Nutrition
-            nut_line = f"🍽️ NUTRIÇÃO HOJE: {today_cals}/{cal_goal} cal | {today_protein}g/{protein_goal}g prot | {today_carbs}g carbs | {today_fat}g gordura | {len(today_meals)} refeições"
-            context_parts.append(nut_line)
-            context_parts.append(f"   💧 Água: {water_ml}/{water_goal}ml | Média semanal: {avg_cals_week} cal/dia")
-            if active_diets:
-                context_parts.append(f"   Dietas ativas: {', '.join(d.get('name','') for d in active_diets)}")
-            
-            # Studies
-            st_line = f"📚 ESTUDOS: Streak {study_streak} dias (recorde: {longest_study_streak}) | Foco hoje: {focus_min_today}min"
-            context_parts.append(st_line)
-            if study_programs:
-                progs = ', '.join(f"{p.get('name','')[:30]}" + (f" (prova: {p['target_date']})" if p.get('target_date') else "") for p in study_programs)
-                context_parts.append(f"   Programas ativos: {progs}")
-            if total_q > 0:
-                context_parts.append(f"   Questões: {total_q} total, {accuracy}% acerto")
-            if cards_due > 0:
-                context_parts.append(f"   ⚠️ {cards_due} flashcards pendentes para revisão hoje!")
-            if top_subjects:
-                subj_names = ', '.join(n.get('name','')[:20] + " (" + str(n.get('study_time_minutes',0)) + "min)" for n in top_subjects[:3])
-                context_parts.append(f"   Top matérias: {subj_names}")
-            
-            # Tasks & Habits
-            context_parts.append(f"✅ TAREFAS: {tasks_completed}/{tasks_total} completadas hoje | Hábitos: {habits_completed}/{len(habits)} hoje")
-            if high_priority_tasks:
-                context_parts.append(f"   🔴 Tarefas urgentes: {', '.join(t.get('title','')[:25] for t in high_priority_tasks[:3])}")
-            
-            # Goals
-            if goals:
-                context_parts.append(f"🎯 METAS ATIVAS ({len(goals)}, {completed_goals} concluídas):")
-                for gt in goals_text[:5]:
-                    context_parts.append(f"   {gt}")
-            
-            full_context = "\n".join(context_parts)
-            
-            # Build INTELLIGENT proactive suggestions based on comprehensive data
-            proactive_hints = []
-            
-            # Workout proactivity
-            if last_workout_date != "nunca":
-                try:
-                    days_since = (now_utc - datetime.fromisoformat(last_workout_date.replace("Z", "+00:00") if "T" in last_workout_date else last_workout_date + "T00:00:00+00:00")).days
-                    if days_since >= 3:
-                        proactive_hints.append(f"O usuário não treina há {days_since} dias - sugira gentilmente retomar")
-                    if days_since == 0 and avg_difficulty >= 4:
-                        proactive_hints.append("Treinou hoje com dificuldade alta - sugira descanso ou alongamento")
-                except Exception: pass
-            elif workouts_this_month == 0:
-                proactive_hints.append("Nenhum treino este mês - motive a começar uma rotina de exercícios")
-            
-            # Nutrition proactivity
-            if today_cals > 0 and today_cals < cal_goal * 0.3 and now_utc.hour >= 14:
-                proactive_hints.append(f"Já passa das 14h e consumiu apenas {today_cals} de {cal_goal} calorias - pergunte se está se alimentando bem")
-            if today_protein > 0 and today_protein < protein_goal * 0.3 and now_utc.hour >= 16:
-                proactive_hints.append(f"Proteína baixa hoje ({today_protein}g de {protein_goal}g) - sugira alimentos ricos em proteína")
-            if water_ml < water_goal * 0.4 and now_utc.hour >= 12:
-                proactive_hints.append(f"Apenas {water_ml}ml de {water_goal}ml de água - lembre de se hidratar")
-            
-            # Finance proactivity
-            if budget_alerts:
-                proactive_hints.append("Alguns orçamentos estão próximos do limite - alerte se relevante")
-            if total_out > lm_out * 1.2 and lm_out > 0:
-                proactive_hints.append(f"Gastos {int(((total_out-lm_out)/lm_out)*100)}% acima do mês anterior - sugira revisão de gastos")
-            
-            # Study proactivity
-            if cards_due > 0:
-                proactive_hints.append(f"{cards_due} flashcards pendentes para revisão - motivar a estudar")
-            if study_streak > 0 and focus_min_today == 0 and now_utc.hour >= 18:
-                proactive_hints.append(f"Streak de {study_streak} dias em risco! Não estudou hoje ainda")
-            if study_programs:
-                for sp in study_programs:
-                    if sp.get("target_date"):
-                        try:
-                            td = datetime.fromisoformat(sp["target_date"])
-                            days_left = (td - now_utc).days
-                            if 0 < days_left <= 30:
-                                proactive_hints.append(f"Prova de '{sp['name'][:30]}' em {days_left} dias - motivar intensificação dos estudos")
-                        except Exception: pass
-            
-            # Goal proactivity
-            for g in goals:
-                if g.get("target_date"):
-                    try:
-                        td = datetime.fromisoformat(g["target_date"])
-                        days_left = (td - now_utc).days
-                        if 0 < days_left <= 14:
-                            proactive_hints.append(f"Meta '{g['title'][:25]}' vence em {days_left} dias")
-                    except Exception: pass
-            
-            # Tasks proactivity
-            if high_priority_tasks and tasks_completed == 0 and now_utc.hour >= 15:
-                proactive_hints.append(f"{len(high_priority_tasks)} tarefas urgentes pendentes e nenhuma concluída hoje")
-            
-            proactive_text = ""
-            if proactive_hints:
-                proactive_text = "\n\nSugestões proativas (mencione NATURALMENTE se relevante à conversa, não liste tudo de uma vez):\n- " + "\n- ".join(proactive_hints[:6])
-            
-            system = f"""Você é o SIRIUS 🐺, assistente pessoal integrado com visão TOTAL da vida do usuário. Você é como um mentor estratégico que conhece finanças, treinos, nutrição, estudos, metas e rotina do usuário.
-
-PERSONALIDADE: Direto, inteligente, motivador mas realista. Como um lobo líder da matilha — leal, estratégico e focado em resultados. Use o nome do usuário quando relevante.
-
-CAPACIDADES:
-🏋️ TREINOS: Criar fichas, sugerir exercícios, analisar desempenho, ajustar planos
-🍽️ ALIMENTAÇÃO: Receitas, dietas, análise nutricional, planos alimentares personalizados
-📚 ESTUDOS: Cronogramas, revisão espaçada, dicas para concursos, análise de desempenho
-💰 FINANÇAS: Registrar transações, analisar gastos, projeções, dicas de economia
-✅ TAREFAS: Criar e organizar tarefas, sugerir prioridades
-🎯 METAS: Definir objetivos, acompanhar progresso, sugerir ações
-
-CONTEXTO COMPLETO DO USUÁRIO:
-{full_context}
-{proactive_text}
-
-INSTRUÇÕES CRÍTICAS:
-- SEMPRE use o contexto real do usuário para personalizar respostas
-- Faça CONEXÕES INTELIGENTES entre módulos (ex: "Você treinou pesado hoje, que tal aumentar a proteína no jantar?")
-- Se o usuário perguntar algo genérico, dê insights baseados nos dados dele
-- Seja proativo: se notar padrões ou alertas, mencione naturalmente (mas não despeje tudo de uma vez)
-- Para registrar transação: 'Gastei 50 no mercado' ou 'Recebi 3000 de salário'
-- Para criar tarefa: 'Criar tarefa: ...'
-- Para criar meta: 'Minha meta é ...'
-- Responda em português, de forma objetiva, personalizada e motivadora
-- Se perceber que o usuário está negligenciando alguma área, sugira de forma empática"""
-            response = await call_llm(content, f"general_chat_{user.user_id}", system, user_id=user.user_id)
-            ai_response_text = response
-
-    except Exception:
-        ai_response_text = "Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente."
-
-    # Save AI response
-    ai_msg_id = f"msg_{uuid.uuid4().hex[:12]}"
-    ai_msg = {
-        "message_id": ai_msg_id,
-        "user_id": user.user_id,
-        "role": "assistant",
-        "content": ai_response_text,
-        "chat_type": "general",
-        "intent": intent,
-        "saved_item": saved_item,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.chat_messages.insert_one(ai_msg.copy())
-
-    return {
-        "user_message": {k: v for k, v in user_msg.items() if k != '_id'},
-        "ai_message": {k: v for k, v in ai_msg.items() if k != '_id'},
-        "intent": intent,
-        "saved_item": saved_item
-    }
+    body = AiChatRequest(message=data.get("content", ""), conversation_id=data.get("conversation_id", "primary"),
+                         request_id=data.get("request_id") or uuid.uuid4().hex, page="/chat")
+    result = await ai_chat(request, body, session_token)
+    return {**result, "intent": "general", "saved_item": None}
 
 
 @api_router.get("/chat/general/messages")
 async def get_general_messages(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    messages = await db.chat_messages.find(
-        {"user_id": user.user_id, "chat_type": "general"}, {"_id": 0}
-    ).sort("created_at", 1).to_list(200)
-    return messages
+    result = await ai_conversation(request, "primary", session_token)
+    return result["messages"]
+
+
+@api_router.get("/chat/general/archive")
+async def get_general_archive(request: Request, before: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
+    query = {"user_id": user.user_id, "chat_type": "general"}
+    if before:
+        query["created_at"] = {"$lt": before}
+    messages = await db.chat_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"messages": messages, "next_cursor": messages[-1]["created_at"] if len(messages) == 50 else None}
 
 
 # ========== MONTHLY BILLS (CONTAS DO MÊS) ==========
@@ -13126,7 +11962,7 @@ async def import_workout_plan(
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
 
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
 
     content = await file.read(20 * 1024 * 1024 + 1)
@@ -13143,7 +11979,7 @@ async def import_workout_plan(
             tmp_path = tmp.name
 
         mime = file.content_type or ('application/pdf' if ext == '.pdf' else 'image/jpeg')
-        uploaded = gemini_client.files.upload(file=tmp_path)
+        uploaded = await upload_gemini_path(tmp_path, user.user_id)
         os.unlink(tmp_path)
 
         system_msg = """Analise esta ficha de treino e extraia TODOS os exercícios.
@@ -13157,14 +11993,7 @@ Responda APENAS com JSON:
 }
 REGRAS: Extraia TODOS os exercícios fielmente. Se não conseguir ler algo, indique com [ilegível]."""
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded.uri, mime_type=mime),
-                "Extraia a ficha de treino deste documento:"
-            ],
-            config=types.GenerateContentConfig(system_instruction=system_msg)
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=[gemini_file_part(file_uri=uploaded.uri, mime_type=mime), 'Extraia a ficha de treino deste documento:'], config=dict(system_instruction=system_msg), user_id=user.user_id)
 
         json_str = response.text.strip()
         if json_str.startswith("```json"): json_str = json_str[7:]
@@ -13247,7 +12076,7 @@ async def generate_meal_plan(request: Request, session_token: Optional[str] = Co
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if not gemini_client:
+    if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=503, detail="Serviço de IA indisponível")
     
     body = await request.json()
@@ -13316,13 +12145,7 @@ IMPORTANTE:
 - {"Retorne apenas 1 dia" if duration == "dia" else "Retorne 7 dias"} no array days"""
 
     try:
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction="Você é um nutricionista profissional. Sempre responda em JSON válido."
-            )
-        )
+        response = await request_gemini(model=GEMINI_MODEL, contents=prompt, config=dict(system_instruction='Você é um nutricionista profissional. Sempre responda em JSON válido.'), user_id=user.user_id)
         
         response_text = response.text.strip()
         if response_text.startswith("```"):
@@ -14182,10 +13005,15 @@ async def get_calendar_events(request: Request, start: str = None, end: str = No
         next_month = today.replace(day=28) + timedelta(days=4)
         end = next_month.replace(day=1).strftime("%Y-%m-%d")
     
+    from task_recurrence import expand_task_dates
+    try:
+        expand_task_dates({}, start, end)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     events = []
     
     # Tasks
-    task_templates = await db.tasks.find({"user_id": user.user_id, "is_template": True}, {"_id": 0}).to_list(500)
+    task_templates = await db.tasks.find({"user_id": user.user_id, "is_template": True}, {"_id": 0}).to_list(None)
     task_instances = await db.task_instances.find({
         "user_id": user.user_id,
         "date": {"$gte": start, "$lte": end}
@@ -14196,40 +13024,15 @@ async def get_calendar_events(request: Request, start: str = None, end: str = No
         key = f"{inst['task_id']}_{inst['date']}"
         instance_map[key] = inst
     
+    from task_recurrence import expand_task_dates
     for t in task_templates:
-        rec = t.get("recurrence", "once")
-        if rec == "daily":
-            d = datetime.strptime(start, "%Y-%m-%d")
-            end_d = datetime.strptime(end, "%Y-%m-%d")
-            while d <= end_d:
-                ds = d.strftime("%Y-%m-%d")
-                inst = instance_map.get(f"{t['task_id']}_{ds}")
-                events.append({
-                    "id": f"task_{t['task_id']}_{ds}",
-                    "title": t["title"],
-                    "date": ds,
-                    "type": "task",
-                    "color": "#007AFF",
-                    "completed": inst.get("completed", False) if inst else False,
-                    "priority": t.get("priority", "medium"),
-                    "ref_id": t["task_id"]
-                })
-                d += timedelta(days=1)
-        elif rec == "once":
-            created = t.get("created_at", "")[:10]
-            if start <= created <= end:
-                inst = instance_map.get(f"{t['task_id']}_{created}")
-                events.append({
-                    "id": f"task_{t['task_id']}",
-                    "title": t["title"],
-                    "date": created,
-                    "type": "task",
-                    "color": "#007AFF",
-                    "completed": inst.get("completed", False) if inst else False,
-                    "priority": t.get("priority", "medium"),
-                    "ref_id": t["task_id"]
-                })
-    
+        for ds in expand_task_dates(t, start, end):
+            inst = instance_map.get(f"{t['task_id']}_{ds}")
+            events.append({"id": f"task_{t['task_id']}_{ds}", "title": t["title"],
+                           "date": ds, "type": "task", "color": "#007AFF",
+                           "completed": bool(inst and inst.get("completed")),
+                           "priority": t.get("priority", "medium"), "ref_id": t["task_id"]})
+
     # Habits
     habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(500)
     for h in habits:
@@ -14312,9 +13115,22 @@ async def get_cross_module_suggestions(request: Request, session_token: Optional
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    suggestions = []
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    
+    from dashboard_service import dashboard_snapshot
+    from cross_module_rules import suggestions_from_snapshot
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat()
+    return {"suggestions": suggestions_from_snapshot(await dashboard_snapshot(db, user, today))}
+
+
+@api_router.get("/dashboard/panels")
+async def get_dashboard_panels(request: Request, session_token: Optional[str] = Cookie(None)):
+    await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
+    names = ["weekly", "reminders", "streaks", "daily", "workout"]
+    results = await asyncio.gather(*(handler(request, session_token) for handler in
+        [get_weekly_summary, get_smart_reminders, get_global_streaks, get_daily_summary, get_today_workout_schedule]), return_exceptions=True)
+    return {"panels": {name: value for name, value in zip(names, results) if not isinstance(value, Exception)},
+            "errors": [name for name, value in zip(names, results) if isinstance(value, Exception)]}
+
 
 # ===== EXPORT ENDPOINTS =====
 from io import BytesIO
@@ -15225,138 +14041,28 @@ async def trigger_daily_summaries(request: Request, session_token: Optional[str]
 
 
 class AiChatRequest(BaseModel):
-    message: str
-    system_message: str = ""
-    page: str = ""
-    page_context: str = ""
+    message: str = Field(min_length=1, max_length=6000)
+    conversation_id: str = Field(default="primary", min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    request_id: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=8, max_length=80)
+    page: str = Field(default="", max_length=200)
+    page_context: str = Field(default="", max_length=2000)
 
 async def build_ai_system_prompt(user_id: str, page: str = "", page_context: str = "") -> str:
-    now = datetime.now(timezone.utc)
-    date_str = now.strftime("%d/%m/%Y")
-    time_str = now.strftime("%H:%M")
+    from assistant_service import context_prompt
+    return await context_prompt(db, user_id, page, page_context)
 
-    lines = [f"Você é o assistente integrado do Sirius, um aplicativo completo de gestão pessoal.",
-             f"Hoje é {date_str} e são {time_str} UTC.",
-             f"",
-             f"## Módulos do Sirius",
-             f"- **Treinos**: planos de treino, exercícios, séries, cargas, RPE, histórico",
-             f"- **Nutrição**: refeições, alimentos, calorias, macros, planejamento alimentar",
-             f"- **Estudos**: matérias, tópicos, flashcards, sessões de estudo, provas, redação",
-             f"- **Finanças**: receitas, despesas, orçamentos, projeções, categorias",
-             f"- **Tarefas**: tarefas diárias, hábitos, tracker, gamificação (XP, ranking)",
-             f"- **Metas**: objetivos de curto/médio/longo prazo com progresso",
-             f"- **Calendário**: eventos, agendamentos",
-             f"- **Dashboard**: visão geral de todas as áreas",
-             f"",
-             f"## Comportamento",
-             f"- Responda de forma objetiva e prática em português.",
-             f"- Use emojis com moderação para tornar a resposta mais amigável.",
-             f"- Sempre que relevante, sugira ações concretas que o usuário pode fazer no app.",
-             f"- Se o usuário pedir algo que você não pode fazer diretamente (criar/editar dados),",
-             f"  explique claramente o que ele precisa fazer e em qual seção do app."]
-
-    try:
-        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password": 0, "gemini_api_key": 0, "email": 0})
-        if user_doc:
-            name = user_doc.get("name", "")
-            if name:
-                lines.append(f"")
-                lines.append(f"## Dados do usuário")
-                lines.append(f"- Nome: {name}")
-                rank = user_doc.get("rank", "")
-                xp = user_doc.get("xp", 0)
-                if rank:
-                    lines.append(f"- Rank: {rank} | XP: {xp}")
-
-            # Fetch summaries from each module
-            today = now.strftime("%Y-%m-%d")
-            current_month = now.strftime("%Y-%m")
-
-            # Tasks today
-            tasks_today = await db.task_instances.count_documents({"user_id": user_id, "date": today})
-            tasks_done = await db.task_instances.count_documents({"user_id": user_id, "date": today, "completed": True})
-            if tasks_today > 0:
-                lines.append(f"- Tarefas hoje: {tasks_done}/{tasks_today} concluídas")
-
-            # Habits
-            habits_count = await db.habits.count_documents({"user_id": user_id})
-            if habits_count > 0:
-                lines.append(f"- Hábitos cadastrados: {habits_count}")
-
-            # Workouts this month
-            workouts_month = await db.workout_logs.count_documents({"user_id": user_id, "date": {"$regex": f"^{current_month}"}})
-            if workouts_month > 0:
-                lines.append(f"- Treinos no mês: {workouts_month}")
-
-            # Finance summary (current month)
-            income = await db.transactions.aggregate([
-                {"$match": {"user_id": user_id, "type": "receita", "date": {"$regex": f"^{current_month}"}}},
-                {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-            ]).to_list(1)
-            expenses = await db.transactions.aggregate([
-                {"$match": {"user_id": user_id, "type": "despesa", "date": {"$regex": f"^{current_month}"}}},
-                {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-            ]).to_list(1)
-            inc_total = income[0]["total"] if income else 0
-            exp_total = expenses[0]["total"] if expenses else 0
-            if inc_total or exp_total:
-                lines.append(f"- Finanças do mês: R$ {inc_total:.2f} receitas | R$ {exp_total:.2f} despesas")
-
-            # Goals
-            goals_count = await db.goals.count_documents({"user_id": user_id})
-            if goals_count > 0:
-                lines.append(f"- Metas cadastradas: {goals_count}")
-
-            # Study
-            study_hours = await db.study_sessions.aggregate([
-                {"$match": {"user_id": user_id, "date": {"$regex": f"^{current_month}"}}},
-                {"$group": {"_id": None, "total": {"$sum": "$duration_minutes"}}}
-            ]).to_list(1)
-            total_minutes = study_hours[0]["total"] if study_hours else 0
-            if total_minutes > 0:
-                lines.append(f"- Estudos no mês: {total_minutes} minutos")
-
-    except Exception as e:
-        logging.warning(f"Failed to build AI context: {e}")
-
-    if page:
-        page_map = {
-            "/dashboard": "Dashboard - visão geral do app",
-            "/treinos": "Treinos - planos e histórico de treinos",
-            "/nutricao": "Nutrição - refeições e alimentos",
-            "/nutrição": "Nutrição - refeições e alimentos",
-            "/estudos": "Estudos - matérias e sessões de estudo",
-            "/financas": "Finanças - receitas, despesas e orçamentos",
-            "/finanças": "Finanças - receitas, despesas e orçamentos",
-            "/tarefas": "Tarefas e hábitos",
-            "/metas": "Metas e objetivos",
-            "/calendario": "Calendário de eventos",
-            "/calendário": "Calendário de eventos",
-            "/perfil": "Perfil do usuário e configurações",
-        }
-        page_name = page_map.get(page, f"Página: {page}")
-        lines.append(f"")
-        lines.append(f"## Contexto atual")
-        lines.append(f"O usuário está na página: {page_name}")
-        if page_context:
-            lines.append(f"Contexto adicional: {page_context}")
-
-    return "\n".join(lines)
+@api_router.get("/ai/conversation")
+async def ai_conversation(request: Request, conversation_id: str = "primary", session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
+    from assistant_service import Conversations
+    return await Conversations(db, call_llm).read(user.user_id, conversation_id)
 
 @api_router.post("/ai/chat")
 async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    try:
-        if body.system_message:
-            system_msg = body.system_message
-        else:
-            system_msg = await build_ai_system_prompt(user.user_id, body.page, body.page_context)
-        reply = await call_llm(body.message, user_id=user.user_id, system_message=system_msg)
-        return {"reply": reply}
-    except Exception as e:
-        logging.error(f"AI chat error: {e}")
-        return {"reply": f"⚠️ Erro no servidor: {str(e)[:200]}"}
+    user = await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
+    from assistant_service import Conversations
+    system = await build_ai_system_prompt(user.user_id, body.page, body.page_context)
+    return await Conversations(db, call_llm).send(user.user_id, body, system)
 
 
 from study_workspace_routes import workspace_router
@@ -15441,5 +14147,7 @@ async def startup_setup():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    from gemini_service import close
+    await close()
     await edital_jobs.stop()
     client.close()

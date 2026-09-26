@@ -1,12 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useRef } from "react";
-import { 
-  Shield, Target, TrendingUp, Award, Brain, BarChart3, 
-  Dumbbell, Apple, BookOpen, MessageSquare, Bell, Zap,
-  CheckCircle2, ChevronRight, ArrowRight, DollarSign, 
-  Calendar, Trophy, Flame, Sparkles
-} from "lucide-react";
+import { Target, TrendingUp, Award, Brain, BarChart3, Dumbbell, Apple, BookOpen, MessageSquare, Bell, Zap, CheckCircle2, ChevronRight, ArrowRight, DollarSign, Calendar, Trophy, Flame, Sparkles } from "lucide-react";
 import { SiriusLogo } from "@/components/Sidebar";
 
 function FadeIn({ children, className, delay }) {

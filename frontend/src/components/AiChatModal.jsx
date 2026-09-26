@@ -1,10 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, User, Loader2, X, AppWindow } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
-import axios from 'axios';
+import { useAssistant } from '@/hooks/useAssistant';
 import * as Dialog from '@radix-ui/react-dialog';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+
 
 function TypingDots() {
   return (
@@ -47,9 +47,9 @@ function MessageAvatar({ role }) {
 
 export default function AiChatModal({ open, onClose }) {
   const location = useLocation();
-  const [messages, setMessages] = useState([]);
+  const { messages, sending, error, send, refresh } = useAssistant(location.pathname, open);
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
+
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [viewport, setViewport] = useState(null);
@@ -69,44 +69,11 @@ export default function AiChatModal({ open, onClose }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const callCloud = useCallback(async (message) => {
-    const pageContext = document.title || '';
-    const res = await axios.post(`${BACKEND_URL}/api/ai/chat`, {
-      message,
-      page: location.pathname,
-      page_context: pageContext,
-    }, { withCredentials: true });
-    return res.data.reply;
-  }, [location.pathname]);
-
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || sending) return;
-    setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
-    setSending(true);
-    setMessages((prev) => [...prev, { role: 'assistant', content: '', loading: true }]);
-    try {
-      const reply = await callCloud(text);
-      if (reply.includes("Configure sua chave") && reply.includes("Gemini")) {
-        window.dispatchEvent(new CustomEvent("open-gemini-key-modal"));
-      }
-      setMessages((prev) => {
-        const copy = [...prev];
-        copy[copy.length - 1] = { role: 'assistant', content: reply };
-        return copy;
-      });
-    } catch (err) {
-      const errMsg = err.response?.data?.reply || err.message || 'Erro ao gerar resposta.';
-      setMessages((prev) => {
-        const copy = [...prev];
-        copy[copy.length - 1] = { role: 'assistant', content: errMsg, error: true };
-        return copy;
-      });
-    } finally {
-      setSending(false);
-    }
-  }, [input, sending, callCloud]);
+    if (await send(text)) setInput('');
+  }, [input, sending, send]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -214,6 +181,8 @@ export default function AiChatModal({ open, onClose }) {
                 {msg.role === 'user' && <MessageAvatar role="user" />}
               </div>
             ))}
+            {error && <div role="alert" className="text-sm text-amber-300 p-3">{error}<button className="underline ml-2" onClick={refresh}>Recarregar</button></div>}
+            {sending && <TypingDots />}
             <div ref={messagesEndRef} />
           </div>
 

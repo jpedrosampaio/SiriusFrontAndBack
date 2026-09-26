@@ -83,8 +83,8 @@ function ReportAccordionItem({ report }) {
             <h4 className="font-heading text-sm text-[#A1A1AA] uppercase tracking-wider mb-3">Dados do Período</h4>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-[#A1A1AA] mb-1">Tarefas</p>
-                <p className="font-data text-lg">{report.data?.tasks_completed ?? 0}/{report.data?.tasks ?? 0}</p>
+                <p className="text-xs text-[#A1A1AA] mb-1">Tarefas concluídas</p>
+                <p className="font-data text-lg">{report.data?.tasks_completed ?? 0}</p>
               </div>
               <div>
                 <p className="text-xs text-[#A1A1AA] mb-1">Hábitos</p>
@@ -101,6 +101,14 @@ function ReportAccordionItem({ report }) {
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
+            <span>Estudo: {report.data?.study_minutes ?? 0} min</span>
+            <span>Questões: {report.data?.questions_correct ?? 0}/{report.data?.questions_answered ?? 0}</span>
+            <span>Treinos: {report.data?.workouts ?? 0}</span>
+            <span>Refeições registradas: {report.data?.meals ?? 0}</span>
+            <span>Registros em metas: {report.data?.goal_checks ?? 0}</span>
+            <span>Água registrada: {report.data?.water_ml ?? 0} ml</span>
+          </div>
           {/* Insights */}
           <div>
             <h4 className="font-heading text-sm text-[#A1A1AA] uppercase tracking-wider mb-3 flex items-center">
@@ -122,6 +130,8 @@ export default function Reports() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reportType, setReportType] = useState("diário");
+  const [sprintStart, setSprintStart] = useState("");
+  const [sprintEnd, setSprintEnd] = useState("");
 
   useEffect(() => {
     fetchUser();
@@ -151,8 +161,9 @@ export default function Reports() {
     const periodMap = { "diário": "hoje", "semanal": "esta semana", "mensal": "este mês", "sprint": "esta semana" };
     const period = periodMap[reportType] || "hoje";
     try {
-      await axios.post(`${API}/reports/generate?report_type=${reportType}&period=${period}`, {}, {
-        withCredentials: true
+      await axios.post(`${API}/reports/generate`, {}, {
+        withCredentials: true,
+        params: { report_type: reportType, period, ...(reportType === 'sprint' ? { start: sprintStart, end: sprintEnd } : {}) }
       });
       toast.success("Relatório gerado com sucesso!");
       fetchReports();
@@ -174,6 +185,10 @@ export default function Reports() {
           </div>
 
           <Card className="bg-[#0A0A0A] border-[#27272A] p-6 mb-8">
+            {reportType === 'sprint' && <div className="flex flex-wrap gap-3 mb-4">
+              <label className="text-sm">Início do sprint<input aria-label="Início do sprint" type="date" value={sprintStart} onChange={e => setSprintStart(e.target.value)} className="block bg-zinc-900 rounded p-2" /></label>
+              <label className="text-sm">Fim do sprint<input aria-label="Fim do sprint" type="date" value={sprintEnd} min={sprintStart} onChange={e => setSprintEnd(e.target.value)} className="block bg-zinc-900 rounded p-2" /></label>
+            </div>}
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <Sparkles className="w-8 h-8 text-[#00F0FF]" />
               <div className="flex-1 min-w-0 w-full">

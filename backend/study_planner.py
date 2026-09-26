@@ -36,6 +36,7 @@ def build_plan(program_id, notebooks, availability, start, end, block_minutes, c
             while any(item['entry_id'] == entry_id for item in result):
                 entry_id += '-next'
             result.append({'entry_id': entry_id, 'date': iso, 'notebook_id': nb['notebook_id'],
-                           'name': nb.get('name', ''), 'minutes': minutes, 'kind': kind, 'completed': False})
+                           'name': nb.get('name', ''), 'minutes': minutes, 'kind': kind, 'completed': False,
+                           'reason': nb.get('planning_reason', '')})
             budget -= minutes
     return sorted(result, key=lambda row: (row['date'], row.get('entry_id', '')))

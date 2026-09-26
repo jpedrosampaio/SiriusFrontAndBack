@@ -36,10 +36,12 @@ export const getToken = () => {
 };
 export const setToken = (token) => {
   invalidateUser();
+  window.dispatchEvent(new Event('sirius-auth-changed'));
   if (!OFFLINE_MODE) localStorage.setItem(TOKEN_KEY, token);
 };
 export const clearToken = () => {
   invalidateUser();
+  window.dispatchEvent(new Event('sirius-auth-changed'));
   if (!OFFLINE_MODE) localStorage.removeItem(TOKEN_KEY);
 };
 
@@ -63,7 +65,7 @@ axios.interceptors.request.use(
 // Interceptor for 401 responses - clear token and redirect to login
 axios.interceptors.response.use(
   (response) => {
-    if (!['get', 'head', 'options'].includes(response.config?.method || 'get')) invalidateUser();
+    if (!['get', 'head', 'options'].includes(response.config?.method || 'get')) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
     return response;
   },
   (error) => {

@@ -9,20 +9,20 @@ async def aggregate_one(collection, query, fields):
 
 
 async def dashboard_snapshot(db, user, today):
+    from task_recurrence import task_day_counts
     own = {'user_id': user.user_id}
     day = {**own, 'date': today}
     start = today[:7] + '-01'
     parsed = datetime.strptime(start, '%Y-%m-%d')
     next_month = (parsed.replace(day=28) + timedelta(days=4)).replace(day=1).strftime('%Y-%m-%d')
     sums = lambda *names: {name: {'$sum': f'${name}'} for name in names}
-    (tasks, completed, habits, finances, goals, workouts, meals, water, nutrition_goal,
+    (task_counts, habits, finances, goals, workouts, meals, water, nutrition_goal,
      studies, focus, streak, cards, due, notebooks, simulations, attempts, questions) = await asyncio.gather(
-        db.tasks.count_documents({**own, 'is_template': True}),
-        db.task_instances.count_documents({**day, 'completed': True}),
+        task_day_counts(db, user.user_id, today),
         aggregate_one(db.habits, own, {'count': {'$sum': 1}, 'done': {'$sum': {'$cond': [{'$in': [today, {'$ifNull': ['$completions', []]}]}, 1, 0]}}}),
         aggregate_one(db.transactions, {**own, 'date': {'$gte': start, '$lt': next_month}}, {
             kind: {'$sum': {'$cond': [{'$eq': ['$type', kind]}, '$amount', 0]}} for kind in ('income', 'expense')}),
-        aggregate_one(db.goals, own, {'count': {'$sum': 1}, 'progress': {'$avg': {'$size': {'$ifNull': ['$daily_checks', []]}}}}),
+        aggregate_one(db.goals, own, {'count': {'$sum': 1}, 'progress': {'$avg': {'$min': [100, {'$max': [0, {'$ifNull': ['$progress', 0]}]}]}}}),
         aggregate_one(db.workout_logs, {**own, 'completed': True, 'date': {'$gte': (datetime.strptime(today, '%Y-%m-%d') - timedelta(days=6)).strftime('%Y-%m-%d'), '$lte': today}}, {'count': {'$sum': 1}, **sums('duration_minutes', 'calories', 'xp_earned')}),
         aggregate_one(db.meals, day, {'count': {'$sum': 1}, **sums('total_calories', 'total_protein')}),
         aggregate_one(db.water_logs, day, sums('amount_ml')),
@@ -41,7 +41,7 @@ async def dashboard_snapshot(db, user, today):
     accuracy = lambda correct, total: round(correct / total * 100, 1) if total else 0
     return {
         'user': {'name': user.name, 'xp': user.xp, 'rank': user.rank, 'picture': user.picture},
-        'tasks_today': tasks, 'tasks_completed_today': completed,
+        'tasks_today': task_counts[0], 'tasks_completed_today': task_counts[1],
         'habits_total': habits.get('count', 0), 'habits_completed_today': habits.get('done', 0),
         'income': finances.get('income', 0), 'expenses': finances.get('expense', 0), 'balance': finances.get('income', 0) - finances.get('expense', 0),
         'goals_total': goals.get('count', 0), 'goals_avg_progress': goals.get('progress', 0),
