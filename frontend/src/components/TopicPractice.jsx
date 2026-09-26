@@ -28,6 +28,7 @@ export default function TopicPractice({ api, notebookId, topic }) {
       const { data } = await axios.post(`${api}/study/notebooks/${notebookId}/practice`, body, { headers: { 'Idempotency-Key': pending.current.key } });
       setReviews(old => [...old.filter(r => r.topic_key !== data.topic_key), data].sort((a, b) => a.due_date.localeCompare(b.due_date)));
       pending.current = null;
+      window.dispatchEvent(new Event('sirius-study-performance'));
       setMessage(`Resultado salvo. Próxima revisão sugerida: ${displayStudyDate(data.due_date)}.`);
     } catch (e) { setMessage(getApiErrorMessage(e, 'Não foi possível salvar. Tente novamente.')); }
     finally { setBusy(false); }
