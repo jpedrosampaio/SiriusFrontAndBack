@@ -4,11 +4,11 @@ import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Shield, Mail, Lock, Chrome, Wifi, WifiOff } from "lucide-react";
+import { Mail, Lock, Chrome, Wifi } from "lucide-react";
 import { SiriusLogo } from "@/components/Sidebar";
 import axios from "axios";
 import { toast } from "sonner";
-import { setToken, getOfflineUser, getOfflineData, isOfflineMode, OFFLINE_MODE } from "@/lib/api";
+import { setToken, getOfflineUser, getOfflineData, OFFLINE_MODE } from "@/lib/api";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;

@@ -76,3 +76,47 @@ class MetricsTests(unittest.IsolatedAsyncioTestCase):
         await service.send('alice', body, 'system')
         self.assertIn('Lembre de português', llm.call_args.args[0])
         self.assertEqual(len((await service.read('alice'))['messages']), 4)
+
+    async def test_analytics_matches_legacy_and_exceeds_its_limits(self):
+        import importlib.util
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+        from analytics_service import analytics_snapshot
+        path = Path(__file__).with_name('analytics_legacy_fixture.py')
+        spec = importlib.util.spec_from_file_location('legacy', path)
+        legacy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(legacy)
+        legacy.db = self.db
+        legacy.get_current_user = AsyncMock(return_value=SimpleNamespace(user_id='alice'))
+        today = datetime.now(timezone.utc).date().isoformat()
+        for name, fields in [('task_instances', {'completed': True}), ('transactions', {'type': 'income', 'amount': 2.25}),
+                             ('study_sessions', {'duration_minutes': 20}), ('workout_logs', {'completed': True, 'duration_minutes': 40}),
+                             ('question_logs', {'total': 10, 'correct': 7}), ('xp_logs', {'amount': 5})]:
+            await self.db[name].insert_many([{'user_id': 'alice', 'date': today, **fields}, {'user_id': 'bob', 'date': today, **fields}])
+        await self.db.habits.insert_one({'user_id': 'alice', 'completions': [today, today]})
+        old = await legacy.get_analytics_data(SimpleNamespace(headers={}), 7, None)
+        new = await analytics_snapshot(self.db, 'alice', 7, today)
+        self.assertEqual(new, old)
+        await self.db.transactions.insert_many([{'user_id': 'alice', 'date': today, 'type': 'income', 'amount': 1} for _ in range(5005)])
+        new = await analytics_snapshot(self.db, 'alice', 7, today)
+        old = await legacy.get_analytics_data(SimpleNamespace(headers={}), 7, None)
+        self.assertEqual(new['totals']['income'], 5007.25)
+        self.assertLess(old['totals']['income'], new['totals']['income'])
+        import time
+        import json
+        from assistant_service import context_prompt
+        await self.db.users.insert_one({'user_id': 'alice', 'name': 'Fixture', 'xp': 0})
+        measurements = {}
+        for name, call in [
+            ('analytics_before_truncated', lambda: legacy.get_analytics_data(SimpleNamespace(headers={}), 7, None)),
+            ('analytics_after_full', lambda: analytics_snapshot(self.db, 'alice', 7, today)),
+            ('assistant_context_before', lambda: legacy.build_ai_system_prompt('alice', '/finance')),
+            ('assistant_context_after', lambda: context_prompt(self.db, 'alice', '/finance')),
+        ]:
+            samples = []
+            for _ in range(5):
+                started = time.perf_counter()
+                await call()
+                samples.append(round((time.perf_counter() - started) * 1000, 2))
+            measurements[name] = {'median_ms': sorted(samples)[2], 'samples_ms': samples}
+        print('PERFORMANCE_DISPOSABLE_MONGO ' + json.dumps(measurements), flush=True)

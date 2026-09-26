@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, User, Loader2, X, AppWindow } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useAssistant } from '@/hooks/useAssistant';

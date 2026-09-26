@@ -31,7 +31,7 @@ export default function PullToRefresh({ onRefresh, children }) {
       setPullDistance(THRESHOLD);
       try {
         await onRefresh();
-      } catch {}
+      } catch { /* Optional operation failed; preserve the current view. */ }
       setRefreshing(false);
     }
     setPullDistance(0);

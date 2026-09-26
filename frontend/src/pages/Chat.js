@@ -7,10 +7,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageSquare, Send, User, Bot, Loader2, Sparkles, ChefHat, Dumbbell, BookOpen, DollarSign, Save } from "lucide-react";
+import { Send, User, Bot, Loader2, Sparkles, ChefHat, Dumbbell, BookOpen, DollarSign, Save } from "lucide-react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
-import { ChatSkeleton } from "@/components/SkeletonLoader";
-import { motion, AnimatePresence } from "framer-motion";
+
+import { motion } from "framer-motion";
 import axios from "axios";
 import { toast } from "sonner";
 
@@ -62,7 +62,7 @@ export default function Chat() {
       <div className="flex-1 ml-0 md:ml-64 flex flex-col h-screen">
         <div className="p-4 md:p-6 border-b border-[#27272A] pt-[72px] md:pt-6">
           <h1 className="font-heading text-xl md:text-3xl mb-1">Converse com o Sirius</h1>
-          <p className="text-xs md:text-sm text-[#A1A1AA]">Chat integrado: finanças, estudos, treinos, receitas e mais. Peça algo e ele salva no app!</p>
+          <p className="text-xs md:text-sm text-[#A1A1AA]">A mesma conversa do assistente flutuante. Revise as sugestões antes de aplicá-las nos módulos.</p>
         </div>
 
         {error && <div role="alert" className="px-4 text-amber-300">{error} <button className="underline" onClick={refresh}>Recarregar</button></div>}

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Award, Trophy, Star, Shield, Target, TrendingUp, CheckSquare, Camera, Trash2, Upload, Cake, Edit3, Save, X, MessageCircle, Link2, Unlink, Copy, ExternalLink, CheckCircle2, Loader2, Info, Zap, AlertTriangle } from "lucide-react";
+import { Award, Trophy, Star, Shield, Target, TrendingUp, CheckSquare, Camera, Trash2, Cake, Edit3, Save, X, MessageCircle, Link2, Unlink, Copy, ExternalLink, CheckCircle2, Loader2, Info, Zap, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import axios from "axios";
 import { toast } from "sonner";
@@ -82,7 +82,7 @@ export default function Profile() {
     try {
       const res = await axios.get(`${API}/auth/birthday-check`, { withCredentials: true });
       setBirthdayInfo(res.data);
-    } catch { /* noop */ }
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const handleSaveProfile = async () => {

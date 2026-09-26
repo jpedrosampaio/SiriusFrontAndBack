@@ -16,7 +16,7 @@ export default function FloatingAssistant() {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [position, setPosition] = useState(() => {
-    let saved; try { saved = JSON.parse(localStorage.getItem(POSITION_KEY)); } catch {}
+    let saved; try { saved = JSON.parse(localStorage.getItem(POSITION_KEY)); } catch { /* Optional operation failed; preserve the current view. */ }
     return clampPosition(saved, window.innerWidth, window.innerHeight);
   });
   const drag = useRef(null);
@@ -35,7 +35,7 @@ export default function FloatingAssistant() {
     return () => window.removeEventListener('open-gemini-key-modal', configure);
   }, []);
   if (['/', '/login', '/register'].includes(pathname)) return null;
-  const save = p => { setPosition(p); try { localStorage.setItem(POSITION_KEY, JSON.stringify(p)); } catch {} };
+  const save = p => { setPosition(p); try { localStorage.setItem(POSITION_KEY, JSON.stringify(p)); } catch { /* Optional operation failed; preserve the current view. */ } };
   return createPortal(<>
     <button ref={button} type="button" className="sirius-assistant-launcher" aria-label="Abrir assistente Sirius"
       aria-expanded={open} aria-controls="sirius-assistant-panel" title="Abrir assistente · arraste para mover"

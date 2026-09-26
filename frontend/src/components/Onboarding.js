@@ -1,10 +1,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { 
-  Dumbbell, DollarSign, BookOpen, Target, 
-  Utensils, CheckSquare, TrendingUp, Sparkles,
-  ChevronRight, X, Zap
-} from "lucide-react";
+import { Dumbbell, DollarSign, BookOpen, Target, Utensils, Sparkles, ChevronRight, X, Zap } from "lucide-react";
 
 const ONBOARDING_KEY = "sirius_onboarding_complete";
 

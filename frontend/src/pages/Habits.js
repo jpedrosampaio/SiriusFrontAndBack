@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { TrendingUp, Plus, Trash2, Flame, CheckCircle2, BarChart3, Calendar, Bell, X } from "lucide-react";
+import { TrendingUp, Plus, Trash2, Flame, CheckCircle2, BarChart3, Bell } from "lucide-react";
 import axios from "axios";
 import { toast } from "sonner";
 

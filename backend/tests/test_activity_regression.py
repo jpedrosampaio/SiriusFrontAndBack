@@ -240,6 +240,26 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.successes(results[:2])
         await self.balance(38)
 
+    async def test_topic_practice_replay_owner_and_counts(self):
+        await self.db.notebooks.insert_one({'user_id': 'alice', 'notebook_id': 'nb', 'program_id': 'p',
+                                           'conteudo_programatico': [{'assunto': 'Crase', 'subtopicos': ['Exceções']}]})
+        url = '/api/study/notebooks/nb/practice'
+        body = {'topic_key': '0_0', 'total': 10, 'correct': 5}
+        headers = {'Idempotency-Key': 'practice-replay-001'}
+        first = await self.http.post(url, json=body, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()['title'], 'Exceções')
+        replay = await self.http.post(url, json=body, headers=headers)
+        self.assertTrue(replay.json()['replayed'])
+        self.assertEqual(await self.db.question_logs.count_documents({}), 1)
+        self.assertEqual((await self.db.notebooks.find_one({'notebook_id': 'nb'}))['total_questions'], 10)
+        self.assertEqual(await self.db.study_topic_reviews.count_documents({}), 1)
+        foreign = await self.http.post(url, json=body, headers={**headers, 'Authorization': 'Bearer bob'})
+        self.assertEqual(foreign.status_code, 404)
+        invalid = await self.http.post(url, json={**body, 'correct': 11}, headers=headers)
+        self.assertEqual(invalid.status_code, 422)
+        await self.balance(0)
+
     async def test_same_key_replays_one_committed_result_after_lost_response(self):
         results = await asyncio.gather(*(self.task(key="same-request-001") for _ in range(12)))
         self.successes(results)
