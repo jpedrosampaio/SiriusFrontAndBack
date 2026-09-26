@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/api";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import PullToRefresh from "@/components/PullToRefresh";
@@ -47,9 +47,6 @@ export default function Dashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "true");
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchData();
-  }, []);
 
   useEffect(() => {
     const check = () => setSidebarCollapsed(localStorage.getItem("sidebar_collapsed") === "true");
@@ -58,7 +55,21 @@ export default function Dashboard() {
     return () => { window.removeEventListener("sidebar-toggle", check); window.removeEventListener("storage", check); };
   }, []);
 
-  const fetchData = async () => {
+  const [panelErrors, setPanelErrors] = useState([]);
+  const analyticsMarker = useRef(null);
+  const loadPanels = useCallback(async () => {
+    try {
+      const { data } = await axios.get(`${API}/dashboard/panels`);
+      const p = data.panels || {};
+      if (p.weekly) setWeeklySummary(p.weekly);
+      if (p.reminders) setReminders(p.reminders.reminders || []);
+      if (p.streaks) setGlobalStreaks(p.streaks);
+      if (p.daily) setDailySummary(p.daily);
+      if (p.workout) setTodayWorkout(p.workout.scheduled ? p.workout : null);
+      setPanelErrors(data.errors || []);
+    } catch { setPanelErrors(['panels']); }
+  }, []);
+  const fetchData = useCallback(async () => {
     try {
       const [userRes, statsRes] = await Promise.all([
         getCurrentUser(),
@@ -68,22 +79,18 @@ export default function Dashboard() {
       setStats(statsRes.data);
       
       setLoading(false);
-      // Each panel is independent: one unavailable integration cannot hide the rest.
-      await Promise.allSettled([
-        ['/dashboard/weekly-summary', d => setWeeklySummary(d)],
-        ['/reminders/smart', d => setReminders(d.reminders || [])],
-        ['/suggestions/cross-module', d => setCrossSuggestions(d.suggestions || [])],
-        ['/stats/analytics?days=7', d => setAnalytics(d)],
-        ['/streaks/global', d => setGlobalStreaks(d)],
-        ['/dashboard/daily-summary', d => setDailySummary(d)],
-        ['/workouts/today-schedule', d => setTodayWorkout(d.scheduled ? d : null)],
-      ].map(([path, apply]) => axios.get(`${API}${path}`).then(r => apply(r.data))));
+      setCrossSuggestions(statsRes.data.suggestions || []);
+      void loadPanels();
+
     } catch (error) {
       toast.error("Erro ao carregar dados");
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadPanels]);
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+
 
   const handleSearch = query => setSearchQuery(query);
   useEffect(() => {
@@ -101,13 +108,21 @@ export default function Dashboard() {
     setReminders(prev => prev.filter((_, i) => i !== idx));
   };
 
-  const fetchAnalytics = async (d) => {
+  const fetchAnalytics = useCallback(async (d) => {
     setAnalyticsDays(d);
     try {
       const res = await axios.get(`${API}/stats/analytics?days=${d}`, { withCredentials: true });
       setAnalytics(res.data);
     } catch {}
-  };
+  }, []);
+  useEffect(() => {
+    if (loading || !analyticsMarker.current) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { fetchAnalytics(7); observer.disconnect(); }
+    }, { rootMargin: '200px' });
+    observer.observe(analyticsMarker.current);
+    return () => observer.disconnect();
+  }, [loading, fetchAnalytics]);
 
   const getNextRank = () => {
     const ranks = [
@@ -706,6 +721,8 @@ export default function Dashboard() {
           )}
 
           {/* ===== ANALYTICS CHARTS ===== */}
+          <div ref={analyticsMarker} />
+          {panelErrors.length > 0 && <div role="status" className="text-sm text-amber-300 mb-4">Alguns pain?is n?o carregaram. <button onClick={loadPanels} className="underline">Tentar novamente</button></div>}
           {analytics && analytics.data && analytics.data.length > 0 && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-5">

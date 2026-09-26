@@ -2935,7 +2935,10 @@ async def get_dashboard_stats(request: Request, session_token: Optional[str] = C
     from zoneinfo import ZoneInfo
     from dashboard_service import dashboard_snapshot
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
-    return await dashboard_snapshot(db, user, today)
+    result = await dashboard_snapshot(db, user, today)
+    from cross_module_rules import suggestions_from_snapshot
+    result["suggestions"] = suggestions_from_snapshot(result)
+    return result
 
 
 @api_router.get("/stats/analytics")
@@ -2944,118 +2947,10 @@ async def get_analytics_data(request: Request, days: int = 7, session_token: Opt
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
-    if days > 90:
-        days = 90
-    
-    # Generate date range
-    today = datetime.now(timezone.utc)
-    date_range = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days - 1, -1, -1)]
-    
-    # Fetch all required data in parallel
-    habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    
-    # Task instances for date range
-    task_instances = await db.task_instances.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Transactions for date range
-    transactions = await db.transactions.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Study sessions
-    study_sessions = await db.study_sessions.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Workout logs
-    workout_logs = await db.workout_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]},
-        "completed": True
-    }, {"_id": 0}).to_list(1000)
-    
-    # Question logs
-    question_logs = await db.question_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # XP history from various collections
-    xp_logs = await db.xp_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": date_range[0], "$lte": date_range[-1]}
-    }, {"_id": 0}).to_list(5000)
-    
-    # Build daily data
-    daily_data = []
-    cumulative_xp = 0
-    
-    for date in date_range:
-        day_label = date[5:]  # MM-DD format
-        
-        # Tasks
-        tasks_done = len([t for t in task_instances if t.get("date") == date and t.get("completed")])
-        
-        # Habits
-        habits_done = len([h for h in habits if date in h.get("completions", [])])
-        habits_total = len(habits)
-        
-        # Finance
-        day_income = sum(t["amount"] for t in transactions if t.get("date") == date and t.get("type") == "income")
-        day_expenses = sum(t["amount"] for t in transactions if t.get("date") == date and t.get("type") == "expense")
-        
-        # Study
-        study_minutes = sum(s.get("duration_minutes", 0) for s in study_sessions if s.get("date") == date)
-        
-        # Workouts
-        workouts_done = len([w for w in workout_logs if w.get("date") == date])
-        workout_minutes = sum(w.get("duration_minutes", 0) for w in workout_logs if w.get("date") == date)
-        
-        # Questions
-        questions_answered = sum(q.get("total", 0) for q in question_logs if q.get("date") == date)
-        questions_correct = sum(q.get("correct", 0) for q in question_logs if q.get("date") == date)
-        
-        # XP
-        day_xp = sum(x.get("amount", 0) for x in xp_logs if x.get("date") == date)
-        cumulative_xp += day_xp
-        
-        daily_data.append({
-            "date": date,
-            "label": day_label,
-            "tasks": tasks_done,
-            "habits": habits_done,
-            "habits_total": habits_total,
-            "income": round(day_income, 2),
-            "expenses": round(day_expenses, 2),
-            "balance": round(day_income - day_expenses, 2),
-            "study_min": study_minutes,
-            "workouts": workouts_done,
-            "workout_min": workout_minutes,
-            "questions": questions_answered,
-            "correct": questions_correct,
-            "xp": day_xp,
-            "xp_cumulative": cumulative_xp,
-        })
-    
-    return {
-        "days": days,
-        "data": daily_data,
-        "totals": {
-            "tasks": sum(d["tasks"] for d in daily_data),
-            "habits_avg": round(sum(d["habits"] for d in daily_data) / max(len(daily_data), 1), 1),
-            "income": round(sum(d["income"] for d in daily_data), 2),
-            "expenses": round(sum(d["expenses"] for d in daily_data), 2),
-            "study_hours": round(sum(d["study_min"] for d in daily_data) / 60, 1),
-            "workouts": sum(d["workouts"] for d in daily_data),
-            "questions": sum(d["questions"] for d in daily_data),
-            "xp_earned": sum(d["xp"] for d in daily_data),
-        }
-    }
+    if days < 1:
+        raise HTTPException(422, "days must be positive")
+    from analytics_service import analytics_snapshot
+    return await analytics_snapshot(db, user.user_id, days)
 
 
 @api_router.post("/goals/{goal_id}/check")
@@ -13579,6 +13474,16 @@ async def get_cross_module_suggestions(request: Request, session_token: Optional
     from zoneinfo import ZoneInfo
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat()
     return {"suggestions": suggestions_from_snapshot(await dashboard_snapshot(db, user, today))}
+
+
+@api_router.get("/dashboard/panels")
+async def get_dashboard_panels(request: Request, session_token: Optional[str] = Cookie(None)):
+    await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
+    names = ["weekly", "reminders", "streaks", "daily", "workout"]
+    results = await asyncio.gather(*(handler(request, session_token) for handler in
+        [get_weekly_summary, get_smart_reminders, get_global_streaks, get_daily_summary, get_today_workout_schedule]), return_exceptions=True)
+    return {"panels": {name: value for name, value in zip(names, results) if not isinstance(value, Exception)},
+            "errors": [name for name, value in zip(names, results) if isinstance(value, Exception)]}
 
 
 # ===== EXPORT ENDPOINTS =====

@@ -7,10 +7,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageSquare, Send, User, Bot, Loader2, Sparkles, ChefHat, Dumbbell, BookOpen, DollarSign, Save } from "lucide-react";
+import { Send, User, Bot, Loader2, Sparkles, ChefHat, Dumbbell, BookOpen, DollarSign, Save } from "lucide-react";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
-import { ChatSkeleton } from "@/components/SkeletonLoader";
-import { motion, AnimatePresence } from "framer-motion";
+
+import { motion } from "framer-motion";
 import axios from "axios";
 import { toast } from "sonner";
 
