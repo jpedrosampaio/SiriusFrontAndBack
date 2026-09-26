@@ -1660,7 +1660,7 @@ async def create_task(request: Request, task_data: TaskCreate, session_token: Op
     
     validate_activity_date(task_data.date)
     if task_data.recurrence not in ("once", "daily", "weekly", "monthly"):
-        raise HTTPException(422, "Recorr?ncia inv?lida")
+        raise HTTPException(422, "Recorrência inválida")
     task_id = f"task_{uuid.uuid4().hex[:12]}"
     task_doc = {
         "task_id": task_id,
@@ -2904,7 +2904,7 @@ async def generate_report(request: Request, report_type: str, period: str, start
     data = await period_metrics(db, user.user_id, first, last)
     period = f"{first} a {last}"
     try:
-        prompt = f"Interprete em portugu?s estas m?tricas j? calculadas do relat?rio {report_type}, per?odo {period}. N?o invente totais nem tend?ncias sem compara??o. Respeite as defini??es dos campos, diferencie aus?ncia de registros de aus?ncia de atividade. Dados: {json.dumps(data, ensure_ascii=False)}"
+        prompt = f"Interprete em português estas métricas já calculadas do relatório {report_type}, período {period}. Não invente totais nem tendências sem comparação. Respeite as definições dos campos, diferencie ausência de registros de ausência de atividade. Dados: {json.dumps(data, ensure_ascii=False)}"
 
         # Use Emergent LLM API
         insights = await call_llm(prompt, f"report_{user.user_id}", user_id=user.user_id)
@@ -4935,11 +4935,11 @@ IMPORTANTE:
         expected_weeks, expected_frequency = calendar_shape(gen_data)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    contract = f"\nCALEND?RIO OBRIGAT?RIO: {expected_weeks} semanas, {expected_frequency} dias por semana, {expected_weeks * expected_frequency} dias no total."
+    contract = f"\nCALENDÁRIO OBRIGATÓRIO: {expected_weeks} semanas, {expected_frequency} dias por semana, {expected_weeks * expected_frequency} dias no total."
     if gen_data.generation_mode == "tipo_treino":
-        contract += " Retorne splits completos para todas as divis?es solicitadas; o servidor expandir? o calend?rio."
+        contract += " Retorne splits completos para todas as divisões solicitadas; o servidor expandir? o calendário."
     else:
-        contract += " Retorne TODOS os dias em days, ordenados por semana e dia, com week inteiro a partir de 1 e day_name semN_diaN. N?o resuma nem omita semanas."
+        contract += " Retorne TODOS os dias em days, ordenados por semana e dia, com week inteiro a partir de 1 e day_name semN_diaN. Não resuma nem omita semanas."
     prompt += contract
     plan_data = None
     response_text = ""
@@ -4950,7 +4950,7 @@ IMPORTANTE:
             response_text = await call_llm(
                 prompt + correction + "\nResponda APENAS com JSON puro, sem markdown, sem texto extra.",
                 f"workout_{user.user_id}",
-                "Voc? ? um personal trainer profissional certificado. Sempre responda SOMENTE em JSON v?lido, sem nenhum texto adicional.",
+                "Voc? ? um personal trainer profissional certificado. Sempre responda SOMENTE em JSON válido, sem nenhum texto adicional.",
                 user_id=user.user_id
             )
             if response_text and response_text.startswith("?"):
@@ -4960,8 +4960,8 @@ IMPORTANTE:
                 break
             except (ValueError, TypeError) as exc:
                 if attempt == 1:
-                    raise HTTPException(status_code=502, detail="A IA n?o retornou um calend?rio completo e consistente. Nenhum treino foi salvo. Tente gerar novamente.")
-                correction = f"\nA resposta anterior estava incompleta ou inv?lida: {exc}. Gere novamente o JSON completo respeitando o calend?rio obrigat?rio."
+                    raise HTTPException(status_code=502, detail="A IA não retornou um calendário completo e consistente. Nenhum treino foi salvo. Tente gerar novamente.")
+                correction = f"\nA resposta anterior estava incompleta ou inválida: {exc}. Gere novamente o JSON completo respeitando o calendário obrigatório."
 
         logging.info("Successfully parsed workout plan")
         

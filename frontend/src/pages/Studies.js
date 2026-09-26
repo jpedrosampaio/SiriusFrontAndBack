@@ -2808,7 +2808,7 @@ export default function Studies() {
             ) : progressHistory && (
               <div className="space-y-6 py-2">
                 {progressHistory.history?.length > 0 ? (
-<Suspense fallback={<p>Carregando gr?ficos...</p>}><StudyProgressCharts progressHistory={progressHistory} /></Suspense>
+<Suspense fallback={<p>Carregando gráficos...</p>}><StudyProgressCharts progressHistory={progressHistory} /></Suspense>
                 ) : (
                   <div className="text-center py-10">
                     <BarChart3 className="w-12 h-12 text-[#52525B] mx-auto mb-3" />

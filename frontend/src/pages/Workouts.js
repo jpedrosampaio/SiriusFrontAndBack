@@ -51,7 +51,7 @@ export default function Workouts() {
     if (!key) throw new Error('Aguarde o registro em andamento');
     workoutBusy.current = true; setSessionSaving(true);
     let succeeded = false;
-    try { const response = await axios({ method, url, data: body, headers: { 'Idempotency-Key': key } }); succeeded = true; return response; }
+    try { const response = await axios[method](url, body, { headers: { 'Idempotency-Key': key } }); succeeded = true; return response; }
     finally { workoutRequests.current.finish('workout-session', succeeded); workoutBusy.current = false; setSessionSaving(false); }
   };
   const [workouts, setWorkouts] = useState([]);

@@ -713,7 +713,7 @@ export default function Dashboard() {
 
           {/* ===== ANALYTICS CHARTS ===== */}
           <div ref={analyticsMarker} />
-          {panelErrors.length > 0 && <div role="status" className="text-sm text-amber-300 mb-4">Alguns pain?is n?o carregaram. <button onClick={loadPanels} className="underline">Tentar novamente</button></div>}
+          {panelErrors.length > 0 && <div role="status" className="text-sm text-amber-300 mb-4">Alguns painéis não carregaram. <button onClick={loadPanels} className="underline">Tentar novamente</button></div>}
           {analytics && analytics.data && analytics.data.length > 0 && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-5">
