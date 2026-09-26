@@ -6,6 +6,7 @@ import logging
 import threading
 import unittest
 import uuid
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ import requests
 from fastapi import APIRouter, Cookie, FastAPI, HTTPException, Request
 
 SOURCE = Path(__file__).resolve().parents[1] / "server.py"
+sys.path.insert(0, str(SOURCE.parent))
 TREE = ast.parse(SOURCE.read_text(encoding="utf-8"))
 
 
@@ -153,10 +155,14 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
                                   "call_gemini_with_pdf"})
         self.ns["get_user_api_key"] = AsyncMock(return_value="test-key")
         self.ns["track_gemini_usage"] = AsyncMock()
-        self.post = MagicMock(return_value=self.response())
-        self.get = MagicMock()
-        self.ns["requests"] = SimpleNamespace(
-            post=self.post, get=self.get, exceptions=requests.exceptions)
+        self.post = AsyncMock(return_value=self.response())
+        self.get = AsyncMock()
+        from unittest.mock import patch
+        import gemini_service
+        transport = SimpleNamespace(post=self.post, get=self.get)
+        patcher = patch.object(gemini_service, 'http_client', return_value=transport)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def response(self, status=200, text="ok", finish="STOP"):
         return httpx.Response(status, json={"candidates": [{
@@ -167,24 +173,18 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-2.5-flash", usage=None)
         self.assertEqual(self.post.call_args.kwargs["timeout"], 7)
 
-    async def test_blocking_request_does_not_block_event_loop(self):
-        released = threading.Event()
-        main_thread = threading.get_ident()
-        thread_ids = []
-        def delayed(*args, **kwargs):
-            thread_ids.append(threading.get_ident())
-            if not released.wait(1):
-                raise RuntimeError("Event loop did not run scheduled callback")
+    async def test_native_async_transport_yields_to_event_loop(self):
+        released = asyncio.Event()
+        async def delayed(*args, **kwargs):
+            await asyncio.wait_for(released.wait(), 1)
             return self.response()
         self.post.side_effect = delayed
         handle = asyncio.get_running_loop().call_later(0.03, released.set)
         try:
             result = await self.ns["call_gemini"]("hello", "", "test-key")
         finally:
-            released.set()
             handle.cancel()
         self.assertEqual(result, ("ok", None))
-        self.assertTrue(all(t != main_thread for t in thread_ids))
 
     async def test_model_fallback_and_schema_retry(self):
         self.post.side_effect = [self.response(400), self.response(429), self.response()]
@@ -206,7 +206,7 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.ns["track_gemini_usage"].assert_not_awaited()
 
     async def test_pdf_timeout_retains_error_classification(self):
-        self.post.side_effect = requests.exceptions.Timeout()
+        self.post.side_effect = httpx.ReadTimeout("simulated timeout")
         result = await self.ns["call_gemini_with_pdf"](b"pdf", "p", "", "key")
         self.assertEqual(result, (None, "timeout"))
         self.assertEqual(self.post.call_count, 3)
@@ -218,16 +218,16 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(part["inlineData"]["mimeType"], "application/pdf")
         self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-2.5-flash", usage=None, feature="pdf")
 
-    async def test_upload_preserves_multipart_bytes_and_runs_off_thread(self):
+    async def test_upload_preserves_multipart_bytes_through_async_transport(self):
         ids = []
-        def upload(*args, **kwargs):
+        async def upload(*args, **kwargs):
             ids.append(threading.get_ident())
             return httpx.Response(200, json={"file": {
                 "uri": "files/test", "name": "files/test", "state": "ACTIVE"}})
         self.post.side_effect = upload
         self.assertEqual(await self.ns["upload_to_gemini"](b"PDF-DATA", "key"), "files/test")
-        self.assertIn(b"PDF-DATA", self.post.call_args.kwargs["data"])
-        self.assertNotEqual(ids[0], threading.get_ident())
+        self.assertIn(b"PDF-DATA", self.post.call_args.kwargs["content"])
+        self.post.assert_awaited_once()
 
     async def test_gemini_paths_have_no_direct_blocking_http_calls(self):
         names = {"call_gemini", "upload_to_gemini", "call_gemini_with_pdf",
