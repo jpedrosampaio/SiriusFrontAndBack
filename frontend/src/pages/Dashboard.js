@@ -29,7 +29,7 @@ export default function Dashboard() {
   const [searchResults, setSearchResults] = useState([]);
   const [showSearch, setShowSearch] = useState(false);
   const [crossSuggestions, setCrossSuggestions] = useState([]);
-  
+
   const [analytics, setAnalytics] = useState(null);
   const [analyticsDays, setAnalyticsDays] = useState(7);
   const [dailySummary, setDailySummary] = useState(null);

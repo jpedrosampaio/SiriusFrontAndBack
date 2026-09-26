@@ -242,7 +242,7 @@ export default function Nutrition() {
     }
   };
 
-  
+
 
   const handleRemoveFood = (index) => {
     setMealForm(prev => ({
@@ -332,7 +332,7 @@ export default function Nutrition() {
     setSelectedDate(getLocalDateStr(date));
   };
 
-  
+
 
   // AI Meal Plan handlers
   const handleGenerateMealPlan = async () => {

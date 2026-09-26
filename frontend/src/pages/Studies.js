@@ -334,7 +334,7 @@ export default function Studies() {
   const [editedProgramName, setEditedProgramName] = useState("");
   const [savingDisciplinas, setSavingDisciplinas] = useState(false);
   const [studyIndicators, setStudyIndicators] = useState(null);
-  
+
   const [showSimuladoFromEdital, setShowSimuladoFromEdital] = useState(false);
   const [editalSimuladoForm, setEditalSimuladoForm] = useState({
     title: "", disciplina: "", question_type: "multipla_escolha", num_questions: 10, difficulty: "medio"
@@ -375,7 +375,7 @@ export default function Studies() {
   const [, setMindmapData] = useState(null);
   const [mindmapTopic, setMindmapTopic] = useState("");
   const [mindmapFile, setMindmapFile] = useState(null);
-  
+
   const [showMindmapView, setShowMindmapView] = useState(false);
   const [viewingMindmap, setViewingMindmap] = useState(null);
 
@@ -714,7 +714,7 @@ export default function Studies() {
   };
 
   // ========== EDITAL IMPORT HANDLERS ==========
-  
+
 
   const handleSaveDisciplinas = async () => {
     if (editedDisciplinas.some(d => !Number.isFinite(Number(d.weight)) || Number(d.weight) <= 0)) {

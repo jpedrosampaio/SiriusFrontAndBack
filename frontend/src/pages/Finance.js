@@ -114,7 +114,7 @@ export default function Finance() {
   // Dynamic categories
   const [categories, setCategories] = useState(["alimentação", "transporte", "moradia", "saúde", "educação", "lazer", "investimentos", "salário", "freelance", "outros"]);
   const [allCategoriesData, setAllCategoriesData] = useState([]);
-  
+
   const [newCategoryName, setNewCategoryName] = useState("");
   const [categoryLoading, setCategoryLoading] = useState(false);
 

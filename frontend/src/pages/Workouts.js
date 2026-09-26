@@ -86,7 +86,7 @@ export default function Workouts() {
   const [importLoading, setImportLoading] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [savedInsights, setSavedInsights] = useState([]);
-  
+
 
   // Today's schedule
   const [todaySchedule, setTodaySchedule] = useState(null);
