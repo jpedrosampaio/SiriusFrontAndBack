@@ -96,6 +96,18 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(quiet(datetime(2026, 9, 26, 23), 22, 8))
         self.assertFalse(quiet(datetime(2026, 9, 26, 12), 22, 8))
 
+    async def test_independent_verifier_keeps_valid_bounded_json_and_rejects_false_quote(self):
+        import json
+        from ai.edital_verifier import verify, Verification
+        payload = {'findings': [{'cargo': 'Analista', 'field': 'vagas', 'status': 'explicit', 'page': 1, 'quote': 'trecho inventado', 'explanation': 'fake'}]}
+        router = SimpleNamespace(generate=AsyncMock(return_value=SimpleNamespace(data=Verification.model_validate(payload), provider='groq', model='fake')))
+        result = await verify(router, {'groq': 'fake'}, 'alice', [{'nome': 'Analista', 'disciplinas': [{'nome': 'Direito', 'topicos': ['x'*50000]}]}]*50, [{'page': 1, 'text': 'Conteúdo programático '+ 'Direito '*10000}])
+        prompt = router.generate.call_args.kwargs['prompt']
+        self.assertLess(len(prompt), 15000)
+        self.assertIn('pages', json.loads(prompt))
+        self.assertEqual(result['findings'], [])
+        self.assertEqual(router.generate.call_args.kwargs['keys'], {'groq': 'fake'})
+
 
 @unittest.skipUnless(os.getenv('ACTIVITY_TEST_MONGO_URI'), 'disposable replica set required')
 class ActionTransactionTests(unittest.IsolatedAsyncioTestCase):
