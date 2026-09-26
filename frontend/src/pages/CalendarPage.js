@@ -17,6 +17,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const TYPE_CONFIG = {
+  commitment: { icon: CalendarIcon, label: 'Compromisso', color: '#38BDF8' },
   task: { icon: CheckSquare, label: "Tarefa", color: "#007AFF" },
   habit: { icon: TrendingUp, label: "Hábito", color: "#39FF14" },
   study: { icon: BookOpen, label: "Estudo", color: "#A855F7" },

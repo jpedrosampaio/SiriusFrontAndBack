@@ -66,6 +66,7 @@ class AgentRuntime:
 
         @self.api.get('/insights')
         async def insights(account=Depends(user)):
+            await db.ai_insights.update_many({'user_id': account.user_id, 'feedback': 'snooze', 'snoozed_until': {'$lte': datetime.now(timezone.utc).isoformat()}}, {'$set': {'feedback': None}})
             return await db.ai_insights.find({'user_id': account.user_id, 'feedback': None}, {'_id': 0}).sort('date', -1).to_list(10)
 
         @self.api.post('/insights/{insight_id}/feedback')

@@ -164,7 +164,7 @@ export default function Profile() {
     try {
       const res = await getCurrentUser();
       setUser(res.data);
-      setGeminiKeyForm(res.data.gemini_api_key || "");
+      setGeminiKeyForm("");
     } catch (error) {
       console.error("Erro ao carregar status Gemini", error);
     }
@@ -180,9 +180,9 @@ export default function Profile() {
       setUser(res.data);
       setEditingGeminiKey(false);
       setGeminiKeyStatus(null); // reset — user should retest
-      toast.success(res.data.gemini_api_key ? "Chave API atualizada!" : "Chave API removida!");
+      toast.success(res.data.has_gemini_key ? "Chave API atualizada!" : "Chave API removida!");
     } catch (error) {
-      toast.error("Erro ao salvar chave API");
+      toast.error(error.response?.data?.detail || "Erro ao salvar chave API");
     } finally {
       setSavingGeminiKey(false);
     }
@@ -713,13 +713,13 @@ export default function Profile() {
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center space-x-2 bg-[#121212] border border-[#27272A] p-3 rounded-sm">
-                  {user?.gemini_api_key ? (
+                  {user?.has_gemini_key ? (
                     <>
                       <CheckCircle2 className="w-5 h-5 text-green-400" />
                       <div className="flex-1">
                         <p className="text-sm text-green-400 font-medium">API Key configurada</p>
                         <p className="text-xs text-[#A1A1AA]">
-                         ••••••••{user.gemini_api_key.slice(-8)}
+                         ••••••••{user.gemini_key_last4}
                         </p>
                       </div>
                     </>
@@ -728,7 +728,7 @@ export default function Profile() {
                       <MessageCircle className="w-5 h-5 text-[#52525B]" />
                       <div className="flex-1">
                         <p className="text-sm text-[#A1A1AA]">API Key não configurada</p>
-                        <p className="text-xs text-[#52525B]">Usando chave padrão do servidor</p>
+                        <p className="text-xs text-[#52525B]">Configure uma chave para habilitar a IA</p>
                       </div>
                     </>
                   )}
@@ -737,9 +737,9 @@ export default function Profile() {
                   onClick={() => setEditingGeminiKey(true)}
                   className="bg-[#FFD700] hover:bg-[#E6C200] text-black text-sm"
                 >
-                  <Edit3 className="w-4 h-4 mr-2" />{user?.gemini_api_key ? 'Alterar API Key' : 'Configurar API Key'}
+                  <Edit3 className="w-4 h-4 mr-2" />{user?.has_gemini_key ? 'Alterar API Key' : 'Configurar API Key'}
                 </Button>
-                {user?.gemini_api_key && (
+                {user?.has_gemini_key && (
                   <Button
                     onClick={handleTestGeminiKey}
                     data-testid="gemini-test-key-btn"

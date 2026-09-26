@@ -18,6 +18,21 @@ class Core:
         return await self.db[collection].find({'user_id': user_id, **(query or {})},
             {'_id': 0, **{k: 1 for k in fields}}).to_list(limit)
 
+    async def page_context(self, user_id, raw):
+        import json
+        from urllib.parse import parse_qs
+        try:
+            context = json.loads(raw) if isinstance(raw, str) else raw
+            query = parse_qs(str(context.get('query', ''))[:1000].lstrip('?'))
+        except (ValueError, TypeError, AttributeError): return {}
+        selected = {}
+        for parameter, collection, field in [('program', 'study_programs', 'program_id'), ('notebook', 'notebooks', 'notebook_id'), ('analysis', 'edital_analyses', 'analysis_id')]:
+            value = next(iter(query.get(parameter, [])), None)
+            if value and len(value) <= 100:
+                row = await self.db[collection].find_one({'user_id': user_id, field: value}, {'_id': 0, field: 1, 'name': 1, 'title': 1})
+                if row: selected[parameter] = row
+        return selected
+
     async def read(self, name, user_id):
         own = {'user_id': user_id}
         day = today().isoformat()

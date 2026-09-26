@@ -270,9 +270,10 @@ async def upload_gemini_path(path, user_id):
 async def request_gemini(*, contents, config, user_id, task='document_analysis'):
     from gemini_service import call_gemini as generate
     from types import SimpleNamespace
-    key = await get_user_api_key(user_id)
-    if not key:
-        raise HTTPException(400, 'Configure sua chave Gemini no perfil.')
+    keys = await agent_runtime.credentials.get(user_id)
+    key = keys.get('gemini')
+    if not keys:
+        raise HTTPException(400, 'Configure uma chave de IA nas configurações do assistente.')
     config = dict(config or {})
     system = config.pop('system_instruction', '')
     schema = config.pop('response_schema', None)
@@ -281,7 +282,7 @@ async def request_gemini(*, contents, config, user_id, task='document_analysis')
     options = {fields[k]: v for k, v in config.items() if k in fields}
     parts = [{'text': item} if isinstance(item, str) else item for item in (contents if isinstance(contents, list) else [contents])]
     text, error = await generate('', system, key, user_id=user_id, response_schema=schema,
-                                 usage_callback=track_gemini_usage, parts=parts, config_options=options, task=task, keys=await agent_runtime.credentials.get(user_id))
+                                 usage_callback=track_gemini_usage, parts=parts, config_options=options, task=task, keys=keys)
     if not text:
         raise HTTPException(429 if error == 'quota' else 502, 'A IA não respondeu. Confira sua chave e tente novamente.')
     return SimpleNamespace(text=text)

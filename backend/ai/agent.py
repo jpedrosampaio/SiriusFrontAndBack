@@ -93,6 +93,7 @@ class SiriusAgent:
             if length + len(content) > 2000: break
             remembered.append({'category': memory.get('category'), 'content': content}); length += len(content)
         context = {'date': today().isoformat(), 'page': page, 'memories': remembered, 'conversation_extracts': history.get('summary_extracts', '')[-2000:]}
+        context['selection'] = await self.core.page_context(user_id, body.page_context)
         if any(w in body.message.casefold() for w in ('estud', 'caderno')):
             context['owned_notebooks'] = await self.core.read('get_study_progress', user_id)
         # Client page context is deliberately not an authority for IDs or ownership.
