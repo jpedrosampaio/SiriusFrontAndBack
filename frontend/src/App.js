@@ -21,6 +21,7 @@ const Tasks = React.lazy(() => import("@/pages/Tasks"));
 const Habits = React.lazy(() => import("@/pages/Habits"));
 const Finance = React.lazy(() => import("@/pages/Finance"));
 const Goals = React.lazy(() => import("@/pages/Goals"));
+const AgentSettings = React.lazy(() => import("@/pages/AgentSettings"));
 const Chat = React.lazy(() => import("@/pages/Chat"));
 const Reports = React.lazy(() => import("@/pages/Reports"));
 const Profile = React.lazy(() => import("@/pages/Profile"));
@@ -65,6 +66,7 @@ function AnimatedRoutes() {
           <Route path="/habits" element={<ProtectedRoute><ErrorBoundary><PageTransition><Habits /></PageTransition></ErrorBoundary></ProtectedRoute>} />
           <Route path="/finance" element={<ProtectedRoute><ErrorBoundary><PageTransition><Finance /></PageTransition></ErrorBoundary></ProtectedRoute>} />
           <Route path="/goals" element={<ProtectedRoute><ErrorBoundary><PageTransition><Goals /></PageTransition></ErrorBoundary></ProtectedRoute>} />
+          <Route path="/assistant/settings" element={<ProtectedRoute><ErrorBoundary><PageTransition><AgentSettings /></PageTransition></ErrorBoundary></ProtectedRoute>} />
           <Route path="/chat" element={<ProtectedRoute><ErrorBoundary><PageTransition><Chat /></PageTransition></ErrorBoundary></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><ErrorBoundary><PageTransition><Reports /></PageTransition></ErrorBoundary></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ErrorBoundary><PageTransition><Profile /></PageTransition></ErrorBoundary></ProtectedRoute>} />

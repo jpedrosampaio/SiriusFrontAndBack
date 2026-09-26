@@ -1,3 +1,4 @@
+import { AgentToolbar, AgentMessageDetails, VoiceInput } from '@/components/AgentControls';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, User, Loader2, X, AppWindow } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
@@ -47,7 +48,8 @@ function MessageAvatar({ role }) {
 
 export default function AiChatModal({ open, onClose }) {
   const location = useLocation();
-  const { messages, sending, error, send, refresh } = useAssistant(location.pathname, open);
+  const assistant = useAssistant(location.pathname, open);
+  const { messages, sending, error, send, refresh } = assistant;
   const [input, setInput] = useState('');
 
   const messagesEndRef = useRef(null);
@@ -129,6 +131,7 @@ export default function AiChatModal({ open, onClose }) {
             </div>
           </div>
 
+          <AgentToolbar assistant={assistant} />
           <div role="log" aria-live="polite" aria-relevant="additions text" className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center py-12 px-4">
@@ -175,7 +178,7 @@ export default function AiChatModal({ open, onClose }) {
                       <span className="text-[#52525B] text-xs">Gerando resposta...</span>
                     </div>
                   ) : (
-                    <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                    <><p className="whitespace-pre-wrap break-words">{msg.content}</p><AgentMessageDetails message={msg} /></>
                   )}
                 </div>
                 {msg.role === 'user' && <MessageAvatar role="user" />}
@@ -204,6 +207,7 @@ export default function AiChatModal({ open, onClose }) {
               {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
+          <VoiceInput onText={setInput} disabled={sending || !open} />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

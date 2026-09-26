@@ -1,3 +1,4 @@
+import { AgentToolbar, AgentMessageDetails, VoiceInput } from '@/components/AgentControls';
 import { useAssistant } from '@/hooks/useAssistant';
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
@@ -19,7 +20,8 @@ const API = `${BACKEND_URL}/api`;
 
 export default function Chat() {
   const [user, setUser] = useState(null);
-  const { messages, sending: loading, error, send, refresh } = useAssistant('/chat');
+  const assistant = useAssistant('/chat');
+  const { messages, sending: loading, error, send, refresh } = assistant;
   const [content, setContent] = useState("");
   const [archive, setArchive] = useState(null);
   const [archiveCursor, setArchiveCursor] = useState(null);
@@ -65,6 +67,7 @@ export default function Chat() {
           <p className="text-xs md:text-sm text-[#A1A1AA]">A mesma conversa do assistente flutuante. Revise as sugestões antes de aplicá-las nos módulos.</p>
         </div>
 
+        <AgentToolbar assistant={assistant} />
         {error && <div role="alert" className="px-4 text-amber-300">{error} <button className="underline" onClick={refresh}>Recarregar</button></div>}
         <div ref={scrollRef} className="flex-1 p-4 md:p-6 overflow-y-auto pb-36 md:pb-28">
           <div className="max-w-4xl mx-auto space-y-4">
@@ -99,7 +102,7 @@ export default function Chat() {
                     <p className="text-[10px] text-[#52525B]">"Dicas para estudar direito constitucional"</p>
                   </div>
                 </div>
-                <p className="text-[10px] text-[#52525B] mt-3">💡 Receitas e treinos pedidos aqui são salvos automaticamente no app!</p>
+                <p className="text-[10px] text-[#52525B] mt-3">Alterações são apresentadas como propostas para sua confirmação.</p>
               </Card>
             ) : (
               messages.map((msg, idx) => (
@@ -118,7 +121,7 @@ export default function Chat() {
                       {msg.role === 'user' ? (
                         <p className="text-xs md:text-sm whitespace-pre-wrap break-words">{msg.content}</p>
                       ) : (
-                        <MarkdownRenderer content={msg.content} className="text-xs md:text-sm break-words" />
+                        <><MarkdownRenderer content={msg.content} className="text-xs md:text-sm break-words" /><AgentMessageDetails message={msg} /></>
                       )}
                       {msg.saved_item && (
                         <div className="mt-2 pt-2 border-t border-[#27272A] flex items-center gap-2">
@@ -158,6 +161,7 @@ export default function Chat() {
               </Button>
             </div>
           </form>
+          <VoiceInput onText={setContent} disabled={loading} />
         </div>
       </div>
       <MobileNav user={user} />

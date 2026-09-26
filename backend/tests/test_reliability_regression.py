@@ -160,6 +160,9 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import patch
         import gemini_service
         transport = SimpleNamespace(post=self.post, get=self.get)
+        from ai.router import AIRouter
+        from ai.providers.gemini import GeminiProvider
+        self.ns['agent_runtime'] = SimpleNamespace(credentials=SimpleNamespace(get=AsyncMock(return_value={'gemini': 'test-key'})), router=AIRouter(providers={'gemini': GeminiProvider(transport)}))
         patcher = patch.object(gemini_service, 'http_client', return_value=transport)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -170,7 +173,7 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_call_llm_tracks_user_and_preserves_timeout(self):
         self.assertEqual(await self.ns["call_llm"]("hello", user_id="alice", timeout_override=7), "ok")
-        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-2.5-flash", usage=None)
+        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-3.8-flash", usage={}, feature='assistant_chat')
         self.assertEqual(self.post.call_args.kwargs["timeout"], 7)
 
     async def test_native_async_transport_yields_to_event_loop(self):
@@ -187,15 +190,15 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, ("ok", None))
 
     async def test_model_fallback_and_schema_retry(self):
-        self.post.side_effect = [self.response(400), self.response(429), self.response()]
+        self.post.side_effect = [self.response(429), self.response(text='{"ok":true}')]
         result = await self.ns["call_gemini"]("hello", "", "key", user_id="alice",
                                             response_schema={"type": "OBJECT"})
-        self.assertEqual(result, ("ok", None))
+        self.assertEqual(result, ('{"ok":true}', None))
         calls = self.post.call_args_list
         self.assertIn("generationConfig", calls[0].kwargs["json"])
-        self.assertNotIn("generationConfig", calls[1].kwargs["json"])
-        self.assertIn("gemini-flash-latest", calls[2].args[0])
-        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-flash-latest", usage=None)
+        self.assertIn("responseJsonSchema", calls[1].kwargs["json"]["generationConfig"])
+        self.assertIn("gemini-3.5-flash-lite", calls[1].args[0])
+        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-3.5-flash-lite", usage={}, feature='edital_extract')
 
     async def test_quota_and_invalid_key_do_not_record_success(self):
         for status, error in ((429, "quota"), (401, "invalid")):
@@ -209,14 +212,14 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.post.side_effect = httpx.ReadTimeout("simulated timeout")
         result = await self.ns["call_gemini_with_pdf"](b"pdf", "p", "", "key")
         self.assertEqual(result, (None, "timeout"))
-        self.assertEqual(self.post.call_count, 3)
+        self.assertEqual(self.post.call_count, 2)
 
     async def test_pdf_inline_payload_and_usage(self):
         result = await self.ns["call_gemini_with_pdf"](b"pdf", "p", "", "key", user_id="alice")
         self.assertEqual(result, ("ok", None))
-        part = self.post.call_args.kwargs["json"]["contents"][0]["parts"][1]
+        part = self.post.call_args.kwargs["json"]["contents"][0]["parts"][0]
         self.assertEqual(part["inlineData"]["mimeType"], "application/pdf")
-        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-2.5-flash", usage=None, feature="pdf")
+        self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-3.8-flash", usage={}, feature="edital_extract")
 
     async def test_upload_preserves_multipart_bytes_through_async_transport(self):
         ids = []

@@ -1,4 +1,4 @@
-process.env.VISUAL_CASES ||= 'dashboard,workouts,analysis,syllabus,session';
+process.env.VISUAL_CASES ||= 'dashboard,workouts,analysis,syllabus,session,agent';
 // Local visual QA with synthetic data; all API requests are intercepted.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -22,6 +22,10 @@ const cargo = { nome: 'Analista Judiciário — Área Judiciária', vagas: 'Cada
 const program = { program_id: 'demo', area_id: 'area1', name: 'TJ · Analista Judiciário', source_type: 'edital_import', target_date: '2026-11-08', edital_data: { concurso, cargo_selecionado: cargo, pdf_filename: 'edital-demonstracao.pdf' } };
 const fixtures = {
   '/api/auth/me': user,
+  '/api/ai/status': { flags: { dry_run: true }, providers: { gemini: { has_key: false }, groq: { has_key: false } }, capabilities: { rag: 'lexical' }, internal_requests_today: 0, internal_daily_limit: 200 },
+  '/api/ai/preferences': { profile: 'balanced', automations: false, quiet_start: 22, quiet_end: 8, daily_cap: 3, blocked_tools: [] },
+  '/api/ai/memory': [],
+  '/api/ai/rag/sources': { editais: [], notebooks: [] },
   '/api/stats/dashboard': { tasks_completed: 4, tasks_total: 7, habits_completed: 3, habits_total: 5, income: 4200, expenses: 1850, balance: 2350, workout_stats: { total_workouts: 3, total_duration_minutes: 150 }, study_stats: { study_time_today_minutes: 75, current_streak: 5, notebooks_count: 5 } },
   '/api/study/areas': [{ area_id: 'area1', name: 'Concursos públicos', color: '#879eff' }],
   '/api/study/programs': [program], '/api/study/notebooks': disciplines,
@@ -57,13 +61,16 @@ const server = http.createServer((req, res) => {
       const drafts = new Map();
       const requests = [];
       const reviewRows = [];
+      let actionStatus = 'pending';
+      let actionConfirmations = 0;
       await context.route('**/*', async route => {
         const url = new URL(route.request().url());
         if (url.pathname.startsWith('/api/')) {
           requests.push(url.pathname);
           let body = Object.hasOwn(fixtures, url.pathname) ? fixtures[url.pathname] : [];
           if (url.pathname === '/api/dashboard/panels') body = {panels: {}, errors: []};
-          if (url.pathname === '/api/ai/conversation') body = {messages: [{message_id: 'fixture-private', role: 'assistant', content: 'Conversa sintética desta conta'}]};
+          if (url.pathname === '/api/ai/conversation') body = {messages: [{message_id: 'fixture-private', role: 'assistant', content: 'Conversa sintética desta conta', actions: [{ action_id: 'fixture-expense', summary: 'Registrar despesa', reason: 'Pedido explícito', arguments: { amount: 48, category: 'Alimentação', date: '2026-09-26' }, status: actionStatus, expires_at: new Date(Date.now() + 1200000).toISOString() }] }]};
+          if (url.pathname === '/api/ai/actions/fixture-expense/confirm') { actionConfirmations++; actionStatus = 'executed'; body = { status: actionStatus }; }
           if (url.pathname.endsWith('/draft')) {
             const key = url.pathname + url.search;
             if (route.request().method() === 'PUT') { const data = route.request().postDataJSON(); drafts.set(key, { text: data.text, revision: (drafts.get(key)?.revision || 0) + 1 }); }
@@ -94,6 +101,7 @@ const server = http.createServer((req, res) => {
         ['finance', '/finance'], ['nutrition', '/nutrition'], ['reports', '/reports'],
         ['calendar', '/calendar'], ['profile', '/profile'], ['notifications', '/notifications'],
         ['achievements', '/achievements'], ['chat', '/chat'],
+        ['agent', '/assistant/settings'],
       ];
       for (const [name, url] of cases) {
         if (process.env.VISUAL_CASES && !process.env.VISUAL_CASES.split(',').includes(name)) continue;
@@ -120,6 +128,9 @@ const server = http.createServer((req, res) => {
           await launcher.click();
           const close = page.getByRole('button', { name: 'Fechar assistente', exact: true }); await close.waitFor();
           await page.getByText('Conversa sintética desta conta', { exact: true }).waitFor();
+          await page.getByRole('button', { name: 'Confirmar alteração', exact: true }).click();
+          await page.getByText('Executada', { exact: true }).waitFor();
+          assert.equal(actionConfirmations, 1, 'confirmation must submit once');
           await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'sirius_session_token' })));
           await page.getByText('Conversa sintética desta conta', { exact: true }).waitFor({ state: 'hidden' });
           const box = await close.boundingBox(); assert.ok(box.x >= 0 && box.x + box.width <= width);
