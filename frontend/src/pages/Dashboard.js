@@ -8,22 +8,13 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  CheckSquare, TrendingUp, DollarSign, Target, Award, Zap,
-  Dumbbell, Utensils, BookOpen, Droplets, Flame, Clock, Brain,
-  ClipboardList, BarChart3, Trophy, ListChecks, Hash, Percent,
-  Search, AlertTriangle, ChevronRight, Bell, Sparkles, X,
-  Activity, Calendar, Play
-} from "lucide-react";
+import { CheckSquare, TrendingUp, DollarSign, Target, Award, Zap, Dumbbell, Utensils, BookOpen, Droplets, Flame, Clock, Brain, ClipboardList, BarChart3, ListChecks, Hash, Search, ChevronRight, Sparkles, X, Activity, Play } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
 import Onboarding from "@/components/Onboarding";
-import { LoadingSkeleton } from "@/components/XpAnimation";
-import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend
-} from "recharts";
+
+import { ResponsiveContainer, LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -38,7 +29,7 @@ export default function Dashboard() {
   const [searchResults, setSearchResults] = useState([]);
   const [showSearch, setShowSearch] = useState(false);
   const [crossSuggestions, setCrossSuggestions] = useState([]);
-  const [xpAnimation, setXpAnimation] = useState(null);
+
   const [analytics, setAnalytics] = useState(null);
   const [analyticsDays, setAnalyticsDays] = useState(7);
   const [dailySummary, setDailySummary] = useState(null);
@@ -113,7 +104,7 @@ export default function Dashboard() {
     try {
       const res = await axios.get(`${API}/stats/analytics?days=${d}`, { withCredentials: true });
       setAnalytics(res.data);
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   }, []);
   useEffect(() => {
     if (loading || !analyticsMarker.current) return;
@@ -722,7 +713,7 @@ export default function Dashboard() {
 
           {/* ===== ANALYTICS CHARTS ===== */}
           <div ref={analyticsMarker} />
-          {panelErrors.length > 0 && <div role="status" className="text-sm text-amber-300 mb-4">Alguns pain?is n?o carregaram. <button onClick={loadPanels} className="underline">Tentar novamente</button></div>}
+          {panelErrors.length > 0 && <div role="status" className="text-sm text-amber-300 mb-4">Alguns painéis não carregaram. <button onClick={loadPanels} className="underline">Tentar novamente</button></div>}
           {analytics && analytics.data && analytics.data.length > 0 && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-5">

@@ -38,7 +38,7 @@ function getFirstDayOfMonth(year, month) {
 export default function CalendarPage() {
   const [user, setUser] = useState(null);
   const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(null);
   const [filters, setFilters] = useState({ task: true, habit: true, study: true, workout: true, meal: true });
@@ -51,7 +51,7 @@ export default function CalendarPage() {
     try {
       const res = await getCurrentUser();
       setUser(res.data);
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const fetchEvents = useCallback(async () => {

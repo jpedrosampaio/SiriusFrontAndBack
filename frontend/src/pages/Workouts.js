@@ -1,3 +1,4 @@
+import WorkoutComparison from '@/components/WorkoutComparison';
 import { lazy, Suspense } from 'react';
 import { readSaved, writeSaved } from "@/lib/session-storage";
 import { createActivityRequests } from "@/lib/activity-requests";
@@ -51,7 +52,7 @@ export default function Workouts() {
     if (!key) throw new Error('Aguarde o registro em andamento');
     workoutBusy.current = true; setSessionSaving(true);
     let succeeded = false;
-    try { const response = await axios({ method, url, data: body, headers: { 'Idempotency-Key': key } }); succeeded = true; return response; }
+    try { const response = await axios[method](url, body, { headers: { 'Idempotency-Key': key } }); succeeded = true; return response; }
     finally { workoutRequests.current.finish('workout-session', succeeded); workoutBusy.current = false; setSessionSaving(false); }
   };
   const [workouts, setWorkouts] = useState([]);
@@ -86,7 +87,7 @@ export default function Workouts() {
   const [importLoading, setImportLoading] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [savedInsights, setSavedInsights] = useState([]);
-  const [showInsightsDialog, setShowInsightsDialog] = useState(false);
+
 
   // Today's schedule
   const [todaySchedule, setTodaySchedule] = useState(null);
@@ -290,7 +291,7 @@ export default function Workouts() {
         const scheduleRes = await axios.get(`${API}/workouts/today-schedule`, { withCredentials: true });
         if (scheduleRes.data.scheduled) setTodaySchedule(scheduleRes.data);
         else setTodaySchedule(null);
-      } catch {}
+      } catch { /* Optional operation failed; preserve the current view. */ }
 
       const plansData = Array.isArray(plansRes.data) ? plansRes.data : [];
       const statusPromises = plansData.map(plan => 
@@ -672,7 +673,7 @@ export default function Workouts() {
     try {
       const res = await axios.get(`${API}/workout-suggestions/saved`, { withCredentials: true });
       setSavedInsights(Array.isArray(res.data) ? res.data : []);
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const handleDeleteInsight = async (id) => {
@@ -798,7 +799,7 @@ export default function Workouts() {
         const elapsed = Math.floor((Date.now() - started.getTime()) / 1000);
         setSessionElapsed(elapsed);
       }
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   }, []);
 
   useEffect(() => {
@@ -949,7 +950,7 @@ export default function Workouts() {
     try {
       const res = await axios.get(`${API}/workouts/next-loads`, { params: { plan_id: planId }, withCredentials: true });
       setNextLoads(res.data);
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const fetchExerciseHistory = async (exerciseName, idx) => {
@@ -957,7 +958,7 @@ export default function Workouts() {
     try {
       const res = await axios.get(`${API}/workouts/exercise-history`, { params: { exercise_name: exerciseName }, withCredentials: true });
       setExerciseHistory(prev => ({ ...prev, [idx]: res.data.history }));
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const startRestManual = (seconds) => {
@@ -2728,7 +2729,8 @@ export default function Workouts() {
                                   </div>
                                 )}
                                 
-                                {/* Previous workout comparison */}
+                                {exerciseHistory[idx]?.length > 0 && <WorkoutComparison current={ex} previous={exerciseHistory[idx][0]} />}
+                            {/* Previous workout comparison */}
                                 {!ex.completed && (
                                   <Button 
                                     variant="ghost" size="sm" 
@@ -2774,6 +2776,7 @@ export default function Workouts() {
                               </div>
                             )}
 
+                            {exerciseHistory[idx]?.length > 0 && <WorkoutComparison current={ex} previous={exerciseHistory[idx][0]} />}
                             {/* Previous workout comparison */}
                             {exerciseHistory[idx] && exerciseHistory[idx].length > 0 && (
                               <div className="mt-2 ml-11 bg-[#00F0FF]/5 border border-[#00F0FF]/20 rounded p-2">
@@ -2781,12 +2784,12 @@ export default function Workouts() {
                                   <TrendingUp className="w-3 h-3" /> Último treino
                                 </p>
                                 {exerciseHistory[idx].slice(0, 3).map((h, hi) => (
-                                  <div key={hi} className="text-[10px] text-[#A1A1AA] flex items-center gap-2">
+                                  <div key={hi} className="text-[10px] text-[#A1A1AA] flex flex-wrap items-center gap-2">
                                     <span>{h.date?.slice(5)}</span>
                                     {h.sets_data?.length > 0 ? (
                                       h.sets_data.map((sd, si) => (
                                         <span key={si} className="text-[#71717A]">
-                                          {sd.weight}kg{sd.rpe ? ` @${sd.rpe}` : ""}
+                                          {sd.weight}kg × {sd.reps || "—"} rep{sd.rpe ? ` @${sd.rpe}` : ""}
                                         </span>
                                       ))
                                     ) : (

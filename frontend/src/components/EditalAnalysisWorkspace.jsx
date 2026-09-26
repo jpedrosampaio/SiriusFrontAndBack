@@ -36,6 +36,12 @@ export default function EditalAnalysisWorkspace({ user, api, analysisId, initial
     {!analysis ? !error && <Loader2 className="animate-spin mx-auto my-12" /> : <>
       <section className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><label htmlFor="analysis-cargo" className="block text-sm font-medium">Cargo / especialidade</label><select id="analysis-cargo" disabled={reviewing} className={field} value={selected} onChange={e => setSelected(Number(e.target.value))}>{(analysis.cargos || []).map((c, index) => <option key={index} value={index}>{c.nome}{c.disciplinas_status === 'incompleto' ? ' — extração incompleta' : ''}</option>)}</select><p className="text-xs text-[#71717A]">{analysis.cargos?.length || 0} cargos identificados. O conteúdo abaixo corresponde ao cargo selecionado.</p></section>
       <EditalOverview concurso={analysis.concurso} cargo={cargo} filename={analysis.pdf_filename} />
+      <section className="rounded-2xl border border-slate-700 bg-slate-900/50 p-5 space-y-3" aria-label="Conferência do conteúdo">
+        <h2 className="font-semibold">Conferência com o documento</h2>
+        <p className="text-sm text-slate-300">{cargo?.conferencia?.status === 'titulos_conferidos' ? 'Os títulos reconhecidos no conteúdo programático estão na análise. Confira também os tópicos de cada disciplina.' : cargo?.conferencia?.missing?.length ? `${cargo.conferencia.missing.length} títulos do edital precisam ser incluídos ou conferidos.` : 'Não foi possível conferir automaticamente todos os títulos deste cargo.'}</p>
+        <p className="text-xs text-slate-400">Vagas, salários e requisitos precisam de conferência no quadro de cargos. Pesos e quantidades atribuídos a blocos não indicam a distribuição por disciplina.</p>
+        {(cargo?.conferencia?.missing || []).map((item, index) => <div key={index} className="text-sm text-amber-200"><strong>{item.name}</strong><SourceEvidence api={api} analysisId={analysisId} sources={[item]} /></div>)}
+      </section>
       <Button variant="outline" onClick={onReanalyze}>Atualizar análise enviando o PDF novamente</Button>
       <EditalReview key={`${analysisId}:${selected}`} api={api} analysis={analysis} cargoIndex={selected} onSaved={setAnalysis} onEditingChange={setReviewing} />
       <section className="space-y-4"><h2 className="text-xl font-semibold flex items-center gap-2"><FileText className="h-5 w-5 text-purple-400" />Edital verticalizado · {incomplete ? 'extração incompleta' : `${cargo.disciplinas.length} disciplinas`}</h2>
