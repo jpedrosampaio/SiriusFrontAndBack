@@ -22,7 +22,7 @@ MODELS = {
     'fast': Model('groq', 'openai/gpt-oss-20b', frozenset({'text', 'json', 'tools'})),
     'vision': Model('groq', 'qwen/qwen3.8-27b', frozenset({'text', 'json', 'tools', 'image'})),
     'embedding': Model('gemini', 'gemini-embedding-2', frozenset({'embedding'})),
-    'stt': Model('groq', 'whisper-large-v3-turbo', frozenset({'speech_to_text'})),
+    'stt': Model('groq', 'whisper-large-v3-turbo', frozenset({'speech_to_text', 'audio'})),
     'tts': Model('gemini', 'gemini-3.8-flash-lite-tts', frozenset({'text_to_speech'})),
 }
 TASKS = {

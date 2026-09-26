@@ -39,11 +39,15 @@ class AIRouter:
                 raise AIError('invalid_request') from exc
         request = AIRequest(task=task, prompt=prompt, system=system, schema=schema, **kwargs)
         required = set()
+        if task in ('embedding', 'text_to_speech'): required.add(task)
+        if task == 'speech_to_text':
+            required.add('audio')  # Gemini audio input and Groq transcription adapters.
         for part in request.parts:
             mime = part.get('inlineData', part.get('fileData', {})).get('mimeType', '')
             if mime: required.add('pdf' if mime == 'application/pdf' else 'image' if mime.startswith('image/') else 'audio')
         if schema: required.add('json')
         if request.tools: required.add('tools')
+        if request.tools and schema: raise AIError('invalid_request')
         last = AIError('unavailable')
         attempted = 0
         excluded = set()

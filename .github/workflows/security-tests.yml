@@ -81,6 +81,8 @@ jobs:
           exit 1
       - name: Test activity transactions, replay and rollback
         run: python -m unittest discover -s backend/tests -p test_activity_regression.py -v
+      - name: Test Agent confirmation, ownership and financial rollback
+        run: python -m unittest discover -s backend/tests -p test_agent_regression.py -v
       - name: Stop disposable MongoDB
         if: always()
         run: docker rm -f activity-mongo
