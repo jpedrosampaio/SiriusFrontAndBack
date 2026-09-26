@@ -86,7 +86,7 @@ export default function Workouts() {
   const [importLoading, setImportLoading] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [savedInsights, setSavedInsights] = useState([]);
-  const [showInsightsDialog, setShowInsightsDialog] = useState(false);
+  
 
   // Today's schedule
   const [todaySchedule, setTodaySchedule] = useState(null);
@@ -290,7 +290,7 @@ export default function Workouts() {
         const scheduleRes = await axios.get(`${API}/workouts/today-schedule`, { withCredentials: true });
         if (scheduleRes.data.scheduled) setTodaySchedule(scheduleRes.data);
         else setTodaySchedule(null);
-      } catch {}
+      } catch { /* Optional operation failed; preserve the current view. */ }
 
       const plansData = Array.isArray(plansRes.data) ? plansRes.data : [];
       const statusPromises = plansData.map(plan => 
@@ -672,7 +672,7 @@ export default function Workouts() {
     try {
       const res = await axios.get(`${API}/workout-suggestions/saved`, { withCredentials: true });
       setSavedInsights(Array.isArray(res.data) ? res.data : []);
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const handleDeleteInsight = async (id) => {
@@ -798,7 +798,7 @@ export default function Workouts() {
         const elapsed = Math.floor((Date.now() - started.getTime()) / 1000);
         setSessionElapsed(elapsed);
       }
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   }, []);
 
   useEffect(() => {
@@ -949,7 +949,7 @@ export default function Workouts() {
     try {
       const res = await axios.get(`${API}/workouts/next-loads`, { params: { plan_id: planId }, withCredentials: true });
       setNextLoads(res.data);
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const fetchExerciseHistory = async (exerciseName, idx) => {
@@ -957,7 +957,7 @@ export default function Workouts() {
     try {
       const res = await axios.get(`${API}/workouts/exercise-history`, { params: { exercise_name: exerciseName }, withCredentials: true });
       setExerciseHistory(prev => ({ ...prev, [idx]: res.data.history }));
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const startRestManual = (seconds) => {

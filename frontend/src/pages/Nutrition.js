@@ -16,13 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import axios from "axios";
 import ExportButtons from "@/components/ExportButtons";
-import { 
-  Apple, Plus, Trash2, Droplets, Target, ChefHat, 
-  Flame, Drumstick, Wheat, Droplet, Settings, Sparkles,
-  UtensilsCrossed, Clock, ChevronLeft, ChevronRight, Loader2,
-  Coffee, Sun, Moon, Cookie, TrendingUp, BarChart3,
-  Calculator, ShoppingCart, Heart, Activity, CheckSquare, Scale, ListChecks, Upload
-} from "lucide-react";
+import { Apple, Plus, Trash2, Droplets, Target, ChefHat, Flame, Drumstick, Wheat, Droplet, Sparkles, UtensilsCrossed, Clock, ChevronLeft, ChevronRight, Loader2, Coffee, Sun, Moon, Cookie, BarChart3, Calculator, ShoppingCart, Activity, CheckSquare, Scale, Upload } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -51,7 +45,7 @@ export default function Nutrition() {
   const [goals, setGoals] = useState(null);
   const [waterData, setWaterData] = useState({ total_ml: 0 });
   const [recipes, setRecipes] = useState([]);
-  const [diets, setDiets] = useState([]);
+  const [, setDiets] = useState([]);
   const [showMealDialog, setShowMealDialog] = useState(false);
   const [showGoalsDialog, setShowGoalsDialog] = useState(false);
   const [showRecipeDialog, setShowRecipeDialog] = useState(false);
@@ -248,44 +242,7 @@ export default function Nutrition() {
     }
   };
 
-  const handleEstimateFood = async () => {
-    if (!newFood.name) {
-      toast.error("Digite o nome do alimento");
-      return;
-    }
-    if (!newFood.weight) {
-      toast.error("Digite a quantidade ou peso (ex: 200g, 1 unidade, 1 xícara)");
-      return;
-    }
-    setEstimatingFood(true);
-    try {
-      const res = await axios.post(`${API}/nutrition/estimate-food`, {
-        food_name: newFood.name,
-        quantity: newFood.weight
-      }, { withCredentials: true });
-      
-      if (res.data.success) {
-        setNewFood(prev => ({
-          ...prev,
-          name: res.data.food_name || prev.name,
-          calories: res.data.calories || 0,
-          protein: res.data.protein || 0,
-          carbs: res.data.carbs || 0,
-          fat: res.data.fat || 0,
-          fiber: res.data.fiber || 0,
-          quantity: 1
-        }));
-        setFoodEstimated(true);
-        toast.success("Nutrientes calculados com IA!");
-      } else {
-        toast.error(res.data.error || "Não foi possível estimar. Tente novamente.");
-      }
-    } catch (error) {
-      toast.error("Erro ao estimar nutrientes. Tente novamente.");
-    } finally {
-      setEstimatingFood(false);
-    }
-  };
+  
 
   const handleRemoveFood = (index) => {
     setMealForm(prev => ({
@@ -375,13 +332,7 @@ export default function Nutrition() {
     setSelectedDate(getLocalDateStr(date));
   };
 
-  const getProgressColor = (consumed, goal) => {
-    const percentage = (consumed / goal) * 100;
-    if (percentage < 50) return "bg-blue-500";
-    if (percentage < 80) return "bg-green-500";
-    if (percentage < 100) return "bg-yellow-500";
-    return "bg-red-500";
-  };
+  
 
   // AI Meal Plan handlers
   const handleGenerateMealPlan = async () => {
@@ -405,7 +356,7 @@ export default function Nutrition() {
     try {
       const res = await axios.get(`${API}/nutrition/meal-plans`, { withCredentials: true });
       setMealPlans(Array.isArray(res.data) ? res.data : []);
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const handleDeleteMealPlan = async (planId) => {
@@ -433,7 +384,7 @@ export default function Nutrition() {
       if (res.data.success) {
         setShoppingLists(prev => prev.map(l => l.list_id === listId ? {...l, items: res.data.items} : l));
       }
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const handleCalculateHealth = async () => {

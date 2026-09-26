@@ -16,10 +16,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # Match the repository's Vercel install command.
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run test:unit
       - name: Compile production frontend
         run: npm run build
         env:
-          # CRA production builds report existing lint warnings without failing on them.
-          CI: 'false'
+          CI: 'true'
+          REACT_APP_BACKEND_URL: https://sirius-api.test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-smoke-screenshots
+          path: frontend/test-results

@@ -49,10 +49,7 @@ const taskTypeLabels = {
 const recurrenceLabels = {
   once: "Única vez", daily: "Diária", weekly: "Semanal", monthly: "Mensal"
 };
-const dayLabels = {
-  monday: "Seg", tuesday: "Ter", wednesday: "Qua", thursday: "Qui",
-  friday: "Sex", saturday: "Sáb", sunday: "Dom"
-};
+
 
 // ========== POMODORO TIMER COMPONENT ==========
 // ========== AI CHAT COMPONENT ==========
@@ -264,7 +261,7 @@ export default function Studies() {
   const [tasks, setTasks] = useState([]);
   const [flashcards, setFlashcards] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
-  const [schedule, setSchedule] = useState([]);
+  const [, setSchedule] = useState([]);
   const [streak, setStreak] = useState({ current_streak: 0, best_streak: 0 });
   const [stats, setStats] = useState(null);
   const [questionStats, setQuestionStats] = useState(null);
@@ -324,7 +321,7 @@ export default function Studies() {
   // Edital Import
   const [showEditalDialog, setShowEditalDialog] = useState(false);
   const [editalFile, setEditalFile] = useState(null);
-  const [editalImporting, setEditalImporting] = useState(false);
+  const [editalImporting] = useState(false);
   const [editalForm, setEditalForm] = useState({ target_date: "", hours_per_day: 4, days_per_week: 5 });
   const [editalForceReanalyze, setEditalForceReanalyze] = useState(false);
   const [editalResult, setEditalResult] = useState(null);
@@ -332,12 +329,12 @@ export default function Studies() {
   const [showCronogramaDialog, setShowCronogramaDialog] = useState(false);
   const [cronogramaData, setCronogramaData] = useState(null);
   const [cronogramaLoading, setCronogramaLoading] = useState(false);
-  const [editalEditMode, setEditalEditMode] = useState(false);
+  const [, setEditalEditMode] = useState(false);
   const [editedDisciplinas, setEditedDisciplinas] = useState([]);
   const [editedProgramName, setEditedProgramName] = useState("");
   const [savingDisciplinas, setSavingDisciplinas] = useState(false);
   const [studyIndicators, setStudyIndicators] = useState(null);
-  const [indicatorsLoading, setIndicatorsLoading] = useState(false);
+  
   const [showSimuladoFromEdital, setShowSimuladoFromEdital] = useState(false);
   const [editalSimuladoForm, setEditalSimuladoForm] = useState({
     title: "", disciplina: "", question_type: "multipla_escolha", num_questions: 10, difficulty: "medio"
@@ -375,10 +372,10 @@ export default function Studies() {
   // Mind maps
   const [showMindmapDialog, setShowMindmapDialog] = useState(false);
   const [mindmapGenerating, setMindmapGenerating] = useState(false);
-  const [mindmapData, setMindmapData] = useState(null);
+  const [, setMindmapData] = useState(null);
   const [mindmapTopic, setMindmapTopic] = useState("");
   const [mindmapFile, setMindmapFile] = useState(null);
-  const [mindmaps, setMindmaps] = useState([]);
+  
   const [showMindmapView, setShowMindmapView] = useState(false);
   const [viewingMindmap, setViewingMindmap] = useState(null);
 
@@ -524,7 +521,7 @@ export default function Studies() {
     } catch (err) { console.error(err); }
   };
 
-  useEffect(() => { if (user && activeTab === "simulados") fetchSimulados(); }, [user, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (user && activeTab === "simulados") fetchSimulados(); }, [user, activeTab]);
 
   // Simulado timer
   useEffect(() => {
@@ -717,41 +714,7 @@ export default function Studies() {
   };
 
   // ========== EDITAL IMPORT HANDLERS ==========
-  const handleImportEdital = async () => {
-    if (!editalFile) { toast.error("Selecione um arquivo PDF do edital"); return; }
-    if (!selectedArea) { toast.error("Selecione uma área primeiro"); return; }
-    setEditalImporting(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", editalFile);
-      formData.append("area_id", selectedArea.area_id);
-      if (editalForm.target_date) formData.append("target_date", editalForm.target_date);
-      formData.append("hours_per_day", editalForm.hours_per_day.toString());
-      formData.append("days_per_week", editalForm.days_per_week.toString());
-
-      const res = await axios.post(`${API}/study/programs/import-edital`, formData, {
-        withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 300000
-      });
-      toast.success(res.data.message || "Programa criado com sucesso!");
-      setEditalResult(res.data);
-      // Setup editable disciplines
-      const discs = (res.data.disciplinas || []).map(d => ({
-        ...d, user_difficulty: d.dificuldade || "media"
-      }));
-      setEditedDisciplinas(discs);
-      setEditedProgramName(res.data.program?.name || "");
-      setEditalEditMode(true);
-      setShowEditalDialog(false);
-      setShowEditalResultDialog(true);
-      setWorkspaceParams({});
-      setEditalFile(null);
-      setEditalForm({ target_date: "", hours_per_day: 4, days_per_week: 5 });
-      setEditalForceReanalyze(false);
-      fetchAllData();
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, "Erro ao importar edital"));
-    } finally { setEditalImporting(false); }
-  };
+  
 
   const handleSaveDisciplinas = async () => {
     if (editedDisciplinas.some(d => !Number.isFinite(Number(d.weight)) || Number(d.weight) <= 0)) {
@@ -950,7 +913,7 @@ export default function Studies() {
         const r = await axios.get(`${API}/study/programs/editais`, { withCredentials: true });
         setEditaisList(r.data.editais || []);
         meta = (r.data.editais || []).find(e => e.analysis_id === analysisId);
-      } catch (_e) { /* noop */ }
+      } catch (_e) { /* Optional operation failed; preserve the current view. */ }
     }
     setChatAnalysisMeta(meta || null);
     setShowEditalChat(true);
@@ -1141,7 +1104,7 @@ export default function Studies() {
     try {
       const res = await axios.get(`${API}/study/redacao/history`, { withCredentials: true });
       setRedacaoHistory(Array.isArray(res.data) ? res.data : []);
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const handleRandomTheme = async () => {

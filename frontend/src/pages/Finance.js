@@ -10,8 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DollarSign, Plus, TrendingUp, TrendingDown, AlertCircle, Trash2, CreditCard as CreditCardIcon, Calendar, Repeat, Lightbulb, ChevronRight, ChevronLeft, Edit2, CheckSquare, Square, MessageSquare, Send, Loader2, Bot, User, ArrowUpRight, ArrowDownRight, Wallet } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, Legend, AreaChart, Area } from 'recharts';
+import { DollarSign, Plus, TrendingUp, TrendingDown, AlertCircle, Trash2, CreditCard as CreditCardIcon, Calendar, Repeat, Lightbulb, ChevronRight, ChevronLeft, Edit2, CheckSquare, Square, MessageSquare, Send, Loader2 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Line, Legend, AreaChart, Area } from 'recharts';
 import axios from "axios";
 import { toast } from "sonner";
 
@@ -114,7 +114,7 @@ export default function Finance() {
   // Dynamic categories
   const [categories, setCategories] = useState(["alimentação", "transporte", "moradia", "saúde", "educação", "lazer", "investimentos", "salário", "freelance", "outros"]);
   const [allCategoriesData, setAllCategoriesData] = useState([]);
-  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  
   const [newCategoryName, setNewCategoryName] = useState("");
   const [categoryLoading, setCategoryLoading] = useState(false);
 
@@ -124,7 +124,7 @@ export default function Finance() {
       const cats = res.data.categories || [];
       setAllCategoriesData(cats);
       setCategories(cats.map(c => c.name));
-    } catch {}
+    } catch { /* Optional operation failed; preserve the current view. */ }
   };
 
   const handleCreateCategory = async () => {
