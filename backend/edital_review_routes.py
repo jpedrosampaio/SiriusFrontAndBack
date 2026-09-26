@@ -4,6 +4,7 @@ from fastapi import APIRouter, Cookie, HTTPException, Request
 from pydantic import BaseModel, Field
 from edital_quality import mark_discipline_quality
 from edital_sources import locate_subject
+from edital_audit import audit_cargos
 
 
 class Topic(BaseModel):
@@ -61,7 +62,9 @@ def review_router(db, authenticate):
             item['topicos'] = [t.assunto for t in incoming.conteudo_programatico]
             subjects.append(item)
         cargos[cargo_index]['disciplinas'] = subjects
+        cargos[cargo_index].pop('conferencia', None)
         mark_discipline_quality(cargos)
+        audit_cargos(cargos, doc.get('pdf_pages', []))
         query['revision'] = body.revision if body.revision else {'$in': [0, None]}
         changed = await db.edital_analyses.update_one(query, {'$set': {'cargos': cargos, 'reviewed_at': datetime.now(timezone.utc).isoformat()}, '$inc': {'revision': 1}})
         if not changed.matched_count:
