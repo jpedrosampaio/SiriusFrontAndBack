@@ -16,8 +16,8 @@ class Model:
 
 
 MODELS = {
-    'flash': Model('gemini', 'gemini-3.8-flash', frozenset({'text', 'json', 'tools', 'pdf', 'image', 'audio'})),
-    'lite': Model('gemini', 'gemini-3.5-flash-lite', frozenset({'text', 'json', 'tools', 'pdf', 'image', 'audio'})),
+    'flash': Model('gemini', 'gemini-3.8-flash', frozenset({'text', 'json', 'tools', 'pdf', 'image', 'audio', 'files'})),
+    'lite': Model('gemini', 'gemini-3.5-flash-lite', frozenset({'text', 'json', 'tools', 'pdf', 'image', 'audio', 'files'})),
     'reasoning': Model('groq', 'openai/gpt-oss-120b', frozenset({'text', 'json', 'tools'})),
     'fast': Model('groq', 'openai/gpt-oss-20b', frozenset({'text', 'json', 'tools'})),
     'vision': Model('groq', 'qwen/qwen3.8-27b', frozenset({'text', 'json', 'tools', 'image'})),

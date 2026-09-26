@@ -43,6 +43,7 @@ class AIRouter:
         if task == 'speech_to_text':
             required.add('audio')  # Gemini audio input and Groq transcription adapters.
         for part in request.parts:
+            if 'fileData' in part: required.add('files')
             mime = part.get('inlineData', part.get('fileData', {})).get('mimeType', '')
             if mime: required.add('pdf' if mime == 'application/pdf' else 'image' if mime.startswith('image/') else 'audio')
         if schema: required.add('json')

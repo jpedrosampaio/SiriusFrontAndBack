@@ -72,8 +72,8 @@ class Core:
         if name == 'get_calendar':
             return await self.rows(user_id, 'calendar_commitments', ['event_id', 'title', 'date', 'start_minute', 'end_minute'], {'date': day})
         if name in ('get_goals', 'get_upcoming_deadlines'):
-            rows = await self.rows(user_id, 'goals', ['goal_id', 'title', 'name', 'progress', 'deadline', 'completed'])
-            return rows if name == 'get_goals' else sorted([r for r in rows if r.get('deadline') and not r.get('completed')], key=lambda r: r['deadline'])[:10]
+            rows = await self.rows(user_id, 'goals', ['goal_id', 'title', 'name', 'progress', 'target_date', 'completed'])
+            return rows if name == 'get_goals' else sorted([r for r in rows if r.get('target_date') and not r.get('completed') and r.get('progress', 0) < 100], key=lambda r: r['target_date'])[:10]
         if name == 'get_dashboard_summary':
             names = ('get_today_tasks', 'get_study_progress', 'get_workout_progress', 'get_finance_summary')
             return dict(zip(names, await asyncio.gather(*(self.read(n, user_id) for n in names))))

@@ -47,6 +47,7 @@ class AgentRuntime:
 
         @self.api.get('/status')
         async def status(account=Depends(user)):
+            import time
             doc = await db.users.find_one({'user_id': account.user_id}) or {}
             public = public_profile(doc)
             usage = await db.ai_usage.find_one({'_id': self.usage_key(account.user_id)}) or {}
@@ -54,6 +55,7 @@ class AgentRuntime:
                     'encryption_configured': bool(cipher()), 'internal_daily_limit': self.settings.daily_limit, 'internal_requests_today': usage.get('count', 0),
                     'models': {k: {'provider': m.provider, 'model': m.name, 'capabilities': sorted(m.capabilities)} for k, m in MODELS.items()},
                     'capabilities': {'chat': self.settings.agent, 'actions': 'confirmation_required', 'rag': 'lexical' if self.settings.rag else 'disabled', 'streaming': False, 'voice': self.settings.voice, 'automations': 'suggestions_only', 'automatic_writes': False},
+                    'cooldowns': [{'provider': p, 'model': m, 'seconds': max(0, round(until-time.monotonic()))} for (owner, p, m), until in self.router.cooldowns.items() if owner == account.user_id and until > time.monotonic()],
                     'provider_limits': 'Os limites reais dependem da conta do provedor; o limite interno não representa a quota do provedor.'}
 
         @self.api.put('/providers/{provider}')
