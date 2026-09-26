@@ -20,7 +20,7 @@ async function loadClient({ offline = false, pathname = "/studies" } = {}) {
       response: { use(resolve, reject) { handlers.reject = reject; } },
     }},
     OFFLINE_MODE: offline, OFFLINE_USER: {}, OFFLINE_DEMO_DATA: {},
-    getApiErrorMessage, process: { env: {} },
+    getApiErrorMessage, process: { env: {} }, Event,
     localStorage: {
       getItem: key => storage.get(key),
       setItem: (key, value) => storage.set(key, value),

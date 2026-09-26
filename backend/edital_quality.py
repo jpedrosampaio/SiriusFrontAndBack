@@ -64,6 +64,9 @@ def edital_context(text, cargo_names=()):
 
 def mark_discipline_quality(cargos):
     for cargo in cargos:
+        if cargo.get('conferencia', {}).get('missing'):
+            cargo['disciplinas_status'] = 'incompleto'
+            continue
         incomplete = needs_disciplines(cargo)
         cargo["disciplinas_status"] = "incompleto" if incomplete else "extraido"
         cargo["disciplinas_aviso"] = (
