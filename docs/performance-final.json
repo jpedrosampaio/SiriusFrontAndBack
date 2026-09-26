@@ -1,0 +1,18 @@
+[
+  {
+    "chunk": "223.d87f51a2.chunk.js",
+    "sources": [
+      "pages/Studies.js"
+    ],
+    "bytes": 149466,
+    "gzip_bytes": 30954
+  },
+  {
+    "chunk": "955.b010f21f.chunk.js",
+    "sources": [
+      "pages/Workouts.js"
+    ],
+    "bytes": 117501,
+    "gzip_bytes": 26776
+  }
+]

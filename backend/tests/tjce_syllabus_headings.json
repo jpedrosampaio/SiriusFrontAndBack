@@ -1,0 +1,113 @@
+{
+  "source": "https://www.concursosfcc.com.br/concursos/tjuce125/tjuce125_edital_de_abertura_final_20260515153002950.pdf",
+  "common": [
+    {
+      "name": "LÍNGUA PORTUGUESA",
+      "page": 31
+    },
+    {
+      "name": "RACIOCÍNIO LÓGICO-MATEMÁTICO",
+      "page": 31
+    },
+    {
+      "name": "NOÇÕES SOBRE DIREITOS DAS PESSOAS COM DEFICIÊNCIA (RESOLUÇÃO CSJT Nº 386/2024 - ART. 6º)",
+      "page": 31
+    },
+    {
+      "name": "LEGISLAÇÃO",
+      "page": 31
+    }
+  ],
+  "roles": [
+    {
+      "code": "G07",
+      "name": "Analista Judiciário – ÁREA JUDICIÁRIA",
+      "subjects": [
+        {
+          "name": "DIREITO CONSTITUCIONAL",
+          "page": 37
+        },
+        {
+          "name": "DIREITO ADMINISTRATIVO",
+          "page": 37
+        },
+        {
+          "name": "DIREITO CIVIL",
+          "page": 38
+        },
+        {
+          "name": "DIREITO PROCESSUAL CIVIL",
+          "page": 38
+        },
+        {
+          "name": "DIREITO PENAL",
+          "page": 39
+        },
+        {
+          "name": "DIREITO PROCESSUAL PENAL",
+          "page": 39
+        }
+      ]
+    },
+    {
+      "code": "H08",
+      "name": "OFICIAL DE JUSTIÇA",
+      "subjects": [
+        {
+          "name": "DIREITO CONSTITUCIONAL",
+          "page": 40
+        },
+        {
+          "name": "DIREITO ADMINISTRATIVO",
+          "page": 40
+        },
+        {
+          "name": "DIREITO CIVIL",
+          "page": 41
+        },
+        {
+          "name": "DIREITO PROCESSUAL CIVIL",
+          "page": 41
+        },
+        {
+          "name": "DIREITO PENAL",
+          "page": 42
+        },
+        {
+          "name": "DIREITO PROCESSUAL PENAL",
+          "page": 43
+        }
+      ]
+    },
+    {
+      "code": "I09",
+      "name": "Técnico Judiciário – Área JUDICIÁRIA",
+      "subjects": [
+        {
+          "name": "NOÇÕES DE DIREITO CONSTITUCIONAL",
+          "page": 43
+        },
+        {
+          "name": "NOÇÕES DE DIREITO ADMINISTRATIVO",
+          "page": 43
+        },
+        {
+          "name": "NOÇÕES DE DIREITO CIVIL",
+          "page": 44
+        },
+        {
+          "name": "NOÇÕES DE DIREITO PROCESSUAL CIVIL",
+          "page": 44
+        },
+        {
+          "name": "NOÇÕES DE DIREITO PENAL",
+          "page": 45
+        },
+        {
+          "name": "NOÇÕES DE DIREITO PROCESSUAL PENAL",
+          "page": 46
+        }
+      ]
+    }
+  ]
+}

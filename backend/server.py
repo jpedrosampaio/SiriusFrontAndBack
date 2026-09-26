@@ -1267,7 +1267,7 @@ async def get_topic_progress(request: Request, notebook_id: str, session_token: 
 async def setup_activity_collections():
     # Creating namespaces inside concurrent transactions can conflict or block.
     # Prepare them before serving requests; multiple workers may start together.
-    for name in ("task_instances", "activity_requests", "focus_sessions", "study_streaks", "study_dated_plans", "edital_jobs", "workout_sessions", "workout_logs"):
+    for name in ("task_instances", "activity_requests", "focus_sessions", "study_streaks", "study_dated_plans", "study_topic_reviews", "question_logs", "edital_jobs", "workout_sessions", "workout_logs"):
         try:
             await db.create_collection(name)
         except CollectionInvalid:
@@ -5164,6 +5164,7 @@ async def get_next_workout_loads(request: Request, plan_id: Optional[str] = None
 @api_router.get("/workouts/exercise-history")
 async def get_exercise_history(request: Request, exercise_name: str, session_token: Optional[str] = Cookie(None)):
     """Get the last 5 workout logs containing a specific exercise."""
+    import re
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     
@@ -5174,13 +5175,13 @@ async def get_exercise_history(request: Request, exercise_name: str, session_tok
     logs = await db.workout_logs.find({
         "user_id": user.user_id,
         "completed": True,
-        "exercises_completed": {"$elemMatch": {"name": {"$regex": exercise_name, "$options": "i"}}}
+        "exercises_completed": {"$elemMatch": {"name": {"$regex": "^" + re.escape(exercise_name.strip()) + "$", "$options": "i"}}}
     }, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
     
     history = []
     for log in logs:
         for ex in log.get("exercises_completed", []):
-            if exercise_name.lower() in ex.get("name", "").lower():
+            if exercise_name.strip().casefold() == ex.get("name", "").strip().casefold():
                 history.append({
                     "date": log.get("date", ""),
                     "log_name": log.get("name", ""),
@@ -10304,7 +10305,7 @@ async def process_edital_analysis(user, file, force=False):
     cached = None
     if not force:
         cached = await db.edital_analyses.find_one(
-            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 4},
+            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 5},
             {"_id": 0}
         )
     if (
@@ -10318,7 +10319,7 @@ async def process_edital_analysis(user, file, force=False):
             "analysis_id": new_analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
-            "analysis_version": 4,
+            "analysis_version": 5,
             "concurso": cached.get("concurso", {}),
             "multiple_cargos": cached.get("multiple_cargos", False),
             "cargos": cached.get("cargos", []),
@@ -10569,6 +10570,8 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             parsed["concurso"]["prazos"] = sourced_deadlines(parsed["concurso"].get("prazos"), pdf_text)
         from edital_sources import source_pages, locate_subject
         pages = source_pages(pdf_text)
+        from edital_audit import audit_cargos
+        audit_cargos(cargos_list, pages)
         for cargo in cargos_list:
             for discipline in cargo.get("disciplinas", []):
                 discipline.update(scoring_evidence(discipline, pdf_text))
@@ -10581,7 +10584,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             "analysis_id": analysis_id,
             "user_id": user.user_id,
             "pdf_hash": pdf_hash,
-            "analysis_version": 4,
+            "analysis_version": 5,
             "concurso": parsed.get("concurso", {}),
             "multiple_cargos": parsed["multiple_cargos"],
             "cargos": cargos_list,
@@ -10902,6 +10905,10 @@ async def import_edital_with_cargo(
         raise HTTPException(status_code=400, detail="Cargo inválido")
     
     selected_cargo = cargos[cargo_index]
+    from edital_audit import audit_cargos
+    audit_cargos([selected_cargo], analysis.get('pdf_pages', []))
+    if selected_cargo.get('conferencia', {}).get('missing'):
+        raise HTTPException(status_code=422, detail=selected_cargo['disciplinas_aviso'])
     concurso_info = analysis.get("concurso", {})
     concurso_info["cargo"] = selected_cargo.get("nome", "")
     concurso_info["vagas"] = selected_cargo.get("vagas", "")

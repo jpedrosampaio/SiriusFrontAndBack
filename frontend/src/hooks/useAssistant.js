@@ -27,7 +27,9 @@ export function useAssistant(page, enabled = true) {
     window.addEventListener('sirius-conversation-updated', refresh);
     const reset = () => { generation.current += 1; setMessages([]); pending.current = null; };
     window.addEventListener('sirius-auth-changed', reset);
-    return () => { generation.current += 1; window.removeEventListener('sirius-conversation-updated', refresh); window.removeEventListener('sirius-auth-changed', reset); };
+    const storageReset = event => { if (!event.key || event.key === 'sirius_session_token') reset(); };
+    window.addEventListener('storage', storageReset);
+    return () => { generation.current += 1; window.removeEventListener('sirius-conversation-updated', refresh); window.removeEventListener('sirius-auth-changed', reset); window.removeEventListener('storage', storageReset); };
   }, [enabled, refresh]);
   const send = useCallback(async text => {
     if (busy.current || !text.trim()) return false;

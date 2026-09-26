@@ -55,17 +55,22 @@ const server = http.createServer((req, res) => {
       const context = await browser.newContext({ viewport: { width, height: width > 500 ? 1000 : 844 }, serviceWorkers: 'block' });
       await context.addInitScript(() => localStorage.setItem('sirius_onboarding_complete', 'true'));
       const drafts = new Map();
+      const requests = [];
+      const reviewRows = [];
       await context.route('**/*', async route => {
         const url = new URL(route.request().url());
         if (url.pathname.startsWith('/api/')) {
+          requests.push(url.pathname);
           let body = Object.hasOwn(fixtures, url.pathname) ? fixtures[url.pathname] : [];
           if (url.pathname === '/api/dashboard/panels') body = {panels: {}, errors: []};
-          if (url.pathname === '/api/ai/conversation') body = {messages: []};
+          if (url.pathname === '/api/ai/conversation') body = {messages: [{message_id: 'fixture-private', role: 'assistant', content: 'Conversa sintética desta conta'}]};
           if (url.pathname.endsWith('/draft')) {
             const key = url.pathname + url.search;
             if (route.request().method() === 'PUT') { const data = route.request().postDataJSON(); drafts.set(key, { text: data.text, revision: (drafts.get(key)?.revision || 0) + 1 }); }
             body = drafts.get(key) || { text: '', revision: 0 };
           }
+          if (url.pathname.endsWith('/reviews')) body = reviewRows;
+          if (url.pathname.endsWith('/practice')) { const data = route.request().postDataJSON(); body = { ...data, title: 'Compreensão e interpretação de textos', due_date: '2026-09-27', accuracy: data.correct / data.total * 100 }; reviewRows.splice(0, reviewRows.length, body); }
           if (url.pathname.endsWith('/learning-summary')) body = { answered: 40, correct: 30, accuracy: 75 };
           if (url.pathname.endsWith('/dated-plan')) body = { entries: [], settings: null };
           if (url.pathname.endsWith('/edital-jobs')) body = { jobs: [{ job_id: 'job', filename: 'edital-demonstracao.pdf', status: 'completed', phase: 'Análise disponível para conferência', analysis_id: 'analysis1' }] };
@@ -92,9 +97,13 @@ const server = http.createServer((req, res) => {
       ];
       for (const [name, url] of cases) {
         if (process.env.VISUAL_CASES && !process.env.VISUAL_CASES.split(',').includes(name)) continue;
+        requests.length = 0;
+        const started = performance.now();
         await page.goto(`http://127.0.0.1:4173${url}`);
         await page.locator('h1, h2').first().waitFor();
+        const headingMs = Math.round(performance.now() - started);
         await page.waitForTimeout(600);
+        if (name === 'dashboard') console.log('DASHBOARD_SYNTHETIC ' + JSON.stringify({ width, headingMs, requests: [...requests] }));
         if (name === 'syllabus') await page.locator('details summary').first().click();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
         console.log(JSON.stringify({ name, width, overflow, title: await page.locator('h1, h2').first().innerText() }));
@@ -110,6 +119,9 @@ const server = http.createServer((req, res) => {
           const moved = await launcher.boundingBox(); assert.ok(moved.y < before.y - 20);
           await launcher.click();
           const close = page.getByRole('button', { name: 'Fechar assistente', exact: true }); await close.waitFor();
+          await page.getByText('Conversa sintética desta conta', { exact: true }).waitFor();
+          await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'sirius_session_token' })));
+          await page.getByText('Conversa sintética desta conta', { exact: true }).waitFor({ state: 'hidden' });
           const box = await close.boundingBox(); assert.ok(box.x >= 0 && box.x + box.width <= width);
           await page.getByLabel('Mensagem para o assistente').fill('Como organizar meus estudos?');
           await page.screenshot({ path: path.join(output, `assistant-${width}.png`) });
@@ -125,6 +137,12 @@ const server = http.createServer((req, res) => {
           const restored = await launcher.boundingBox(); assert.ok(Math.abs(restored.x - moved.x) < 2);
         }
         if (name === 'session') {
+          await page.getByLabel('Resolvidas', { exact: true }).fill('10');
+          await page.getByLabel('Acertos', { exact: true }).fill('5');
+          await page.getByRole('button', { name: 'Registrar resultado deste assunto' }).click();
+          await page.getByText(/Resultado salvo/).waitFor();
+          await page.getByText('Fila de revisão · 1 assuntos').click();
+          await page.getByText(/último resultado: 5\/10/).waitFor();
           assert.ok((await page.locator('body').innerText()).includes('45:00'));
           await page.getByRole('button', { name: /Iniciar foco/i }).click();
           await page.waitForTimeout(2100);
