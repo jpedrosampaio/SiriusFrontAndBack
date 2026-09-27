@@ -1,8 +1,6 @@
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -301,8 +299,8 @@ export default function Profile() {
 
   return (
     <div className="flex min-h-screen bg-[#050505]">
-      <Sidebar user={user} />
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
+      
+      <div className="flex-1 ml-0  p-4 md:p-6 lg:p-8 pb-24 md:pb-8  md:pt-0 page-enter">
         <div className="max-w-5xl mx-auto">
           <h1 className="font-heading text-3xl md:text-4xl mb-8" data-testid="profile-title">Seu perfil</h1>
 
@@ -770,7 +768,7 @@ export default function Profile() {
           </div>
         </div>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

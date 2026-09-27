@@ -1,3 +1,4 @@
+import { openSirius } from '@/lib/sirius-context';
 import WorkoutComparison from '@/components/WorkoutComparison';
 import { lazy, Suspense } from 'react';
 import { readSaved, writeSaved } from "@/lib/session-storage";
@@ -6,8 +7,6 @@ import { getCurrentUser } from "@/lib/api";
 import { getWorkoutCalendar } from "@/lib/workout-calendar";
 import { getApiErrorMessage } from "@/lib/api-errors";
 import { useEffect, useState, useCallback, useRef } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import PullToRefresh from "@/components/PullToRefresh";
 import { getLocalDateStr } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -91,7 +90,6 @@ export default function Workouts() {
 
   // Today's schedule
   const [todaySchedule, setTodaySchedule] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "true");
 
   // AI Generation
   const [openAiGenerate, setOpenAiGenerate] = useState(false);
@@ -313,12 +311,7 @@ export default function Workouts() {
     loadData();
   }, [loadData]);
 
-  useEffect(() => {
-    const check = () => setSidebarCollapsed(localStorage.getItem("sidebar_collapsed") === "true");
-    window.addEventListener("sidebar-toggle", check);
-    window.addEventListener("storage", check);
-    return () => { window.removeEventListener("sidebar-toggle", check); window.removeEventListener("storage", check); };
-  }, []);
+
 
   useEffect(() => {
     if (!['stats', 'evolution'].includes(activeTab)) return;
@@ -1119,8 +1112,8 @@ export default function Workouts() {
 
   return (
     <div className="flex min-h-screen bg-[#050505]" data-workout-executing={activeTab === 'session'}>
-      <Sidebar user={user} />
-      <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter`}>
+      
+      <div className={`flex-1 min-w-0 ml-0 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 md:pt-0 page-enter`}>
         <PullToRefresh onRefresh={loadData}>
         <div className="max-w-6xl mx-auto">
           {/* Motivational Quote */}
@@ -1138,11 +1131,11 @@ export default function Workouts() {
             </Card>
           )}
 
-          <div className="sirius-page-heading sirius-hero flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-            <div>
+          <div className="sirius-page-heading sirius-hero flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-4 min-w-0">
+            <div className="min-w-0 max-w-full">
               <div className="sirius-eyebrow">Movimento e constância</div>
               <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="workouts-title">Seu próximo passo começa aqui.</h1>
-              <p className="text-[#A1A1AA]">Seus treinos, suas marcas e a evolução de cada semana.</p>
+              <p className="text-[#A1A1AA]">Seus treinos, suas marcas e a evolução de cada semana.</p><Button variant="ghost" className="mt-2" onClick={() => openSirius({ surface: 'workouts', draft: 'Ajude-me a entender meus treinos e minha evolução.' })}>Conversar com Sirius</Button>
             </div>
             <div className="flex gap-2 flex-wrap">
               <Dialog open={openLog} onOpenChange={setOpenLog}>
@@ -2081,7 +2074,7 @@ export default function Workouts() {
 
           {/* Stats Summary - Compact */}
           {stats && (
-            <div className="sirius-workout-stats flex items-center gap-6 p-4 bg-[#0A0A0A] border border-[#27272A] rounded-lg mb-6">
+            <div className="sirius-workout-stats flex flex-wrap items-center gap-6 p-4 bg-[#0A0A0A] border border-[#27272A] rounded-lg mb-6">
               <div className="flex items-center gap-2">
                 <Dumbbell className="w-5 h-5 text-[#00F0FF]" />
                 <span className="text-xs text-[#A1A1AA] uppercase">Treinos</span>
@@ -2148,7 +2141,7 @@ export default function Workouts() {
 
           <section className="sirius-workout-flow mb-6 rounded-2xl border border-slate-700 bg-slate-900/50 p-4"><div className="flex flex-wrap items-center gap-3"><p className="text-sm text-slate-300 flex-1">{activeSession ? `Em andamento: ${activeSession.plan_name}` : 'Planeje seu treino, registre cada série e acompanhe sua evolução.'}</p><Button variant="outline" onClick={() => setActiveTab('plans')}>1. Meu plano</Button><Button disabled={!activeSession} onClick={() => setActiveTab('session')}>2. {activeSession ? 'Retomar treino' : 'Executar treino'}</Button><Button variant="outline" onClick={() => setActiveTab('evolution')}>3. Evolução</Button></div>{sessionSaving && <p role="status" className="text-sm text-blue-300 mt-3">Salvando seu progresso…</p>}</section>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="bg-[#0A0A0A] border border-[#27272A] mb-6 overflow-x-auto flex-nowrap w-full justify-start md:justify-center">
+            <TabsList className="bg-[#0A0A0A] border border-[#27272A] mb-6 overflow-x-auto flex-nowrap w-full max-w-full justify-start xl:justify-center">
               <TabsTrigger value="log" className="data-[state=active]:bg-[#27272A]">
                 <Activity className="w-4 h-4 mr-2" /> Hoje
               </TabsTrigger>
@@ -2990,7 +2983,7 @@ export default function Workouts() {
         </div>
       </PullToRefresh>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

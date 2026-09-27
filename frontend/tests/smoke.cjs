@@ -1,4 +1,4 @@
-process.env.VISUAL_CASES ||= 'dashboard,workouts,analysis,syllabus,session,agent';
+process.env.VISUAL_CASES ||= 'dashboard,workouts,studies,preparation,analysis,syllabus,session,agent';
 // Local visual QA with synthetic data; all API requests are intercepted.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,6 +28,11 @@ const fixtures = {
   '/api/ai/rag/sources': { editais: [], notebooks: [] },
   '/api/stats/dashboard': { tasks_completed: 4, tasks_total: 7, habits_completed: 3, habits_total: 5, income: 4200, expenses: 1850, balance: 2350, workout_stats: { total_workouts: 3, total_duration_minutes: 150 }, study_stats: { study_time_today_minutes: 75, current_streak: 5, notebooks_count: 5 } },
   '/api/study/areas': [{ area_id: 'area1', name: 'Concursos públicos', color: '#879eff' }],
+  '/api/study/v2/targets': [{ target_id: 'target1', program_id: 'demo', kind: 'contest', name: 'Preparação de teste', provenance: 'user_provided' }],
+  '/api/study/v2/today': { planned_minutes: 60, studied_minutes: 25, next_session: { notebook_id: 'nb0', program_id: 'demo', topic_key: '0', name: 'Português', minutes: 30, kind: 'Teoria e questões' } },
+  '/api/study/v2/library': { notebooks: disciplines, items: [{ id: 'note1', kind: 'note', notebook_id: 'nb0', title: 'Resumo de interpretação', excerpt: 'Material de teste', provenance: 'user_provided' }] },
+  '/api/study/v2/performance': { summary: { score: 60, samples: 10 }, topics: [{ notebook_id: 'nb0', topic_key: '0', title: 'Interpretação', score: 60, samples: 10, confidence: 'low', range: [35, 85] }], errors: [], trend: [{ date: '2026-09-26', total: 10, correct: 6, accuracy: 60 }] },
+  '/api/study/v2/programs/demo/overview': { coverage: { percent: 20, studied: 1, total: 5 }, mastery: { score: 60, samples: 10 }, study_minutes: 100, questions: 10, accuracy: 60 },
   '/api/study/programs': [program], '/api/study/notebooks': disciplines,
   '/api/study/programs/editais': { editais: [{ analysis_id: 'analysis1', concurso, pdf_filename: 'edital-demonstracao.pdf', num_cargos: 2 }] },
   '/api/study/programs/editais/analysis1': { analysis_id: 'analysis1', concurso, cargos: [cargo, { ...cargo, nome: 'Técnico Judiciário' }], pdf_filename: 'edital-demonstracao.pdf' },
@@ -55,7 +60,7 @@ const server = http.createServer((req, res) => {
   const browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), headless: true });
   const errors = [];
   try {
-    for (const width of [1440, 390, 320]) {
+    for (const width of [1440, 1024, 768, 390, 320]) {
       const context = await browser.newContext({ viewport: { width, height: width > 500 ? 1000 : 844 }, serviceWorkers: 'block' });
       await context.addInitScript(() => localStorage.setItem('sirius_onboarding_complete', 'true'));
       const drafts = new Map();
@@ -71,6 +76,7 @@ const server = http.createServer((req, res) => {
           if (url.pathname === '/api/dashboard/panels') body = {panels: {}, errors: []};
           if (url.pathname === '/api/ai/conversation') body = {messages: [{message_id: 'fixture-private', role: 'assistant', content: 'Conversa sintética desta conta', actions: [{ action_id: 'fixture-expense', summary: 'Registrar despesa', reason: 'Pedido explícito', arguments: { amount: 48, category: 'Alimentação', date: '2026-09-26' }, status: actionStatus, expires_at: new Date(Date.now() + 1200000).toISOString() }] }]};
           if (url.pathname === '/api/ai/actions/fixture-expense/confirm') { actionConfirmations++; actionStatus = 'executed'; body = { status: actionStatus }; }
+          if (url.pathname === '/api/ai/attachments') body = { attachment_id: 'fixture-file', filename: 'material-teste.pdf', provenance: 'extracted', indexed: true };
           if (url.pathname.endsWith('/draft')) {
             const key = url.pathname + url.search;
             if (route.request().method() === 'PUT') { const data = route.request().postDataJSON(); drafts.set(key, { text: data.text, revision: (drafts.get(key)?.revision || 0) + 1 }); }
@@ -93,6 +99,7 @@ const server = http.createServer((req, res) => {
       page.on('pageerror', e => errors.push({ width, url: page.url(), error: e.message }));
       const cases = [
         ['dashboard', '/dashboard'], ['workouts', '/workouts'], ['studies', '/studies'],
+        ['preparation', '/studies?program=demo&view=edital'],
         ['analysis', '/studies?analysis=analysis1'],
         ['syllabus', '/studies?program=demo&view=verticalizado'],
         ['schedule', '/studies?program=demo&view=cronograma'],
@@ -119,12 +126,12 @@ const server = http.createServer((req, res) => {
         if (overflow) console.log(await page.evaluate(() => Array.from(document.querySelectorAll('body *')).filter(e => e.getBoundingClientRect().right > innerWidth + 2).slice(0, 10).map(e => ({ tag: e.tagName, cls: e.className }))));
         if (overflow) errors.push({ name, width, error: 'Horizontal overflow' });
         if (name === 'dashboard') {
-          const launcher = page.getByRole('button', { name: 'Abrir assistente Sirius', exact: true });
-          const before = await launcher.boundingBox();
-          await page.mouse.move(before.x + 28, before.y + 28); await page.mouse.down();
-          await page.mouse.move(50, 160, { steps: 12 }); await page.mouse.up();
-          assert.equal(await page.getByRole('dialog').count(), 0, 'drag must not open chat');
-          const moved = await launcher.boundingBox(); assert.ok(moved.y < before.y - 20);
+          const launcher = page.getByRole('button', { name: 'Abrir assistente Sirius', exact: true }).filter({ visible: true });
+          assert.equal(await launcher.count(), 1, 'one visible Sirius entry point');
+          await page.keyboard.press('Control+k');
+          await page.getByRole('combobox').fill('Nova tarefa');
+          await page.getByRole('option', { name: 'Nova tarefa' }).waitFor();
+          await page.keyboard.press('Escape');
           await launcher.click();
           const close = page.getByRole('button', { name: 'Fechar assistente', exact: true }); await close.waitFor();
           await page.getByText('Conversa sintética desta conta', { exact: true }).waitFor();
@@ -144,8 +151,31 @@ const server = http.createServer((req, res) => {
           }
           await close.click(); await launcher.waitFor({ state: 'visible' });
           await launcher.click(); await page.keyboard.press('Escape'); await launcher.waitFor({ state: 'visible' });
+          if (width === 1440) {
+            await launcher.click();
+            await page.getByLabel('Anexar PDF ou imagem ao Sirius').setInputFiles({ name: 'material-teste.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-fixture') });
+            await page.getByText(/material-teste.pdf/).waitFor();
+            await page.getByRole('link', { name: 'Abrir Sirius em tela cheia' }).click();
+            await page.getByText(/material-teste.pdf/).waitFor();
+            await page.evaluate(() => window.dispatchEvent(new Event('sirius-auth-changed')));
+            await page.getByText(/material-teste.pdf/).waitFor({ state: 'hidden' });
+            await page.goto('http://127.0.0.1:4173/dashboard');
+          }
           await page.reload(); await launcher.waitFor();
-          const restored = await launcher.boundingBox(); assert.ok(Math.abs(restored.x - moved.x) < 2);
+        }
+        if (name === 'studies') {
+          const nav = page.getByRole('navigation', { name: 'Áreas de estudos' });
+          await nav.getByRole('button', { name: 'Preparações', exact: true }).click();
+          await page.getByRole('button', { name: 'Nova preparação' }).click();
+          await page.getByRole('dialog').waitFor();
+          await page.getByLabel('Tipo de preparação', { exact: true }).selectOption('certification');
+          await page.keyboard.press('Escape');
+          await nav.getByRole('button', { name: 'Biblioteca', exact: true }).click();
+          await page.getByText('Resumo de interpretação', { exact: true }).waitFor();
+          await nav.getByRole('button', { name: 'Desempenho', exact: true }).click();
+          await page.getByRole('heading', { name: 'Domínio e banco de erros' }).waitFor();
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+          await page.screenshot({ path: path.join(output, `studies-performance-${width}.png`) });
         }
         if (name === 'session') {
           await page.getByLabel('Resolvidas', { exact: true }).fill('10');

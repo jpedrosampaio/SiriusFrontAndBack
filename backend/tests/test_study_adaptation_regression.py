@@ -28,3 +28,14 @@ class AdaptationTests(unittest.TestCase):
 
     def test_small_sample_does_not_change_weight(self):
         self.assertEqual(adapt_notebooks([{'notebook_id': 'a', 'weight': 2}], {'a': {'total': 4, 'correct': 0}}, set())[0]['weight'], 2)
+
+    def test_mastery_replaces_legacy_accuracy_factor(self):
+        updated = adapt_notebooks([{'notebook_id': 'a', 'weight': 2}], {'a': {'total': 10, 'correct': 0}}, set(), {'a': {'score': 80, 'samples': 20, 'confidence': 'medium'}})
+        self.assertAlmostEqual(updated[0]['weight'], 2.4)
+        self.assertIn('domínio estimado', updated[0]['planning_reason'])
+
+    def test_fixed_commitments_and_manual_blocks_consume_capacity(self):
+        manual = {'entry_id': 'manual', 'date': '2026-09-28', 'minutes': 30, 'completed': False, 'manual': True}
+        plan = build_plan('p', [{'notebook_id': 'a', 'name': 'A'}], [120] * 7, '2026-09-28', '2026-09-28', 30, [manual], {'2026-09-28': 60})
+        self.assertIn(manual, plan)
+        self.assertEqual(sum(e['minutes'] for e in plan), 60)

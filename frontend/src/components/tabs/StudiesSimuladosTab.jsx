@@ -33,6 +33,7 @@ export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, han
                   <div className="flex items-center gap-3">
                     <Badge variant="outline" className="text-[#00F0FF] border-[#00F0FF] font-mono text-base px-3 py-1">
                       <Timer className="w-4 h-4 mr-1" />{formatTimer(simuladoTimer)}
+                      {currentSimulado.duration_minutes && <span className="ml-2 text-xs">/ {currentSimulado.duration_minutes} min {simuladoTimer >= currentSimulado.duration_minutes * 60 ? '· tempo previsto esgotado' : ''}</span>}
                     </Badge>
                     <Badge variant="outline" className="text-green-400 border-green-400">
                       {Object.keys(simuladoAnswers).length}/{currentSimulado.questions?.length || 0}
@@ -232,7 +233,7 @@ export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, han
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   <Card className="bg-[#0A0A0A] border-[#27272A]">
                     <CardContent className="p-4 text-center">
-                      <p className="text-xs text-[#A1A1AA] mb-1">Nota</p>
+                      <p className="text-xs text-[#A1A1AA] mb-1">{simuladoResult.score_basis === 'all_questions_weighted' ? 'Nota ponderada' : 'Nota'}</p>
                       <p className={`text-3xl font-bold ${simuladoResult.score >= 70 ? 'text-green-400' : simuladoResult.score >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{simuladoResult.score}%</p>
                     </CardContent>
                   </Card>
@@ -264,6 +265,8 @@ export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, han
                 </div>
 
                 {/* By Disciplina */}
+                {simuladoResult.score_basis === 'all_questions_weighted' && <section className="rounded-xl bg-slate-900 p-4 text-sm space-y-2"><p>Acerto geral: {simuladoResult.accuracy}%. Questões em branco entram no total da prova.</p><p>{simuladoResult.change_since_previous == null ? 'Primeira tentativa desta prova.' : `Variação desde a tentativa anterior: ${simuladoResult.change_since_previous > 0 ? '+' : ''}${simuladoResult.change_since_previous} pontos percentuais.`}</p><p className="text-slate-400">{simuladoResult.mastery_answers_linked || 0} respostas vinculadas a assuntos alimentaram o domínio e as revisões. Questões sem vínculo continuam no resultado da prova.</p></section>}
+                {simuladoResult.by_topic && <details className="rounded-xl border border-slate-800 p-4"><summary className="cursor-pointer">Desempenho por assunto</summary><dl className="mt-3 space-y-2">{Object.entries(simuladoResult.by_topic).map(([topic, data]) => <div key={topic} className="flex flex-wrap justify-between gap-2 text-sm"><dt>{topic}</dt><dd>{data.correct}/{data.total} · {data.accuracy}%</dd></div>)}</dl></details>}
                 {simuladoResult.by_disciplina && Object.keys(simuladoResult.by_disciplina).length > 0 && (
                   <Card className="bg-[#0A0A0A] border-[#27272A]">
                     <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><BarChart3 className="w-4 h-4 text-purple-400" />Desempenho por Disciplina</CardTitle></CardHeader>

@@ -6,6 +6,36 @@ import { getApiErrorMessage } from '@/lib/api-errors';
 const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api/ai`;
 const button = 'rounded-lg border border-slate-700 px-3 py-2 text-xs hover:bg-slate-800 disabled:opacity-40';
 
+export function AgentAttachment({ assistant }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const operation = useRef(null);
+  useEffect(() => {
+    const cancel = () => { operation.current?.abort(); operation.current = null; setBusy(false); setError(''); };
+    const storage = event => { if (!event.key || event.key === 'sirius_session_token') cancel(); };
+    window.addEventListener('sirius-auth-changed', cancel);
+    window.addEventListener('storage', storage);
+    return () => { operation.current?.abort(); operation.current = null; window.removeEventListener('sirius-auth-changed', cancel); window.removeEventListener('storage', storage); };
+  }, []);
+  const upload = async event => {
+    const file = event.target.files?.[0]; event.target.value = '';
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { setError('Limite de 8 MB.'); return; }
+    const controller = new AbortController(); operation.current?.abort(); operation.current = controller;
+    setBusy(true); setError('');
+    try { const body = new FormData(); body.append('file', file); const { data } = await axios.post(`${API}/attachments`, body, { timeout: 120000, signal: controller.signal }); if (!controller.signal.aborted) assistant.setAttachment(data); }
+    catch (e) { if (!controller.signal.aborted) setError(getApiErrorMessage(e, 'Não foi possível anexar.')); }
+    finally { if (!controller.signal.aborted) setBusy(false); }
+  };
+  const remove = async () => {
+    const controller = new AbortController(); operation.current?.abort(); operation.current = controller;
+    setBusy(true); setError('');
+    try { await axios.delete(`${API}/attachments/${assistant.attachment.attachment_id}`, { signal: controller.signal }); if (!controller.signal.aborted) assistant.setAttachment(null); }
+    catch { if (!controller.signal.aborted) setError('Não foi possível remover o arquivo.'); }
+    finally { if (!controller.signal.aborted) setBusy(false); }
+  };
+  return <div className="px-4 py-2 text-xs text-slate-400"><label className="inline-flex items-center gap-2 cursor-pointer">{busy ? 'Processando arquivo…' : 'Anexar PDF ou imagem'}<input aria-label="Anexar PDF ou imagem ao Sirius" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" disabled={busy || assistant.sending} onChange={upload} className="max-w-[190px] text-xs" /></label>{assistant.attachment && <p className="mt-2 break-words">{assistant.attachment.filename} · {assistant.attachment.provenance === 'inferred' ? 'leitura por IA, confira o conteúdo' : 'texto extraído'} <button type="button" onClick={remove} disabled={busy} className="underline">Remover arquivo</button></p>}{error && <p role="alert" className="text-amber-300 mt-2">{error}</p>}</div>;
+}
+
 export function AgentToolbar({ assistant }) {
   return <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-slate-800 text-slate-300">
     <button className={button} disabled={assistant.sending} onClick={assistant.newConversation}>Nova conversa</button>

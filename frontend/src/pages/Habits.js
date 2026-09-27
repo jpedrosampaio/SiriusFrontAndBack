@@ -1,8 +1,6 @@
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
 import { createActivityRequests } from "@/lib/activity-requests";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { getLocalDateStr } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,7 +73,7 @@ const CompactStreakDisplay = ({ streak, bestStreak, color }) => (
 );
 
 export default function Habits() {
-  const [user, setUser] = useState(null);
+  const [, setUser] = useState(null);
   const [habits, setHabits] = useState([]);
   const [pendingHabits, setPendingHabits] = useState({});
   const activityRequests = useRef(createActivityRequests());
@@ -218,8 +216,8 @@ export default function Habits() {
 
   return (
     <div className="flex min-h-screen bg-[#050505]">
-      <Sidebar user={user} />
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
+      
+      <div className="flex-1 ml-0  p-4 md:p-6 lg:p-8 pb-24 md:pb-8  md:pt-0 page-enter">
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 md:mb-8 md:pt-0 gap-3">
             <div>
@@ -452,7 +450,7 @@ export default function Habits() {
           )}
         </DialogContent>
       </Dialog>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

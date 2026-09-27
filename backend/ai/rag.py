@@ -51,13 +51,26 @@ class Retrieval:
         source = await self.db.notebooks.find_one({'user_id': user_id, 'notebook_id': source_id})
         if not source: raise HTTPException(404, 'Caderno não encontrado.')
         drafts = await self.db.study_drafts.find({'user_id': user_id, 'notebook_id': source_id}, {'text': 1, '_id': 0}).to_list(100)
-        pages = [source.get('notes') or '', *[d.get('text', '') for d in drafts]]
+        notes = await self.db.study_notes.find({'user_id': user_id, 'notebook_id': source_id}, {'content': 1, 'title': 1, '_id': 0}).to_list(100)
+        pages = [source.get('notes') or '', *[d.get('text', '') for d in drafts], *[(n.get('title', '') + '\n' + n.get('content', '')) for n in notes]]
         pages = [re.sub(r'<[^>]+>', ' ', str(p)) for p in pages]
         return await self.index_pages(user_id, source_id, 'notebook', pages, source)
+
+    async def ensure_selection(self, user_id, selection):
+        for key, field in [('analysis', 'analysis_id'), ('notebook', 'notebook_id')]:
+            if key not in selection: continue
+            source_id = selection[key][field]
+            if key == 'analysis' and await self.db.ai_chunks.find_one({'user_id': user_id, 'source_id': source_id}, {'_id': 1}): continue
+            if key == 'analysis': await self.index_edital(user_id, source_id)
+            else: await self.index_notebook(user_id, source_id)
 
     async def index_pages(self, user_id, source_id, source_type, pages, source):
         batch = list(chunks(pages))[:2000]
         generation = hashlib.sha256(''.join(c['hash'] for c in batch).encode()).hexdigest()
+        existing = await self.db.ai_chunks.count_documents({'user_id': user_id, 'source_id': source_id, 'source_type': source_type, 'generation': generation}, limit=len(batch) + 1)
+        if batch and existing == len(batch):
+            await self.db.ai_chunks.delete_many({'user_id': user_id, 'source_id': source_id, 'source_type': source_type, 'generation': {'$ne': generation}})
+            return {'chunks': len(batch), 'method': 'lexical', 'source_id': source_id, 'unchanged': True}
         embed_available = bool(self.vector_index)
         for i, chunk in enumerate(batch):
             key = hashlib.sha256(f'{user_id}:{source_type}:{source_id}:{generation}:{i}'.encode()).hexdigest()
@@ -90,10 +103,12 @@ class Retrieval:
         if not ranked:
             rows = await self.db.ai_chunks.find(own, {'_id': 0, 'vector': 0}).limit(150).to_list(150)
             ranked = sorted(rows, key=lambda r: len(set(tokens) & set(r.get('terms', []))) / max(1, len(set(r.get('terms', []))) ** .5), reverse=True)
+            if not ranked and source_id:
+                ranked = await self.db.ai_chunks.find({'user_id': user_id, 'source_id': source_id}, {'_id': 0, 'vector': 0}).sort('page', 1).to_list(5)
         citations = []
         for r in ranked[:5]:
             # Deleting an edital revokes retrieval immediately, even before cleanup.
-            collection, field = ('notebooks', 'notebook_id') if r.get('source_type') == 'notebook' else ('edital_analyses', 'analysis_id')
+            collection, field = {'notebook': ('notebooks', 'notebook_id'), 'attachment': ('ai_attachments', 'attachment_id')}.get(r.get('source_type'), ('edital_analyses', 'analysis_id'))
             exists = await self.db[collection].find_one({'user_id': user_id, field: r['source_id']}, {'_id': 1})
             if exists: citations.append({k: r.get(k) for k in ('source_id', 'source_type', 'page', 'section', 'hash', 'text')})
         return {'method': method, 'citations': citations}

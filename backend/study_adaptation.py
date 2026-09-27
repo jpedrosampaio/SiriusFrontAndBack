@@ -10,7 +10,7 @@ def next_review(today, total, correct):
     return (date.fromisoformat(today) + timedelta(days=interval)).isoformat()
 
 
-def adapt_notebooks(notebooks, performance, overdue):
+def adapt_notebooks(notebooks, performance, overdue, estimates=None):
     result = []
     for source in notebooks:
         item = dict(source)
@@ -20,9 +20,15 @@ def adapt_notebooks(notebooks, performance, overdue):
         reasons = []
         if total >= 5:
             reasons.append(f'{round(correct / total * 100)}% de acertos em {total} questões')
+        estimate = (estimates or {}).get(item['notebook_id'], {})
+        if estimate.get('score') is not None and estimate.get('samples', 0) >= 5:
+            # Prefer recency-weighted evidence when available; never count the
+            # same errors twice by multiplying both legacy and new factors.
+            factor = 1 + (1 - estimate['score'] / 100)
+            reasons = [f"domínio estimado {estimate['score']}%, {estimate['samples']} respostas, confiança {estimate['confidence']}"]
         if item['notebook_id'] in overdue:
             factor += .25
-            reasons.append('há blocos pendentes anteriores ao início do plano')
+            reasons.append('há blocos anteriores pendentes ou revisões vencidas')
         item['weight'] = max(.1, float(item.get('weight') or 1)) * factor
         item['planning_reason'] = '; '.join(reasons) or 'peso da disciplina; sem amostra suficiente de questões'
         result.append(item)

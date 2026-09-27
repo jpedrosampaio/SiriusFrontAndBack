@@ -1,8 +1,6 @@
 import { getCurrentUser } from "@/lib/api";
 import { getApiErrorMessage } from "@/lib/api-errors";
 import { useEffect, useState } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -126,7 +124,7 @@ function ReportAccordionItem({ report }) {
 }
 
 export default function Reports() {
-  const [user, setUser] = useState(null);
+  const [, setUser] = useState(null);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reportType, setReportType] = useState("diário");
@@ -176,8 +174,8 @@ export default function Reports() {
 
   return (
     <div className="flex min-h-screen bg-[#050505]">
-      <Sidebar user={user} />
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
+      
+      <div className="flex-1 ml-0  p-4 md:p-6 lg:p-8 pb-24 md:pb-8  md:pt-0 page-enter">
         <div className="max-w-6xl mx-auto">
           <div className="mb-8">
             <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="reports-title">Sua evolução em detalhes</h1>
@@ -234,7 +232,7 @@ export default function Reports() {
           </div>
         </div>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

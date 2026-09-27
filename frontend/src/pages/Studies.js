@@ -1,3 +1,11 @@
+import QuickStudySession from '@/components/studies/QuickStudySession';
+import StudyLibrary from '@/components/studies/StudyLibrary';
+import { openSirius } from '@/lib/sirius-context';
+import StudiesNavigation from '@/components/studies/StudiesNavigation';
+import StudyToday from '@/components/studies/StudyToday';
+import StudyTargets from '@/components/studies/StudyTargets';
+import MasteryDashboard from '@/components/studies/MasteryDashboard';
+import PageHeader from '@/components/PageHeader';
 const StudyProgressCharts = lazy(() => import('@/components/tabs/StudyProgressCharts'));
 import { lazy, Suspense } from 'react';
 import EditalJobs from '@/components/EditalJobs';
@@ -9,8 +17,6 @@ const EditalAnalysisWorkspace = lazy(() => import("@/components/EditalAnalysisWo
 import { getApiErrorMessage } from "@/lib/api-errors";
 const StudyLessons = lazy(() => import("@/components/StudyLessons"));
 import { useState, useEffect, useRef } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,13 +24,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import axios from "@/lib/module-requests";
 import ExportButtons from "@/components/ExportButtons";
-import { BookOpen, Plus, Trash2, Folder, FileText, Clock, Calendar, Brain, Layers, Target, Trophy, Flame, ChevronRight, Loader2, GraduationCap, Briefcase, FolderOpen, CheckCircle2, XCircle, Sparkles, PenTool, Link, Play, Edit3, AlertCircle, Timer, BookMarked, Lightbulb, Repeat, Send, BarChart3, HelpCircle, Zap, MessageSquare, ChevronDown, ChevronUp, Hash, TrendingUp, Upload, ListChecks, ClipboardList, FileUp, Scale, LayoutGrid, Download, Image, BellRing, Paperclip, Network, GitCompareArrows, Bot, ArrowUp, PlusCircle, MinusCircle, RefreshCw } from "lucide-react";
+import { BookOpen, Plus, Trash2, Folder, FileText, Clock, Calendar, Brain, Layers, Target, Trophy, Flame, ChevronRight, Loader2, GraduationCap, Briefcase, FolderOpen, CheckCircle2, XCircle, Sparkles, PenTool, Link, Play, Edit3, AlertCircle, Timer, BookMarked, Lightbulb, Repeat, BarChart3, ChevronDown, ChevronUp, Hash, TrendingUp, Upload, ListChecks, ClipboardList, FileUp, Scale, LayoutGrid, Download, Image, BellRing, Network, GitCompareArrows, Bot, PlusCircle, MinusCircle, RefreshCw } from "lucide-react";
 
 const StudiesDashboardTab = lazy(() => import('@/components/tabs/StudiesDashboardTab'));
 const StudiesSimuladosTab = lazy(() => import('@/components/tabs/StudiesSimuladosTab'));
@@ -53,133 +59,10 @@ const recurrenceLabels = {
 
 // ========== POMODORO TIMER COMPONENT ==========
 // ========== AI CHAT COMPONENT ==========
-function StudyAIChat({ notebooks, selectedNotebook }) {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [contextType, setContextType] = useState("general");
-  const [uploadFile, setUploadFile] = useState(null);
-  const fileInputRef = useRef(null);
-  const chatEndRef = useRef(null);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  const sendMessage = async () => {
-    if (!input.trim() && !uploadFile) return;
-    const userContent = uploadFile ? `📎 ${uploadFile.name}\n${input || "Analise este arquivo"}` : input;
-    const userMsg = { role: "user", content: userContent };
-    setMessages(prev => [...prev, userMsg]);
-    const currentInput = input;
-    setInput("");
-    setLoading(true);
-    try {
-      if (uploadFile) {
-        // File upload mode
-        const formData = new FormData();
-        formData.append("file", uploadFile);
-        formData.append("message", currentInput || "Analise este documento e faça um resumo detalhado.");
-        formData.append("context_type", contextType);
-        if (selectedNotebook?.notebook_id) formData.append("notebook_id", selectedNotebook.notebook_id);
-        
-        const res = await axios.post(`${API}/study/ai-chat-with-file`, formData, {
-          withCredentials: true,
-          headers: { "Content-Type": "multipart/form-data" },
-          timeout: 120000
-        });
-        setMessages(prev => [...prev, { role: "assistant", content: res.data.response }]);
-        setUploadFile(null);
-      } else {
-        // Normal text mode
-        const res = await axios.post(`${API}/study/ai-chat`, {
-          message: currentInput,
-          notebook_id: selectedNotebook?.notebook_id || null,
-          context_type: contextType
-        }, { withCredentials: true });
-        setMessages(prev => [...prev, { role: "assistant", content: res.data.response }]);
-      }
-    } catch (err) {
-      setMessages(prev => [...prev, { role: "assistant", content: "Desculpe, ocorreu um erro. Tente novamente." }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const contextOptions = [
-    { value: "general", label: "Geral", icon: MessageSquare },
-    { value: "explain", label: "Explicar", icon: Lightbulb },
-    { value: "quiz_help", label: "Questões", icon: HelpCircle },
-    { value: "summarize", label: "Resumir", icon: FileText },
-    { value: "motivate", label: "Motivar", icon: Zap }
-  ];
-
-  return (
-    <Card className="bg-[#0A0A0A] border-[#27272A] flex flex-col h-[400px] md:h-[500px]">
-      <CardHeader className="pb-2 border-b border-[#27272A]">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-[#00F0FF]" />
-            Assistente de Estudos
-          </CardTitle>
-        </div>
-        <div className="flex gap-1 flex-wrap mt-1">
-          {contextOptions.map(opt => {
-            const Icon = opt.icon;
-            return (
-              <Button key={opt.value} variant={contextType === opt.value ? "default" : "ghost"} size="sm" className={`h-6 text-xs px-2 ${contextType === opt.value ? 'bg-[#007AFF]' : ''}`} onClick={() => setContextType(opt.value)}>
-                <Icon className="w-3 h-3 mr-1" /> {opt.label}
-              </Button>
-            );
-          })}
-        </div>
-      </CardHeader>
-      <CardContent className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.length === 0 && (
-          <div className="text-center text-[#A1A1AA] py-8 text-sm">
-            <Brain className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p>Pergunte qualquer coisa sobre seus estudos!</p>
-            <p className="text-xs mt-2 text-[#52525B]">📎 Envie PDFs ou imagens para resumo com IA</p>
-          </div>
-        )}
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] p-3 rounded-lg text-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[#007AFF] text-white' : 'bg-[#121212] text-[#E4E4E7]'}`}>
-              {msg.content}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-[#121212] p-3 rounded-lg"><Loader2 className="w-4 h-4 animate-spin text-[#00F0FF]" /></div>
-          </div>
-        )}
-        <div ref={chatEndRef} />
-      </CardContent>
-      <div className="p-3 border-t border-[#27272A]">
-        {uploadFile && (
-          <div className="flex items-center gap-2 mb-2 p-2 bg-[#121212] rounded-lg">
-            <Paperclip className="w-4 h-4 text-purple-400" />
-            <span className="text-xs text-purple-300 flex-1 truncate">{uploadFile.name}</span>
-            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setUploadFile(null)}><XCircle className="w-3 h-3 text-red-400" /></Button>
-          </div>
-        )}
-        <div className="flex gap-2">
-          <input type="file" ref={fileInputRef} className="hidden" accept=".pdf,image/*" onChange={e => { if (e.target.files[0]) setUploadFile(e.target.files[0]); e.target.value = ''; }} />
-          <Button variant="ghost" size="icon" className="shrink-0 text-[#A1A1AA] hover:text-purple-400" onClick={() => fileInputRef.current?.click()} title="Enviar PDF ou imagem">
-            <Paperclip className="w-4 h-4" />
-          </Button>
-          <Input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()} placeholder={uploadFile ? "Mensagem sobre o arquivo..." : "Pergunte algo..."} className="bg-[#121212] border-[#27272A] text-sm" />
-          <Button onClick={sendMessage} disabled={loading || (!input.trim() && !uploadFile)} size="icon" className="bg-[#007AFF] shrink-0">
-            <Send className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-    </Card>
-  );
+function StudySiriusAction({ selectedNotebook }) {
+  return <section className="py-4"><Button variant="secondary" onClick={() => openSirius({ surface: 'study_topic', notebook_id: selectedNotebook?.notebook_id, draft: selectedNotebook ? `Quero estudar ${selectedNotebook.name}. Pode me ajudar?` : 'Pode me ajudar a organizar meus estudos?' })}>Perguntar ao Sirius sobre este assunto</Button><p className="text-xs text-slate-400 mt-2">A mesma conversa e memória do Sirius. Envie PDFs e imagens no assistente.</p></section>;
 }
 
-// ========== QUESTION LOGGER COMPONENT ==========
 function QuestionLogger({ notebooks, onLog }) {
   const [nbId, setNbId] = useState("");
   const [total, setTotal] = useState(10);
@@ -280,7 +163,9 @@ export default function Studies() {
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [showFlashcardDialog, setShowFlashcardDialog] = useState(false);
   const [showSessionDialog, setShowSessionDialog] = useState(false);
+  const [quickSession, setQuickSession] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [pendingReviewCard, setPendingReviewCard] = useState(null);
   const [showQuizDialog, setShowQuizDialog] = useState(false);
   const [currentFlashcard, setCurrentFlashcard] = useState(null);
   const [showAnswer, setShowAnswer] = useState(false);
@@ -307,6 +192,8 @@ export default function Studies() {
   const [showSimuladoStatsView, setShowSimuladoStatsView] = useState(false);
   const [showGabarito, setShowGabarito] = useState(false);
   const simuladoTimerRef = useRef(null);
+  const simuladoSubmitKey = useRef(null);
+  const simuladoSubmitBusy = useRef(false);
 
   const [generateForm, setGenerateForm] = useState({
     title: "", banca: "", disciplina: "", concurso: "",
@@ -359,12 +246,6 @@ export default function Studies() {
   const [compareResult, setCompareResult] = useState(null);
   const [comparing, setComparing] = useState(false);
 
-  const [showEditalChat, setShowEditalChat] = useState(false);
-  const [chatAnalysisId, setChatAnalysisId] = useState(null);
-  const [chatAnalysisMeta, setChatAnalysisMeta] = useState(null); // { concurso, num_cargos, pdf_filename }
-  const [chatHistory, setChatHistory] = useState([]); // [{role:'user'|'assistant', content}]
-  const [chatInput, setChatInput] = useState("");
-  const [chatSending, setChatSending] = useState(false);
   const [showCargoSelection, setShowCargoSelection] = useState(false);
   const [selectedCargoIndex, setSelectedCargoIndex] = useState(0);
   const [creatingFromCargo, setCreatingFromCargo] = useState(false);
@@ -438,6 +319,10 @@ export default function Studies() {
   useEffect(() => { fetchUser(); }, []);
   useEffect(() => { if (user) fetchAllData(); }, [user, !!workspaceParams.get('program'), !!workspaceParams.get('analysis')]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (user && selectedNotebook) fetchNotebookData(); }, [user, selectedNotebook]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const card = pendingReviewCard && flashcards.find(f => f.flashcard_id === pendingReviewCard);
+    if (card) { setCurrentFlashcard(card); setShowAnswer(false); setShowReviewDialog(true); setPendingReviewCard(null); }
+  }, [flashcards, pendingReviewCard]);
 
   const fetchUser = async () => {
     try {
@@ -591,6 +476,7 @@ export default function Studies() {
     try {
       const res = await axios.get(`${API}/study/simulados/${simulado.simulado_id}`, { withCredentials: true });
       setCurrentSimulado(res.data);
+      simuladoSubmitKey.current = crypto.randomUUID();
       setSimuladoAnswers({});
       setSimuladoCurrentQ(0);
       setSimuladoMarked(new Set());
@@ -602,7 +488,9 @@ export default function Studies() {
   };
 
   const handleSubmitSimulado = async () => {
-    if (!currentSimulado) return;
+    if (!currentSimulado || simuladoSubmitBusy.current) return;
+    simuladoSubmitBusy.current = true;
+    simuladoSubmitKey.current ||= crypto.randomUUID();
     setSimuladoSubmitting(true);
     setSimuladoTimerRunning(false);
     try {
@@ -611,7 +499,7 @@ export default function Studies() {
       }));
       const res = await axios.post(`${API}/study/simulados/${currentSimulado.simulado_id}/submit`, {
         answers: answersArr, time_spent_seconds: simuladoTimer
-      }, { withCredentials: true });
+      }, { withCredentials: true, headers: { 'Idempotency-Key': simuladoSubmitKey.current } });
       setSimuladoResult(res.data);
       setSimuladoMode("results");
       toast.success(`Simulado finalizado! Nota: ${res.data.score}% (+${res.data.xp_earned} XP)`);
@@ -619,7 +507,7 @@ export default function Studies() {
       fetchAllData();
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Erro ao submeter simulado"));
-    } finally { setSimuladoSubmitting(false); }
+    } finally { simuladoSubmitBusy.current = false; setSimuladoSubmitting(false); }
   };
 
   const handleViewResults = async (simulado) => {
@@ -902,49 +790,7 @@ export default function Studies() {
     }
   };
 
-  const openEditalChat = async (analysisId) => {
-    setChatAnalysisId(analysisId);
-    setChatHistory([]);
-    setChatInput("");
-    // Look up meta from editaisList (may need to refresh)
-    let meta = editaisList.find(e => e.analysis_id === analysisId);
-    if (!meta) {
-      try {
-        const r = await axios.get(`${API}/study/programs/editais`, { withCredentials: true });
-        setEditaisList(r.data.editais || []);
-        meta = (r.data.editais || []).find(e => e.analysis_id === analysisId);
-      } catch (_e) { /* Optional operation failed; preserve the current view. */ }
-    }
-    setChatAnalysisMeta(meta || null);
-    setShowEditalChat(true);
-  };
-
-  const sendChatMessage = async () => {
-    const q = (chatInput || "").trim();
-    if (!q || chatSending || !chatAnalysisId) return;
-    const userTurn = { role: "user", content: q };
-    setChatHistory(h => [...h, userTurn]);
-    setChatInput("");
-    setChatSending(true);
-    try {
-      const res = await axios.post(
-        `${API}/study/programs/edital-chat`,
-        {
-          analysis_id: chatAnalysisId,
-          question: q,
-          history: chatHistory.map(h => ({ role: h.role === "assistant" ? "model" : "user", content: h.content })),
-        },
-        { withCredentials: true, timeout: 60000 }
-      );
-      setChatHistory(h => [...h, { role: "assistant", content: res.data.answer, model: res.data.model }]);
-    } catch (err) {
-      const msg = getApiErrorMessage(err, "Erro ao consultar a IA.");
-      setChatHistory(h => [...h, { role: "assistant", content: `⚠️ ${msg}`, error: true }]);
-    } finally {
-      setChatSending(false);
-    }
-  };
-
+  const openEditalChat = analysisId => openSirius({ surface: 'edital', analysis_id: analysisId, draft: 'Quais pontos deste edital preciso conferir?' });
 
   const handleCreateFromCargo = async (analysisId, cargoIdx, areaId) => {
     setCreatingFromCargo(true);
@@ -1245,6 +1091,24 @@ export default function Studies() {
     setActiveTab("materias");
   };
 
+  const openStudySession = item => {
+    const notebook = notebooks.find(n => n.notebook_id === item.notebook_id);
+    const program = item.program_id || notebook?.program_id;
+    if (program) setWorkspaceParams({ program, view: 'estudar', notebook: item.notebook_id, topic: item.topic_key || '0', minutes: String(item.minutes || 25), ...(item.entry_id ? { entry: item.entry_id } : {}) });
+    else if (notebook) { setSelectedNotebook(notebook); setActiveTab('foco'); }
+    else setActiveTab('preparacoes');
+  };
+  useEffect(() => {
+    if (workspaceParams.get('view') === 'library') { setActiveTab('library'); setWorkspaceParams({}, { replace: true }); }
+    if (workspaceParams.get('create') === 'session') { setActiveTab('materias'); setQuickSession(true); setWorkspaceParams({}, { replace: true }); }
+  }, [workspaceParams, setWorkspaceParams]);
+  useEffect(() => {
+    if (!workspaceParams.get('program') && workspaceParams.get('notebook')) {
+      const notebook = notebooks.find(n => n.notebook_id === workspaceParams.get('notebook'));
+      if (notebook) { setSelectedNotebook(notebook); setActiveTab('conteudo'); setWorkspaceParams({}, { replace: true }); }
+    }
+  }, [notebooks, workspaceParams, setWorkspaceParams]);
+
   // Navigate into notebook
   const navigateToNotebook = (notebook) => {
     setSelectedNotebook(notebook);
@@ -1260,7 +1124,8 @@ export default function Studies() {
   }
   if (user && workspaceParams.get("program")) {
     return <StudyProgramWorkspace key={workspaceParams.get("program")} user={user} api={API} programId={workspaceParams.get("program")}
-      onBack={() => setWorkspaceParams({})}
+      onBack={() => { setWorkspaceParams({}); setActiveTab("preparacoes"); }} onAddNotebook={program => { setSelectedProgram(program); setSelectedArea(areas.find(a => a.area_id === program.area_id) || null); setWorkspaceParams({}); setActiveTab("materias"); setShowNotebookDialog(true); }}
+      onSimulado={exam => { setWorkspaceParams({}); setActiveTab("simulados"); handleStartSimulado(exam); }}
       onManageSchedule={id => { setWorkspaceParams({}); handleViewCronograma(id); }}
       onNotebook={notebook => { if (!notebook) return; setWorkspaceParams({}); setSelectedArea(areas.find(a => a.area_id === notebook.area_id) || null); setSelectedProgram(programs.find(p => p.program_id === notebook.program_id) || null); navigateToNotebook(notebook); }} />;
   }
@@ -1282,15 +1147,13 @@ export default function Studies() {
 
   return (
     <div className="min-h-screen bg-[#050505] text-white flex">
-      <Sidebar user={user} />
-      <main className="flex-1 md:ml-64 p-3 md:p-6 pb-24 md:pb-8 pt-[72px] md:pt-6">
+      
+      <main className="flex-1  p-3 md:p-6 pb-24 md:pb-8  md:pt-6">
+        <QuickStudySession open={quickSession} onClose={() => setQuickSession(false)} notebooks={notebooks} onSaved={fetchAllData} />
+        <PageHeader eyebrow="Aprender com direção" title="Estudos" description="Escolha sua próxima atividade, acompanhe suas preparações e aprenda com os resultados." />
         {/* Header */}
-        <div className="sirius-page-heading sirius-hero flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-3">
-          <div>
-            <div className="sirius-eyebrow">Aprendizado com direção</div>
-            <h1 className="text-2xl md:text-3xl font-heading mb-2">Seu espaço de estudos.</h1>
-            <p className="text-[#A1A1AA] text-sm">Do edital à próxima sessão, cada assunto no seu lugar.</p>
-          </div>
+        <div className="flex flex-wrap justify-end items-center mb-6 gap-3">
+
           <div className="flex items-center gap-2 flex-wrap">
             <ExportButtons module="study" />
             <Badge className="bg-orange-500/20 text-orange-400"><Flame className="w-3 h-3 mr-1" />{streak.current_streak || 0} dias</Badge>
@@ -1309,7 +1172,7 @@ export default function Studies() {
           </Card>
         )}
 
-        <EditalJobs api={API} onOpen={id => setWorkspaceParams({ analysis: id })} />
+        {['dashboard', 'editais'].includes(activeTab) && <EditalJobs api={API} onOpen={id => setWorkspaceParams({ analysis: id })} />}
         {/* Breadcrumb */}
         {(selectedArea || selectedProgram || selectedNotebook) && (
           <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
@@ -1422,21 +1285,16 @@ export default function Studies() {
                       </DialogContent>
                     </Dialog>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="bg-[#121212] border border-[#27272A] overflow-x-auto flex-nowrap w-full justify-start gap-0">
-            <TabsTrigger value="dashboard" className="text-xs md:text-sm">Dashboard</TabsTrigger>
-            <TabsTrigger value="editais" className="text-xs md:text-sm">Meus editais</TabsTrigger>
-            <TabsTrigger value="programas" className="text-xs md:text-sm">Programas</TabsTrigger>
-            <TabsTrigger value="materias" className="text-xs md:text-sm">Matérias</TabsTrigger>
-            <TabsTrigger value="conteudo" className="text-xs md:text-sm">Conteúdo</TabsTrigger>
-            <TabsTrigger value="tarefas" className="text-xs md:text-sm">Tarefas</TabsTrigger>
-            <TabsTrigger value="simulados" className="text-xs md:text-sm">Simulados</TabsTrigger>
-            <TabsTrigger value="redacao" className="text-xs md:text-sm">Redação</TabsTrigger>
-            <TabsTrigger value="foco" className="text-xs md:text-sm">Foco</TabsTrigger>
-          </TabsList>
+          <StudiesNavigation active={activeTab} onChange={setActiveTab} />
+          <TabsContent value="library"><StudyLibrary programs={programs} onManage={() => setActiveTab('materias')} onAnalysis={analysis => setWorkspaceParams({ analysis })} onNotebook={item => { const notebook = notebooks.find(n => n.notebook_id === item?.notebook_id); if (notebook) { setSelectedArea(areas.find(a => a.area_id === notebook.area_id) || null); setSelectedProgram(programs.find(p => p.program_id === notebook.program_id) || null); navigateToNotebook(notebook); } }} /></TabsContent>
+          <TabsContent value="preparacoes"><StudyTargets onOpen={t => setWorkspaceParams({ program: t.program_id, view: 'edital' })} onImport={() => setShowEditalDialog(true)} onCreated={fetchAllData} /></TabsContent>
+          <TabsContent value="desempenho"><MasteryDashboard onStudy={openStudySession} /></TabsContent>
+
 
           {/* ========== DASHBOARD TAB ========== */}
           <TabsContent value="dashboard" className="space-y-4">
-<Suspense fallback={<p role="status">Carregando...</p>}><StudiesDashboardTab stats={stats} overallStudyStats={overallStudyStats} totalQuestions={totalQuestions} accuracy={accuracy} focusToday={focusToday} showAreaDialog={showAreaDialog} setShowAreaDialog={setShowAreaDialog} areaForm={areaForm} setAreaForm={setAreaForm} handleCreateArea={handleCreateArea} areas={areas} areaIcons={areaIcons} programs={programs} notebooks={notebooks} setSelectedArea={setSelectedArea} setSelectedProgram={setSelectedProgram} setSelectedNotebook={setSelectedNotebook} setActiveTab={setActiveTab} QuestionLogger={QuestionLogger} fetchAllData={fetchAllData} user={user} StudyAIChat={StudyAIChat} selectedNotebook={selectedNotebook} pendingTasksCount={pendingTasksCount} tasks={tasks} handleToggleTask={handleToggleTask} taskTypeLabels={taskTypeLabels} /></Suspense>
+<StudyToday onSession={openStudySession} onPrepare={() => setActiveTab('preparacoes')} onFreeSession={() => setActiveTab('foco')} onReviewCards={review => { const nb = notebooks.find(n => n.notebook_id === review.notebook_id); if (nb) { setSelectedNotebook(nb); setPendingReviewCard(review.card_id); setActiveTab('conteudo'); } }} />
+<details className="mt-8"><summary className="cursor-pointer text-sm text-slate-400">Organização e indicadores anteriores</summary><Suspense fallback={<p role="status">Carregando...</p>}><StudiesDashboardTab stats={stats} overallStudyStats={overallStudyStats} totalQuestions={totalQuestions} accuracy={accuracy} focusToday={focusToday} showAreaDialog={showAreaDialog} setShowAreaDialog={setShowAreaDialog} areaForm={areaForm} setAreaForm={setAreaForm} handleCreateArea={handleCreateArea} areas={areas} areaIcons={areaIcons} programs={programs} notebooks={notebooks} setSelectedArea={setSelectedArea} setSelectedProgram={setSelectedProgram} setSelectedNotebook={setSelectedNotebook} setActiveTab={setActiveTab} QuestionLogger={QuestionLogger} fetchAllData={fetchAllData} user={user} StudySiriusAction={StudySiriusAction} selectedNotebook={selectedNotebook} pendingTasksCount={pendingTasksCount} tasks={tasks} handleToggleTask={handleToggleTask} taskTypeLabels={taskTypeLabels} /></Suspense></details>
 </TabsContent>
 
           <TabsContent value="editais" className="space-y-5">
@@ -2101,7 +1959,7 @@ export default function Studies() {
                 <QuestionLogger notebooks={notebooks} onLog={fetchAllData} />
               </div>
               <div className="space-y-4">
-                <StudyAIChat notebooks={notebooks} selectedNotebook={selectedNotebook} />
+                <StudySiriusAction notebooks={notebooks} selectedNotebook={selectedNotebook} />
               </div>
             </div>
 
@@ -3116,84 +2974,11 @@ export default function Studies() {
         </Dialog>
 
         {/* ========== CHAT SOBRE ESTE EDITAL (item 6) ========== */}
-        <Dialog open={showEditalChat} onOpenChange={setShowEditalChat}>
-          <DialogContent className="bg-[#0A0A0A] border-[#27272A] max-w-2xl h-[80vh] flex flex-col">
-            <DialogHeader className="shrink-0">
-              <DialogTitle className="flex items-center gap-2">
-                <Bot className="w-5 h-5 text-purple-400" />
-                Assistente do Edital
-              </DialogTitle>
-              <DialogDescription className="truncate">
-                {chatAnalysisMeta?.concurso?.nome || chatAnalysisMeta?.pdf_filename || "Pergunte qualquer coisa sobre este edital."}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex-1 overflow-y-auto space-y-3 py-2 pr-1">
-              {chatHistory.length === 0 && (
-                <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
-                  <p className="text-xs text-purple-300 mb-2">Sugestões:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {["Quais cargos exigem OAB?",
-                      "Quantas questões tem a prova?",
-                      "Qual o cargo com maior remuneração?",
-                      "Lista todas as disciplinas de Português."].map(sug => (
-                      <button key={sug}
-                              onClick={() => setChatInput(sug)}
-                              className="text-xs px-2 py-1 rounded-full border border-purple-500/30 text-purple-200 hover:bg-purple-500/10 transition-colors">
-                        {sug}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {chatHistory.map((m, i) => (
-                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
-                    m.role === "user"
-                      ? "bg-purple-600 text-white"
-                      : m.error
-                        ? "bg-red-500/10 text-red-300 border border-red-500/30"
-                        : "bg-[#121212] text-[#E4E4E7] border border-[#27272A]"
-                  }`}>
-                    {m.content}
-                    {m.role === "assistant" && m.model && (
-                      <div className="text-[10px] opacity-50 mt-1 font-mono">{m.model}</div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {chatSending && (
-                <div className="flex justify-start">
-                  <div className="bg-[#121212] border border-[#27272A] rounded-lg px-3 py-2 text-sm text-[#A1A1AA] flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />pensando...
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="shrink-0 pt-2 border-t border-[#27272A] flex gap-2">
-              <Input
-                data-testid="edital-chat-input"
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
-                placeholder="Pergunte sobre este edital..."
-                disabled={chatSending}
-                className="bg-[#121212] border-[#27272A]"
-              />
-              <Button
-                data-testid="edital-chat-send-btn"
-                onClick={sendChatMessage}
-                disabled={!chatInput.trim() || chatSending}
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                <ArrowUp className="w-4 h-4" />
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+
 
 
       </main>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

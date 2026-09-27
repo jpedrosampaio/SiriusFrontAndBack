@@ -1,7 +1,5 @@
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +15,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function Goals() {
-  const [user, setUser] = useState(null);
+  const [, setUser] = useState(null);
   const [goals, setGoals] = useState([]);
   const [open, setOpen] = useState(false);
   const [newGoal, setNewGoal] = useState({
@@ -107,8 +105,8 @@ export default function Goals() {
 
   return (
     <div className="flex min-h-screen bg-[#050505]">
-      <Sidebar user={user} />
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
+      
+      <div className="flex-1 ml-0  p-4 md:p-6 lg:p-8 pb-24 md:pb-8  md:pt-0 page-enter">
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
             <div>
@@ -259,7 +257,7 @@ export default function Goals() {
           </div>
         </div>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

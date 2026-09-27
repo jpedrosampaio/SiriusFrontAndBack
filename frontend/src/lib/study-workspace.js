@@ -1,4 +1,4 @@
-export const STUDY_VIEWS = ['edital', 'verticalizado', 'cronograma', 'estudar'];
+export const STUDY_VIEWS = ['edital', 'verticalizado', 'cronograma', 'estudar', 'questoes', 'provas', 'atualizacoes', 'desempenho'];
 
 export function normalizeStudyText(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();

@@ -1,14 +1,12 @@
+import DailyWorkspace from '@/components/DailyWorkspace';
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef, useCallback } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import PullToRefresh from "@/components/PullToRefresh";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { CheckSquare, TrendingUp, DollarSign, Target, Award, Zap, Dumbbell, Utensils, BookOpen, Droplets, Flame, Clock, Brain, ClipboardList, BarChart3, ListChecks, Hash, Search, ChevronRight, Sparkles, X, Activity, Play } from "lucide-react";
+import { CheckSquare, TrendingUp, DollarSign, Target, Award, Zap, Dumbbell, Utensils, BookOpen, Droplets, Flame, Clock, Brain, ClipboardList, BarChart3, ListChecks, Hash, ChevronRight, Sparkles, X, Activity, Play } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
@@ -25,9 +23,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [reminders, setReminders] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-  const [showSearch, setShowSearch] = useState(false);
   const [crossSuggestions, setCrossSuggestions] = useState([]);
 
   const [analytics, setAnalytics] = useState(null);
@@ -35,16 +30,10 @@ export default function Dashboard() {
   const [dailySummary, setDailySummary] = useState(null);
   const [globalStreaks, setGlobalStreaks] = useState(null);
   const [todayWorkout, setTodayWorkout] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "true");
   const navigate = useNavigate();
 
 
-  useEffect(() => {
-    const check = () => setSidebarCollapsed(localStorage.getItem("sidebar_collapsed") === "true");
-    window.addEventListener("sidebar-toggle", check);
-    window.addEventListener("storage", check);
-    return () => { window.removeEventListener("sidebar-toggle", check); window.removeEventListener("storage", check); };
-  }, []);
+
 
   const [panelErrors, setPanelErrors] = useState([]);
   const analyticsMarker = useRef(null);
@@ -82,18 +71,6 @@ export default function Dashboard() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
 
-
-  const handleSearch = query => setSearchQuery(query);
-  useEffect(() => {
-    setSearchResults([]);
-    if (searchQuery.trim().length < 2) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      axios.get(`${API}/search/global`, { params: { q: searchQuery.trim() }, signal: controller.signal })
-        .then(r => { if (!controller.signal.aborted) setSearchResults(r.data.results || []); }).catch(() => {});
-    }, 300);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [searchQuery]);
 
   const dismissReminder = (idx) => {
     setReminders(prev => prev.filter((_, i) => i !== idx));
@@ -145,8 +122,8 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="flex min-h-screen bg-[#050505]">
-        <Sidebar user={user} />
-        <div className="flex-1 page-container md:ml-64 pt-[72px] md:pt-0">
+        
+        <div className="flex-1 page-container   md:pt-0">
           <div className="mb-8 pt-8 md:pt-0">
             <div className="skeleton h-8 w-64 mb-4" />
             <div className="skeleton h-4 w-40" />
@@ -169,8 +146,8 @@ export default function Dashboard() {
   return (
     <div className="flex min-h-screen bg-[#050505]">
       <Onboarding />
-      <Sidebar user={user} />
-      <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pt-[72px] md:pt-0 pb-24 md:pb-8 page-enter`}>
+      
+      <div className={`flex-1 ml-0  p-4 md:p-6 lg:p-8  md:pt-0 pb-24 md:pb-8 page-enter`}>
         <PullToRefresh onRefresh={fetchData}>
         <div className="max-w-7xl mx-auto">
           <div className="sirius-page-heading sirius-hero mb-6 md:mb-8 mt-4 md:mt-8">
@@ -180,43 +157,11 @@ export default function Dashboard() {
                 <h1 className="font-heading text-2xl md:text-4xl mb-2" data-testid="dashboard-title">Olá, {(user?.name || 'você').split(' ')[0]}.</h1>
                 <p className="text-[#A1A1AA] text-sm md:text-base">Um passo de cada vez. Acompanhe o que importa hoje.</p>
               </div>
-              {/* Global Search */}
-              <div className="relative w-full md:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525B]" />
-                <Input 
-                  value={searchQuery}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  onFocus={() => setShowSearch(true)}
-                  placeholder="Buscar em tudo..."
-                  className="bg-[#0A0A0A] border-[#27272A] text-white pl-10 pr-8"
-                />
-                {searchQuery && (
-                  <button onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <X className="w-4 h-4 text-[#52525B]" />
-                  </button>
-                )}
-                {showSearch && searchResults.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-[#0A0A0A] border border-[#27272A] rounded-lg shadow-2xl z-50 max-h-80 overflow-y-auto">
-                    {searchResults.map((r, i) => (
-                      <button
-                        key={i}
-                        onClick={() => { navigate(r.link); setShowSearch(false); setSearchQuery(""); }}
-                        className="w-full flex items-center gap-3 p-3 hover:bg-[#121212] transition-colors text-left border-b border-[#27272A] last:border-0"
-                      >
-                        <span className="text-lg">{r.icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white truncate">{r.title}</p>
-                          <p className="text-xs text-[#52525B]">{r.subtitle}</p>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-[#52525B]" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+
             </div>
           </div>
 
+          <DailyWorkspace />
           <section className="mb-8" aria-labelledby="today-actions"><div className="flex items-center justify-between mb-4"><h2 id="today-actions" className="text-xl font-semibold">O que vamos fazer hoje?</h2><Button variant="ghost" onClick={() => navigate('/calendar')}>Ver agenda<ChevronRight className="w-4 h-4 ml-1" /></Button></div><div className="sirius-action-grid">
             <button className="sirius-action-card" onClick={() => navigate('/studies')}><BookOpen className="w-5 h-5 text-blue-300" /><strong>Continuar meus estudos</strong><span>{stats?.study_stats?.study_time_today_minutes || 0} min registrados hoje · abrir meu plano</span></button>
             <button className="sirius-action-card" onClick={() => navigate('/workouts')}><Dumbbell className="w-5 h-5 text-rose-300" /><strong>{todayWorkout ? 'Treino previsto para hoje' : 'Meu próximo treino'}</strong><span>Planejar, executar e acompanhar sua evolução</span></button>
@@ -860,7 +805,7 @@ export default function Dashboard() {
         </div>
       </PullToRefresh>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

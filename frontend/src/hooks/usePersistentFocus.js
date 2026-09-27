@@ -20,16 +20,20 @@ export default function usePersistentFocus({ userId, storageId, initialNotebookI
     const next = { ...stateRef.current, ...(typeof change === 'function' ? change(stateRef.current) : change) };
     stateRef.current = next;
     const persisted = writeSaved(key, next);
+    const indexKey = `sirius-active-focus:${userId}`;
+    if (next.isRunning && !next.isBreak) writeSaved(indexKey, { key, path: window.location.pathname + window.location.search });
+    else if (readSaved(indexKey)?.key === key) { try { localStorage.removeItem(indexKey); } catch { /* Existing storage warning covers this case. */ } }
+    window.dispatchEvent(new Event('sirius-focus-changed'));
     if (mounted.current) { setState(next); setStorageError(!persisted); }
     return next;
   };
-  const finish = async () => {
+  const finish = async (elapsedMinutes = null) => {
     if (busy.current) return;
     busy.current = true; setSaving(true); setSaveError(false);
     const snapshot = stateRef.current;
     const request = snapshot.request || { id: snapshot.sessionId || newSessionId(), data: {
       notebook_id: snapshot.selectedNb && snapshot.selectedNb !== 'none' ? snapshot.selectedNb : null,
-      focus_minutes: snapshot.focusMinutes, break_minutes: snapshot.breakMinutes, notes: topic || null,
+      focus_minutes: elapsedMinutes ?? snapshot.focusMinutes, break_minutes: snapshot.breakMinutes, notes: topic || null,
     } };
     commit({ request, isPaused: true, timeLeft: 0, deadline: null });
     try {
@@ -69,7 +73,14 @@ export default function usePersistentFocus({ userId, storageId, initialNotebookI
     ? { isPaused: false, deadline: Date.now() + s.timeLeft * 1000 }
     : { isPaused: true, timeLeft: remainingSeconds(s), deadline: null });
   const resetTimer = () => { if (!stateRef.current.request) commit({ isRunning: false, isPaused: false, isBreak: false, deadline: null, timeLeft: stateRef.current.focusMinutes * 60 }); };
-  return { ...state, storageError, saving, saveError, startTimer, togglePause, resetTimer, retry: finish,
+  const completeNow = () => {
+    const snapshot = stateRef.current;
+    if (!snapshot.isRunning || snapshot.isBreak || snapshot.request) return;
+    const minutes = Math.floor((snapshot.focusMinutes * 60 - remainingSeconds(snapshot)) / 60);
+    if (minutes < 1) { toast.info('Estude pelo menos um minuto para registrar a sessão.'); return; }
+    finish(minutes);
+  };
+  return { ...state, storageError, saving, saveError, startTimer, togglePause, resetTimer, completeNow, retry: () => finish(),
     setFocusMinutes: value => commit({ focusMinutes: value, timeLeft: value * 60 }),
     setBreakMinutes: value => commit({ breakMinutes: value }), setSelectedNb: value => commit({ selectedNb: value }) };
 }

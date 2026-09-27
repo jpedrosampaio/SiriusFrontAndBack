@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from "react-router-dom";
-import { Home, CheckSquare, TrendingUp, DollarSign, Target, MessageSquare, FileText, User, LogOut, Menu, Dumbbell, Bell, Apple, BookOpen, Trophy, Calendar } from "lucide-react";
+import { Home, CheckSquare, TrendingUp, DollarSign, Target, MessageSquare, FileText, User, LogOut, Menu, Dumbbell, Bell, Apple, BookOpen, Trophy, Calendar, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Fragment, useState, useEffect, memo } from "react";
@@ -126,19 +126,20 @@ function Sidebar({ user }) {
   };
 
   const menuItems = [
-    { icon: Home, label: "Visão geral", path: "/dashboard", group: "Meu dia" },
+    { icon: Home, label: "Hoje", path: "/dashboard" },
+    { icon: Calendar, label: "Agenda", path: "/calendar", group: "Planejar" },
     { icon: CheckSquare, label: "Tarefas", path: "/tasks" },
     { icon: TrendingUp, label: "Hábitos", path: "/habits" },
-    { icon: Calendar, label: "Calendário", path: "/calendar" },
-    { icon: Dumbbell, label: "Treinos", path: "/workouts", group: "Desenvolvimento" },
+    { icon: BookOpen, label: "Estudos", path: "/studies", group: "Preparar" },
+    { icon: Dumbbell, label: "Treinos", path: "/workouts", group: "Saúde" },
     { icon: Apple, label: "Alimentação", path: "/nutrition" },
-    { icon: BookOpen, label: "Estudos", path: "/studies" },
-    { icon: DollarSign, label: "Finanças", path: "/finance" },
+    { icon: DollarSign, label: "Finanças", path: "/finance", group: "Objetivos" },
     { icon: Target, label: "Metas", path: "/goals" },
-    { icon: MessageSquare, label: "Assistente", path: "/chat", group: "Meu espaço" },
-    { icon: Bell, label: "Notificações", path: "/notifications" },
+    { icon: MessageSquare, label: "Sirius", path: "/chat", group: "Seu assistente" },
+    { icon: FileText, label: "Relatórios", path: "/reports", group: "Mais" },
     { icon: Trophy, label: "Conquistas", path: "/achievements" },
-    { icon: FileText, label: "Relatórios", path: "/reports" },
+    { icon: Bell, label: "Notificações", path: "/notifications" },
+    { icon: Settings, label: "Configurações", path: "/assistant/settings" },
     { icon: User, label: "Perfil", path: "/profile" }
   ];
 
@@ -200,7 +201,7 @@ function Sidebar({ user }) {
         <nav aria-label="Menu principal" className="flex-1 overflow-y-auto px-3 py-3">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
             return (
               <Fragment key={item.path}>
               {item.group && !collapsed && <p className="sirius-nav-group">{item.group}</p>}
