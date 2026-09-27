@@ -1,0 +1,14 @@
+import { useEffect, useState } from 'react';
+import axios from 'axios';
+import { Button } from '@/components/ui/button';
+const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api/study/v2/programs`;
+export default function PreparationOverview({ programId, onStudy }) {
+  const [data, setData] = useState(null), [error, setError] = useState('');
+  useEffect(() => { const controller = new AbortController(); axios.get(`${API}/${programId}/overview`, { signal: controller.signal }).then(r => setData(r.data)).catch(() => { if (!controller.signal.aborted) setError('Indicadores indisponíveis. O conteúdo da preparação continua abaixo.'); }); return () => controller.abort(); }, [programId]);
+  return <section className="space-y-5">{error && <p role="status" className="text-sm text-slate-400">{error}</p>}{data && <>
+    {data.target?.name && <div className="text-sm"><p>{[data.target.institution, data.target.board, data.target.edition, data.target.position].filter(Boolean).join(' · ')}</p><span className="text-xs text-slate-500">Dados informados pelo usuário</span></div>}
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">{[['Cobertura do conteúdo', data.coverage?.percent == null ? 'Sem conteúdo' : `${data.coverage.percent}%`, `${data.coverage?.studied || 0}/${data.coverage?.total || 0} assuntos estudados`], ['Domínio estimado', data.mastery?.score == null ? 'Sem amostra' : `${data.mastery.score}%`, `${data.mastery?.samples || 0} respostas individuais · estimativa`], ['Questões / acertos', data.questions || 0, data.accuracy == null ? 'Sem resultados' : `${data.accuracy}% de acertos`], ['Tempo estudado', `${data.study_minutes || 0} min`, data.days_remaining == null ? 'Data da prova não definida' : data.days_remaining >= 0 ? `${data.days_remaining} dias até a prova/meta` : 'Data da prova/meta já passou']].map(([label, value, detail]) => <div key={label} className="py-3"><p className="text-xs text-slate-400">{label}</p><strong className="block text-2xl font-semibold my-1">{value}</strong><p className="text-xs text-slate-500">{detail}</p></div>)}</div>
+    {data.next_session && <div className="flex flex-wrap justify-between items-center gap-3 py-4 border-y border-slate-700"><div><p className="text-xs text-purple-300">Próxima sessão · {data.next_session.date}</p><h2 className="font-medium">{data.next_session.name} · {data.next_session.minutes} min</h2></div><Button onClick={() => onStudy(data.next_session)}>Começar</Button></div>}
+    {data.weakest && <p className="text-sm text-slate-300">Ponto com menor domínio estimado: <strong>{data.weakest.title}</strong> · {data.weakest.score}% em {data.weakest.samples} respostas. <button className="underline text-purple-300" onClick={() => onStudy(data.weakest)}>Revisar</button></p>}
+  </>}</section>;
+}

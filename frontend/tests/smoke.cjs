@@ -1,4 +1,4 @@
-process.env.VISUAL_CASES ||= 'dashboard,workouts,analysis,syllabus,session,agent';
+process.env.VISUAL_CASES ||= 'dashboard,workouts,studies,preparation,analysis,syllabus,session,agent';
 // Local visual QA with synthetic data; all API requests are intercepted.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,6 +28,11 @@ const fixtures = {
   '/api/ai/rag/sources': { editais: [], notebooks: [] },
   '/api/stats/dashboard': { tasks_completed: 4, tasks_total: 7, habits_completed: 3, habits_total: 5, income: 4200, expenses: 1850, balance: 2350, workout_stats: { total_workouts: 3, total_duration_minutes: 150 }, study_stats: { study_time_today_minutes: 75, current_streak: 5, notebooks_count: 5 } },
   '/api/study/areas': [{ area_id: 'area1', name: 'Concursos públicos', color: '#879eff' }],
+  '/api/study/v2/targets': [{ target_id: 'target1', program_id: 'demo', kind: 'contest', name: 'Preparação de teste', provenance: 'user_provided' }],
+  '/api/study/v2/today': { planned_minutes: 60, studied_minutes: 25, next_session: { notebook_id: 'nb0', program_id: 'demo', topic_key: '0', name: 'Português', minutes: 30, kind: 'Teoria e questões' } },
+  '/api/study/v2/library': { notebooks: disciplines, items: [{ id: 'note1', kind: 'note', notebook_id: 'nb0', title: 'Resumo de interpretação', excerpt: 'Material de teste', provenance: 'user_provided' }] },
+  '/api/study/v2/performance': { summary: { score: 60, samples: 10 }, topics: [{ notebook_id: 'nb0', topic_key: '0', title: 'Interpretação', score: 60, samples: 10, confidence: 'low', range: [35, 85] }], errors: [], trend: [{ date: '2026-09-26', total: 10, correct: 6, accuracy: 60 }] },
+  '/api/study/v2/programs/demo/overview': { coverage: { percent: 20, studied: 1, total: 5 }, mastery: { score: 60, samples: 10 }, study_minutes: 100, questions: 10, accuracy: 60 },
   '/api/study/programs': [program], '/api/study/notebooks': disciplines,
   '/api/study/programs/editais': { editais: [{ analysis_id: 'analysis1', concurso, pdf_filename: 'edital-demonstracao.pdf', num_cargos: 2 }] },
   '/api/study/programs/editais/analysis1': { analysis_id: 'analysis1', concurso, cargos: [cargo, { ...cargo, nome: 'Técnico Judiciário' }], pdf_filename: 'edital-demonstracao.pdf' },
@@ -93,6 +98,7 @@ const server = http.createServer((req, res) => {
       page.on('pageerror', e => errors.push({ width, url: page.url(), error: e.message }));
       const cases = [
         ['dashboard', '/dashboard'], ['workouts', '/workouts'], ['studies', '/studies'],
+        ['preparation', '/studies?program=demo&view=edital'],
         ['analysis', '/studies?analysis=analysis1'],
         ['syllabus', '/studies?program=demo&view=verticalizado'],
         ['schedule', '/studies?program=demo&view=cronograma'],
@@ -145,6 +151,20 @@ const server = http.createServer((req, res) => {
           await close.click(); await launcher.waitFor({ state: 'visible' });
           await launcher.click(); await page.keyboard.press('Escape'); await launcher.waitFor({ state: 'visible' });
           await page.reload(); await launcher.waitFor();
+        }
+        if (name === 'studies') {
+          const nav = page.getByRole('navigation', { name: 'Áreas de estudos' });
+          await nav.getByRole('button', { name: 'Preparações', exact: true }).click();
+          await page.getByRole('button', { name: 'Nova preparação' }).click();
+          await page.getByRole('dialog').waitFor();
+          await page.getByLabel('Tipo de preparação', { exact: true }).selectOption('certification');
+          await page.keyboard.press('Escape');
+          await nav.getByRole('button', { name: 'Biblioteca', exact: true }).click();
+          await page.getByText('Resumo de interpretação', { exact: true }).waitFor();
+          await nav.getByRole('button', { name: 'Desempenho', exact: true }).click();
+          await page.getByRole('heading', { name: 'Domínio e banco de erros' }).waitFor();
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+          await page.screenshot({ path: path.join(output, `studies-performance-${width}.png`) });
         }
         if (name === 'session') {
           await page.getByLabel('Resolvidas', { exact: true }).fill('10');

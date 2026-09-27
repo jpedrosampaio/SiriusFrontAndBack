@@ -1,4 +1,14 @@
-# Sirius Agent — handoff
+# Sirius — handoff
+
+## UX 2.0 / Studies 2.0 — entrega em validação
+
+Branch `feat/sirius-ux-studies-2`, baseada em `883d790`. AppShell único, Sirius contextual com anexos, quatro áreas de estudos, preparações genéricas, foco retomável, domínio por evidências, banco de erros, revisões, plano adaptativo, simulados transacionais e acompanhamento de fontes públicas. Arquitetura, limites e operação em [docs/UX_STUDIES_2.md](docs/UX_STUDIES_2.md).
+
+Validação local: lint sem avisos, build de produção, 39 testes frontend, 18 de segurança e 161 regressões backend (37 dependentes de Mongo ignoradas localmente; executadas nos jobs dedicados de CI). Testes de navegador em cinco larguras estão sendo concluídos; foi corrigido um transbordamento do cabeçalho de Treinos. PR, CI final e smoke público serão registrados após publicação.
+
+O pedido recebido termina truncado em `67. IMPACT ANAL`. A continuação foi solicitada e não recebida; não presumir requisitos posteriores. Credencial de criptografia no Render continua sem confirmação do usuário. Não foram feitas chamadas pagas de IA nem escritas autenticadas em produção.
+
+## Entrega anterior: Sirius Agent
 
 ## Resultado final da entrega
 

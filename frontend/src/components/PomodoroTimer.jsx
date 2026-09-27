@@ -11,7 +11,7 @@ import { Timer, Coffee, Edit3, Play, Pause, RotateCcw } from "lucide-react";
 export default function PomodoroTimer({ userId, storageId, notebooks = [], onComplete, initialNotebookId = "", topic = "", initialMinutes = 25, lockNotebook = false }) {
   const [showSettings, setShowSettings] = useState(false);
   const { isRunning, isPaused, isBreak, timeLeft, focusMinutes, breakMinutes, selectedNb,
-    sessionsCompleted, saveError, saving, request, storageError, startTimer, togglePause, resetTimer, retry,
+    sessionsCompleted, saveError, saving, request, storageError, startTimer, togglePause, resetTimer, completeNow, retry,
     setFocusMinutes, setBreakMinutes, setSelectedNb } = usePersistentFocus({ userId, storageId, initialNotebookId, initialMinutes, topic, onComplete });
 
   const mins = Math.floor(timeLeft / 60);
@@ -88,6 +88,7 @@ export default function PomodoroTimer({ userId, storageId, notebooks = [], onCom
               <Button aria-label="Reiniciar cronômetro" disabled={!!request} onClick={resetTimer} variant="outline" className="border-red-500 text-red-500">
                 <RotateCcw className="w-4 h-4" />
               </Button>
+              {!isBreak && <Button disabled={saving || !!request} onClick={completeNow}>Concluir sessão</Button>}
             </>
           )}
         </div>

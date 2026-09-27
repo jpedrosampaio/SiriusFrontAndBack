@@ -1,0 +1,1 @@
+export const errorLabels = { unknown: 'Não sabia', forgot: 'Esqueci', interpretation: 'Interpretação', attention: 'Desatenção', concepts: 'Confusão de conceitos', calculation: 'Cálculo', legislation: 'Legislação / jurisprudência', other: 'Outro' };

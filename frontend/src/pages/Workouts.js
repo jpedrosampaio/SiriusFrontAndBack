@@ -1,3 +1,4 @@
+import { openSirius } from '@/lib/sirius-context';
 import WorkoutComparison from '@/components/WorkoutComparison';
 import { lazy, Suspense } from 'react';
 import { readSaved, writeSaved } from "@/lib/session-storage";
@@ -1112,7 +1113,7 @@ export default function Workouts() {
   return (
     <div className="flex min-h-screen bg-[#050505]" data-workout-executing={activeTab === 'session'}>
       
-      <div className={`flex-1 ml-0  p-4 md:p-6 lg:p-8 pb-24 md:pb-8  md:pt-0 page-enter`}>
+      <div className={`flex-1 min-w-0 ml-0 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 md:pt-0 page-enter`}>
         <PullToRefresh onRefresh={loadData}>
         <div className="max-w-6xl mx-auto">
           {/* Motivational Quote */}
@@ -1130,11 +1131,11 @@ export default function Workouts() {
             </Card>
           )}
 
-          <div className="sirius-page-heading sirius-hero flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-            <div>
+          <div className="sirius-page-heading sirius-hero flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-4 min-w-0">
+            <div className="min-w-0 max-w-full">
               <div className="sirius-eyebrow">Movimento e constância</div>
               <h1 className="font-heading text-3xl md:text-4xl mb-2" data-testid="workouts-title">Seu próximo passo começa aqui.</h1>
-              <p className="text-[#A1A1AA]">Seus treinos, suas marcas e a evolução de cada semana.</p>
+              <p className="text-[#A1A1AA]">Seus treinos, suas marcas e a evolução de cada semana.</p><Button variant="ghost" className="mt-2" onClick={() => openSirius({ surface: 'workouts', draft: 'Ajude-me a entender meus treinos e minha evolução.' })}>Conversar com Sirius</Button>
             </div>
             <div className="flex gap-2 flex-wrap">
               <Dialog open={openLog} onOpenChange={setOpenLog}>

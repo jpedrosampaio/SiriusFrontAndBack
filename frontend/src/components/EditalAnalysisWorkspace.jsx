@@ -1,3 +1,4 @@
+import { openSirius } from '@/lib/sirius-context';
 import EditalReview, { SourceEvidence } from '@/components/EditalReview';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
@@ -27,9 +28,10 @@ export default function EditalAnalysisWorkspace({ user, api, analysisId, initial
   }, [api, analysisId, reload]);
   const cargo = analysis?.cargos?.[selected];
   const incomplete = !cargo?.disciplinas?.length || cargo.disciplinas_status === 'incompleto';
-  return <div className="min-h-screen bg-[#050505] text-white flex"><main className="flex-1 min-w-0  px-4 md:px-8 pt-[84px] md:pt-8 pb-24"><div className="max-w-6xl mx-auto space-y-6">
+  return <div className="min-h-screen bg-[#050505] text-white flex"><main className="flex-1 min-w-0  px-4 md:px-8 pt-6 md:pt-8 pb-24"><div className="max-w-6xl mx-auto space-y-6">
     <Button variant="ghost" className="-ml-3 text-[#A1A1AA]" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-2" />Meus estudos</Button>
     <header className="sirius-page-heading sirius-hero"><div className="sirius-eyebrow">Seu ponto de partida · edital analisado</div><h1 className="text-2xl md:text-3xl font-semibold mt-2">{analysis?.concurso?.nome || 'Análise do edital'}</h1><p className="text-sm text-[#A1A1AA] mt-3">Confira o resumo e o conteúdo do cargo antes de organizar seu plano.</p></header>
+    <Button variant="ghost" onClick={() => openSirius({ surface: 'edital', analysis_id: analysisId, draft: 'Quais pontos deste edital preciso conferir?' })}>Perguntar ao Sirius sobre este edital</Button>
     {error && <div role="alert" className="text-amber-300"><p>{error}</p><Button variant="outline" className="mt-3" onClick={() => setReload(n => n + 1)}>Tentar novamente</Button></div>}
     {!analysis ? !error && <Loader2 className="animate-spin mx-auto my-12" /> : <>
       <section className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><label htmlFor="analysis-cargo" className="block text-sm font-medium">Cargo / especialidade</label><select id="analysis-cargo" disabled={reviewing} className={field} value={selected} onChange={e => setSelected(Number(e.target.value))}>{(analysis.cargos || []).map((c, index) => <option key={index} value={index}>{c.nome}{c.disciplinas_status === 'incompleto' ? ' — extração incompleta' : ''}</option>)}</select><p className="text-xs text-[#71717A]">{analysis.cargos?.length || 0} cargos identificados. O conteúdo abaixo corresponde ao cargo selecionado.</p></section>

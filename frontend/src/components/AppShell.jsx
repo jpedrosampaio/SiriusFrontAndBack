@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import MobileNav from './MobileNav';
 import FloatingAssistant from './FloatingAssistant';
 import CommandPalette from './CommandPalette';
+import FocusResume from './FocusResume';
 import { getCurrentUser } from '@/lib/api';
 
 export default function AppShell() {
@@ -35,6 +36,7 @@ export default function AppShell() {
           <Link to="/profile" aria-label="Perfil" className="sirius-icon-button"><User size={19} /></Link>
         </div>
       </header>
+      {user && <FocusResume userId={user.user_id} />}
       <div id="page-content" tabIndex={-1}><Outlet /></div>
     </div>
     <MobileNav user={user} />

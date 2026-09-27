@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { BookOpen, Plus, Folder, Clock, Brain, Layers, Target, ChevronRight, Timer, BarChart3, TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, PieChart, Pie, Cell } from 'recharts';
 
-export default function StudiesDashboardTab({ stats, overallStudyStats, totalQuestions, accuracy, focusToday, showAreaDialog, setShowAreaDialog, areaForm, setAreaForm, handleCreateArea, areas, areaIcons, programs, notebooks, setSelectedArea, setSelectedProgram, setSelectedNotebook, setActiveTab, QuestionLogger, fetchAllData, user, StudyAIChat, selectedNotebook, pendingTasksCount, tasks, handleToggleTask, taskTypeLabels }) {
+export default function StudiesDashboardTab({ stats, overallStudyStats, totalQuestions, accuracy, focusToday, showAreaDialog, setShowAreaDialog, areaForm, setAreaForm, handleCreateArea, areas, areaIcons, programs, notebooks, setSelectedArea, setSelectedProgram, setSelectedNotebook, setActiveTab, QuestionLogger, fetchAllData, user, StudySiriusAction, selectedNotebook, pendingTasksCount, tasks, handleToggleTask, taskTypeLabels }) {
  return <>
             {/* ===== UNIFIED STUDY DASHBOARD ===== */}
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -242,7 +242,7 @@ export default function StudiesDashboardTab({ stats, overallStudyStats, totalQue
                 <QuestionLogger notebooks={notebooks} onLog={fetchAllData} />
                 <PomodoroTimer userId={user?.user_id} notebooks={notebooks} onComplete={fetchAllData} />
               </div>
-              <StudyAIChat notebooks={notebooks} selectedNotebook={selectedNotebook} />
+              <StudySiriusAction notebooks={notebooks} selectedNotebook={selectedNotebook} />
             </div>
 
             {/* Tasks Summary */}
