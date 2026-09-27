@@ -159,7 +159,8 @@ def workspace_router(db, authenticate, mutate):
             if not notebooks:
                 raise HTTPException(422, 'Adicione disciplinas antes de planejar.')
             previous = await db.study_dated_plans.find_one({'_id': f'{user_id}:{program_id}'}, session=session) or {}
-            completed = [e for e in previous.get('entries', []) if e.get('completed')]
+            today = datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()
+            completed = [e for e in previous.get('entries', []) if e.get('completed') or e.get('manual') or e.get('fixed') or e['date'] < max(today, body.start_date.isoformat()) or e['date'] > body.end_date.isoformat()]
             if body.adaptive:
                 rows = await db.question_logs.aggregate([
                     {'$match': {'user_id': user_id, 'program_id': program_id}},
@@ -167,7 +168,11 @@ def workspace_router(db, authenticate, mutate):
                 ], session=session).to_list(None)
                 overdue = {e.get('notebook_id') for e in previous.get('entries', []) if not e.get('completed') and e['date'] < body.start_date.isoformat()}
                 notebooks = adapt_notebooks(notebooks, {r['_id']: r for r in rows}, overdue)
-            entries = build_plan(program_id, notebooks, body.availability, body.start_date.isoformat(), body.end_date.isoformat(), body.block_minutes, completed)
+            fixed = await db.calendar_commitments.find({'user_id': user_id, 'date': {'$gte': body.start_date.isoformat(), '$lte': body.end_date.isoformat()}}, {'_id': 0, 'date': 1, 'start_minute': 1, 'end_minute': 1}, session=session).to_list(1000)
+            reserved = {}
+            for commitment in fixed:
+                reserved[commitment['date']] = reserved.get(commitment['date'], 0) + max(0, commitment['end_minute'] - commitment['start_minute'])
+            entries = build_plan(program_id, notebooks, body.availability, max(today, body.start_date.isoformat()), body.end_date.isoformat(), body.block_minutes, completed, reserved)
             result = {**own, 'settings': settings, 'entries': entries, 'updated_at': datetime.now(timezone.utc).isoformat()}
             await db.study_dated_plans.replace_one({'_id': f'{user_id}:{program_id}'}, result, upsert=True, session=session)
             return result
@@ -193,6 +198,7 @@ def workspace_router(db, authenticate, mutate):
                 if occupied + entry['minutes'] > settings['availability'][body.date.weekday()]:
                     raise HTTPException(422, 'Este dia não tem tempo disponível para o bloco.')
                 entry['date'] = iso
+                entry['manual'] = True
             if body.completed is not None:
                 entry['completed'] = body.completed
             await db.study_dated_plans.update_one(query, {'$set': {'entries': doc['entries']}}, session=session)

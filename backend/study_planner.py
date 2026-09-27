@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import hashlib
 
 
-def build_plan(program_id, notebooks, availability, start, end, block_minutes, completed=()):
+def build_plan(program_id, notebooks, availability, start, end, block_minutes, completed=(), reserved=None):
     start, end = date.fromisoformat(start), date.fromisoformat(end)
     result = [dict(item) for item in completed]
     used = defaultdict(int)
@@ -16,7 +16,7 @@ def build_plan(program_id, notebooks, availability, start, end, block_minutes, c
     for offset in range((end - start).days + 1):
         day = start + timedelta(days=offset)
         iso = day.isoformat()
-        budget = max(0, availability[day.weekday()] - used[iso])
+        budget = max(0, availability[day.weekday()] - used[iso] - (reserved or {}).get(iso, 0))
         while budget >= 15 and notebooks:
             due = next((item for item in reviews if item['due'] <= day), None)
             if due:

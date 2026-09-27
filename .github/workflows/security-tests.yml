@@ -83,6 +83,8 @@ jobs:
         run: python -m unittest discover -s backend/tests -p test_activity_regression.py -v
       - name: Test Agent confirmation, ownership and financial rollback
         run: python -m unittest discover -s backend/tests -p test_agent_regression.py -v
+      - name: Test study attempts, targets and simulado replay
+        run: python -m unittest discover -s backend/tests -p test_studies_transactions_regression.py -v
       - name: Stop disposable MongoDB
         if: always()
         run: docker rm -f activity-mongo
