@@ -2759,6 +2759,20 @@ def calculate_rank(xp: int) -> str:
 
 async def award_xp(user_id: str, amount: int, session=None):
     """Apply an XP delta using compare-and-set, keeping XP and rank together."""
+    # On replica sets, independent rewards use the same transactional conflict
+    # handling as task/habit writes. Mixing waiting standalone CAS writes with
+    # an open activity transaction can starve that transaction's second update.
+    # A standalone development database still supports the original atomic CAS.
+    mongo_client = getattr(db, 'client', None)
+    if session is None and mongo_client is not None:
+        from pymongo.errors import OperationFailure as XPStorageError
+        async def grant(transaction):
+            return await award_xp(user_id, amount, session=transaction)
+        try:
+            async with await mongo_client.start_session() as transaction:
+                return await transaction.with_transaction(grant)
+        except XPStorageError as exc:
+            if exc.code != 20: raise
     session_options = {"session": session} if session is not None else {}
     balances = getattr(session, '_sirius_xp_balances', {}) if session is not None else {}
     if user_id in balances:
