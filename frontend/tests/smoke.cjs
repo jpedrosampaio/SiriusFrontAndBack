@@ -55,7 +55,7 @@ const server = http.createServer((req, res) => {
   const browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), headless: true });
   const errors = [];
   try {
-    for (const width of [1440, 390, 320]) {
+    for (const width of [1440, 1024, 768, 390, 320]) {
       const context = await browser.newContext({ viewport: { width, height: width > 500 ? 1000 : 844 }, serviceWorkers: 'block' });
       await context.addInitScript(() => localStorage.setItem('sirius_onboarding_complete', 'true'));
       const drafts = new Map();
@@ -119,12 +119,12 @@ const server = http.createServer((req, res) => {
         if (overflow) console.log(await page.evaluate(() => Array.from(document.querySelectorAll('body *')).filter(e => e.getBoundingClientRect().right > innerWidth + 2).slice(0, 10).map(e => ({ tag: e.tagName, cls: e.className }))));
         if (overflow) errors.push({ name, width, error: 'Horizontal overflow' });
         if (name === 'dashboard') {
-          const launcher = page.getByRole('button', { name: 'Abrir assistente Sirius', exact: true });
-          const before = await launcher.boundingBox();
-          await page.mouse.move(before.x + 28, before.y + 28); await page.mouse.down();
-          await page.mouse.move(50, 160, { steps: 12 }); await page.mouse.up();
-          assert.equal(await page.getByRole('dialog').count(), 0, 'drag must not open chat');
-          const moved = await launcher.boundingBox(); assert.ok(moved.y < before.y - 20);
+          const launcher = page.getByRole('button', { name: 'Abrir assistente Sirius', exact: true }).filter({ visible: true });
+          assert.equal(await launcher.count(), 1, 'one visible Sirius entry point');
+          await page.keyboard.press('Control+k');
+          await page.getByRole('combobox').fill('Nova tarefa');
+          await page.getByRole('option', { name: 'Nova tarefa' }).waitFor();
+          await page.keyboard.press('Escape');
           await launcher.click();
           const close = page.getByRole('button', { name: 'Fechar assistente', exact: true }); await close.waitFor();
           await page.getByText('Conversa sintética desta conta', { exact: true }).waitFor();
@@ -145,7 +145,6 @@ const server = http.createServer((req, res) => {
           await close.click(); await launcher.waitFor({ state: 'visible' });
           await launcher.click(); await page.keyboard.press('Escape'); await launcher.waitFor({ state: 'visible' });
           await page.reload(); await launcher.waitFor();
-          const restored = await launcher.boundingBox(); assert.ok(Math.abs(restored.x - moved.x) < 2);
         }
         if (name === 'session') {
           await page.getByLabel('Resolvidas', { exact: true }).fill('10');

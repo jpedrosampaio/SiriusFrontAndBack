@@ -7,8 +7,6 @@ import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { ArrowLeft, BookOpen, Calendar, ChevronRight, Layers, Loader2, Play, Search } from 'lucide-react';
-import Sidebar from '@/components/Sidebar';
-import MobileNav from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -105,8 +103,8 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
   const studiedTopics = disciplines.reduce((count, d) => count + topicRows(d).filter(t => progress[d.notebook_id]?.[t.key]?.studied).length, 0);
 
   return <div className="min-h-screen bg-[#050505] text-white flex">
-    <Sidebar user={user} />
-    <main className="flex-1 min-w-0 md:ml-64 px-4 md:px-8 pt-[84px] md:pt-8 pb-24">
+    
+    <main className="flex-1 min-w-0  px-4 md:px-8 pt-[84px] md:pt-8 pb-24">
       <div className="max-w-6xl mx-auto space-y-6">
         <Button variant="ghost" onClick={onBack} className="-ml-3 text-[#A1A1AA]"><ArrowLeft className="h-4 w-4 mr-2" />Meus estudos</Button>
         <header className="sirius-page-heading sirius-hero space-y-3">
@@ -170,6 +168,6 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
         </>}
       </div>
     </main>
-    <MobileNav user={user} />
+    
   </div>;
 }

@@ -2,8 +2,6 @@ import { AgentToolbar, AgentMessageDetails, VoiceInput } from '@/components/Agen
 import { useAssistant } from '@/hooks/useAssistant';
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +17,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function Chat() {
-  const [user, setUser] = useState(null);
+  const [, setUser] = useState(null);
   const assistant = useAssistant('/chat');
   const { messages, sending: loading, error, send, refresh } = assistant;
   const [content, setContent] = useState("");
@@ -60,9 +58,9 @@ export default function Chat() {
 
   return (
     <div className="flex min-h-screen bg-[#050505]">
-      <Sidebar user={user} />
-      <div className="flex-1 ml-0 md:ml-64 flex flex-col h-screen">
-        <div className="p-4 md:p-6 border-b border-[#27272A] pt-[72px] md:pt-6">
+      
+      <div className="flex-1 ml-0  flex flex-col h-screen">
+        <div className="p-4 md:p-6 border-b border-[#27272A]  md:pt-6">
           <h1 className="font-heading text-xl md:text-3xl mb-1">Converse com o Sirius</h1>
           <p className="text-xs md:text-sm text-[#A1A1AA]">A mesma conversa do assistente flutuante. Revise as sugestões antes de aplicá-las nos módulos.</p>
         </div>
@@ -164,7 +162,7 @@ export default function Chat() {
           <VoiceInput onText={setContent} disabled={loading} />
         </div>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

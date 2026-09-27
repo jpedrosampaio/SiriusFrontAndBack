@@ -27,8 +27,8 @@ class Core:
         except (ValueError, TypeError, AttributeError): return {}
         selected = {}
         for parameter, collection, field in [('program', 'study_programs', 'program_id'), ('notebook', 'notebooks', 'notebook_id'), ('analysis', 'edital_analyses', 'analysis_id')]:
-            value = next(iter(query.get(parameter, [])), None)
-            if value and len(value) <= 100:
+            value = context.get(field) or next(iter(query.get(parameter, [])), None)
+            if isinstance(value, str) and value and len(value) <= 100:
                 row = await self.db[collection].find_one({'user_id': user_id, field: value}, {'_id': 0, field: 1, 'name': 1, 'title': 1})
                 if row: selected[parameter] = row
         return selected

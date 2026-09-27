@@ -2,8 +2,6 @@ import { Link } from "react-router-dom";
 import { getLocalDateStr } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useMemo, useCallback } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,7 +35,7 @@ function getFirstDayOfMonth(year, month) {
 }
 
 export default function CalendarPage() {
-  const [user, setUser] = useState(null);
+  const [, setUser] = useState(null);
   const [events, setEvents] = useState([]);
   const [, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -131,8 +129,8 @@ export default function CalendarPage() {
 
   return (
     <div className="flex min-h-screen bg-[#050505] text-white">
-      <Sidebar user={user} />
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-8 pb-24 md:pb-8 pt-[72px] md:pt-8">
+      
+      <div className="flex-1 ml-0  p-4 md:p-8 pb-24 md:pb-8  md:pt-8">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-6">
@@ -301,7 +299,7 @@ export default function CalendarPage() {
           </div>
         </div>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

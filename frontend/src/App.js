@@ -2,7 +2,6 @@ import React, { Suspense, useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster, toast } from "@/components/ui/sonner";
-import { AnimatePresence } from "framer-motion";
 import PageTransition from "@/components/PageTransition";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
@@ -12,7 +11,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import NotificationManager from "@/components/NotificationManager";
 import { GeminiKeyModal } from "@/components/GeminiKeyModal";
-import FloatingAssistant from "@/components/FloatingAssistant";
+import AppShell from "@/components/AppShell";
 
 
 // Lazy-loaded pages — keeps initial bundle small
@@ -55,30 +54,30 @@ function AnimatedRoutes() {
   }
 
   return (
-    <AnimatePresence mode="wait">
       <Suspense fallback={<PageLoader />}>
-        <Routes location={location} key={location.pathname}>
+        <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<PageTransition><Login /></PageTransition>} />
           <Route path="/register" element={<PageTransition><Register /></PageTransition>} />
-          <Route path="/dashboard" element={<ProtectedRoute><ErrorBoundary><PageTransition><Dashboard /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/tasks" element={<ProtectedRoute><ErrorBoundary><PageTransition><Tasks /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/habits" element={<ProtectedRoute><ErrorBoundary><PageTransition><Habits /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/finance" element={<ProtectedRoute><ErrorBoundary><PageTransition><Finance /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/goals" element={<ProtectedRoute><ErrorBoundary><PageTransition><Goals /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/assistant/settings" element={<ProtectedRoute><ErrorBoundary><PageTransition><AgentSettings /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/chat" element={<ProtectedRoute><ErrorBoundary><PageTransition><Chat /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/reports" element={<ProtectedRoute><ErrorBoundary><PageTransition><Reports /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/profile" element={<ProtectedRoute><ErrorBoundary><PageTransition><Profile /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/workouts" element={<ProtectedRoute><ErrorBoundary><PageTransition><Workouts /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/notifications" element={<ProtectedRoute><ErrorBoundary><PageTransition><Notifications /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/nutrition" element={<ProtectedRoute><ErrorBoundary><PageTransition><Nutrition /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/studies" element={<ProtectedRoute><ErrorBoundary><PageTransition><Studies /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/achievements" element={<ProtectedRoute><ErrorBoundary><PageTransition><Achievements /></PageTransition></ErrorBoundary></ProtectedRoute>} />
-          <Route path="/calendar" element={<ProtectedRoute><ErrorBoundary><PageTransition><CalendarPage /></PageTransition></ErrorBoundary></ProtectedRoute>} />
+          <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
+          <Route path="/dashboard" element={<ErrorBoundary><PageTransition><Dashboard /></PageTransition></ErrorBoundary>} />
+          <Route path="/tasks" element={<ErrorBoundary><PageTransition><Tasks /></PageTransition></ErrorBoundary>} />
+          <Route path="/habits" element={<ErrorBoundary><PageTransition><Habits /></PageTransition></ErrorBoundary>} />
+          <Route path="/finance" element={<ErrorBoundary><PageTransition><Finance /></PageTransition></ErrorBoundary>} />
+          <Route path="/goals" element={<ErrorBoundary><PageTransition><Goals /></PageTransition></ErrorBoundary>} />
+          <Route path="/assistant/settings" element={<ErrorBoundary><PageTransition><AgentSettings /></PageTransition></ErrorBoundary>} />
+          <Route path="/chat" element={<ErrorBoundary><PageTransition><Chat /></PageTransition></ErrorBoundary>} />
+          <Route path="/reports" element={<ErrorBoundary><PageTransition><Reports /></PageTransition></ErrorBoundary>} />
+          <Route path="/profile" element={<ErrorBoundary><PageTransition><Profile /></PageTransition></ErrorBoundary>} />
+          <Route path="/workouts" element={<ErrorBoundary><PageTransition><Workouts /></PageTransition></ErrorBoundary>} />
+          <Route path="/notifications" element={<ErrorBoundary><PageTransition><Notifications /></PageTransition></ErrorBoundary>} />
+          <Route path="/nutrition" element={<ErrorBoundary><PageTransition><Nutrition /></PageTransition></ErrorBoundary>} />
+          <Route path="/studies" element={<ErrorBoundary><PageTransition><Studies /></PageTransition></ErrorBoundary>} />
+          <Route path="/achievements" element={<ErrorBoundary><PageTransition><Achievements /></PageTransition></ErrorBoundary>} />
+          <Route path="/calendar" element={<ErrorBoundary><PageTransition><CalendarPage /></PageTransition></ErrorBoundary>} />
+          </Route>
         </Routes>
       </Suspense>
-    </AnimatePresence>
   );
 }
 
@@ -98,7 +97,6 @@ function App() {
         <NotificationManager />
         <Toaster position="top-right" richColors />
         <GeminiKeyModal />
-        <FloatingAssistant />
       </BrowserRouter>
     </div>
   );

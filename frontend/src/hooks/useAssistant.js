@@ -4,7 +4,7 @@ import { getApiErrorMessage } from '@/lib/api-errors';
 
 const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api`;
 
-export function useAssistant(page, enabled = true) {
+export function useAssistant(page, enabled = true, context = {}) {
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -53,7 +53,7 @@ export function useAssistant(page, enabled = true) {
     try {
       const { data } = await axios.post(`${API}/ai/chat`, {
         ...pending.current, conversation_id: conversationId, page,
-        page_context: JSON.stringify({ title: document.title, query: window.location.search.slice(0, 1000) }),
+        page_context: JSON.stringify({ title: document.title, query: window.location.search.slice(0, 1000), ...context, draft: undefined }),
       }, { withCredentials: true, timeout: 160000, signal: aborter.current.signal });
       if (version !== generation.current) return false;
       setMessages(previous => [...previous.filter(m => m.message_id !== 'pending'), data.user_message, data.ai_message]);
@@ -68,7 +68,7 @@ export function useAssistant(page, enabled = true) {
       if (message.includes('Configure sua chave')) window.dispatchEvent(new Event('open-gemini-key-modal'));
       return false;
     } finally { busy.current = false; setSending(false); }
-  }, [page, conversationId]);
+  }, [page, conversationId, context]);
   const cancel = useCallback(() => {
     const id = pending.current?.request_id;
     if (id) axios.post(`${API}/ai/cancel/${id}`, {}, { withCredentials: true }).catch(() => {});

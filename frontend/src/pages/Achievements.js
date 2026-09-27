@@ -1,7 +1,5 @@
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -31,7 +29,7 @@ const CATEGORY_LABELS = {
 };
 
 export default function Achievements() {
-  const [user, setUser] = useState(null);
+  const [, setUser] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -73,8 +71,8 @@ export default function Achievements() {
   if (loading) {
     return (
       <div className="flex min-h-screen bg-[#050505]">
-        <Sidebar user={user} />
-        <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pt-[72px] md:pt-0 page-enter">
+        
+        <div className="flex-1 ml-0  p-4 md:p-6 lg:p-8  md:pt-0 page-enter">
           <div className="animate-pulse space-y-4">
             <div className="h-8 bg-[#27272A] rounded w-48" />
             <div className="h-4 bg-[#1A1A1A] rounded w-32" />
@@ -89,8 +87,8 @@ export default function Achievements() {
 
   return (
     <div className="flex min-h-screen bg-[#050505] text-white">
-      <Sidebar user={user} />
-      <div className="flex-1 ml-0 md:ml-64 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter">
+      
+      <div className="flex-1 ml-0  p-4 md:p-6 lg:p-8 pb-24 md:pb-8  md:pt-0 page-enter">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
@@ -240,7 +238,7 @@ export default function Achievements() {
           )}
         </div>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

@@ -9,8 +9,6 @@ const EditalAnalysisWorkspace = lazy(() => import("@/components/EditalAnalysisWo
 import { getApiErrorMessage } from "@/lib/api-errors";
 const StudyLessons = lazy(() => import("@/components/StudyLessons"));
 import { useState, useEffect, useRef } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -1282,8 +1280,8 @@ export default function Studies() {
 
   return (
     <div className="min-h-screen bg-[#050505] text-white flex">
-      <Sidebar user={user} />
-      <main className="flex-1 md:ml-64 p-3 md:p-6 pb-24 md:pb-8 pt-[72px] md:pt-6">
+      
+      <main className="flex-1  p-3 md:p-6 pb-24 md:pb-8  md:pt-6">
         {/* Header */}
         <div className="sirius-page-heading sirius-hero flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-3">
           <div>
@@ -3193,7 +3191,7 @@ export default function Studies() {
 
 
       </main>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

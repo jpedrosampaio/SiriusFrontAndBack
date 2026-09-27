@@ -6,8 +6,6 @@ import { getCurrentUser } from "@/lib/api";
 import { getWorkoutCalendar } from "@/lib/workout-calendar";
 import { getApiErrorMessage } from "@/lib/api-errors";
 import { useEffect, useState, useCallback, useRef } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import PullToRefresh from "@/components/PullToRefresh";
 import { getLocalDateStr } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -91,7 +89,6 @@ export default function Workouts() {
 
   // Today's schedule
   const [todaySchedule, setTodaySchedule] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "true");
 
   // AI Generation
   const [openAiGenerate, setOpenAiGenerate] = useState(false);
@@ -313,12 +310,7 @@ export default function Workouts() {
     loadData();
   }, [loadData]);
 
-  useEffect(() => {
-    const check = () => setSidebarCollapsed(localStorage.getItem("sidebar_collapsed") === "true");
-    window.addEventListener("sidebar-toggle", check);
-    window.addEventListener("storage", check);
-    return () => { window.removeEventListener("sidebar-toggle", check); window.removeEventListener("storage", check); };
-  }, []);
+
 
   useEffect(() => {
     if (!['stats', 'evolution'].includes(activeTab)) return;
@@ -1119,8 +1111,8 @@ export default function Workouts() {
 
   return (
     <div className="flex min-h-screen bg-[#050505]" data-workout-executing={activeTab === 'session'}>
-      <Sidebar user={user} />
-      <div className={`flex-1 ml-0 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} p-4 md:p-6 lg:p-8 pb-24 md:pb-8 pt-[72px] md:pt-0 page-enter`}>
+      
+      <div className={`flex-1 ml-0  p-4 md:p-6 lg:p-8 pb-24 md:pb-8  md:pt-0 page-enter`}>
         <PullToRefresh onRefresh={loadData}>
         <div className="max-w-6xl mx-auto">
           {/* Motivational Quote */}
@@ -2990,7 +2982,7 @@ export default function Workouts() {
         </div>
       </PullToRefresh>
       </div>
-      <MobileNav user={user} />
+      
     </div>
   );
 }

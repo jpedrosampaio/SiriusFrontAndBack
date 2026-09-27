@@ -2,8 +2,6 @@ import EditalReview, { SourceEvidence } from '@/components/EditalReview';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { ArrowLeft, Calendar, FileText, Loader2 } from 'lucide-react';
-import Sidebar from '@/components/Sidebar';
-import MobileNav from '@/components/MobileNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EditalOverview } from '@/components/StudyProgramWorkspace';
@@ -29,7 +27,7 @@ export default function EditalAnalysisWorkspace({ user, api, analysisId, initial
   }, [api, analysisId, reload]);
   const cargo = analysis?.cargos?.[selected];
   const incomplete = !cargo?.disciplinas?.length || cargo.disciplinas_status === 'incompleto';
-  return <div className="min-h-screen bg-[#050505] text-white flex"><Sidebar user={user} /><main className="flex-1 min-w-0 md:ml-64 px-4 md:px-8 pt-[84px] md:pt-8 pb-24"><div className="max-w-6xl mx-auto space-y-6">
+  return <div className="min-h-screen bg-[#050505] text-white flex"><main className="flex-1 min-w-0  px-4 md:px-8 pt-[84px] md:pt-8 pb-24"><div className="max-w-6xl mx-auto space-y-6">
     <Button variant="ghost" className="-ml-3 text-[#A1A1AA]" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-2" />Meus estudos</Button>
     <header className="sirius-page-heading sirius-hero"><div className="sirius-eyebrow">Seu ponto de partida · edital analisado</div><h1 className="text-2xl md:text-3xl font-semibold mt-2">{analysis?.concurso?.nome || 'Análise do edital'}</h1><p className="text-sm text-[#A1A1AA] mt-3">Confira o resumo e o conteúdo do cargo antes de organizar seu plano.</p></header>
     {error && <div role="alert" className="text-amber-300"><p>{error}</p><Button variant="outline" className="mt-3" onClick={() => setReload(n => n + 1)}>Tentar novamente</Button></div>}
@@ -56,5 +54,5 @@ export default function EditalAnalysisWorkspace({ user, api, analysisId, initial
         <label className="text-sm space-y-2"><span className="block">Dias por semana</span><select className={field} value={form.days_per_week} onChange={e => onFormChange({ ...form, days_per_week: Number(e.target.value) })}>{[1, 2, 3, 4, 5, 6, 7].map(d => <option key={d} value={d}>{d} dias</option>)}</select></label>
       </div><Button disabled={creating || reviewing || incomplete || !areaId} onClick={() => onCreate(analysisId, selected, areaId)} className="bg-purple-600 hover:bg-purple-700">{creating ? <><Loader2 className="animate-spin h-4 w-4 mr-2" />Criando plano…</> : 'Criar programa e cronograma'}</Button><p className="text-xs text-[#71717A]">Será criado um programa para o cargo selecionado. Os programas existentes continuam disponíveis em Meus estudos.</p></section>
     </>}
-  </div></main><MobileNav user={user} /></div>;
+  </div></main></div>;
 }

@@ -2,11 +2,11 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Home, CheckSquare, TrendingUp, DollarSign, MessageSquare, MoreHorizontal } from "lucide-react";
 import { useState, useEffect, memo } from "react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Target, Dumbbell, Apple, BookOpen, Bell, FileText, User, LogOut, Clock, Trophy, Calendar, Award } from "lucide-react";
+import { Target, Dumbbell, Apple, BookOpen, Bell, FileText, User, LogOut, Clock, Trophy, Calendar, Settings } from "lucide-react";
 import axios from "axios";
 import { toast } from "sonner";
 import { clearToken } from "@/lib/api";
-import { SiriusLogo } from "@/components/Sidebar";
+import { openSirius } from '@/lib/sirius-context';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -52,7 +52,7 @@ function MobileNav({ user }) {
   const mainItems = [
     { icon: Home, label: "Hoje", path: "/dashboard" },
     { icon: BookOpen, label: "Estudos", path: "/studies" },
-    { icon: Dumbbell, label: "Treinos", path: "/workouts" },
+    { icon: MessageSquare, label: "Sirius", path: "sirius" },
     { icon: CheckSquare, label: "Tarefas", path: "/tasks" },
   ];
   const moreItems = [
@@ -62,7 +62,8 @@ function MobileNav({ user }) {
     { icon: Calendar, label: "Calendário", path: "/calendar", color: "#14B8A6" },
     { icon: Target, label: "Metas", path: "/goals", color: "#F59E0B" },
     { icon: Trophy, label: "Conquistas", path: "/achievements", color: "#FFD700" },
-    { icon: MessageSquare, label: "Conversas com IA", path: "/chat", color: "#00F0FF" },
+    { icon: Dumbbell, label: "Treinos", path: "/workouts", color: "#00F0FF" },
+    { icon: Settings, label: "Configurações", path: "/assistant/settings", color: "#A1A1AA" },
     { icon: Bell, label: "Notificações", path: "/notifications", color: "#EC4899" },
     { icon: FileText, label: "Relatórios", path: "/reports", color: "#8B5CF6" },
     { icon: User, label: "Perfil", path: "/profile", color: "#007AFF" },
@@ -70,25 +71,6 @@ function MobileNav({ user }) {
 
   return (
     <>
-      {/* Mobile Header */}
-      <div className="sirius-mobile-bar md:hidden fixed top-0 left-0 right-0 border-b z-50 safe-area-inset-top">
-        <div className="flex items-center justify-between px-4 h-14">
-          <div className="flex items-center space-x-2">
-            <SiriusLogo size="w-7 h-7" />
-            <span className="font-semibold tracking-[0.12em] text-base text-white">SIRIUS</span>
-          </div>
-          {user && (
-            <div className="flex items-center space-x-2">
-              <div className="flex items-center space-x-1.5 bg-[#121212] rounded-full px-2.5 py-1 border border-[#27272A]">
-                <Award className="w-3 h-3 text-[#007AFF]" />
-                <span className="text-[10px] font-medium text-[#A1A1AA]">{user.rank || 'Recruta'}</span>
-                <span className="text-[10px] text-[#52525B]">{user.xp ?? 0} XP</span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Bottom Navigation */}
       <nav aria-label="Navegação principal" className="sirius-mobile-bar md:hidden fixed bottom-0 left-0 right-0 border-t z-50 safe-area-inset-bottom">
         <div className="flex items-center justify-around h-[60px] px-1">
@@ -99,7 +81,8 @@ function MobileNav({ user }) {
               <button
                 key={item.path}
                 aria-current={isActive ? "page" : undefined}
-                onClick={() => navigate(item.path)}
+                onClick={() => item.path === 'sirius' ? openSirius() : navigate(item.path)}
+                aria-label={item.path === 'sirius' ? 'Abrir assistente Sirius' : item.label}
                 className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all duration-200 min-w-[56px] tab-bounce ${
                   isActive
                     ? "text-white"
@@ -107,7 +90,7 @@ function MobileNav({ user }) {
                 }`}
               >
                 <div className={`relative p-1.5 rounded-lg transition-all duration-200 ${
-                  isActive ? "bg-[#007AFF]/20" : ""
+                  item.path === 'sirius' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : isActive ? "bg-[#007AFF]/20" : ""
                 }`}>
                   <Icon className={`w-[22px] h-[22px] transition-colors ${isActive ? 'text-[#007AFF]' : ''}`} />
                   {isActive && (

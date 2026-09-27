@@ -1,7 +1,7 @@
 import { AgentToolbar, AgentMessageDetails, VoiceInput } from '@/components/AgentControls';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, User, Loader2, X, AppWindow } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAssistant } from '@/hooks/useAssistant';
 import * as Dialog from '@radix-ui/react-dialog';
 
@@ -46,11 +46,12 @@ function MessageAvatar({ role }) {
   );
 }
 
-export default function AiChatModal({ open, onClose }) {
+export default function AiChatModal({ open, onClose, context = {} }) {
   const location = useLocation();
-  const assistant = useAssistant(location.pathname, open);
+  const assistant = useAssistant(location.pathname, open, context);
   const { messages, sending, error, send, refresh } = assistant;
   const [input, setInput] = useState('');
+  useEffect(() => { if (open && context.draft) setInput(context.draft); }, [open, context]);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -127,7 +128,7 @@ export default function AiChatModal({ open, onClose }) {
                   <Dialog.Description id="sirius-assistant-description" className="text-xs text-slate-400 truncate">Ajuda para organizar seu dia</Dialog.Description>
                 </div>
               </div>
-              <Dialog.Close id="sirius-assistant-close" className="sirius-assistant-close" aria-label="Fechar assistente"><X className="w-5 h-5" /><span>Fechar</span></Dialog.Close>
+              <div className="flex items-center gap-2"><Link to="/chat" onClick={onClose} aria-label="Abrir Sirius em tela cheia" className="sirius-icon-button"><AppWindow size={18} /></Link><Dialog.Close id="sirius-assistant-close" className="sirius-assistant-close" aria-label="Fechar assistente"><X className="w-5 h-5" /><span>Fechar</span></Dialog.Close></div>
             </div>
           </div>
 
