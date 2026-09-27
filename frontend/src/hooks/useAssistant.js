@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { getApiErrorMessage } from '@/lib/api-errors';
+import { getAssistantContext, setAssistantContext } from '@/lib/assistant-context';
 
 const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api`;
 
@@ -14,6 +15,18 @@ export function useAssistant(page, enabled = true, context = {}) {
   const aborter = useRef(null);
   const [conversationId, setConversationId] = useState(() => sessionStorage.getItem('sirius-conversation') || 'primary');
   const [conversations, setConversations] = useState([]);
+  const [selection, setSelection] = useState(() => getAssistantContext(conversationId));
+  const attachment = selection.attachment;
+  const setAttachment = useCallback(value => setAssistantContext(conversationId, { attachment: value }), [conversationId]);
+  const contextKey = JSON.stringify(context);
+  useEffect(() => {
+    if (enabled && contextKey !== '{}') setAssistantContext(conversationId, { context: JSON.parse(contextKey) });
+  }, [enabled, contextKey, conversationId]);
+  useEffect(() => {
+    const sync = () => setSelection(getAssistantContext(conversationId));
+    sync(); window.addEventListener('sirius-context-updated', sync);
+    return () => window.removeEventListener('sirius-context-updated', sync);
+  }, [conversationId]);
   const refresh = useCallback(async () => {
     if (busy.current) return;
     const version = ++generation.current;
@@ -35,12 +48,12 @@ export function useAssistant(page, enabled = true, context = {}) {
     return () => { generation.current += 1; aborter.current?.abort(); window.removeEventListener('sirius-conversation-updated', refresh); };
   }, [enabled, refresh]);
   useEffect(() => {
-    const reset = () => { generation.current += 1; aborter.current?.abort(); window.speechSynthesis?.cancel(); setMessages([]); setConversations([]); pending.current = null; sessionStorage.removeItem('sirius-conversation'); setConversationId('primary'); };
+    const reset = () => { setAttachment(null); generation.current += 1; aborter.current?.abort(); window.speechSynthesis?.cancel(); setMessages([]); setConversations([]); pending.current = null; sessionStorage.removeItem('sirius-conversation'); setConversationId('primary'); };
     window.addEventListener('sirius-auth-changed', reset);
     const storageReset = event => { if (!event.key || event.key === 'sirius_session_token') reset(); };
     window.addEventListener('storage', storageReset);
     return () => { window.removeEventListener('sirius-auth-changed', reset); window.removeEventListener('storage', storageReset); };
-  }, []);
+  }, [setAttachment]);
   const send = useCallback(async text => {
     if (busy.current || !text.trim()) return false;
     busy.current = true;
@@ -53,7 +66,7 @@ export function useAssistant(page, enabled = true, context = {}) {
     try {
       const { data } = await axios.post(`${API}/ai/chat`, {
         ...pending.current, conversation_id: conversationId, page,
-        page_context: JSON.stringify({ title: document.title, query: window.location.search.slice(0, 1000), ...context, draft: undefined }),
+        page_context: JSON.stringify({ title: document.title, query: window.location.search.slice(0, 1000), ...(selection.context || context), attachment_id: attachment?.attachment_id || selection.context?.attachment_id || context.attachment_id, draft: undefined }),
       }, { withCredentials: true, timeout: 160000, signal: aborter.current.signal });
       if (version !== generation.current) return false;
       setMessages(previous => [...previous.filter(m => m.message_id !== 'pending'), data.user_message, data.ai_message]);
@@ -68,7 +81,7 @@ export function useAssistant(page, enabled = true, context = {}) {
       if (message.includes('Configure sua chave')) window.dispatchEvent(new Event('open-gemini-key-modal'));
       return false;
     } finally { busy.current = false; setSending(false); }
-  }, [page, conversationId, context]);
+  }, [page, conversationId, context, attachment, selection]);
   const cancel = useCallback(() => {
     const id = pending.current?.request_id;
     if (id) axios.post(`${API}/ai/cancel/${id}`, {}, { withCredentials: true }).catch(() => {});
@@ -80,5 +93,5 @@ export function useAssistant(page, enabled = true, context = {}) {
     window.dispatchEvent(new Event('sirius-conversation-updated'));
   }, []);
   const newConversation = useCallback(() => selectConversation(crypto.randomUUID()), [selectConversation]);
-  return { messages, sending, error, send, refresh, cancel, conversations, conversationId, selectConversation, newConversation };
+  return { messages, sending, error, send, refresh, cancel, conversations, conversationId, selectConversation, newConversation, attachment, setAttachment };
 }

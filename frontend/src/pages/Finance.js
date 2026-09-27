@@ -1,3 +1,4 @@
+import { openSirius } from '@/lib/sirius-context';
 import { useSearchParams } from 'react-router-dom';
 import { getCurrentUser } from "@/lib/api";
 import { getApiErrorMessage } from "@/lib/api-errors";
@@ -9,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DollarSign, Plus, TrendingUp, TrendingDown, AlertCircle, Trash2, CreditCard as CreditCardIcon, Calendar, Repeat, Lightbulb, ChevronRight, ChevronLeft, Edit2, CheckSquare, Square, MessageSquare, Send, Loader2 } from "lucide-react";
+import { DollarSign, Plus, TrendingUp, TrendingDown, AlertCircle, Trash2, CreditCard as CreditCardIcon, Calendar, Repeat, Lightbulb, ChevronRight, ChevronLeft, Edit2, CheckSquare, Square } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Line, Legend, AreaChart, Area } from 'recharts';
 import axios from "axios";
 import { toast } from "sonner";
@@ -58,9 +59,6 @@ export default function Finance() {
   const [newBill, setNewBill] = useState({ description: "", amount: "", category: "outros" });
 
   // Finance chat
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
   const [financeTrend, setFinanceTrend] = useState(null);
   const [projectionMonth, setProjectionMonth] = useState(() => {
     const next = new Date();
@@ -300,21 +298,6 @@ export default function Finance() {
       await axios.delete(`${API}/finance/monthly-bills/${billId}`, { withCredentials: true });
       fetchMonthlyBills();
     } catch { toast.error("Erro ao remover conta"); }
-  };
-
-  const handleSendFinanceChat = async (e) => {
-    e?.preventDefault();
-    if (!chatInput.trim()) return;
-    setChatLoading(true);
-    const userMsg = { role: "user", content: chatInput, message_id: `temp_${Date.now()}` };
-    setChatMessages(prev => [...prev, userMsg]);
-    const text = chatInput;
-    setChatInput("");
-    try {
-      const res = await axios.post(`${API}/chat/send`, { content: text, context: "financial" }, { withCredentials: true });
-      setChatMessages(prev => [...prev, { role: "assistant", content: res.data.ai_message?.content || res.data.content || "Sem resposta", message_id: res.data.ai_message?.message_id || `ai_${Date.now()}` }]);
-    } catch { setChatMessages(prev => [...prev, { role: "assistant", content: "Erro ao processar. Tente novamente.", message_id: `err_${Date.now()}` }]); }
-    finally { setChatLoading(false); }
   };
 
 
@@ -690,7 +673,7 @@ export default function Finance() {
               <TabsTrigger value="cards">Cartões</TabsTrigger>
               <TabsTrigger value="bills" onClick={() => fetchMonthlyBills()}>Contas do Mês</TabsTrigger>
               <TabsTrigger value="projections">Projeção</TabsTrigger>
-              <TabsTrigger value="finance_chat">Chat Financeiro</TabsTrigger>
+              <TabsTrigger value="finance_chat">Sirius</TabsTrigger>
               <TabsTrigger value="categories">Categorias</TabsTrigger>
             </TabsList>
 
@@ -1593,33 +1576,7 @@ export default function Finance() {
             </TabsContent>
 
             {/* ===== CHAT FINANCEIRO TAB ===== */}
-            <TabsContent value="finance_chat" className="mt-6">
-              <Card className="bg-[#0A0A0A] border-[#27272A] h-[500px] flex flex-col">
-                <div className="p-4 border-b border-[#27272A]">
-                  <h3 className="text-sm font-medium flex items-center gap-2"><MessageSquare className="w-4 h-4 text-[#007AFF]" />Assistente Financeiro</h3>
-                  <p className="text-xs text-[#52525B]">Pergunte sobre finanças, investimentos, economia...</p>
-                </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                  {chatMessages.length === 0 && (
-                    <div className="text-center py-10">
-                      <DollarSign className="w-10 h-10 text-[#52525B] mx-auto mb-2" />
-                      <p className="text-sm text-[#A1A1AA]">Pergunte qualquer coisa sobre finanças!</p>
-                      <p className="text-xs text-[#52525B]">Ex: "Como economizar mais?" ou "Devo investir em renda fixa?"</p>
-                    </div>
-                  )}
-                  {chatMessages.map(msg => (
-                    <div key={msg.message_id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[85%] p-3 rounded-lg text-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[#007AFF] text-white' : 'bg-[#121212] text-[#E4E4E7]'}`}>{msg.content}</div>
-                    </div>
-                  ))}
-                  {chatLoading && <div className="flex justify-start"><div className="bg-[#121212] p-3 rounded-lg"><Loader2 className="w-4 h-4 animate-spin text-[#007AFF]" /></div></div>}
-                </div>
-                <form onSubmit={handleSendFinanceChat} className="p-3 border-t border-[#27272A] flex gap-2">
-                  <Input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Pergunte sobre finanças..." className="bg-[#121212] border-[#27272A] text-sm" disabled={chatLoading} />
-                  <Button type="submit" disabled={chatLoading || !chatInput.trim()} size="icon" className="bg-[#007AFF] shrink-0"><Send className="w-4 h-4" /></Button>
-                </form>
-              </Card>
-            </TabsContent>
+            <TabsContent value="finance_chat"><section className="py-8"><h2 className="text-xl font-semibold mb-3">Sirius nas suas finanças</h2><p className="text-slate-400 text-sm mb-4">Consulte seus registros e revise as propostas antes de confirmar alterações.</p><Button onClick={() => openSirius({ surface: 'finance', draft: 'Analise minhas finanças deste mês.' })}>Perguntar ao Sirius sobre este mês</Button></section></TabsContent>
 
             {/* CATEGORIES TAB */}
             <TabsContent value="categories" className="mt-6">

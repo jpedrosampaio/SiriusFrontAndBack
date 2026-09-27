@@ -1,4 +1,4 @@
-import { AgentToolbar, AgentMessageDetails, VoiceInput } from '@/components/AgentControls';
+import { AgentToolbar, AgentMessageDetails, VoiceInput, AgentAttachment } from '@/components/AgentControls';
 import { useAssistant } from '@/hooks/useAssistant';
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
@@ -65,7 +65,7 @@ export default function Chat() {
           <p className="text-xs md:text-sm text-[#A1A1AA]">A mesma conversa do assistente flutuante. Revise as sugestões antes de aplicá-las nos módulos.</p>
         </div>
 
-        <AgentToolbar assistant={assistant} />
+        <AgentToolbar assistant={assistant} /><AgentAttachment assistant={assistant} />
         {error && <div role="alert" className="px-4 text-amber-300">{error} <button className="underline" onClick={refresh}>Recarregar</button></div>}
         <div ref={scrollRef} className="flex-1 p-4 md:p-6 overflow-y-auto pb-36 md:pb-28">
           <div className="max-w-4xl mx-auto space-y-4">

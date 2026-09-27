@@ -97,7 +97,10 @@ class SiriusAgent:
         if any(w in body.message.casefold() for w in ('estud', 'caderno')):
             context['owned_notebooks'] = await self.core.read('get_study_progress', user_id)
         # Client page context is deliberately not an authority for IDs or ownership.
-        evidence = await self.retrieval.search(user_id, body.message) if self.router.settings.rag else {'method': 'disabled', 'citations': []}
+        selected = context['selection']
+        if self.router.settings.rag: await self.retrieval.ensure_selection(user_id, selected)
+        source_id = next((selected[key][field] for key, field in [('attachment', 'attachment_id'), ('analysis', 'analysis_id'), ('notebook', 'notebook_id')] if key in selected), None)
+        evidence = await self.retrieval.search(user_id, body.message, source_id) if self.router.settings.rag else {'method': 'disabled', 'citations': []}
         context['retrieval'] = evidence
         model_history, count = [], 0
         for item in reversed(history.get('history', [])[-6:]):

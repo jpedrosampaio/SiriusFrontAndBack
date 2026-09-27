@@ -26,11 +26,20 @@ class Core:
             query = parse_qs(str(context.get('query', ''))[:1000].lstrip('?'))
         except (ValueError, TypeError, AttributeError): return {}
         selected = {}
-        for parameter, collection, field in [('program', 'study_programs', 'program_id'), ('notebook', 'notebooks', 'notebook_id'), ('analysis', 'edital_analyses', 'analysis_id')]:
+        for parameter, collection, field in [('program', 'study_programs', 'program_id'), ('notebook', 'notebooks', 'notebook_id'), ('analysis', 'edital_analyses', 'analysis_id'), ('attachment', 'ai_attachments', 'attachment_id')]:
             value = context.get(field) or next(iter(query.get(parameter, [])), None)
             if isinstance(value, str) and value and len(value) <= 100:
                 row = await self.db[collection].find_one({'user_id': user_id, field: value}, {'_id': 0, field: 1, 'name': 1, 'title': 1})
                 if row: selected[parameter] = row
+        key = context.get('topic_key') or next(iter(query.get('topic', [])), None)
+        if 'notebook' in selected and isinstance(key, str):
+            import re
+            if re.fullmatch(r'\d+(?:_\d+)?', key):
+                notebook = await self.db.notebooks.find_one({'user_id': user_id, 'notebook_id': selected['notebook']['notebook_id']}, {'_id': 0, 'conteudo_programatico': 1, 'topicos': 1})
+                from studies_v2 import topic_title
+                from fastapi import HTTPException
+                try: selected['topic'] = {'key': key, 'title': topic_title(notebook or {}, key)}
+                except HTTPException: pass
         return selected
 
     async def read(self, name, user_id):

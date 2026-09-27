@@ -1,4 +1,4 @@
-import { AgentToolbar, AgentMessageDetails, VoiceInput } from '@/components/AgentControls';
+import { AgentToolbar, AgentMessageDetails, VoiceInput, AgentAttachment } from '@/components/AgentControls';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, User, Loader2, X, AppWindow } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
@@ -132,7 +132,7 @@ export default function AiChatModal({ open, onClose, context = {} }) {
             </div>
           </div>
 
-          <AgentToolbar assistant={assistant} />
+          <AgentToolbar assistant={assistant} /><AgentAttachment assistant={assistant} />
           <div role="log" aria-live="polite" aria-relevant="additions text" className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center py-12 px-4">
