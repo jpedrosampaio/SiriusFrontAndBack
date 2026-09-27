@@ -65,7 +65,7 @@ def fetch_public(url, headers=None):
     parsed = urlsplit(url)
     connection = PinnedHTTPS(parsed.hostname, public_addresses(parsed.hostname)[0])
     try:
-        connection.request('GET', urlunsplit(('', '', parsed.path, parsed.query, '')), headers={'User-Agent': AGENT, 'Accept': 'text/html,text/plain', 'Accept-Encoding': 'identity', **(headers or {})})
+        connection.request('GET', urlunsplit(('', '', parsed.path, parsed.query, '')), headers={'User-Agent': AGENT, 'Accept': 'text/html,text/plain,application/pdf', 'Accept-Encoding': 'identity', **(headers or {})})
         response = connection.getresponse()
         # Redirects deliberately require a new explicit source registration. This
         # avoids crossing host trust boundaries or bypassing per-origin throttles.
@@ -124,6 +124,21 @@ class ContestSourceProvider:
     name = 'generic'
     capabilities = ('get_metadata', 'list_updates', 'list_documents', 'list_exams', 'list_results', 'poll')
 
+    def get_metadata(self, page, url):
+        return {'source': url, 'source_type': trust(url), 'provider': self.name, 'content_hash': page.content_hash}
+
+    def list_documents(self, page):
+        return list(page.documents)
+
+    def list_updates(self, page):
+        return [d for d in page.documents if d['document_type'] in ('notice', 'rectification', 'announcement')]
+
+    def list_exams(self, page):
+        return [d for d in page.documents if d['document_type'] in ('exam', 'answer_key')]
+
+    def list_results(self, page):
+        return [d for d in page.documents if d['document_type'] == 'result']
+
     def normalize(self, html, url):
         parser = PageParser()
         parser.feed(html)
@@ -151,6 +166,8 @@ class ContestSourceProvider:
             rules.parse(robots.decode('utf-8', 'replace').splitlines())
             if not rules.can_fetch(AGENT, url): raise SourceUnavailable('A fonte não permite consulta automática desta página.')
             delay = rules.crawl_delay(AGENT) or 0
+            rate = rules.request_rate(AGENT)
+            if rate and rate.requests: delay = max(delay, rate.seconds / rate.requests)
             if delay > 60: raise SourceUnavailable('A fonte exige um intervalo especial; consulte pelo navegador.')
             if delay: time.sleep(delay)
         headers = {}
@@ -160,7 +177,29 @@ class ContestSourceProvider:
         if status == 304: return None
         if status != 200: raise SourceUnavailable(f'Fonte respondeu HTTP {status}; consulta adiada.')
         mime = response_headers.get('content-type', '')
-        if not any(t in mime for t in ('text/html', 'text/plain', 'application/xhtml')): raise SourceUnavailable('Cadastre a página do concurso, não o arquivo PDF.')
+        if 'application/pdf' in mime or body.startswith(b'%PDF-'):
+            from io import BytesIO
+            from pypdf import PdfReader
+            try:
+                reader = PdfReader(BytesIO(body))
+                if reader.is_encrypted or len(reader.pages) > 200: raise SourceUnavailable('PDF protegido ou acima do limite de 200 páginas.')
+                parts, remaining = [], 200000
+                for pdf_page in reader.pages:
+                    part = (pdf_page.extract_text() or '')[:remaining]
+                    parts.append(part)
+                    remaining -= len(part)
+                    if remaining <= 0: break
+                text = '\n'.join(parts)
+            except SourceUnavailable: raise
+            except Exception: raise SourceUnavailable('Não foi possível ler o PDF público.') from None
+            digest = hashlib.sha256(body).hexdigest()
+            page = SourcePage(text, [{'title': urlsplit(url).path.rsplit('/', 1)[-1] or 'PDF acompanhado', 'url': url, 'document_url': url,
+                'document_type': document_type('', url) or 'document', 'hash': digest, 'hash_basis': 'document_bytes',
+                'source_type': trust(url), 'official': trust(url) == 'OFFICIAL', 'published_at': None,
+                'text_extraction': 'available' if text.strip() else 'unavailable', 'text_partial': remaining <= 0}], digest)
+            page.etag, page.modified = response_headers.get('etag'), response_headers.get('last-modified')
+            return page
+        if not any(t in mime for t in ('text/html', 'text/plain', 'application/xhtml')): raise SourceUnavailable('Cadastre uma página pública ou PDF.')
         text = body.decode('utf-8', 'replace')
         if any(w in text.lower() for w in ('cf-chl-', 'g-recaptcha', 'h-captcha')): raise SourceUnavailable('A página exige verificação de acesso; consulte pelo navegador.')
         page = self.normalize(text, url)

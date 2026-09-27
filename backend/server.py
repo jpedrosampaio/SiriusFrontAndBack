@@ -6277,10 +6277,13 @@ class SimuladoCreate(BaseModel):
     disciplina: Optional[str] = None  # Direito, Português, Matemática, etc.
     concurso: Optional[str] = None  # TRF, TJ, Receita Federal, etc.
     question_type: str = "multipla_escolha"  # multipla_escolha, certo_errado, misto
-    num_questions: int = 10
+    num_questions: int = Field(default=10, ge=1, le=100)
     difficulty: str = "medio"  # facil, medio, dificil, misto
     area_id: Optional[str] = None
     program_id: Optional[str] = None
+    notebook_id: Optional[str] = None
+    topic_key: Optional[str] = Field(default=None, pattern=r'^\d+(?:_\d+)?$')
+    topic: Optional[str] = Field(default=None, max_length=500)
 
 class SimuladoSubmit(BaseModel):
     answers: List[Dict[str, Any]]  # [{question_idx: int, selected_answer: str}]
@@ -9501,6 +9504,19 @@ async def generate_simulado(request: Request, data: SimuladoCreate, session_toke
     """Generate a simulado with AI based on banca/disciplina/concurso"""
     auth_header = request.headers.get("Authorization")
     user = await get_current_user(authorization=auth_header, session_token=session_token)
+    if data.program_id and not await db.study_programs.find_one({'user_id': user.user_id, 'program_id': data.program_id}):
+        raise HTTPException(404, 'Preparação não encontrada.')
+    if data.notebook_id:
+        notebook = await db.notebooks.find_one({'user_id': user.user_id, 'notebook_id': data.notebook_id})
+        if not notebook: raise HTTPException(404, 'Matéria não encontrada.')
+        if data.program_id and notebook.get('program_id') != data.program_id: raise HTTPException(422, 'Matéria não pertence à preparação.')
+        data.program_id, data.area_id = notebook.get('program_id'), notebook.get('area_id')
+        data.disciplina = notebook.get('name', '')
+        if data.topic_key is not None:
+            from studies_v2 import topic_title
+            data.topic = topic_title(notebook, data.topic_key)
+    elif data.topic_key is not None:
+        raise HTTPException(422, 'Selecione a matéria para vincular o assunto.')
     
     if not await get_user_api_key(user.user_id):
         raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
@@ -9534,6 +9550,7 @@ Para certo/errado: options = ["Certo", "Errado"], correct_answer = "Certo" ou "E
     
     banca_info = f"Banca: {data.banca}. Siga o ESTILO e formato típico desta banca." if data.banca else "Sem banca específica."
     disciplina_info = f"Disciplina: {data.disciplina}." if data.disciplina else ""
+    if data.topic: disciplina_info += f"\nRestrinja todas as questões ao assunto selecionado: {data.topic}."
     concurso_info = f"Concurso: {data.concurso}." if data.concurso else ""
     
     system_msg = f"""Você é um especialista em elaboração de questões para concursos públicos brasileiros.
@@ -9603,6 +9620,16 @@ Responda APENAS com JSON válido no formato:
         
         if not questions:
             raise HTTPException(status_code=500, detail="A IA não conseguiu gerar as questões. Tente novamente.")
+        if len(questions) != num_q or any(not isinstance(q, dict) or not q.get('question_text') or not q.get('correct_answer') for q in questions):
+            raise HTTPException(502, 'A geração retornou quantidade ou questões inválidas. Nenhum simulado foi salvo; tente novamente.')
+        for question in questions:
+            question['provenance'] = 'inferred'
+            if data.notebook_id:
+                question['notebook_id'] = data.notebook_id
+                question['disciplina'] = data.disciplina
+            if data.topic_key is not None:
+                question['topic_key'] = data.topic_key
+                question['subdisciplina'] = data.topic
         
         simulado_id = f"sim_{uuid.uuid4().hex[:12]}"
         simulado_doc = {

@@ -147,6 +147,7 @@ def studies_v2_router(db, authenticate, mutate):
     @router.post('/targets')
     async def create_target(request: Request, body: TargetInput, session_token: Optional[str] = Cookie(None)):
         uid = await user(request, session_token)
+        if not request.headers.get('Idempotency-Key'): raise HTTPException(422, 'Idempotency-Key obrigatório.')
         if not body.name.strip(): raise HTTPException(422, 'Informe o nome.')
         async def apply(session, balance):
             program_id = body.program_id
@@ -214,8 +215,13 @@ def studies_v2_router(db, authenticate, mutate):
         day = datetime.now(ZoneInfo('America/Sao_Paulo')).date()
         topics = [{'notebook_id': key[0], 'topic_key': key[1], 'title': evidence[0]['title'], **mastery(evidence, day)} for key, evidence in groups.items()]
         errors = [r for r in rows if not r['correct']]
+        days = defaultdict(lambda: {'total': 0, 'correct': 0})
+        for row in rows:
+            days[row['date'][:10]]['total'] += 1
+            days[row['date'][:10]]['correct'] += int(row['correct'])
+        trend = [{'date': day, **counts, 'accuracy': round(100 * counts['correct'] / counts['total'], 1)} for day, counts in sorted(days.items())[-30:]]
         return {'topics': topics, 'summary': mastery(rows, day), 'error_causes': dict(Counter(r.get('error_reason') or 'unclassified' for r in errors)),
-                'errors': errors[:100], 'truncated': len(rows) == 5000, 'sample_limit': 5000}
+                'errors': errors[:100], 'trend': trend, 'truncated': len(rows) == 5000, 'sample_limit': 5000}
 
     @router.get('/library')
     async def library(request: Request, program_id: Optional[str] = None, notebook_id: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
@@ -274,6 +280,38 @@ def studies_v2_router(db, authenticate, mutate):
         return {'items': sorted(suggestions, key=lambda r: (-r['priority'], r['title']))[:10], 'requires_confirmation': True,
                 'notice': 'Sugestões calculadas com pesos registrados, respostas e revisões. O plano atual não foi alterado.'}
 
+    @router.get('/programs/{program_id}/overview')
+    async def overview(request: Request, program_id: str, session_token: Optional[str] = Cookie(None)):
+        uid = await user(request, session_token)
+        program = await owned_program(uid, program_id)
+        own = {'user_id': uid, 'program_id': program_id}
+        target = await db.study_targets.find_one(own, {'_id': 0}) or {}
+        notebooks = await db.notebooks.find(own, {'_id': 0}).to_list(200)
+        progress = await db.topic_progress.find({'user_id': uid, 'notebook_id': {'$in': [n['notebook_id'] for n in notebooks]}}, {'_id': 0}).to_list(200)
+        by_notebook = {p['notebook_id']: p.get('topics', {}) for p in progress}
+        total = covered = 0
+        for nb in notebooks:
+            for i, topic in enumerate(nb.get('conteudo_programatico') or nb.get('topicos') or []):
+                keys = [str(i)] + [f'{i}_{j}' for j, _ in enumerate(topic.get('subtopicos', []))] if isinstance(topic, dict) else [str(i)]
+                total += len(keys)
+                covered += sum(bool(by_notebook.get(nb['notebook_id'], {}).get(key, {}).get('studied')) for key in keys)
+        attempts = await db.study_attempts.find(own, {'_id': 0}).sort('created_at', -1).to_list(5000)
+        day = datetime.now(ZoneInfo('America/Sao_Paulo')).date()
+        from dashboard_service import aggregate_one
+        counts = await aggregate_one(db.question_logs, own, {'total': {'$sum': '$total'}, 'correct': {'$sum': '$correct'}})
+        groups = defaultdict(list)
+        for a in attempts: groups[(a['notebook_id'], a['topic_key'])].append(a)
+        topics = [{'title': rows[0]['title'], 'notebook_id': key[0], 'topic_key': key[1], **mastery(rows, day)} for key, rows in groups.items()]
+        plan = await db.study_dated_plans.find_one(own, {'_id': 0}) or {}
+        upcoming = sorted([e for e in plan.get('entries', []) if not e.get('completed') and e.get('date', '') >= day.isoformat()], key=lambda e: e['date'])
+        target_date = target.get('exam_date') or program.get('target_date')
+        try: remaining = (date.fromisoformat(str(target_date)[:10]) - day).days
+        except ValueError: remaining = None
+        return {'target': target, 'target_date': target_date, 'days_remaining': remaining, 'coverage': {'studied': covered, 'total': total, 'percent': round(100 * covered / total) if total else None},
+            'mastery': mastery(attempts, day), 'questions': counts.get('total', 0), 'accuracy': round(100 * counts.get('correct', 0) / counts['total'], 1) if counts.get('total') else None,
+            'study_minutes': sum(n.get('total_study_time_minutes', 0) for n in notebooks), 'weakest': min(topics, key=lambda t: t['score']) if topics else None,
+            'next_session': upcoming[0] if upcoming else None}
+
     @router.get('/reviews')
     async def reviews(request: Request, program_id: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
         uid = await user(request, session_token)
@@ -284,6 +322,17 @@ def studies_v2_router(db, authenticate, mutate):
         day = datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()
         rows = await db.study_topic_reviews.find({**own, 'due_date': {'$lte': day}}, {'_id': 0}).sort('due_date', 1).to_list(300)
         queue = [{**r, 'kind': 'topic', 'reason': r.get('reason') or f"{r.get('accuracy', 0)}% de acertos; revisão prevista para {r['due_date']}"} for r in rows]
+        due_topics = {(r['notebook_id'], r['topic_key']): r['due_date'] for r in rows}
+        recent = await db.study_attempts.find(own, {'_id': 0}).sort('created_at', -1).to_list(2000)
+        seen = set()
+        for attempt in recent:
+            key = (attempt['notebook_id'], attempt['topic_key'], attempt.get('question_id') or attempt.get('question'))
+            if key in seen: continue
+            seen.add(key)
+            due_date = due_topics.get(key[:2])
+            if attempt.get('correct') is False and due_date:
+                queue.append({**attempt, 'kind': 'wrong_question', 'due_date': due_date, 'reason': 'Última resposta incorreta; refaça a questão e revise o assunto.'})
+                if sum(r['kind'] == 'wrong_question' for r in queue) >= 100: break
         notebooks = await db.notebooks.find(own, {'notebook_id': 1}).to_list(500)
         ids = [n['notebook_id'] for n in notebooks]
         cards = await db.flashcards.find({'user_id': uid, 'notebook_id': {'$in': ids}, 'next_review': {'$lte': day}}, {'_id': 0}).sort('next_review', 1).to_list(100)

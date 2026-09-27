@@ -43,5 +43,19 @@ class ContestSourceTests(unittest.TestCase):
             self.assertIsNone(GenericOfficialConnector().poll('https://example.com/contest', 'v1', 'yesterday'))
             self.assertEqual(fetch.call_args.args[1], {'If-None-Match': 'v1', 'If-Modified-Since': 'yesterday'})
 
+    def test_pdf_uses_content_hash_even_without_extractable_text(self):
+        from io import BytesIO
+        from pypdf import PdfWriter
+        import hashlib
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        buffer = BytesIO(); writer.write(buffer)
+        content = buffer.getvalue()
+        with patch('contest_sources.fetch_public', side_effect=[(404, {}, b''), (200, {'content-type': 'application/pdf'}, content)]):
+            page = GenericOfficialConnector().poll('https://example.com/edital.pdf')
+        self.assertEqual(page.content_hash, hashlib.sha256(content).hexdigest())
+        self.assertEqual(page.documents[0]['hash_basis'], 'document_bytes')
+        self.assertEqual(page.documents[0]['text_extraction'], 'unavailable')
+
 
 if __name__ == '__main__': unittest.main()

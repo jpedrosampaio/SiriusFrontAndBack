@@ -167,7 +167,15 @@ def workspace_router(db, authenticate, mutate):
                     {'$group': {'_id': '$notebook_id', 'total': {'$sum': '$total'}, 'correct': {'$sum': '$correct'}}}
                 ], session=session).to_list(None)
                 overdue = {e.get('notebook_id') for e in previous.get('entries', []) if not e.get('completed') and e['date'] < body.start_date.isoformat()}
-                notebooks = adapt_notebooks(notebooks, {r['_id']: r for r in rows}, overdue)
+                from study_mastery import mastery
+                from collections import defaultdict
+                evidence = await db.study_attempts.find({'user_id': user_id, 'program_id': program_id}, {'_id': 0}, session=session).sort('created_at', -1).to_list(5000)
+                grouped = defaultdict(list)
+                for answer in evidence: grouped[answer['notebook_id']].append(answer)
+                estimates = {nb: mastery(records, CalendarDate.fromisoformat(today)) for nb, records in grouped.items()}
+                due = await db.study_topic_reviews.find({'user_id': user_id, 'program_id': program_id, 'due_date': {'$lte': today}}, {'notebook_id': 1}, session=session).to_list(1000)
+                overdue.update(r['notebook_id'] for r in due)
+                notebooks = adapt_notebooks(notebooks, {r['_id']: r for r in rows}, overdue, estimates)
             fixed = await db.calendar_commitments.find({'user_id': user_id, 'date': {'$gte': body.start_date.isoformat(), '$lte': body.end_date.isoformat()}}, {'_id': 0, 'date': 1, 'start_minute': 1, 'end_minute': 1}, session=session).to_list(1000)
             reserved = {}
             for commitment in fixed:
@@ -195,6 +203,8 @@ def workspace_router(db, authenticate, mutate):
                 if not settings['start_date'] <= iso <= settings['end_date']:
                     raise HTTPException(422, 'Data fora do período planejado.')
                 occupied = sum(e['minutes'] for e in doc['entries'] if e['date'] == iso and e['entry_id'] != entry_id)
+                commitments = await db.calendar_commitments.find({'user_id': user_id, 'date': iso}, {'start_minute': 1, 'end_minute': 1}, session=session).to_list(1000)
+                occupied += sum(max(0, c['end_minute'] - c['start_minute']) for c in commitments)
                 if occupied + entry['minutes'] > settings['availability'][body.date.weekday()]:
                     raise HTTPException(422, 'Este dia não tem tempo disponível para o bloco.')
                 entry['date'] = iso
