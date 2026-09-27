@@ -1,10 +1,16 @@
 # Sirius — handoff
 
-## UX 2.0 / Studies 2.0 — entrega em validação
+## UX 2.0 / Studies 2.0 — publicada
 
 Branch `feat/sirius-ux-studies-2`, baseada em `883d790`. AppShell único, Sirius contextual com anexos, quatro áreas de estudos, preparações genéricas, foco retomável, domínio por evidências, banco de erros, revisões, plano adaptativo, simulados transacionais e acompanhamento de fontes públicas. Arquitetura, limites e operação em [docs/UX_STUDIES_2.md](docs/UX_STUDIES_2.md).
 
-Validação local: lint sem avisos, build de produção, 39 testes frontend, 18 de segurança e 162 regressões backend (37 dependentes de Mongo ignoradas localmente; executadas nos jobs dedicados de CI). Smoke local de navegador passou em 1440/1024/768/390/320 px após corrigir o cabeçalho, métricas e abas de Treinos. PR #20 aberto. CI final e smoke público serão registrados após publicação.
+PR [#20](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/20) incorporado à main: `c9aa889980f78281f73f87b645e99a738ee1786f`. Revisão de código validada: `37086a3821016a7a8ea27447c8964a4d6850b7ad`. CI final do PR passou integralmente: [backend/Mongo](https://github.com/jpedrosampaio/SiriusFrontAndBack/actions/runs/36285727080) e [frontend/browser](https://github.com/jpedrosampaio/SiriusFrontAndBack/actions/runs/36285727047).
+
+Validação: lint sem avisos, build de produção, 39 testes frontend, 18 de segurança e 162 regressões backend (37 dependentes de Mongo ignoradas na execução isolada; cobertas pelos jobs dedicados). Replica set: atividades/rollback, 13 testes do Agent e cinco de estudos/simulados, incluindo replay concorrente e isolamento. Smoke em 1440/1024/768/390/320 px, troca de conta, compacto/tela cheia com anexo, fechamento com teclado móvel, preparo/biblioteca/desempenho e foco persistente. Treinos ativos também passaram em desktop/mobile.
+
+Foi reproduzida e corrigida uma contenção intermitente entre recompensas de XP independentes e transações de tarefas/hábitos. Em replica sets, recompensas independentes agora usam transações com retry; Mongo standalone mantém CAS. O teste misto permaneceu ativo e passou na revisão final.
+
+Smoke público após merge: `/studies` HTTP 200 com bundle `main.067ce350.js`; OpenAPI HTTP 200 com 248 caminhos, incluindo targets, attempts, performance, library, overview, timeline, blueprint e anexos. Novas leituras privadas retornam 401 sem autenticação. Preflight permite a origem do frontend e `Idempotency-Key`. Frontend e backend novos estão disponíveis; validação pública não escreveu dados de usuários nem chamou provedores de IA.
 
 O pedido recebido termina truncado em `67. IMPACT ANAL`. A continuação foi solicitada e não recebida; não presumir requisitos posteriores. Credencial de criptografia no Render continua sem confirmação do usuário. Não foram feitas chamadas pagas de IA nem escritas autenticadas em produção.
 

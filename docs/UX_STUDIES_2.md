@@ -59,6 +59,8 @@ Referências do desenho: [robots RFC 9309](https://www.rfc-editor.org/rfc/rfc930
 
 Novas coleções e índices são criados no startup; não há descarte ou reescrita em massa de dados existentes. MongoDB Atlas oferece as transações necessárias. Credenciais Gemini/Groq e `AI_KEY_ENCRYPTION_KEY` seguem a configuração da entrega anterior. O watcher não exige nova chave nem serviço pago.
 
+Recompensas independentes de XP usam transações em replica sets para não disputar atualizações CAS externas com transações abertas de tarefas/hábitos. O modo standalone mantém CAS. A correção foi validada com o cenário real de escritores mistos e não reduz os testes de concorrência. Referência: [conflitos e transações MongoDB](https://www.mongodb.com/docs/manual/core/transactions-production-consideration/).
+
 Testes cobrem domínio/amostras, revisões, capacidade, preservação de blocos, contagem/pesos, vínculo de questões e isolamento, URLs/robots/DNS/hash, replay concorrente com Mongo replica set e interfaces em 1440/1024/768/390/320 px. Provedores são simulados; sem chamadas pagas ou gravações em contas reais. Resultados finais de CI/deploy são registrados no HANDOFF.
 
 Limites conhecidos: janela de 5.000 respostas no painel/recomendações, 500 por revisão individual, filas e bibliotecas paginadas por limites internos; não há catálogo universal de provas nem garantia de extração de sites dinâmicos. A revisão visual preserva interfaces especializadas existentes; não reescreve todos os formulários do produto. A continuação a partir da seção 67 ainda precisa ser fornecida para definir seu escopo.
