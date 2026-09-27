@@ -76,6 +76,7 @@ const server = http.createServer((req, res) => {
           if (url.pathname === '/api/dashboard/panels') body = {panels: {}, errors: []};
           if (url.pathname === '/api/ai/conversation') body = {messages: [{message_id: 'fixture-private', role: 'assistant', content: 'Conversa sintética desta conta', actions: [{ action_id: 'fixture-expense', summary: 'Registrar despesa', reason: 'Pedido explícito', arguments: { amount: 48, category: 'Alimentação', date: '2026-09-26' }, status: actionStatus, expires_at: new Date(Date.now() + 1200000).toISOString() }] }]};
           if (url.pathname === '/api/ai/actions/fixture-expense/confirm') { actionConfirmations++; actionStatus = 'executed'; body = { status: actionStatus }; }
+          if (url.pathname === '/api/ai/attachments') body = { attachment_id: 'fixture-file', filename: 'material-teste.pdf', provenance: 'extracted', indexed: true };
           if (url.pathname.endsWith('/draft')) {
             const key = url.pathname + url.search;
             if (route.request().method() === 'PUT') { const data = route.request().postDataJSON(); drafts.set(key, { text: data.text, revision: (drafts.get(key)?.revision || 0) + 1 }); }
@@ -150,6 +151,16 @@ const server = http.createServer((req, res) => {
           }
           await close.click(); await launcher.waitFor({ state: 'visible' });
           await launcher.click(); await page.keyboard.press('Escape'); await launcher.waitFor({ state: 'visible' });
+          if (width === 1440) {
+            await launcher.click();
+            await page.getByLabel('Anexar PDF ou imagem ao Sirius').setInputFiles({ name: 'material-teste.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-fixture') });
+            await page.getByText(/material-teste.pdf/).waitFor();
+            await page.getByRole('link', { name: 'Abrir Sirius em tela cheia' }).click();
+            await page.getByText(/material-teste.pdf/).waitFor();
+            await page.evaluate(() => window.dispatchEvent(new Event('sirius-auth-changed')));
+            await page.getByText(/material-teste.pdf/).waitFor({ state: 'hidden' });
+            await page.goto('http://127.0.0.1:4173/dashboard');
+          }
           await page.reload(); await launcher.waitFor();
         }
         if (name === 'studies') {

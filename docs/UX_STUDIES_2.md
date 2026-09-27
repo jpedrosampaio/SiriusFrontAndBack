@@ -41,7 +41,7 @@ Banco de erros permite classificar a causa, revisar o assunto e refazer questõe
 
 ## Biblioteca
 
-Centraliza notas, rascunhos de sessão, flashcards, links registrados, editais e anexos indexados, com busca textual e filtros de preparação, matéria e tipo. O conteúdo integral continua nas telas de origem; a biblioteca mostra prévias. Aulas contextuais usam a integração YouTube existente e continuam identificadas como fontes externas. Sem chave configurada, há pesquisa contextual por link; nenhum resultado é apresentado como oficial.
+Centraliza notas, rascunhos de sessão, flashcards, links registrados, editais e anexos indexados, com busca textual e filtros de preparação, matéria, assunto e tipo. O conteúdo integral continua nas telas de origem; a biblioteca mostra prévias. Aulas por assunto na biblioteca e na sessão usam a integração YouTube existente e continuam identificadas como fontes externas. Sem chave configurada, há pesquisa contextual por link; nenhum resultado é apresentado como oficial.
 
 ## Fontes de concursos
 

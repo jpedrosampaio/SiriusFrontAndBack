@@ -81,11 +81,13 @@ async def submit_exam(db, user_id, simulado_id, submission, request, mutate, awa
             from hashlib import sha256
             topic_own = {**own, 'notebook_id': notebook_id, 'topic_key': topic_key}
             history = await db.study_attempts.find(topic_own, {'_id': 0}, session=session).sort('created_at', -1).to_list(500)
-            review = adaptive_review(history, day)
+            previous_review = await db.study_topic_reviews.find_one(topic_own, session=session) or {}
+            review_count = previous_review.get('review_count', 0) + int(bool(previous_review.get('date') and previous_review['date'] < day.isoformat()))
+            review = adaptive_review(history, day, previous_reviews=review_count)
             await db.study_topic_reviews.update_one({'_id': sha256(f'{user_id}:{notebook_id}:{topic_key}'.encode()).hexdigest()}, {'$set': {
                 **topic_own, 'program_id': exam.get('program_id'), 'title': records[0]['title'], 'date': day.isoformat(),
                 'due_date': review['due_date'], 'reason': review['reason'], 'mastery': review['mastery'], 'total': len(history),
-                'correct': sum(r['correct'] for r in history), 'accuracy': review['mastery']['accuracy']}}, upsert=True, session=session)
+                'correct': sum(r['correct'] for r in history), 'accuracy': review['mastery']['accuracy'], 'review_count': review_count}}, upsert=True, session=session)
             await db.notebooks.update_one({**own, 'notebook_id': notebook_id}, {'$inc': {'total_questions': len(records), 'correct_questions': sum(r['correct'] for r in records)}}, session=session)
         doc['mastery_answers_linked'] = sum(len(r) for r in grouped.values())
         doc['xp_earned'] = result['correct_count'] * 2

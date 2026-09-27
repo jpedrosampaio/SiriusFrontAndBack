@@ -60,13 +60,17 @@ class Retrieval:
         for key, field in [('analysis', 'analysis_id'), ('notebook', 'notebook_id')]:
             if key not in selection: continue
             source_id = selection[key][field]
-            if await self.db.ai_chunks.find_one({'user_id': user_id, 'source_id': source_id}, {'_id': 1}): continue
+            if key == 'analysis' and await self.db.ai_chunks.find_one({'user_id': user_id, 'source_id': source_id}, {'_id': 1}): continue
             if key == 'analysis': await self.index_edital(user_id, source_id)
             else: await self.index_notebook(user_id, source_id)
 
     async def index_pages(self, user_id, source_id, source_type, pages, source):
         batch = list(chunks(pages))[:2000]
         generation = hashlib.sha256(''.join(c['hash'] for c in batch).encode()).hexdigest()
+        existing = await self.db.ai_chunks.count_documents({'user_id': user_id, 'source_id': source_id, 'source_type': source_type, 'generation': generation}, limit=len(batch) + 1)
+        if batch and existing == len(batch):
+            await self.db.ai_chunks.delete_many({'user_id': user_id, 'source_id': source_id, 'source_type': source_type, 'generation': {'$ne': generation}})
+            return {'chunks': len(batch), 'method': 'lexical', 'source_id': source_id, 'unchanged': True}
         embed_available = bool(self.vector_index)
         for i, chunk in enumerate(batch):
             key = hashlib.sha256(f'{user_id}:{source_type}:{source_id}:{generation}:{i}'.encode()).hexdigest()

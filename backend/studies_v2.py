@@ -138,7 +138,7 @@ def studies_v2_router(db, authenticate, mutate):
                     except HTTPException: question.pop('topic_key', None)
             doc = {'simulado_id': 'sim_' + uuid4().hex, 'user_id': uid, 'program_id': program_id, 'area_id': program.get('area_id'),
                    'title': body.title, 'description': 'Montado com questões existentes conforme a distribuição extraída do edital.',
-                   'source_type': 'edital_blueprint', 'questions': questions, 'total_questions': len(questions), 'question_type': 'misto',
+                   'source_type': 'edital_blueprint', 'questions': questions, 'total_questions': len(questions), 'questions_count': len(questions), 'question_type': 'misto', 'status': 'ready',
                    'duration_minutes': body.duration_minutes, 'duration_provenance': 'user_provided', 'blueprint': plan, 'created_at': datetime.now(timezone.utc).isoformat()}
             await db.simulados.insert_one(dict(doc), session=session)
             return doc
@@ -183,7 +183,9 @@ def studies_v2_router(db, authenticate, mutate):
                    'error_reason': None if body.correct else body.error_reason}
             evidence = await db.study_attempts.find(own, {'_id': 0}, session=session).sort('created_at', -1).to_list(499)
             evidence.append(row)
-            review = adaptive_review(evidence, day, difficulty=body.difficulty)
+            previous = await db.study_topic_reviews.find_one(own, session=session) or {}
+            review_count = previous.get('review_count', 0) + int(bool(previous.get('date') and previous['date'] < day.isoformat()))
+            review = adaptive_review(evidence, day, previous_reviews=review_count, difficulty=body.difficulty)
             await db.study_attempts.insert_one(dict(row), session=session)
             await db.question_logs.insert_one({**own, 'program_id': notebook.get('program_id'), 'log_id': row['attempt_id'], 'total': 1, 'correct': int(body.correct), 'incorrect': int(not body.correct), 'source': 'individual_attempt', 'date': day.isoformat(), 'created_at': now}, session=session)
             await db.notebooks.update_one({'user_id': uid, 'notebook_id': body.notebook_id}, {'$inc': {'total_questions': 1, 'correct_questions': int(body.correct)}}, session=session)
@@ -191,7 +193,7 @@ def studies_v2_router(db, authenticate, mutate):
             review_id = sha256(f'{uid}:{body.notebook_id}:{body.topic_key}'.encode()).hexdigest()
             await db.study_topic_reviews.update_one({'_id': review_id}, {'$set': {**own, 'program_id': notebook.get('program_id'), 'title': title,
                 'due_date': review['due_date'], 'reason': review['reason'], 'total': len(evidence), 'correct': sum(r['correct'] for r in evidence),
-                'accuracy': review['mastery']['accuracy'], 'date': day.isoformat(), 'mastery': review['mastery']}}, upsert=True, session=session)
+                'accuracy': review['mastery']['accuracy'], 'date': day.isoformat(), 'mastery': review['mastery'], 'review_count': review_count}}, upsert=True, session=session)
             return {**row, 'review': review}
         return await mutate(uid, request.headers.get('Idempotency-Key'), ['study-attempt', body.model_dump()], apply)
 

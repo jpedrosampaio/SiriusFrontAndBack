@@ -32,7 +32,7 @@ def adaptive_review(attempts, today=None, previous_reviews=0, difficulty=None):
     today = today or date.today()
     result = mastery(attempts, today)
     score = result['score']
-    recent = sorted(attempts, key=lambda a: a.get('date', ''), reverse=True)[:5]
+    recent = sorted(attempts, key=lambda a: a.get('created_at') or a.get('date', ''), reverse=True)[:5]
     recent_errors = sum(a.get('correct') is False for a in recent)
     if score is None:
         interval, reason = 1, 'Sem amostra; revisão inicial sugerida.'

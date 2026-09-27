@@ -49,6 +49,11 @@ class MasteryTests(unittest.TestCase):
         self.assertGreater(weak['priority'], normal['priority'])
         self.assertIn('revisão vencida', weak['reasons'])
 
+    def test_late_same_day_errors_are_recent_even_if_appended(self):
+        rows = [{**row, 'created_at': '2026-09-26T08:00:00+00:00'} for row in self.evidence(50, 50)]
+        rows.extend({'date': '2026-09-26', 'correct': False, 'created_at': '2026-09-26T20:00:00+00:00'} for _ in range(2))
+        self.assertEqual(adaptive_review(rows, self.day)['interval_days'], 1)
+
     def test_reference_validation_and_strict_correct(self):
         with self.assertRaises(ValidationError):
             AttemptInput(notebook_id='n', topic_key='0.$x', question='q', correct=True)
