@@ -228,8 +228,8 @@ def studies_v2_router(db, authenticate, mutate):
         uid = await user(request, session_token)
         own = {'user_id': uid}
         if program_id: await owned_program(uid, program_id)
-        notebooks = await db.notebooks.find({**own, **({'program_id': program_id} if program_id else {}), **({'notebook_id': notebook_id} if notebook_id else {})}, {'_id': 0, 'notebook_id': 1, 'program_id': 1, 'name': 1}).to_list(500)
-        ids = [n['notebook_id'] for n in notebooks]
+        notebooks = await db.notebooks.find({**own, **({'program_id': program_id} if program_id else {})}, {'_id': 0, 'notebook_id': 1, 'program_id': 1, 'name': 1, 'conteudo_programatico': 1, 'topicos': 1}).to_list(500)
+        ids = [n['notebook_id'] for n in notebooks if not notebook_id or n['notebook_id'] == notebook_id]
         scope = {**own, 'notebook_id': {'$in': ids}}
         rows = []
         for collection, kind, id_field, title_field, content_field in [('study_notes', 'note', 'note_id', 'title', 'content'), ('study_drafts', 'summary', 'topic_key', 'topic_key', 'text'), ('flashcards', 'flashcard', 'flashcard_id', 'front', 'back')]:

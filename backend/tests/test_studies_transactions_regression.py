@@ -64,8 +64,9 @@ class StudyTransactions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.db.study_attempts.count_documents({}), 1)
         self.assertEqual(await self.db.question_logs.count_documents({}), 1)
         self.assertEqual((await self.db.notebooks.find_one({'notebook_id': 'nb'}))['total_questions'], 1)
-        foreign = await self.http.post('/api/study/v2/attempts', json=body, headers={'Authorization': 'Bearer bob', 'Idempotency-Key': 'foreign'})
-        self.assertEqual(foreign.status_code, 404)
+        foreign = await self.http.post('/api/study/v2/attempts', json=body, headers={'Authorization': 'Bearer bob', 'Idempotency-Key': 'foreign-owner-attempt'})
+        self.assertEqual(foreign.status_code, 404, foreign.text)
+        self.assertEqual(await self.db.study_attempts.count_documents({}), 1)
         self.assertEqual((await self.http.get('/api/study/v2/performance', headers={'Authorization': 'Bearer bob'})).json()['summary']['samples'], 0)
 
     async def test_target_creation_replay_does_not_duplicate_program(self):

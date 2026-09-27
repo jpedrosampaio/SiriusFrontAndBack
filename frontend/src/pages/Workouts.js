@@ -2074,7 +2074,7 @@ export default function Workouts() {
 
           {/* Stats Summary - Compact */}
           {stats && (
-            <div className="sirius-workout-stats flex items-center gap-6 p-4 bg-[#0A0A0A] border border-[#27272A] rounded-lg mb-6">
+            <div className="sirius-workout-stats flex flex-wrap items-center gap-6 p-4 bg-[#0A0A0A] border border-[#27272A] rounded-lg mb-6">
               <div className="flex items-center gap-2">
                 <Dumbbell className="w-5 h-5 text-[#00F0FF]" />
                 <span className="text-xs text-[#A1A1AA] uppercase">Treinos</span>
@@ -2141,7 +2141,7 @@ export default function Workouts() {
 
           <section className="sirius-workout-flow mb-6 rounded-2xl border border-slate-700 bg-slate-900/50 p-4"><div className="flex flex-wrap items-center gap-3"><p className="text-sm text-slate-300 flex-1">{activeSession ? `Em andamento: ${activeSession.plan_name}` : 'Planeje seu treino, registre cada série e acompanhe sua evolução.'}</p><Button variant="outline" onClick={() => setActiveTab('plans')}>1. Meu plano</Button><Button disabled={!activeSession} onClick={() => setActiveTab('session')}>2. {activeSession ? 'Retomar treino' : 'Executar treino'}</Button><Button variant="outline" onClick={() => setActiveTab('evolution')}>3. Evolução</Button></div>{sessionSaving && <p role="status" className="text-sm text-blue-300 mt-3">Salvando seu progresso…</p>}</section>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="bg-[#0A0A0A] border border-[#27272A] mb-6 overflow-x-auto flex-nowrap w-full justify-start md:justify-center">
+            <TabsList className="bg-[#0A0A0A] border border-[#27272A] mb-6 overflow-x-auto flex-nowrap w-full max-w-full justify-start xl:justify-center">
               <TabsTrigger value="log" className="data-[state=active]:bg-[#27272A]">
                 <Activity className="w-4 h-4 mr-2" /> Hoje
               </TabsTrigger>
