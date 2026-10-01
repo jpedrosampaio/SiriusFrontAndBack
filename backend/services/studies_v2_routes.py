@@ -156,7 +156,7 @@ async def library(request: Request,program_id: UUID | None = None,notebook_id: U
             analyses=(await session.execute(select(EditalAnalysis,FileRecord.filename).outerjoin(FileRecord,
                 (FileRecord.id==EditalAnalysis.file_id)&(FileRecord.user_id==EditalAnalysis.user_id)).where(EditalAnalysis.user_id==uid)
                 .order_by(EditalAnalysis.created_at.desc()).limit(100))).all()
-            items.extend({'id':str(row.id),'kind':'edital','title':filename or 'Edital','analysis_id':str(row.id),'provenance':'extracted'} for row,filename in analyses)
+            items.extend({'id':str(row.id),'kind':'edital','title':filename or row.filename or 'Edital','analysis_id':str(row.id),'provenance':'extracted'} for row,filename in analyses)
     return {'items':items[:1000],'notebooks':notebooks,'truncated':len(items)>=1000,
         'scope':'materiais indexados e notas; fontes externas identificadas separadamente'}
 

@@ -11,6 +11,7 @@ import os
 import logging
 import json
 from pathlib import Path
+from services import edital_analyses as sql_edital
 from edital_quality import edital_context, needs_disciplines, generic_discipline, normalized_name, mark_discipline_quality
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Literal
@@ -8215,17 +8216,14 @@ async def process_edital_analysis(user, file, force=False):
     pdf_hash = hashlib.sha256(content).hexdigest()
     cached = None
     if not force:
-        cached = await db.edital_analyses.find_one(
-            {"user_id": user.user_id, "pdf_hash": pdf_hash, "analysis_version": 5},
-            {"_id": 0}
-        )
+        cached = await sql_edital.cached(user.user_id, pdf_hash, 5)
     if (
         cached and cached.get("cargos")
         and all(not needs_disciplines(c) for c in cached["cargos"])
         and len(cached["cargos"]) >= _detect_min_cargos(cached.get("pdf_text", ""))
     ):
         # Refresh expiry and return cached (só usa cache se houver disciplinas e nº de cargos plausível)
-        new_analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
+        new_analysis_id = str(uuid.uuid4())
         cached_copy = {
             "analysis_id": new_analysis_id,
             "user_id": user.user_id,
@@ -8241,7 +8239,7 @@ async def process_edital_analysis(user, file, force=False):
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
             "from_cache": True,
         }
-        await db.edital_analyses.insert_one(cached_copy)
+        await sql_edital.save(user.user_id,cached_copy)
         return {
             "success": True,
             "analysis_id": new_analysis_id,
@@ -8490,7 +8488,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
                 discipline.update(scoring_evidence(discipline, pdf_text))
                 discipline["fontes"] = locate_subject(discipline.get("nome"), pages)
 
-        analysis_id = f"edital_analysis_{uuid.uuid4().hex[:12]}"
+        analysis_id = str(uuid.uuid4())
         # (item 6) — guardamos o texto extraído do PDF para alimentar o chat sobre este edital
         # sem precisar re-uploadar o PDF a cada mensagem (Gemini File URIs expiram em 48h).
         analysis_doc = {
@@ -8510,7 +8508,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
             "from_cache": False,
         }
-        await db.edital_analyses.insert_one(analysis_doc)
+        await sql_edital.save(user.user_id,analysis_doc)
         if agent_runtime.settings.rag:
             await agent_runtime.retrieval.index_edital(user.user_id, analysis_id)
         await agent_runtime.automations.emit(user.user_id, 'edital.updated', analysis_id)
@@ -8541,162 +8539,13 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
 # ========== EDITAIS: LIST / COMPARE / CHAT ==========
 # (itens 4 e 6 do backlog)
 
-def _project_edital_summary(doc: dict) -> dict:
-    """Return a lightweight summary of an edital_analysis document for list responses."""
-    return {
-        "analysis_id": doc.get("analysis_id"),
-        "pdf_filename": doc.get("pdf_filename"),
-        "pdf_hash": doc.get("pdf_hash"),
-        "concurso": doc.get("concurso") or {},
-        "num_cargos": len(doc.get("cargos") or []),
-        "cargos_names": [c.get("nome", "") for c in (doc.get("cargos") or [])],
-        "created_at": doc.get("created_at"),
-        "expires_at": doc.get("expires_at"),
-    }
 
 
-@api_router.get("/study/programs/editais")
-async def list_editais(request: Request, session_token: Optional[str] = Cookie(None)):
-    """List all edital analyses saved for the current user (for comparison / chat)."""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-
-    cursor = db.edital_analyses.find(
-        {"user_id": user.user_id, "cargos": {"$exists": True, "$ne": []}},
-        {"_id": 0, "pdf_text": 0, "pdf_pages": 0},   # pdf_text pode ser grande, não trazer aqui
-    ).sort("created_at", -1).limit(200)
-    docs = await cursor.to_list(length=200)
-
-    # Deduplicate by pdf_hash (mesmo edital sub-analisado várias vezes)
-    seen = set()
-    unique = []
-    for d in docs:
-        h = d.get("pdf_hash")
-        if h and h in seen:
-            continue
-        if h:
-            seen.add(h)
-        unique.append(_project_edital_summary(d))
-    return {"editais": unique, "total": len(unique)}
 
 
-@api_router.get("/study/programs/editais/{analysis_id}")
-async def get_edital_analysis(request: Request, analysis_id: str, session_token: Optional[str] = Cookie(None)):
-    """Open a saved structured edital analysis without returning its raw PDF text."""
-    user = await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
-    analysis = await db.edital_analyses.find_one(
-        {"analysis_id": analysis_id, "user_id": user.user_id}, {"_id": 0, "pdf_text": 0, "pdf_pages": 0}
-    )
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Análise não encontrada. Reenvie o edital para analisá-lo novamente.")
-    mark_discipline_quality(analysis.get("cargos", []))
-    return analysis
 
 
-@api_router.delete("/study/programs/editais/{analysis_id}")
-async def delete_edital_analysis(
-    analysis_id: str,
-    request: Request,
-    session_token: Optional[str] = Cookie(None)
-):
-    """Delete an edital analysis AND all cached copies of the same PDF (mesmo pdf_hash)."""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    # Primeiro descobre o pdf_hash do documento sendo removido
-    doc = await db.edital_analyses.find_one(
-        {"analysis_id": analysis_id, "user_id": user.user_id},
-        {"pdf_hash": 1}
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="Análise não encontrada.")
-    pdf_hash = doc.get("pdf_hash")
-    if pdf_hash:
-        result = await db.edital_analyses.delete_many({"pdf_hash": pdf_hash, "user_id": user.user_id})
-        deleted = result.deleted_count
-    else:
-        result = await db.edital_analyses.delete_one({"analysis_id": analysis_id, "user_id": user.user_id})
-        deleted = 1
-    return {"success": True, "message": f"{deleted} análise(s) removida(s).", "deleted_count": deleted}
 
-@api_router.post("/study/programs/editais/compare")
-async def compare_editais(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
-    """Diff two edital analyses.
-
-    Body: { "analysis_id_a": "...", "analysis_id_b": "..." }
-    Returns:
-      {
-        "concurso_a": {...}, "concurso_b": {...},
-        "cargos_added":   [{...cargo B not in A}],
-        "cargos_removed": [{...cargo A not in B}],
-        "cargos_changed": [{ "nome":"...", "disciplinas_added":[], "disciplinas_removed":[] }],
-        "cargos_unchanged": [names]
-      }
-    """
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-
-    aid_a = (data or {}).get("analysis_id_a")
-    aid_b = (data or {}).get("analysis_id_b")
-    if not aid_a or not aid_b:
-        raise HTTPException(status_code=400, detail="Informe analysis_id_a e analysis_id_b.")
-    if aid_a == aid_b:
-        raise HTTPException(status_code=400, detail="Selecione dois editais diferentes.")
-
-    doc_a = await db.edital_analyses.find_one({"analysis_id": aid_a, "user_id": user.user_id}, {"_id": 0})
-    doc_b = await db.edital_analyses.find_one({"analysis_id": aid_b, "user_id": user.user_id}, {"_id": 0})
-    if not doc_a or not doc_b:
-        raise HTTPException(status_code=404, detail="Uma das análises não foi encontrada.")
-
-    def _norm(s: str) -> str:
-        return _normalize_cargo_name(s or "")
-
-    cargos_a = doc_a.get("cargos") or []
-    cargos_b = doc_b.get("cargos") or []
-
-    by_a = {_norm(c.get("nome", "")): c for c in cargos_a}
-    by_b = {_norm(c.get("nome", "")): c for c in cargos_b}
-
-    added_keys = [k for k in by_b if k not in by_a]
-    removed_keys = [k for k in by_a if k not in by_b]
-    common_keys = [k for k in by_a if k in by_b]
-
-    def _disc_names(cargo: dict) -> set:
-        return {(d.get("nome") or "").strip() for d in (cargo.get("disciplinas") or []) if d.get("nome")}
-
-    changed = []
-    unchanged = []
-    for k in common_keys:
-        da = _disc_names(by_a[k])
-        db_ = _disc_names(by_b[k])
-        added_d = sorted(db_ - da)
-        removed_d = sorted(da - db_)
-        if added_d or removed_d:
-            changed.append({
-                "nome": by_b[k].get("nome") or by_a[k].get("nome"),
-                "disciplinas_added": added_d,
-                "disciplinas_removed": removed_d,
-            })
-        else:
-            unchanged.append(by_a[k].get("nome"))
-
-    return {
-        "concurso_a": doc_a.get("concurso") or {},
-        "concurso_b": doc_b.get("concurso") or {},
-        "pdf_filename_a": doc_a.get("pdf_filename"),
-        "pdf_filename_b": doc_b.get("pdf_filename"),
-        "cargos_added":   [by_b[k] for k in added_keys],
-        "cargos_removed": [by_a[k] for k in removed_keys],
-        "cargos_changed": changed,
-        "cargos_unchanged": unchanged,
-        "summary": {
-            "total_a": len(cargos_a),
-            "total_b": len(cargos_b),
-            "added":   len(added_keys),
-            "removed": len(removed_keys),
-            "changed": len(changed),
-            "unchanged": len(unchanged),
-        },
-    }
 
 
 @api_router.post("/study/programs/edital-chat")
@@ -8733,7 +8582,7 @@ async def import_edital_with_cargo(
         raise HTTPException(status_code=400, detail="analysis_id e area_id são obrigatórios")
     
     # Get stored analysis
-    analysis = await db.edital_analyses.find_one({"analysis_id": analysis_id, "user_id": user.user_id}, {"_id": 0})
+    analysis = await sql_edital.get(user.user_id,analysis_id,include_source=True)
     if not analysis:
         raise HTTPException(status_code=404, detail="Análise não encontrada. Faça upload do edital novamente.")
     
@@ -8767,10 +8616,7 @@ async def import_edital_with_cargo(
             if disciplinas:
                 selected_cargo["disciplinas"] = disciplinas
                 mark_discipline_quality([selected_cargo])
-                await db.edital_analyses.update_one(
-                    {"analysis_id": analysis_id, "user_id": user.user_id},
-                    {"$set": {f"cargos.{cargo_index}": selected_cargo}}
-                )
+                await sql_edital.replace_cargo(user.user_id,analysis_id,cargo_index,selected_cargo,analysis['revision'])
     if needs_disciplines(selected_cargo):
         raise HTTPException(status_code=422, detail="Disciplinas incompletas para este cargo. Reanalise o edital antes de criar o programa.")
     disciplinas = selected_cargo["disciplinas"]
@@ -11502,22 +11348,22 @@ configure_ai_compatibility(agent_runtime.router)
 
 from services.study_workspace import router as workspace_router
 api_router.include_router(workspace_router)
+from services.edital_routes import router as edital_sql_router
+api_router.include_router(edital_sql_router)
 from services.studies_v2_routes import router as studies_v2_router
 api_router.include_router(studies_v2_router)
 from contest_watch import ContestWatcher
 contest_watcher = ContestWatcher(db, get_current_user)
 api_router.include_router(contest_watcher.router)
 from edital_review_routes import review_router
-api_router.include_router(review_router(db, get_current_user))
+api_router.include_router(review_router(get_current_user))
 from edital_jobs import EditalJobs
 
 async def process_queued_edital(user_id, file, force):
-    stored_user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    if not stored_user:
-        raise HTTPException(404, "Usuário não encontrado")
-    return await process_edital_analysis(User(**stored_user), file, force)
+    from types import SimpleNamespace
+    return await process_edital_analysis(SimpleNamespace(user_id=user_id), file, force)
 
-edital_jobs = EditalJobs(db, get_current_user, process_queued_edital, run_activity_mutation)
+edital_jobs = EditalJobs(get_current_user, process_queued_edital)
 api_router.include_router(edital_jobs.router)
 
 from operations import install_request_metrics, ensure_query_indexes

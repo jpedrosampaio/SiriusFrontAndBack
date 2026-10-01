@@ -40,4 +40,8 @@ No Windows, psycopg async precisa de SelectorEventLoop; testes configuram a pol�
 
 ## Trabalho ainda necessário
 
-Concluir modelos e repositories de todos os domínios do mapa; conectar rotas/serviços ao SQL; substituir GridFS e workers; RAG vetorial opcional; cleanup explícito; migrar testes de integração existentes; validar auth e smoke de todos os módulos; remover Motor/PyMongo somente quando não houver consumidores. Não publicar esta fundação isolada como se fosse a substituição completa.
+Concluir modelos e repositories de todos os domínios do mapa; conectar rotas/serviços ao SQL; concluir os demais workers; RAG vetorial opcional; cleanup explícito; migrar testes de integração existentes; validar auth e smoke de todos os módulos; remover Motor/PyMongo somente quando não houver consumidores. Não publicar esta fundação isolada como se fosse a substituição completa.
+
+## Editais: análises e fila conectadas
+
+Salvar, abrir, listar, comparar, revisar cargos/páginas, cache e exclusão usam PostgreSQL. Revisões são protegidas por versão e lock. Fila usa `edital_jobs`, claim com SKIP LOCKED e lease; não repete IA após interrupção. Sem object storage, upload em segundo plano retorna 503 e o worker não inicia. O adaptador local exige opt-in e recusa Render/produção. Worker configurado acorda no envio e consulta em intervalos de 60 s quando ocioso, não a cada 3 s. GridFS saiu do runtime. Importação de programas/cronogramas ainda precisa de migração; RAG e eventos do Agent ainda têm persistência Mongo.

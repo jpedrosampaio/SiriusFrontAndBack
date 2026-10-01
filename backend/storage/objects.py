@@ -36,6 +36,14 @@ class UnconfiguredStorage:
         raise StorageUnavailable('Object storage is not configured')
 
 
+def configured_storage():
+    """No implicit filesystem fallback on a hosted deployment."""
+    directory = os.getenv('LOCAL_DEVELOPMENT_STORAGE_DIR')
+    if directory:
+        return LocalDevelopmentStorage(directory)
+    return UnconfiguredStorage()
+
+
 class LocalDevelopmentStorage:
     """Explicit opt-in for local development only; never a Render durable fallback."""
     def __init__(self, directory):

@@ -24,3 +24,5 @@ Workers que consultam o banco continuamente podem impedir scale-to-zero e esgota
 ## Arquivos
 
 PostgreSQL guarda metadata, hashes e referências. Não há object storage configurado nesta execução. O futuro adaptador deve verificar autenticação/propriedade antes de disponibilizar objetos e funcionar sem plano pago obrigatório. Disco efêmero do Render não será tratado como armazenamento durável.
+
+A fila de editais retorna 503 sem storage configurado; não aceita uploads que desapareceriam no restart. `LOCAL_DEVELOPMENT_STORAGE_DIR` é exclusivo para testes/desenvolvimento e recusado em Render/produção. A análise direta extrai conteúdo em memória e salva somente análise/texto no SQL, sem prometer retenção do PDF original.

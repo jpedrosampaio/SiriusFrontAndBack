@@ -87,10 +87,12 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         class Database:
             def __getattr__(self, key): return getattr(db, key)
             def __getitem__(self, key): return getattr(db, key)
-        result = await Retrieval(Database()).search('alice', 'direito')
+        from fastapi import HTTPException
+        with patch('services.edital_analyses.get',new=AsyncMock(side_effect=HTTPException(404,'Not found'))) as get_analysis:
+            result = await Retrieval(Database()).search('alice', 'direito')
         self.assertEqual(result['citations'], [])
         self.assertEqual(db.ai_chunks.find.call_args.args[0]['user_id'], 'alice')
-        self.assertEqual(db.edital_analyses.find_one.call_args.args[0], {'user_id': 'alice', 'analysis_id': 'source'})
+        get_analysis.assert_awaited_once_with('alice','source')
 
     def test_chunks_retain_page_and_quiet_hours_cross_midnight(self):
         row = list(chunks([{'page': 7, 'text': 'Direito constitucional ' * 100}]))

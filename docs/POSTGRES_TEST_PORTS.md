@@ -49,3 +49,7 @@ replay now run in `test_postgres_runtime_studies_v2.py`. That suite also covers
 the two former mock ownership tests, full performance/overview/library/reviews
 responses and normalized blueprint exam creation. The Mongo simulado submission
 test stays active until the corresponding submission route is connected to SQL.
+
+- WorkspaceTests.test_saved_analysis_requires_owner_and_excludes_raw_pdf: consolidado em RuntimeEditais.test_saved_analysis_owner_source_exclusion_and_delete_cache_copies, com rotas reais e PostgreSQL, leitura entre donos negada e texto/páginas ausentes; teste mock Mongo removido após equivalência passar.
+
+- EditalJobTests (3 mocks GridFS): portados para RuntimeEditalJobs (PostgreSQL real + storage local descartável), mantendo sucesso/limpeza, falha sem retry de IA, validação de upload e limite por dono; acrescentados lease expirado, isolamento e 503 sem storage.

@@ -110,11 +110,11 @@ class RepairTests(unittest.IsolatedAsyncioTestCase):
     async def test_import_does_not_copy_donor_when_repair_fails(self):
         ns = load_routes()
         db = MagicMock()
-        db.edital_analyses.find_one = AsyncMock(return_value={'analysis_version': 3, 'pdf_text': 'Complete source', 'cargos': [
+        sql_edital = SimpleNamespace(get=AsyncMock(return_value={'analysis_version': 3, 'pdf_text': 'Complete source', 'cargos': [
             {'nome': 'Oficial de Justiça', 'disciplinas': []},
-            {'nome': 'Contador', 'disciplinas': [subject('Contabilidade')]}]})
+            {'nome': 'Contador', 'disciplinas': [subject('Contabilidade')]}]}))
         db.study_programs.insert_one = AsyncMock()
-        ns.update(db=db, get_current_user=AsyncMock(return_value=SimpleNamespace(user_id='user')),
+        ns.update(db=db, sql_edital=sql_edital, get_current_user=AsyncMock(return_value=SimpleNamespace(user_id='user')),
                   get_user_api_key=AsyncMock(return_value='test-key'), _hydrate_disciplinas_from_text=AsyncMock(return_value=[]))
         with self.assertRaises(HTTPException) as error:
             await ns['import_edital_with_cargo'](SimpleNamespace(headers={}), {'analysis_id': 'analysis', 'cargo_index': 0, 'area_id': 'area'}, None)

@@ -1,6 +1,6 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 60 tabelas. Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 61 tabelas. Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
 
 ```mermaid
 erDiagram
@@ -61,3 +61,7 @@ Categorias passam a preservar ícone e cor usados pela interface.
 
 Tarefas/hábitos usam `archived_at`; `task_instances` exige coerência entre status e
 completed. Essas alterações correspondem à migração anterior `d18c704a928e`.
+
+## Análises e fila de editais
+
+`edital_analyses` separa identidade, hash, nome do arquivo, texto, páginas, versão, revisão de conferência e expiração da análise estruturada. `edital_jobs` persiste status, lease, referência de storage e resultado; FK composta impede ligar análise de outro dono. Excluir a análise limpa a referência no job e revoga suas fontes RAG. Binários não ficam no banco.

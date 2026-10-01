@@ -158,7 +158,8 @@ class AgentRuntime:
         @self.api.get('/rag/sources')
         async def sources(account=Depends(user)):
             own = {'user_id': account.user_id}
-            editais = await db.edital_analyses.find(own, {'_id': 0, 'analysis_id': 1, 'pdf_filename': 1}).to_list(50)
+            from services.edital_analyses import list_owned
+            editais = [{'analysis_id':r['analysis_id'],'pdf_filename':r['pdf_filename']} for r in (await list_owned(account.user_id))['editais'][:50]]
             notebooks = await db.notebooks.find(own, {'_id': 0, 'notebook_id': 1, 'name': 1, 'title': 1}).to_list(50)
             return {'editais': editais, 'notebooks': notebooks}
 
