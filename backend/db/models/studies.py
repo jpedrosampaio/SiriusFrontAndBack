@@ -2,7 +2,7 @@ from datetime import date, datetime
 from uuid import UUID
 from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
-from sqlalchemy import String
+from sqlalchemy import String, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from db.base import Base, Identity, Timestamps
 from db.models.planning import Owned
@@ -106,7 +106,7 @@ class StudySession(Identity, Owned, Timestamps, Base):
 
 class QuestionAttempt(Identity, Owned, Timestamps, Base):
     __tablename__ = 'question_attempts'
-    notebook_id: Mapped[UUID]
+    notebook_id: Mapped[UUID | None]
     topic_id: Mapped[UUID | None]
     question_id: Mapped[UUID | None]
     exam_attempt_id: Mapped[UUID | None]
@@ -169,3 +169,45 @@ class FlashcardReview(Identity, Owned, Base):
     quality: Mapped[int]
     __table_args__ = (ForeignKeyConstraint(['user_id','flashcard_id'], ['flashcards.user_id','flashcards.id'], ondelete='RESTRICT'),
         CheckConstraint('quality BETWEEN 0 AND 5', name='quality'))
+
+
+class StudyPlan(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_plans'
+    program_id: Mapped[UUID]
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    availability: Mapped[list[int]] = mapped_column(ARRAY(Integer))
+    block_minutes: Mapped[int]
+    adaptive: Mapped[bool] = mapped_column(default=False)
+    __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','program_id'),
+        ForeignKeyConstraint(['user_id','program_id'],['study_programs.user_id','study_programs.id'],ondelete='RESTRICT'),
+        CheckConstraint('end_date >= start_date AND block_minutes BETWEEN 15 AND 120',name='settings'),
+        CheckConstraint('array_length(availability,1) = 7',name='availability'))
+
+
+class StudyPlanEntry(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_plan_entries'
+    plan_id: Mapped[UUID]
+    notebook_id: Mapped[UUID]
+    date: Mapped[date] = mapped_column(Date)
+    name: Mapped[str]
+    minutes: Mapped[int]
+    kind: Mapped[str]
+    completed: Mapped[bool] = mapped_column(default=False)
+    manual: Mapped[bool] = mapped_column(default=False)
+    fixed: Mapped[bool] = mapped_column(default=False)
+    reason: Mapped[str] = mapped_column(Text,default='')
+    __table_args__ = (ForeignKeyConstraint(['user_id','plan_id'],['study_plans.user_id','study_plans.id'],ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
+        Index('ix_plan_entries_owner_date','user_id','date'),CheckConstraint('minutes > 0',name='minutes'))
+
+
+class StudyDraft(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_drafts'
+    notebook_id: Mapped[UUID]
+    topic_key: Mapped[str] = mapped_column(default='general')
+    text: Mapped[str] = mapped_column(Text,default='')
+    revision: Mapped[int] = mapped_column(default=1)
+    __table_args__ = (UniqueConstraint('user_id','notebook_id','topic_key'),
+        ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
+        CheckConstraint('revision > 0',name='revision'))

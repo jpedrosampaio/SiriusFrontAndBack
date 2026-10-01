@@ -1,6 +1,6 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 53 tabelas. Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 56 tabelas. Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
 
 ```mermaid
 erDiagram
