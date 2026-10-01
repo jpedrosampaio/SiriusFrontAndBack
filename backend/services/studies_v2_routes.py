@@ -140,7 +140,9 @@ async def library(request: Request,program_id: UUID | None = None,notebook_id: U
         notebooks=await catalog_notebooks(session,uid,program_id=program_id)
         ids=[UUID(n['notebook_id']) for n in notebooks if not notebook_id or n['notebook_id']==str(notebook_id)]
         for model,kind,title_field,text_field in ((StudyNote,'note','title','content'),(StudyDraft,'summary','topic_key','text'),(Flashcard,'flashcard','front','back')):
-            rows=(await session.scalars(select(model).where(model.user_id==uid,model.notebook_id.in_(ids)).order_by(model.created_at.desc(),model.id).limit(300))).all()
+            query=select(model).where(model.user_id==uid,model.notebook_id.in_(ids))
+            if model is Flashcard: query=query.where(Flashcard.archived_at.is_(None))
+            rows=(await session.scalars(query.order_by(model.created_at.desc(),model.id).limit(300))).all()
             for row in rows:
                 key=row.topic_key if model is StudyDraft else str(row.id)
                 items.append({'id':f'{kind}:{row.notebook_id}:{key}','kind':kind,'title':getattr(row,title_field)[:200],
@@ -236,7 +238,7 @@ async def reviews(request: Request,program_id: UUID | None = None):
                 errors+=1
                 if errors>=100: break
         query=select(Flashcard).join(Notebook,(Notebook.id==Flashcard.notebook_id)&(Notebook.user_id==Flashcard.user_id))
-        query=query.where(Flashcard.user_id==uid,Notebook.archived_at.is_(None),Flashcard.next_review<=today)
+        query=query.where(Flashcard.user_id==uid,Flashcard.archived_at.is_(None),Notebook.archived_at.is_(None),Flashcard.next_review<=today)
         if program_id: query=query.where(Notebook.program_id==program_id)
         cards=(await session.scalars(query.order_by(Flashcard.next_review,Flashcard.id).limit(100))).all()
         queue.extend({'kind':'flashcard','title':row.front,'notebook_id':str(row.notebook_id),'card_id':str(row.id),

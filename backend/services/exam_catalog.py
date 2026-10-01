@@ -60,13 +60,13 @@ def attempt_json(row,exam):
         'time_spent_seconds':row.duration_seconds,'completed_at':row.completed_at,'score':row.score})
 
 
-async def create(uid,key,fingerprint,document,questions,xp=0):
+async def create(uid,key,fingerprint,document,questions,xp=0,kind='simulado'):
     if not isinstance(questions,list) or not 1<=len(questions)<=500: raise HTTPException(422,'Quantidade de questões inválida.')
     async def apply(session,user):
         area,program,book,_=await scope(session,user.id,document.get('area_id'),document.get('program_id'),document.get('notebook_id'))
         exam=Exam(user_id=user.id,area_id=book.area_id if book else (program.area_id if program else (area.id if area else None)),
             program_id=book.program_id if book else (program.id if program else None),notebook_id=book.id if book else None,
-            title=document['title'],description=document.get('description'),kind='simulado',status='ready',
+            title=document['title'],description=document.get('description'),kind=kind,status='ready',
             duration_minutes=document.get('duration_minutes'),provenance={k:document[k] for k in
                 ('source_type','banca','disciplina','concurso','question_type','difficulty','pdf_filename','year_detected') if k in document})
         session.add(exam); await session.flush(); values=[]

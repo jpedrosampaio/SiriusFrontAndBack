@@ -12,15 +12,15 @@ from services.study_evidence import attempts
 from study_mastery import adaptive_review
 
 
-async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key):
-    if not request_key:
+async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key,kind='simulado'):
+    if not request_key and kind=='simulado':
         raise HTTPException(422,'Idempotency-Key obrigatório para concluir o simulado.')
     if type(duration_seconds) is not int or not 0 <= duration_seconds <= 86400:
         raise HTTPException(422,'Tempo de prova inválido.')
     async def apply(session,user):
         repo = ExamRepository(session)
         exam = await repo.get(user.id,exam_id)
-        if exam is None or exam.kind!='simulado':
+        if exam is None or exam.kind!=kind:
             raise HTTPException(404,'Simulado não encontrado.')
         pairs = await repo.questions(user.id,exam_id)
         questions = [{'question_text':q.statement,'correct_answer':q.correct_answer,'explanation':q.explanation,
@@ -39,7 +39,7 @@ async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key):
             question = pairs[answer['question_idx']][0]
             # Preserve blank answers as facts too; evidence says whether an answer was given.
             session.add(QuestionAttempt(user_id=user.id,notebook_id=question.notebook_id,topic_id=question.topic_id,
-                question_id=question.id,exam_attempt_id=row.id,source='simulado',answered_at=now,total=1,
+                question_id=question.id,exam_attempt_id=row.id,source=kind,answered_at=now,total=1,
                 correct=int(answer['is_correct']),answer=answer['selected_answer'],
                 evidence={'answered':answer['answered'],'weight':answer['weight'],'board':exam.provenance.get('banca'),
                     'exam':exam.title,'external_question_id':str(question.id)}))
@@ -55,7 +55,7 @@ async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key):
             review=adaptive_review(history,today,previous_reviews=previous_reviews)
             session.add(ReviewEvent(user_id=user.id,topic_id=topic_id,reviewed_at=now,
                 result=review['reason'],next_review=date.fromisoformat(review['due_date'])))
-        earned = result['correct_count']*2
+        earned = int(result['score']/10)*3 if kind=='quiz' else result['correct_count']*2
         apply_xp(user,earned)
         row.result_details={**result,'change_since_previous':round(result['score']-previous.score,1) if previous else None,
             'mastery_answers_linked':linked,'xp_earned':earned,'new_xp':user.xp}
@@ -65,4 +65,4 @@ async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key):
             'time_spent_seconds':duration_seconds,'completed_at':now.isoformat(),
             'change_since_previous':round(result['score']-previous.score,1) if previous else None,
             'mastery_answers_linked':linked,'xp_earned':earned,'new_xp':user.xp}
-    return await run_activity(user_id,request_key,['submit-simulado',str(exam_id),answers,duration_seconds],apply)
+    return await run_activity(user_id,request_key,['submit-'+kind,str(exam_id),answers,duration_seconds],apply)

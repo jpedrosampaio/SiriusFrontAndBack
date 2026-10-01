@@ -169,6 +169,8 @@ class StudyNote(Identity, Owned, Timestamps, Base):
 
 class Flashcard(Identity, Owned, Timestamps, Base):
     __tablename__ = 'flashcards'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String),default=list)
     notebook_id: Mapped[UUID]
     deck_name: Mapped[str]
     front: Mapped[str] = mapped_column(Text)

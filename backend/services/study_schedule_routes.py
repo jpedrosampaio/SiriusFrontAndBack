@@ -160,7 +160,7 @@ async def indicators(request: Request,program_id: UUID):
         for model,key in [(StudySession,'sessions_count'),(StudyNote,'notes_count')]:
             counts[key]=dict((await session.execute(select(model.notebook_id,func.count()).where(model.user_id==uid,model.notebook_id.in_(ids)).group_by(model.notebook_id))).all())
         cards=(await session.execute(select(Flashcard.notebook_id,func.count(),func.count().filter(Flashcard.next_review<=local_today(user.get('timezone') or 'America/Sao_Paulo')))
-            .where(Flashcard.user_id==uid,Flashcard.notebook_id.in_(ids)).group_by(Flashcard.notebook_id))).all()
+            .where(Flashcard.user_id==uid,Flashcard.archived_at.is_(None),Flashcard.notebook_id.in_(ids)).group_by(Flashcard.notebook_id))).all()
         card_totals={nid:(total,due) for nid,total,due in cards}; result=[]
         for book in books:
             value=facts[book.id]; total=value['total_questions']; correct=value['correct_questions']; minutes=value['total_study_time_minutes']
