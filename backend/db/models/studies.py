@@ -1,0 +1,168 @@
+from datetime import date, datetime
+from uuid import UUID
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from db.base import Base, Identity, Timestamps
+from db.models.planning import Owned
+
+
+class StudyArea(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_areas'
+    name: Mapped[str]
+    description: Mapped[str | None] = mapped_column(Text)
+    color: Mapped[str] = mapped_column(default='#007AFF')
+    icon: Mapped[str] = mapped_column(default='book')
+    order: Mapped[int] = mapped_column(default=0)
+    __table_args__ = (UniqueConstraint('user_id','id'),)
+
+
+class StudyProgram(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_programs'
+    area_id: Mapped[UUID]
+    name: Mapped[str]
+    description: Mapped[str | None] = mapped_column(Text)
+    color: Mapped[str] = mapped_column(default='#007AFF')
+    icon: Mapped[str] = mapped_column(default='book')
+    target_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(default='active')
+    notebooks: Mapped[list['Notebook']] = relationship(back_populates='program', passive_deletes=True)
+    __table_args__ = (UniqueConstraint('user_id','id'),
+        ForeignKeyConstraint(['user_id','area_id'], ['study_areas.user_id','study_areas.id'], ondelete='RESTRICT'),
+        CheckConstraint("status IN ('active','completed','paused')", name='status'))
+
+
+class StudyTarget(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_targets'
+    program_id: Mapped[UUID]
+    kind: Mapped[str]
+    institution: Mapped[str | None]
+    board: Mapped[str | None]
+    edition: Mapped[str | None]
+    position: Mapped[str | None]
+    metadata_origin: Mapped[str] = mapped_column(default='manual')
+    __table_args__ = (UniqueConstraint('user_id','program_id'),
+        ForeignKeyConstraint(['user_id','program_id'], ['study_programs.user_id','study_programs.id'], ondelete='CASCADE'))
+
+
+class Notebook(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_notebooks'
+    area_id: Mapped[UUID]
+    program_id: Mapped[UUID | None]
+    name: Mapped[str]
+    description: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    color: Mapped[str] = mapped_column(default='#007AFF')
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    syllabus: Mapped[dict] = mapped_column(JSONB, default=dict)
+    program: Mapped[StudyProgram | None] = relationship(back_populates='notebooks')
+    __table_args__ = (UniqueConstraint('user_id','id'),
+        ForeignKeyConstraint(['user_id','area_id'], ['study_areas.user_id','study_areas.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','program_id'], ['study_programs.user_id','study_programs.id'], ondelete='RESTRICT'))
+
+
+class StudyTopic(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_topics'
+    notebook_id: Mapped[UUID]
+    parent_id: Mapped[UUID | None]
+    topic_key: Mapped[str]
+    name: Mapped[str] = mapped_column(Text)
+    position: Mapped[int]
+    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    __table_args__ = (UniqueConstraint('user_id','id'), UniqueConstraint('user_id','notebook_id','topic_key'),
+        ForeignKeyConstraint(['user_id','notebook_id'], ['study_notebooks.user_id','study_notebooks.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','parent_id'], ['study_topics.user_id','study_topics.id'], ondelete='RESTRICT'))
+
+
+class TopicProgress(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'topic_progress'
+    topic_id: Mapped[UUID]
+    studied: Mapped[bool] = mapped_column(default=False)
+    reviewed: Mapped[bool] = mapped_column(default=False)
+    confident: Mapped[bool] = mapped_column(default=False)
+    __table_args__ = (UniqueConstraint('user_id','topic_id'),
+        ForeignKeyConstraint(['user_id','topic_id'], ['study_topics.user_id','study_topics.id'], ondelete='CASCADE'))
+
+
+class StudySession(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_sessions'
+    notebook_id: Mapped[UUID | None]
+    topic_id: Mapped[UUID | None]
+    date: Mapped[date] = mapped_column(Date)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_minutes: Mapped[int]
+    completed: Mapped[bool] = mapped_column(default=False)
+    source: Mapped[str] = mapped_column(default='manual')
+    notes: Mapped[str | None] = mapped_column(Text)
+    xp_earned: Mapped[int] = mapped_column(default=0)
+    __table_args__ = (ForeignKeyConstraint(['user_id','notebook_id'], ['study_notebooks.user_id','study_notebooks.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','topic_id'], ['study_topics.user_id','study_topics.id'], ondelete='RESTRICT'),
+        Index('ix_study_sessions_owner_date','user_id','date'),
+        CheckConstraint('duration_minutes >= 0', name='duration'),
+        CheckConstraint('completed_at IS NULL OR started_at IS NULL OR completed_at >= started_at', name='interval'))
+
+
+class QuestionAttempt(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'question_attempts'
+    notebook_id: Mapped[UUID]
+    topic_id: Mapped[UUID | None]
+    question_id: Mapped[UUID | None]
+    source: Mapped[str]
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    total: Mapped[int] = mapped_column(default=1)
+    correct: Mapped[int]
+    answer: Mapped[str | None] = mapped_column(Text)
+    duration_seconds: Mapped[int | None]
+    error_cause: Mapped[str | None]
+    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    __table_args__ = (ForeignKeyConstraint(['user_id','notebook_id'], ['study_notebooks.user_id','study_notebooks.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','topic_id'], ['study_topics.user_id','study_topics.id'], ondelete='RESTRICT'),
+        Index('ix_attempts_owner_answered','user_id','answered_at'), Index('ix_attempts_owner_topic','user_id','topic_id'),
+        CheckConstraint('total > 0 AND correct >= 0 AND correct <= total', name='counts'),
+        CheckConstraint('duration_seconds IS NULL OR duration_seconds >= 0', name='duration'))
+
+
+class ReviewEvent(Identity, Owned, Base):
+    __tablename__ = 'study_review_events'
+    topic_id: Mapped[UUID]
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    result: Mapped[str]
+    next_review: Mapped[date | None] = mapped_column(Date)
+    __table_args__ = (ForeignKeyConstraint(['user_id','topic_id'], ['study_topics.user_id','study_topics.id'], ondelete='RESTRICT'),
+        Index('ix_review_owner_topic_date','user_id','topic_id','reviewed_at'))
+
+
+class StudyNote(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_notes'
+    notebook_id: Mapped[UUID]
+    title: Mapped[str]
+    content: Mapped[str] = mapped_column(Text)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    links: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    __table_args__ = (ForeignKeyConstraint(['user_id','notebook_id'], ['study_notebooks.user_id','study_notebooks.id'], ondelete='RESTRICT'),)
+
+
+class Flashcard(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'flashcards'
+    notebook_id: Mapped[UUID]
+    deck_name: Mapped[str]
+    front: Mapped[str] = mapped_column(Text)
+    back: Mapped[str] = mapped_column(Text)
+    ease_factor: Mapped[float] = mapped_column(default=2.5)
+    interval_days: Mapped[int] = mapped_column(default=1)
+    repetitions: Mapped[int] = mapped_column(default=0)
+    next_review: Mapped[date] = mapped_column(Date)
+    __table_args__ = (UniqueConstraint('user_id','id'),
+        ForeignKeyConstraint(['user_id','notebook_id'], ['study_notebooks.user_id','study_notebooks.id'], ondelete='RESTRICT'),
+        Index('ix_flashcards_owner_review','user_id','next_review'))
+
+
+class FlashcardReview(Identity, Owned, Base):
+    __tablename__ = 'flashcard_reviews'
+    flashcard_id: Mapped[UUID]
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    quality: Mapped[int]
+    __table_args__ = (ForeignKeyConstraint(['user_id','flashcard_id'], ['flashcards.user_id','flashcards.id'], ondelete='RESTRICT'),
+        CheckConstraint('quality BETWEEN 0 AND 5', name='quality'))
