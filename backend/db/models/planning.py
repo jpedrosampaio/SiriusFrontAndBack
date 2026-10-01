@@ -57,6 +57,7 @@ class HabitCheck(Identity, Owned, Base):
 
 class Goal(Identity, Owned, Timestamps, Base):
     __tablename__ = 'goals'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     title: Mapped[str]
     description: Mapped[str | None] = mapped_column(Text)
     target_date: Mapped[date] = mapped_column(Date)

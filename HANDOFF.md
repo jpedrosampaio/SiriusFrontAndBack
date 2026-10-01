@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Rotas de metas conectadas após finanças `2142376`: criar/listar/progresso/check/exclusão por archive. XP, check diário e recibo atômicos. Alembic `d3fa62b2e3a2`, 60 tabelas. Burndown **578** (metas ainda 3 leituras em outros módulos). Teste HTTP autenticado de metas passou com concorrência/replay/rollback/ownership/archive. CI financeiro `2142376`: PostgreSQL e backend/browser passaram; frontend ainda em execução na consulta de 01/10. Próximo domínio: estudos básicos, preservando contratos e portando testes.
+
 Após planning `85a8018`, rotas financeiras conectadas ao SQL: transações, categorias, orçamentos, cartões/compras/parcelas/faturas, projeções/recorrências, contas mensais/pagamentos, estatísticas/tendência, insights e exportação PDF/XLSX. Schema agora 60 tabelas, Alembic head `0e61828b3519`. Burndown **669 → 646 → 627 → 584**. Finance ainda tem 22 acessos em leitores de outros módulos; não confundir rotas próprias com domínio inteiro concluído. Sete testes HTTP financeiros passaram, cobrindo centavos, replay concorrente, rollback, isolamento, dezembro/janeiro, importação de contas, empty states e exportações. Cálculos Decimal; somente boundary HTTP converte para JSON numérico. Mongo ainda inicializa no server; não fazer merge/cutover.
 
 Continuação autoritativa: anexo `0d137e4e-c640-43c1-b035-1bda4c319f08/Texto colado.txt`, seções 1–55. Continuar PR #21 até runtime Mongo zero. Não perguntar credenciais novamente, não merge parcial.

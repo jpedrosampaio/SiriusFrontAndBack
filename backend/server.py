@@ -980,61 +980,9 @@ async def run_activity_mutation(user_id, request_key, fingerprint, apply):
 
 
 
-@api_router.get("/goals")
-async def get_goals(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    goals = await db.goals.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    for goal in goals:
-        if isinstance(goal['created_at'], str):
-            goal['created_at'] = datetime.fromisoformat(goal['created_at'])
-    return goals
 
-@api_router.post("/goals")
-async def create_goal(request: Request, goal_data: GoalCreate, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    goal_id = f"goal_{uuid.uuid4().hex[:12]}"
-    goal_doc = {
-        "goal_id": goal_id,
-        "user_id": user.user_id,
-        "title": goal_data.title,
-        "description": goal_data.description,
-        "target_date": goal_data.target_date,
-        "progress": 0,
-        "sprint_duration": goal_data.sprint_duration,
-        "sprints": [],
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.goals.insert_one(goal_doc)
-    goal_doc.pop('_id', None)  # Remove MongoDB ObjectId
-    goal_doc['created_at'] = datetime.fromisoformat(goal_doc['created_at'])
-    return Goal(**goal_doc)
 
-@api_router.patch("/goals/{goal_id}")
-async def update_goal(request: Request, goal_id: str, progress: float, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.goals.update_one(
-        {"goal_id": goal_id, "user_id": user.user_id},
-        {"$set": {"progress": progress}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Goal not found")
-    return {"message": "Goal updated"}
 
-@api_router.delete("/goals/{goal_id}")
-async def delete_goal(request: Request, goal_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.goals.delete_one({"goal_id": goal_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Goal not found")
-    return {"message": "Goal deleted"}
 
 @api_router.get("/achievements")
 async def get_achievements(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -1998,36 +1946,6 @@ async def get_analytics_data(request: Request, days: int = 7, session_token: Opt
     return await analytics_snapshot(db, user.user_id, days)
 
 
-@api_router.post("/goals/{goal_id}/check")
-async def check_goal_day(request: Request, goal_id: str, date: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    goal = await db.goals.find_one({"goal_id": goal_id, "user_id": user.user_id}, {"_id": 0})
-    if not goal:
-        raise HTTPException(status_code=404, detail="Goal not found")
-    
-    daily_checks = goal.get('daily_checks', [])
-    was_checked = date in daily_checks
-    
-    if was_checked:
-        daily_checks.remove(date)
-        xp_change = -5
-        new_xp, new_rank = await award_xp(user.user_id, xp_change)
-    else:
-        daily_checks.append(date)
-        xp_change = 5
-        new_xp, new_rank = await award_xp(user.user_id, xp_change)
-    
-    await db.goals.update_one(
-        {"goal_id": goal_id},
-        {"$set": {"daily_checks": daily_checks}}
-    )
-    
-    if xp_change > 0:
-        return {"message": "Day checked", "xp_earned": xp_change, "new_xp": new_xp}
-    else:
-        return {"message": "Day unchecked", "xp_earned": xp_change, "new_xp": new_xp}
 
 @api_router.get("/challenges/current")
 async def get_current_challenges(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -12199,6 +12117,8 @@ from services.auth_routes import router as auth_router
 api_router.include_router(auth_router)
 from services.planning_routes import router as planning_router
 api_router.include_router(planning_router)
+from services.goals_routes import router as goals_router
+api_router.include_router(goals_router)
 from services.finance_routes import router as finance_router, configure_ai as configure_finance_ai
 from services.finance_export import router as finance_export_router
 configure_finance_ai(call_llm)
