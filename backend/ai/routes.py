@@ -33,7 +33,7 @@ class InsightFeedback(StrictModel):
 class AgentRuntime:
     def __init__(self, db, auth, transact, award_xp, update_streak):
         self.db, self.settings = db, Settings()
-        self.credentials = Credentials(db)
+        self.credentials = Credentials()
         self.router = AIRouter(self.settings, reserve=self.reserve)
         self.core, self.memory, self.retrieval = Core(db), Memory(db), Retrieval(db, self.router, self.credentials)
         self.actions = Actions(db, CoreWrites(db, award_xp, update_streak), transact)
@@ -48,8 +48,8 @@ class AgentRuntime:
         @self.api.get('/status')
         async def status(account=Depends(user)):
             import time
-            doc = await db.users.find_one({'user_id': account.user_id}) or {}
-            public = public_profile(doc)
+            from services.auth import AuthService
+            public = await AuthService().profile(account.user_id)
             usage = await db.ai_usage.find_one({'_id': self.usage_key(account.user_id)}) or {}
             return {'flags': self.settings.flags(), 'providers': {p: {'has_key': public[f'has_{p}_key'], 'last4': public[f'{p}_key_last4'], 'live_checked': False} for p in ('gemini', 'groq')},
                     'encryption_configured': bool(cipher()), 'internal_daily_limit': self.settings.daily_limit, 'internal_requests_today': usage.get('count', 0),

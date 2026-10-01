@@ -1,5 +1,6 @@
 import asyncio
 import secrets
+from uuid import UUID
 from datetime import datetime, timedelta, timezone
 import bcrypt
 from fastapi import HTTPException
@@ -26,6 +27,76 @@ def password_bytes(password):
 
 
 class AuthService:
+    async def profile(self, user_id):
+        async with unit_of_work() as session:
+            user = await IdentityRepository(session).by_id(UUID(str(user_id)))
+            if user is None:
+                raise HTTPException(404, 'User not found')
+            return public_user(user)
+
+    async def update_profile(self, user_id, values):
+        async with unit_of_work() as session:
+            user = await IdentityRepository(session).by_id(UUID(str(user_id)), lock=True)
+            if user is None:
+                raise HTTPException(404, 'User not found')
+            allowed = {'name','bio','birth_date','health_condition','gemini_api_key','timezone'}
+            if not allowed.intersection(values):
+                raise HTTPException(400, 'Nenhum campo para atualizar')
+            for key in ('name','bio'):
+                if key in values:
+                    if not isinstance(values[key], str) or len(values[key]) > (200 if key == 'name' else 5000):
+                        raise HTTPException(422, 'Perfil inválido')
+                    setattr(user,key,values[key])
+            preferences = dict(user.preferences)
+            for key in ('birth_date','health_condition'):
+                if key in values:
+                    value = values[key]
+                    if value is not None and (not isinstance(value,str) or len(value)>5000):
+                        raise HTTPException(422, 'Perfil inválido')
+                    if key == 'birth_date' and value:
+                        from datetime import date
+                        try: date.fromisoformat(value)
+                        except ValueError: raise HTTPException(422,'Data de nascimento inválida') from None
+                    preferences[key] = value
+            user.preferences = preferences
+            if 'timezone' in values:
+                from services.time import validate_timezone
+                try: user.timezone = validate_timezone(values['timezone'])
+                except ValueError: raise HTTPException(422,'Fuso horário inválido') from None
+            if 'gemini_api_key' in values:
+                from ai.credentials import credential_fields
+                user.credentials = {**user.credentials,**credential_fields('gemini',values['gemini_api_key'] or '')}
+            await session.flush()
+            return public_user(user)
+
+    async def remove_picture(self,user_id):
+        async with unit_of_work() as session:
+            user = await IdentityRepository(session).by_id(UUID(str(user_id)),lock=True)
+            if user is None: raise HTTPException(404,'User not found')
+            user.picture = None
+        return {'message':'Profile picture removed'}
+
+    async def google_session(self,session_id):
+        import httpx
+        async with httpx.AsyncClient(timeout=15) as client:
+            try:
+                response = await client.get('https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data',headers={'X-Session-ID':session_id})
+                response.raise_for_status()
+                data = response.json()
+            except (httpx.HTTPError,ValueError):
+                raise HTTPException(400,'Invalid session ID') from None
+        if not all(isinstance(data.get(k),str) and data[k] for k in ('email','name','session_token')):
+            raise HTTPException(400,'Invalid session ID')
+        async with unit_of_work() as session:
+            repo = IdentityRepository(session)
+            user = await repo.by_email(data['email'])
+            if user is None:
+                user = await repo.create(email=data['email'],name=data['name'],password_hash=None)
+                user.picture = data.get('picture')
+            token = 'session_'+secrets.token_urlsafe(32)
+            await repo.add_session(user.id,token,datetime.now(timezone.utc)+timedelta(days=7))
+            return {'session_token':token,'user':public_user(user)}
+
     async def register(self, *, email, name, password, gemini_api_key=None):
         encoded = password_bytes(password)
         hashed = await asyncio.to_thread(bcrypt.hashpw, encoded, bcrypt.gensalt())

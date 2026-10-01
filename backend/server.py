@@ -186,42 +186,17 @@ def _today_str_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 async def track_gemini_usage(user_id: str, model: str, delta: int = 1, usage=None, feature="text") -> None:
-    """Increment daily Gemini usage counter for a user/model (best-effort)."""
-    if not user_id:
-        return
-    try:
-        increments = {"count": delta, f"features.{feature}": delta}
-        for source, target in (("promptTokenCount", "input_tokens"), ("candidatesTokenCount", "output_tokens"), ("totalTokenCount", "total_tokens")):
-            value = (usage or {}).get(source)
-            if type(value) is int and value >= 0:
-                increments[target] = value
-        await db.gemini_usage.update_one(
-            {"user_id": user_id, "date": _today_str_utc(), "model": model},
-            {"$inc": increments, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
-            upsert=True,
-        )
-    except Exception as e:
-        logging.warning(f"track_gemini_usage failed: {e}")
+    from services.ai_usage import record_gemini
+    await record_gemini(user_id, model, delta, usage, feature)
 
 async def get_gemini_usage_today(user_id: str) -> dict:
-    """Return dict {model: {used, limit, remaining}} for the current UTC day."""
-    result: Dict[str, dict] = {}
-    try:
-        cursor = db.gemini_usage.find({"user_id": user_id, "date": _today_str_utc()}, {"_id": 0})
-        docs = await cursor.to_list(length=50)
-        for d in docs:
-            m = d.get("model", "unknown")
-            used = int(d.get("count", 0))
-            limit = GEMINI_FREE_TIER_RPD.get(m, 0)
-            result[m] = {"used": used, "limit": limit, "remaining": max(0, limit - used) if limit else None}
-    except Exception as e:
-        logging.warning(f"get_gemini_usage_today failed: {e}")
-    return result
+    from services.ai_usage import gemini_today
+    return await gemini_today(user_id)
 
 
 async def get_user_api_key(user_id: str) -> Optional[str]:
     from ai.credentials import Credentials
-    return (await Credentials(db).get(user_id)).get('gemini')
+    return (await Credentials().get(user_id)).get('gemini')
 
 async def get_freellm_api_key(user_id: str) -> Optional[str]:
     return None
@@ -328,6 +303,7 @@ class User(BaseModel):
     user_id: str
     email: str
     name: str
+    timezone: str = 'America/Sao_Paulo'
     picture: Optional[str] = None
     xp: int = 0
     rank: str = "Recruta"
@@ -689,41 +665,10 @@ class DailyWorkoutStatus(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-async def get_current_user(authorization: Optional[str] = None, session_token: Optional[str] = Cookie(None)) -> User:
-    token = session_token or (authorization.replace("Bearer ", "") if authorization else None)
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid session")
-    
-    expires_at = session["expires_at"]
-    if isinstance(expires_at, str):
-        expires_at = datetime.fromisoformat(expires_at)
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=401, detail="Session expired")
-    
-    user_doc = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Ensure all required fields have defaults
-    user_doc.setdefault("name", "Usuário")
-    user_doc.setdefault("xp", 0)
-    user_doc.setdefault("rank", "Recruta")
-    user_doc.setdefault("picture", None)
-    user_doc.setdefault("birth_date", None)
-    user_doc.setdefault("bio", None)
-    user_doc.setdefault("gemini_api_key", None)
-    
-    if isinstance(user_doc['created_at'], str):
-        user_doc['created_at'] = datetime.fromisoformat(user_doc['created_at'])
-    
-    from ai.credentials import public_profile
-    return User(**public_profile(user_doc))
+async def get_current_user(authorization: Optional[str] = None, session_token: Optional[str] = None) -> User:
+    from services.auth import AuthService
+    profile = await AuthService().current_user(authorization=authorization, session_token=session_token)
+    return User(**profile)
 
 @api_router.get("/")
 async def root():
@@ -826,222 +771,13 @@ async def get_sync_data(
     return await db[table_name].find({"user_id": user.user_id}, projection).to_list(1000)
 
 
-@api_router.post("/auth/register")
-async def register(user_data: UserCreate, response: Response):
-    existing = await db.users.find_one({"email": user_data.email}, {"_id": 0})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    hashed_password = bcrypt.hashpw(user_data.password.encode('utf-8'), bcrypt.gensalt())
-    user_id = f"user_{uuid.uuid4().hex[:12]}"
-    
-    user_doc = {
-        "user_id": user_id,
-        "email": user_data.email,
-        "name": user_data.name,
-        "password": hashed_password.decode('utf-8'),
-        "picture": None,
-        "xp": 0,
-        "rank": "Recruta",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    if user_data.gemini_api_key:
-        from ai.credentials import credential_fields
-        user_doc.update(credential_fields('gemini', user_data.gemini_api_key))
-    await db.users.insert_one(user_doc)
-    
-    session_token = f"session_{uuid.uuid4().hex}"
-    session_doc = {
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.user_sessions.insert_one(session_doc)
-    
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=7*24*60*60
-    )
-    
-    return {"session_token": session_token, "user": {"user_id": user_id, "email": user_data.email, "name": user_data.name}}
 
-@api_router.post("/auth/login")
-async def login(credentials: UserLogin, response: Response):
-    user_doc = await db.users.find_one({"email": credentials.email}, {"_id": 0})
-    if not user_doc:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    if not bcrypt.checkpw(credentials.password.encode('utf-8'), user_doc['password'].encode('utf-8')):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    session_token = f"session_{uuid.uuid4().hex}"
-    session_doc = {
-        "user_id": user_doc["user_id"],
-        "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.user_sessions.insert_one(session_doc)
-    
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=7*24*60*60
-    )
-    
-    return {"session_token": session_token, "user": {"user_id": user_doc["user_id"], "email": user_doc["email"], "name": user_doc["name"]}}
 
-@api_router.get("/auth/google-session")
-async def process_google_session(session_id: str, response: Response):
-    try:
-        headers = {"X-Session-ID": session_id}
-        res = requests.get("https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data", headers=headers)
-        
-        if res.status_code != 200:
-            raise HTTPException(status_code=400, detail="Invalid session ID")
-        
-        data = res.json()
-        user_doc = await db.users.find_one({"email": data["email"]}, {"_id": 0})
-        
-        if user_doc:
-            user_id = user_doc["user_id"]
-        else:
-            user_id = f"user_{uuid.uuid4().hex[:12]}"
-            user_doc = {
-                "user_id": user_id,
-                "email": data["email"],
-                "name": data["name"],
-                "picture": data.get("picture"),
-                "xp": 0,
-                "rank": "Recruta",
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await db.users.insert_one(user_doc)
-        
-        session_token = data["session_token"]
-        session_doc = {
-            "user_id": user_id,
-            "session_token": session_token,
-            "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.user_sessions.insert_one(session_doc)
-        
-        response.set_cookie(
-            key="session_token",
-            value=session_token,
-            httponly=True,
-            secure=True,
-            samesite="none",
-            path="/",
-            max_age=7*24*60*60
-        )
-        
-        return {"session_token": session_token, "user": {"user_id": user_id, "email": data["email"], "name": data["name"], "picture": data.get("picture")}}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/auth/me")
-async def get_me(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    return user
 
-@api_router.post("/auth/logout")
-async def logout(request: Request, response: Response, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    token = session_token or (auth_header.replace("Bearer ", "") if auth_header else None)
-    
-    if token:
-        await db.user_sessions.delete_one({"session_token": token})
-    
-    response.delete_cookie("session_token", path="/")
-    return {"message": "Logged out"}
 
-@api_router.post("/auth/upload-picture")
-async def upload_profile_picture(
-    request: Request,
-    file: UploadFile = File(...),
-    session_token: Optional[str] = Cookie(None)
-):
-    """Upload a profile picture for the user"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Validate file type
-    allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-    if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail="Only JPEG, PNG, GIF or WebP images are allowed")
-    
-    # Read and encode file
-    content = await file.read()
-    
-    # Check file size (max 5MB)
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File size must be less than 5MB")
-    
-    # Store as base64 data URL
-    file_base64 = base64.b64encode(content).decode('utf-8')
-    data_url = f"data:{file.content_type};base64,{file_base64}"
-    
-    # Update user picture
-    await db.users.update_one(
-        {"user_id": user.user_id},
-        {"$set": {"picture": data_url}}
-    )
-    
-    return {"message": "Profile picture updated", "picture": data_url}
 
-@api_router.delete("/auth/remove-picture")
-async def remove_profile_picture(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Remove the user's profile picture"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    await db.users.update_one(
-        {"user_id": user.user_id},
-        {"$set": {"picture": None}}
-    )
-    
-    return {"message": "Profile picture removed"}
 
-@api_router.patch("/auth/profile")
-async def update_profile(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
-    """Update user profile info (name, birth_date, bio)"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    update_fields = {}
-    for field in ["name", "birth_date", "bio", "health_condition", "gemini_api_key"]:
-        if field in data:
-            if field == 'gemini_api_key':
-                from ai.credentials import credential_fields
-                update_fields.update(credential_fields('gemini', data[field] or ''))
-            else:
-                update_fields[field] = data[field]
-    
-    if not update_fields:
-        raise HTTPException(status_code=400, detail="Nenhum campo para atualizar")
-    
-    await db.users.update_one(
-        {"user_id": user.user_id},
-        {"$set": update_fields}
-    )
-    
-    updated_user = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password": 0})
-    updated_user = updated_user or {}
-    from ai.credentials import public_profile
-    return public_profile(updated_user)
 
 @api_router.post("/auth/test-gemini-key")
 async def test_gemini_key(request: Request, data: Optional[dict] = None, session_token: Optional[str] = Cookie(None)):
@@ -1073,26 +809,6 @@ async def test_gemini_key(request: Request, data: Optional[dict] = None, session
     except AIError as error:
         return {'valid': False, 'status': error.kind, 'message': 'Não foi possível validar a chave agora.'}
 
-@api_router.get("/auth/birthday-check")
-async def check_birthday(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Check if today is user's birthday"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
-    birth_date = user_doc.get("birth_date")
-    
-    if not birth_date:
-        return {"is_birthday": False, "age": None}
-    
-    try:
-        bd = datetime.strptime(birth_date, "%Y-%m-%d")
-        today = datetime.now(timezone.utc)
-        is_birthday = bd.month == today.month and bd.day == today.day
-        age = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
-        return {"is_birthday": is_birthday, "age": age, "birth_date": birth_date}
-    except Exception:
-        return {"is_birthday": False, "age": None}
 
 @api_router.post("/study/notebooks/{notebook_id}/topic-progress")
 async def update_topic_progress(request: Request, notebook_id: str, data: dict, session_token: Optional[str] = Cookie(None)):
@@ -13743,6 +13459,10 @@ api_router.include_router(edital_jobs.router)
 
 from operations import install_request_metrics, ensure_query_indexes
 install_request_metrics(app)
+
+# Authentication is served by PostgreSQL repositories.
+from services.auth_routes import router as auth_router
+api_router.include_router(auth_router)
 
 # Include router AFTER all endpoints are defined
 app.include_router(api_router)

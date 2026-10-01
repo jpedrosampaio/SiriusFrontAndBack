@@ -29,11 +29,14 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(public['gemini_key_last4'], '5678')
             self.assertFalse(any('api_key' in k for k in public))
 
-    async def test_legacy_key_migration_preserves_owner_and_compare_and_set(self):
-        db = SimpleNamespace(users=SimpleNamespace(find_one=AsyncMock(return_value={'gemini_api_key': 'old-secret'}), update_one=AsyncMock()))
+    def test_key_encryption_roundtrip_requires_same_key(self):
+        # Mongo plaintext migration is intentionally retired: this release resets data.
+        # Persistent owner isolation is covered by test_postgres_runtime_auth.
+        from ai.credentials import cipher
         with patch.dict(os.environ, {'AI_KEY_ENCRYPTION_KEY': Fernet.generate_key().decode()}):
-            self.assertEqual(await Credentials(db).get('alice'), {'gemini': 'old-secret'})
-        self.assertEqual(db.users.update_one.call_args.args[0], {'user_id': 'alice', 'gemini_api_key': 'old-secret'})
+            fields = credential_fields('gemini', 'new-secret')
+            self.assertIsNone(fields['gemini_api_key'])
+            self.assertEqual(cipher().decrypt(fields['gemini_api_key_encrypted'].encode()), b'new-secret')
 
     def test_new_secrets_require_encryption_but_deletion_does_not(self):
         with patch.dict(os.environ, {'AI_KEY_ENCRYPTION_KEY': ''}):
