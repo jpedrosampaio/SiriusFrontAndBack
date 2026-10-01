@@ -12,6 +12,7 @@ class Owned:
 
 class Task(Identity, Owned, Timestamps, Base):
     __tablename__ = 'tasks'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     title: Mapped[str]
     description: Mapped[str | None] = mapped_column(Text)
     date: Mapped[date] = mapped_column(Date)
@@ -32,11 +33,13 @@ class TaskInstance(Identity, Owned, Base):
     completed: Mapped[bool] = mapped_column(default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (ForeignKeyConstraint(['user_id','task_id'], ['tasks.user_id','tasks.id'], ondelete='CASCADE'),
-        UniqueConstraint('user_id','task_id','date'), CheckConstraint("status IN ('todo','in_progress','done')", name='status'))
+        UniqueConstraint('user_id','task_id','date'), CheckConstraint("status IN ('todo','in_progress','done')", name='status'),
+        CheckConstraint("completed = (status = 'done')", name='completion_status'))
 
 
 class Habit(Identity, Owned, Timestamps, Base):
     __tablename__ = 'habits'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     name: Mapped[str]
     description: Mapped[str | None] = mapped_column(Text)
     color: Mapped[str] = mapped_column(default='#007AFF')

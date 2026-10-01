@@ -2,6 +2,12 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Continuação autoritativa: anexo `0d137e4e-c640-43c1-b035-1bda4c319f08/Texto colado.txt`, seções 1–55. Continuar PR #21 até runtime Mongo zero. Não perguntar credenciais novamente, não merge parcial.
+
+Runtime já conectado: auth/cadastro/login/perfil/credenciais e uso Gemini (commit `7092735`); tarefas/hábitos/calendário agora usam SQL nas rotas reais. Migração Alembic `d18c704a928e`: archive de templates para preservar histórico e constraint de consistência status/completed. 56 tabelas. Burndown **669 → 646 → 627**; 78 collections, 9 acessos dinâmicos, 1 GridFS. Chamadas restantes de planning em Dashboard/Agent/outros leitores ainda precisam ser portadas. Inventário por domínio em `docs/MONGO_BURNDOWN.md`.
+
+Validação da conexão de planning: 33 testes PostgreSQL passaram (11,677 s), incluindo banco vazio e rotas reais com Mongo inacessível; 139 regressões passaram (20 Mongo-only ignoradas localmente e ainda cobertas por jobs Mongo). Casos de planning foram portados/consolidados, com mapa em `docs/POSTGRES_TEST_PORTS.md`. `alembic check` sem divergências. Isso ainda NÃO prova startup sem Mongo: inicialização e demais domínios continuam Mongo. Próximo: finanças completas, metas e demais domínios conforme prompt. Não declarar cutover concluído.
+
 Pedido autoritativo: anexo `6bb87c02-c033-4291-8374-c3491a44283c/Texto colado.txt`, seções 0–133 completas. Substituir Mongo por PostgreSQL/Neon; não migrar dados, não dual-write, não Performance 2.0, não continuação UX/Studies. Usuário autoriza commits/push/PR/merge quando tudo estiver seguro; sem DATABASE_URL não quebrar produção. Não apagar Atlas.
 
 Branch `feat/postgres-neon`, base main `e2b1bfd60c225d22329b9a28ac0daf3b4e8ee702`. PR draft [#21](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/21). Primeiro commit `46e7c1b` subiu com fundação; CI PostgreSQL e backend passaram. Nenhum merge/cutover foi feito. O runtime `server.py` ainda é Mongo; os novos services/repositories ainda precisam ser conectados às rotas. Não declarar a migração pronta por os testes da fundação passarem.

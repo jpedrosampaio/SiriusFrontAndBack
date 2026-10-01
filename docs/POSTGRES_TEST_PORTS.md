@@ -1,0 +1,31 @@
+# Regression ports during runtime cutover
+
+Mongo tests remain for unported domains. Their planning cases moved to
+`backend/tests/test_postgres_runtime_planning.py`, against `server.app` and a real
+disposable PostgreSQL database. No fake Mongo adapter is used.
+
+| Previous coverage | SQL replacement |
+| --- | --- |
+| repeated task/habit completion and undo | `test_repeated_task_and_habit_completion_and_undo_each_apply_once` |
+| checkbox/Kanban consistency, reload, per-day state | `test_checkbox_kanban_reload_and_day_isolation` |
+| concurrent opposite states | `test_opposite_states_leave_matching_xp` |
+| independent task dates, habit dates and streak | `test_distinct_habit_dates_and_independent_task_rewards` |
+| independent XP writers | `test_other_xp_writers_coexist` |
+| lost response, receipt replay, old replay after undo | `test_same_key_replays_after_lost_response_and_after_undo` |
+| conflicting key, foreign task/habit, per-user key scope | `test_key_conflict_and_user_isolation` |
+| task/habit rollback after XP mutation | `test_task_and_habit_failure_roll_back_state_xp_receipt` |
+| toggle precondition and safe replay | `test_toggle_requires_key_and_replay_is_safe` |
+| invalid dates, key, body without writes | `test_invalid_inputs_do_not_write` |
+| one-query task listing, recurrence empty state | `test_instances_loaded_in_one_query_and_recurrence_filter` |
+| legacy duplicates, foreign instances | `test_database_rejects_duplicate_and_foreign_instances` |
+
+The Mongo-only standalone transaction rejection test is obsolete: PostgreSQL
+provides transactions without replica-set configuration; rollback is tested above.
+Legacy task duplicate/status normalization is not a data migration requirement:
+SQL uniqueness, foreign keys and completion/status checks prevent those invalid
+records. Legacy plaintext Gemini-key migration was replaced with encrypted SQL
+credential tests because legacy data is explicitly discarded.
+
+Additional SQL coverage checks archive semantics and retention of completion
+evidence. Mongo focus, workouts, dashboard, dated plans and practice tests remain
+until their equivalent runtime ports are ready.

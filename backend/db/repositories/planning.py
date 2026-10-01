@@ -15,7 +15,7 @@ class PlanningRepository:
         return task
 
     async def get_task(self, user_id, task_id):
-        return await self.session.scalar(select(Task).where(Task.user_id == user_id, Task.id == task_id))
+        return await self.session.scalar(select(Task).where(Task.user_id == user_id, Task.id == task_id, Task.archived_at.is_(None)))
 
     async def task_instance(self, user_id, task_id, day):
         return await self.session.scalar(select(TaskInstance).where(TaskInstance.user_id == user_id,
@@ -24,7 +24,8 @@ class PlanningRepository:
     async def tasks_on_date(self, user_id, day, recurrence=None):
         query = select(Task, TaskInstance).outerjoin(TaskInstance,
             (TaskInstance.task_id == Task.id) & (TaskInstance.user_id == Task.user_id) & (TaskInstance.date == day)
-        ).where(Task.user_id == user_id, Task.date <= day)
+        ).where(Task.user_id == user_id, Task.date <= day, Task.archived_at.is_(None),
+            (Task.recurrence != 'once') | (Task.date == day))
         if recurrence:
             query = query.where(Task.recurrence == recurrence)
         pairs = (await self.session.execute(query.order_by(Task.created_at,Task.id))).all()
@@ -38,7 +39,18 @@ class PlanningRepository:
         return row
 
     async def get_habit(self, user_id, habit_id):
-        return await self.session.scalar(select(Habit).where(Habit.user_id == user_id, Habit.id == habit_id))
+        return await self.session.scalar(select(Habit).where(Habit.user_id == user_id, Habit.id == habit_id, Habit.archived_at.is_(None)))
+
+    async def habits_with_dates(self, user_id):
+        habits = list((await self.session.scalars(select(Habit).where(Habit.user_id == user_id,
+            Habit.archived_at.is_(None)).order_by(Habit.created_at, Habit.id))).all())
+        checks = (await self.session.execute(select(HabitCheck.habit_id, HabitCheck.date).join(Habit,
+            (Habit.id == HabitCheck.habit_id) & (Habit.user_id == HabitCheck.user_id)).where(
+            HabitCheck.user_id == user_id, Habit.archived_at.is_(None)).order_by(HabitCheck.date))).all()
+        dates = {}
+        for habit_id, day in checks:
+            dates.setdefault(habit_id, []).append(day)
+        return [(habit, dates.get(habit.id, [])) for habit in habits]
 
     async def habit_check(self, user_id, habit_id, day):
         return await self.session.scalar(select(HabitCheck).where(HabitCheck.user_id == user_id,

@@ -1,6 +1,6 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 646,
+  "remaining_direct_calls": 627,
   "remaining_collections": 78,
   "remaining_dynamic_accesses": 9,
   "remaining_gridfs_constructors": 1,
@@ -10,12 +10,12 @@
     "files_rag": 49,
     "finance": 65,
     "goals": 9,
-    "health": 111,
+    "health": 109,
     "identity": 11,
     "notifications": 24,
     "other": 17,
-    "planning": 40,
-    "studies": 243
+    "planning": 25,
+    "studies": 241
   },
   "mongo_imports": [
     "ai/automations.py:7: pymongo",
@@ -33,7 +33,7 @@
     "server.py:6: pymongo.errors",
     "server.py:7: pymongo.read_concern",
     "server.py:8: pymongo.write_concern",
-    "server.py:2484: pymongo.errors",
+    "server.py:2271: pymongo.errors",
     "study_workspace_routes.py:7: pymongo",
     "study_workspace_routes.py:8: pymongo.errors"
   ],

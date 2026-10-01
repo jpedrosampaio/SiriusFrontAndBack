@@ -5,6 +5,8 @@ Este documento não declara o cutover concluído: o servidor existente ainda usa
 
 ## Fundação
 
+Rotas reais já conectadas: autenticação/perfil/credenciais; tarefas e hábitos (incluindo XP transacional, replay e Kanban); calendário com consultas por período. Templates excluídos são arquivados para preservar evidências. Demais consumidores de tarefas/hábitos, como Dashboard e Agent, ainda aguardam migração. O startup ainda depende de Mongo. Testes SQL agora incluem `server.app`, sem servidor Mongo disponível, mas ainda sem executar o lifespan legado.
+
 - SQLAlchemy 2.0.54, typed mappings e AsyncSession.
 - Psycopg 3.3.6: driver async em runtime e sync no CLI Alembic. Ambos usam o mesmo dialeto `postgresql+psycopg`. Asyncpg também é suportado pelo SQLAlchemy; psycopg simplifica TLS e o CLI síncrono. [Dialeto oficial](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#module-sqlalchemy.dialects.postgresql.psycopg).
 - Alembic 1.20.0 é a autoridade do schema. Nenhum `create_all`, DDL ou migration no startup.

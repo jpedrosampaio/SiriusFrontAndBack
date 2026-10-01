@@ -55,7 +55,8 @@ async def set_task_completion(user_id, task_id, day, status, request_key=None):
         xp_earned = (int(completed)-int(was_completed))*task.xp_reward
         apply_xp(user, xp_earned)
         await session.flush()
-        return {'task_id':str(task_id), 'date':day.isoformat(), 'completed':completed, 'status':status,
+        return {'message':'Task completed' if xp_earned > 0 else 'Task uncompleted' if xp_earned < 0 else 'Task updated',
+            'task_id':str(task_id), 'date':day.isoformat(), 'completed':completed, 'status':status,
             'xp_earned':xp_earned, 'new_xp':user.xp, 'new_rank':user.rank, 'instance_id':str(instance.id)}
     return await run_activity(user_id, request_key, ['task',str(task_id),day.isoformat(),status], apply)
 
