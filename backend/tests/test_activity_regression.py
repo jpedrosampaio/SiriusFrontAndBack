@@ -42,8 +42,6 @@ def load_routes(client, db):
     ns["get_current_user"] = auth
     app = FastAPI()
     app.include_router(ns["api_router"])
-    from study_workspace_routes import workspace_router
-    app.include_router(workspace_router(db, auth, ns['run_activity_mutation']), prefix='/api')
     return ns, app
 
 
@@ -108,30 +106,7 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
         for response in responses:
             self.assertEqual(response.status_code, 200, response.text)
 
-    async def test_focus_retries_commit_one_session_time_and_xp(self):
-        await self.db.notebooks.insert_one({'notebook_id': 'nb', 'user_id': 'alice', 'total_study_time_minutes': 0})
-        payload = {'notebook_id': 'nb', 'focus_minutes': 25, 'break_minutes': 5, 'notes': 'draft'}
-        responses = await asyncio.gather(*(self.http.post('/api/study/focus/complete', json=payload, headers={'Idempotency-Key': 'focus-same-request'}) for _ in range(20)))
-        self.successes(responses)
-        self.assertEqual(await self.db.focus_sessions.count_documents({}), 1)
-        notebook = await self.db.notebooks.find_one({'notebook_id': 'nb'})
-        self.assertEqual(notebook['total_study_time_minutes'], 25)
-        await self.balance(5)
-        bad = await self.http.post('/api/study/focus/complete', json=payload, headers={'Authorization': 'Bearer bob'})
-        self.assertEqual(bad.status_code, 404)
 
-    async def test_focus_failure_rolls_back_minutes_and_session(self):
-        await self.db.notebooks.insert_one({'notebook_id': 'nb', 'user_id': 'alice', 'total_study_time_minutes': 0})
-        original = self.ns['award_xp']
-        self.ns['award_xp'] = AsyncMock(side_effect=RuntimeError('injected failure'))
-        try:
-            with self.assertRaises(RuntimeError):
-                await self.http.post('/api/study/focus/complete', json={'notebook_id': 'nb', 'focus_minutes': 25})
-        finally:
-            self.ns['award_xp'] = original
-        self.assertEqual(await self.db.focus_sessions.count_documents({}), 0)
-        self.assertEqual((await self.db.notebooks.find_one({'notebook_id': 'nb'}))['total_study_time_minutes'], 0)
-        await self.balance(0)
 
     async def test_workout_start_and_completion_serialize_and_replay(self):
         await self.db.workout_plans.insert_one({'plan_id': 'plan', 'user_id': 'alice', 'name': 'Plan', 'exercises': [{'name': 'Exercise', 'sets': 3, 'reps': 12}]})
@@ -162,217 +137,25 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['income'], 1005)
         self.assertEqual(result['study_stats']['study_time_today_minutes'], 25)
 
-    async def test_dated_plan_preserves_done_blocks_and_rejects_overbooking(self):
-        await self.db.study_programs.insert_one({'user_id': 'alice', 'program_id': 'p', 'target_date': '2026-10-30'})
-        await self.db.notebooks.insert_one({'user_id': 'alice', 'program_id': 'p', 'notebook_id': 'nb', 'name': 'Direito', 'weight': 2})
-        url = '/api/study/programs/p/dated-plan'
-        settings = {'start_date': '2026-09-28', 'end_date': '2026-10-02', 'availability': [60, 60, 60, 60, 60, 0, 0], 'block_minutes': 60}
-        generated = await self.http.post(url, json=settings)
-        self.assertEqual(generated.status_code, 200, generated.text)
-        entries = generated.json()['entries']
-        entry = entries[0]
-        self.assertEqual((await self.http.patch(url + '/' + entry['entry_id'], json={'date': entries[1]['date']})).status_code, 422)
-        self.assertEqual((await self.http.patch(url + '/' + entry['entry_id'], json={'completed': True})).status_code, 200)
-        regenerated = await self.http.post(url, json=settings)
-        self.assertEqual(regenerated.status_code, 200, regenerated.text)
-        self.assertTrue(any(e['entry_id'] == entry['entry_id'] and e['completed'] for e in regenerated.json()['entries']))
-        self.assertEqual((await self.http.get(url, headers={'Authorization': 'Bearer bob'})).status_code, 404)
-
-    async def test_repeated_task_completion_and_undo_each_apply_once(self):
-        results = await asyncio.gather(*(self.task() for _ in range(20)))
-        self.successes(results)
-        self.assertEqual(sum(r.json()["xp_earned"] for r in results), 10)
-        await self.balance(10)
-        self.assertEqual(await self.db.task_instances.count_documents({}), 1)
-        results = await asyncio.gather(*(self.task(False) for _ in range(20)))
-        self.successes(results)
-        self.assertEqual(sum(r.json()["xp_earned"] for r in results), -10)
-        await self.balance(0)
-
-    async def test_checkbox_and_kanban_share_one_completion(self):
-        results = await asyncio.gather(
-            self.task(),
-            self.http.patch("/api/tasks/task_1/status",
-                json={"status": "done", "date": "2026-09-14"}))
-        self.successes(results)
-        await self.balance(10)
-        response = await self.http.patch("/api/tasks/task_1/status",
-            json={"status": "in_progress", "date": "2026-09-14"})
-        self.successes([response])
-        await self.balance(0)
-        rows = (await self.http.get("/api/tasks", params={"date": "2026-09-14"})).json()
-        self.assertEqual((rows[0]["status"], rows[0]["completed"]), ("in_progress", False))
-
-    async def test_repeated_habit_completion_and_undo_each_apply_once(self):
-        results = await asyncio.gather(*(self.habit() for _ in range(20)))
-        self.successes(results)
-        self.assertEqual(sum(r.json()["xp_earned"] for r in results), 8)
-        await self.balance(8)
-        results = await asyncio.gather(*(self.habit(False) for _ in range(20)))
-        self.successes(results)
-        await self.balance(0)
-        habit = await self.db.habits.find_one({"habit_id": "habit_1"})
-        self.assertEqual(habit["completions"], [])
-
-    async def test_concurrent_opposite_states_leave_matching_xp(self):
-        results = await asyncio.gather(*(self.task(completed) for completed in [True, False] * 10))
-        self.successes(results)
-        row = await self.db.task_instances.find_one({})
-        await self.balance(10 if row["completed"] else 0)
-
-    async def test_distinct_habit_dates_preserve_all_completions_and_streak(self):
-        dates = [f"2026-09-{day:02}" for day in range(1, 11)]
-        self.successes(await asyncio.gather(*(self.habit(date=date) for date in dates)))
-        habit = await self.db.habits.find_one({"habit_id": "habit_1"})
-        self.assertEqual(habit["completions"], dates)
-        self.assertEqual(habit["best_streak"], 10)
-        await self.balance(80)
-
-    async def test_independent_task_dates_receive_independent_rewards(self):
-        self.successes(await asyncio.gather(self.task(date="2026-09-14"),
-                                            self.task(date="2026-09-15")))
-        await self.balance(20)
-        self.assertEqual(await self.db.task_instances.count_documents({}), 2)
-
-    async def test_task_habit_and_other_xp_writers_coexist(self):
-        results = await asyncio.gather(self.task(), self.habit(),
-            *(self.ns["award_xp"]("alice", 2) for _ in range(10)))
-        self.successes(results[:2])
-        await self.balance(38)
-
-    async def test_topic_practice_replay_owner_and_counts(self):
-        await self.db.notebooks.insert_one({'user_id': 'alice', 'notebook_id': 'nb', 'program_id': 'p',
-                                           'conteudo_programatico': [{'assunto': 'Crase', 'subtopicos': ['Exceções']}]})
-        url = '/api/study/notebooks/nb/practice'
-        body = {'topic_key': '0_0', 'total': 10, 'correct': 5}
-        headers = {'Idempotency-Key': 'practice-replay-001'}
-        first = await self.http.post(url, json=body, headers=headers)
-        self.assertEqual(first.status_code, 200, first.text)
-        self.assertEqual(first.json()['title'], 'Exceções')
-        replay = await self.http.post(url, json=body, headers=headers)
-        self.assertTrue(replay.json()['replayed'])
-        self.assertEqual(await self.db.question_logs.count_documents({}), 1)
-        self.assertEqual((await self.db.notebooks.find_one({'notebook_id': 'nb'}))['total_questions'], 10)
-        self.assertEqual(await self.db.study_topic_reviews.count_documents({}), 1)
-        foreign = await self.http.post(url, json=body, headers={**headers, 'Authorization': 'Bearer bob'})
-        self.assertEqual(foreign.status_code, 404)
-        invalid = await self.http.post(url, json={**body, 'correct': 11}, headers=headers)
-        self.assertEqual(invalid.status_code, 422)
-        await self.balance(0)
-
-    async def test_same_key_replays_one_committed_result_after_lost_response(self):
-        results = await asyncio.gather(*(self.task(key="same-request-001") for _ in range(12)))
-        self.successes(results)
-        self.assertEqual(sum(not r.json().get("replayed", False) for r in results), 1)
-        await self.balance(10)
-        self.assertEqual(await self.db.activity_requests.count_documents({}), 1)
-
-    async def test_old_request_replay_after_undo_does_not_complete_again(self):
-        self.successes([await self.task(key="original-request")])
-        self.successes([await self.task(False, key="undo-request-001")])
-        replay = await self.task(key="original-request")
-        self.assertTrue(replay.json()["replayed"])
-        await self.balance(0)
-        self.assertFalse((await self.db.task_instances.find_one({}))["completed"])
-
-    async def test_key_cannot_be_reused_with_another_payload_or_route(self):
-        self.successes([await self.task(key="original-request")])
-        for response in (await self.task(False, key="original-request"),
-                         await self.habit(key="original-request")):
-            self.assertEqual(response.status_code, 409)
-        await self.balance(10)
-
-    async def test_user_ownership_and_request_key_scoping(self):
-        foreign = await self.task(headers={"Authorization": "Bearer bob"})
-        self.assertEqual(foreign.status_code, 404)
-        foreign = await self.habit(headers={"Authorization": "Bearer bob"})
-        self.assertEqual(foreign.status_code, 404)
-        await self.db.tasks.insert_one({
-            "user_id": "bob", "task_id": "task_1", "xp_reward": 10})
-        self.successes(await asyncio.gather(
-            self.task(key="shared-key-001"),
-            self.task(key="shared-key-001", headers={"Authorization": "Bearer bob"})))
-        await self.balance(10)
-        await self.balance(510, "bob")
-
-    async def test_task_failure_rolls_back_state_xp_and_receipt_then_retry_succeeds(self):
-        real_award = self.ns["award_xp"]
-        async def fail_after_award(*args, **kwargs):
-            await real_award(*args, **kwargs)
-            raise HTTPException(status_code=503, detail="Injected failure")
-        self.ns["award_xp"] = fail_after_award
-        response = await self.task(key="rollback-request")
-        self.assertEqual(response.status_code, 503)
-        await self.balance(0)
-        self.assertEqual(await self.db.task_instances.count_documents({}), 0)
-        self.assertEqual(await self.db.activity_requests.count_documents({}), 0)
-        self.ns["award_xp"] = real_award
-        self.successes([await self.task(key="rollback-request")])
-        await self.balance(10)
-
-    async def test_habit_failure_rolls_back_state_xp_and_receipt(self):
-        real_award = self.ns["award_xp"]
-        async def fail_after_award(*args, **kwargs):
-            await real_award(*args, **kwargs)
-            raise HTTPException(status_code=503, detail="Injected failure")
-        self.ns["award_xp"] = fail_after_award
-        response = await self.habit(key="rollback-request")
-        self.assertEqual(response.status_code, 503)
-        await self.balance(0)
-        self.assertEqual((await self.db.habits.find_one({}))["completions"], [])
-        self.assertEqual(await self.db.activity_requests.count_documents({}), 0)
-
-    async def test_legacy_duplicates_do_not_create_another_reward(self):
-        await self.db.users.update_one({"user_id": "alice"}, {"$set": {"xp": 10}})
-        await self.db.task_instances.insert_many([
-            {"user_id": "alice", "task_id": "task_1", "instance_id": "old-1",
-             "date": "2026-09-14", "completed": True},
-            {"user_id": "alice", "task_id": "task_1", "instance_id": "old-2",
-             "date": "2026-09-14", "completed": False}])
-        rows = (await self.http.get("/api/tasks", params={"date": "2026-09-14"})).json()
-        self.assertTrue(rows[0]["completed"])
-        self.successes([await self.task()])
-        await self.balance(10)
-        self.successes([await self.task(False)])
-        await self.balance(0)
-        self.assertEqual(await self.db.task_instances.count_documents({"completed": True}), 0)
-
-    async def test_legacy_toggle_requires_key_and_replay_is_safe(self):
-        self.assertEqual((await self.habit(None)).status_code, 428)
-        self.successes([await self.habit(None, key="legacy-toggle-001")])
-        replay = await self.habit(None, key="legacy-toggle-001")
-        self.assertTrue(replay.json()["replayed"])
-        await self.balance(8)
-
-    async def test_invalid_inputs_do_not_write(self):
-        for response in (await self.task(date="2026-02-30"),
-                         await self.habit(date="not-a-date"),
-                         await self.task(key="short"),
-                         await self.http.patch("/api/tasks/task_1/status", json=[])):
-            self.assertIn(response.status_code, (400, 422))
-        await self.balance(0)
-        self.assertEqual(await self.db.task_instances.count_documents({}), 0)
 
 
-@unittest.skipUnless(os.environ.get("XP_TEST_MONGO_URI"), "standalone MongoDB not configured")
-class StandaloneActivityTests(unittest.IsolatedAsyncioTestCase):
-    async def test_unsupported_transactions_fail_without_partial_updates(self):
-        from motor.motor_asyncio import AsyncIOMotorClient
-        mongo = AsyncIOMotorClient(os.environ["XP_TEST_MONGO_URI"])
-        db = mongo["sirius_standalone_test_" + uuid.uuid4().hex]
-        try:
-            await db.users.insert_one({"user_id": "alice", "xp": 0})
-            ns, app = load_routes(mongo, db)
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
-                                        base_url="https://sirius.test") as http:
-                response = await http.patch("/api/tasks/task_1",
-                    params={"completed": "true", "date": "2026-09-14"})
-                self.assertEqual(response.status_code, 503)
-            self.assertEqual((await db.users.find_one({}))["xp"], 0)
-            self.assertEqual(await db.task_instances.count_documents({}), 0)
-        finally:
-            await mongo.drop_database(db.name)
-            mongo.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":

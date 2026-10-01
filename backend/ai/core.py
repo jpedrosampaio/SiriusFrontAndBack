@@ -29,7 +29,17 @@ class Core:
         for parameter, collection, field in [('program', 'study_programs', 'program_id'), ('notebook', 'notebooks', 'notebook_id'), ('analysis', 'edital_analyses', 'analysis_id'), ('attachment', 'ai_attachments', 'attachment_id')]:
             value = context.get(field) or next(iter(query.get(parameter, [])), None)
             if isinstance(value, str) and value and len(value) <= 100:
-                row = await self.db[collection].find_one({'user_id': user_id, field: value}, {'_id': 0, field: 1, 'name': 1, 'title': 1})
+                if parameter == 'analysis':
+                    from services.edital_analyses import get
+                    from fastapi import HTTPException
+                    try:
+                        analysis = await get(user_id,value)
+                        row = {'analysis_id':analysis['analysis_id'],'title':analysis.get('pdf_filename')}
+                    except HTTPException as error:
+                        if error.status_code != 404: raise
+                        row = None
+                else:
+                    row = await self.db[collection].find_one({'user_id': user_id, field: value}, {'_id': 0, field: 1, 'name': 1, 'title': 1})
                 if row: selected[parameter] = row
         key = context.get('topic_key') or next(iter(query.get('topic', [])), None)
         if 'notebook' in selected and isinstance(key, str):

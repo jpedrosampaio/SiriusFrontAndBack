@@ -29,11 +29,14 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(public['gemini_key_last4'], '5678')
             self.assertFalse(any('api_key' in k for k in public))
 
-    async def test_legacy_key_migration_preserves_owner_and_compare_and_set(self):
-        db = SimpleNamespace(users=SimpleNamespace(find_one=AsyncMock(return_value={'gemini_api_key': 'old-secret'}), update_one=AsyncMock()))
+    def test_key_encryption_roundtrip_requires_same_key(self):
+        # Mongo plaintext migration is intentionally retired: this release resets data.
+        # Persistent owner isolation is covered by test_postgres_runtime_auth.
+        from ai.credentials import cipher
         with patch.dict(os.environ, {'AI_KEY_ENCRYPTION_KEY': Fernet.generate_key().decode()}):
-            self.assertEqual(await Credentials(db).get('alice'), {'gemini': 'old-secret'})
-        self.assertEqual(db.users.update_one.call_args.args[0], {'user_id': 'alice', 'gemini_api_key': 'old-secret'})
+            fields = credential_fields('gemini', 'new-secret')
+            self.assertIsNone(fields['gemini_api_key'])
+            self.assertEqual(cipher().decrypt(fields['gemini_api_key_encrypted'].encode()), b'new-secret')
 
     def test_new_secrets_require_encryption_but_deletion_does_not(self):
         with patch.dict(os.environ, {'AI_KEY_ENCRYPTION_KEY': ''}):
@@ -84,10 +87,12 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         class Database:
             def __getattr__(self, key): return getattr(db, key)
             def __getitem__(self, key): return getattr(db, key)
-        result = await Retrieval(Database()).search('alice', 'direito')
+        from fastapi import HTTPException
+        with patch('services.edital_analyses.get',new=AsyncMock(side_effect=HTTPException(404,'Not found'))) as get_analysis:
+            result = await Retrieval(Database()).search('alice', 'direito')
         self.assertEqual(result['citations'], [])
         self.assertEqual(db.ai_chunks.find.call_args.args[0]['user_id'], 'alice')
-        self.assertEqual(db.edital_analyses.find_one.call_args.args[0], {'user_id': 'alice', 'analysis_id': 'source'})
+        get_analysis.assert_awaited_once_with('alice','source')
 
     def test_chunks_retain_page_and_quiet_hours_cross_midnight(self):
         row = list(chunks([{'page': 7, 'text': 'Direito constitucional ' * 100}]))

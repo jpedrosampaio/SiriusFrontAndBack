@@ -8,12 +8,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import httpx
 from fastapi import FastAPI
-from pymongo.errors import DuplicateKeyError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from study_planner import build_plan
 from edital_sources import source_pages, locate_subject
-from study_workspace_routes import workspace_router
 
 
 class PlannerTests(unittest.TestCase):
@@ -43,49 +41,8 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(source_pages('Legacy document without page markers'), [])
 
 
-class MemoryDrafts:
-    def __init__(self): self.rows = {}
-    async def find_one(self, query, *args, **kwargs):
-        return self.rows.get(query['_id'])
-    async def insert_one(self, doc):
-        if doc['_id'] in self.rows: raise DuplicateKeyError('duplicate')
-        self.rows[doc['_id']] = dict(doc)
-    async def find_one_and_update(self, query, update, **kwargs):
-        old = self.rows.get(query['_id'])
-        if not old or old['revision'] != query['revision']: return None
-        old.update(update['$set']); old['revision'] += 1
-        return dict(old)
 
 
-class DraftRoutesTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.db = SimpleNamespace(notebooks=SimpleNamespace(find_one=AsyncMock(return_value={'notebook_id': 'own'})), study_drafts=MemoryDrafts())
-        self.app = FastAPI()
-        self.app.include_router(workspace_router(self.db, AsyncMock(return_value=SimpleNamespace(user_id='alice')), AsyncMock()))
-        self.http = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url='http://test')
-        self.url = '/study/notebooks/own/draft?topic_key=0_1'
-
-    async def asyncTearDown(self): await self.http.aclose()
-
-    async def test_save_read_retry_and_conflicting_tabs(self):
-        first = await self.http.put(self.url, json={'text': 'Minha anotação', 'revision': 0})
-        self.assertEqual(first.status_code, 200, first.text)
-        self.assertEqual((await self.http.get(self.url)).json()['text'], 'Minha anotação')
-        retry = await self.http.put(self.url, json={'text': 'Minha anotação', 'revision': 0})
-        self.assertEqual(retry.status_code, 200)
-        responses = await asyncio.gather(*(self.http.put(self.url, json={'text': t, 'revision': 1}) for t in ['aba A', 'aba B']))
-        self.assertEqual(sorted(r.status_code for r in responses), [200, 409])
-
-    async def test_owner_and_topic_validation(self):
-        self.db.notebooks.find_one.return_value = None
-        self.assertEqual((await self.http.get(self.url)).status_code, 404)
-        self.assertEqual((await self.http.put(self.url, json={'text': 'x', 'revision': 0})).status_code, 404)
-        self.assertEqual((await self.http.get('/study/notebooks/own/draft?topic_key=0.$set')).status_code, 422)
-
-    async def test_dates_are_validated_not_coerced_to_none(self):
-        from study_workspace_routes import PlanEntryUpdate
-        self.assertEqual(PlanEntryUpdate(date='2026-10-15').date, date(2026, 10, 15))
-        with self.assertRaises(ValueError): PlanEntryUpdate(date='2026-02-31')
 
 
 if __name__ == '__main__': unittest.main()

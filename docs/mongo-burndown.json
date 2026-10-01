@@ -1,0 +1,38 @@
+{
+  "initial_direct_calls": 669,
+  "remaining_direct_calls": 337,
+  "remaining_collections": 59,
+  "remaining_dynamic_accesses": 8,
+  "remaining_gridfs_constructors": 0,
+  "domains": {
+    "agent": 58,
+    "contest": 19,
+    "files_rag": 19,
+    "finance": 22,
+    "goals": 3,
+    "health": 109,
+    "identity": 9,
+    "notifications": 24,
+    "other": 17,
+    "planning": 23,
+    "studies": 34
+  },
+  "mongo_imports": [
+    "ai/automations.py:7: pymongo",
+    "ai/rag.py:7: pymongo.errors",
+    "ai/routes.py:6: pymongo",
+    "assistant_service.py:10: pymongo",
+    "contest_watch.py:12: pymongo",
+    "contest_watch.py:13: pymongo.errors",
+    "operations.py:5: pymongo.errors",
+    "server.py:4: motor.motor_asyncio",
+    "server.py:5: pymongo",
+    "server.py:6: pymongo.errors",
+    "server.py:7: pymongo.read_concern",
+    "server.py:8: pymongo.write_concern",
+    "server.py:2045: pymongo.errors"
+  ],
+  "mongo_identifiers": {
+    "AsyncIOMotorClient": 1
+  }
+}

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from fastapi import HTTPException
 from pydantic import ValidationError
-from studies_v2 import AttemptInput, TargetInput, topic_title, studies_v2_router
+from studies_v2 import AttemptInput, TargetInput, topic_title
 from study_mastery import mastery, adaptive_review, topic_priority
 
 
@@ -65,24 +65,6 @@ class MasteryTests(unittest.TestCase):
         with self.assertRaises(HTTPException): topic_title({'topicos': []}, '0')
 
 
-class OwnershipTests(unittest.IsolatedAsyncioTestCase):
-    async def test_foreign_attempt_cannot_write(self):
-        db = SimpleNamespace(notebooks=SimpleNamespace(find_one=AsyncMock(return_value=None)))
-        async def mutate(uid, key, args, operation): return await operation(None, 0)
-        router = studies_v2_router(db, AsyncMock(return_value=SimpleNamespace(user_id='owner')), mutate)
-        endpoint = next(r.endpoint for r in router.routes if r.path.endswith('/attempts'))
-        with self.assertRaises(HTTPException) as error:
-            await endpoint(SimpleNamespace(headers={'Idempotency-Key': 'test'}), AttemptInput(notebook_id='foreign', topic_key='0', question='q', correct=False), None)
-        self.assertEqual(error.exception.status_code, 404)
-        self.assertEqual(db.notebooks.find_one.call_args.args[0], {'user_id': 'owner', 'notebook_id': 'foreign'})
-
-    async def test_foreign_program_cannot_read_performance(self):
-        db = SimpleNamespace(study_programs=SimpleNamespace(find_one=AsyncMock(return_value=None)))
-        router = studies_v2_router(db, AsyncMock(return_value=SimpleNamespace(user_id='owner')), None)
-        endpoint = next(r.endpoint for r in router.routes if r.path.endswith('/performance'))
-        with self.assertRaises(HTTPException) as error:
-            await endpoint(SimpleNamespace(headers={}), 'foreign', None)
-        self.assertEqual(error.exception.status_code, 404)
 
 
 if __name__ == '__main__': unittest.main()

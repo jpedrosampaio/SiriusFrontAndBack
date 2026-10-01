@@ -33,7 +33,7 @@ class InsightFeedback(StrictModel):
 class AgentRuntime:
     def __init__(self, db, auth, transact, award_xp, update_streak):
         self.db, self.settings = db, Settings()
-        self.credentials = Credentials(db)
+        self.credentials = Credentials()
         self.router = AIRouter(self.settings, reserve=self.reserve)
         self.core, self.memory, self.retrieval = Core(db), Memory(db), Retrieval(db, self.router, self.credentials)
         self.actions = Actions(db, CoreWrites(db, award_xp, update_streak), transact)
@@ -48,8 +48,8 @@ class AgentRuntime:
         @self.api.get('/status')
         async def status(account=Depends(user)):
             import time
-            doc = await db.users.find_one({'user_id': account.user_id}) or {}
-            public = public_profile(doc)
+            from services.auth import AuthService
+            public = await AuthService().profile(account.user_id)
             usage = await db.ai_usage.find_one({'_id': self.usage_key(account.user_id)}) or {}
             return {'flags': self.settings.flags(), 'providers': {p: {'has_key': public[f'has_{p}_key'], 'last4': public[f'{p}_key_last4'], 'live_checked': False} for p in ('gemini', 'groq')},
                     'encryption_configured': bool(cipher()), 'internal_daily_limit': self.settings.daily_limit, 'internal_requests_today': usage.get('count', 0),
@@ -158,7 +158,8 @@ class AgentRuntime:
         @self.api.get('/rag/sources')
         async def sources(account=Depends(user)):
             own = {'user_id': account.user_id}
-            editais = await db.edital_analyses.find(own, {'_id': 0, 'analysis_id': 1, 'pdf_filename': 1}).to_list(50)
+            from services.edital_analyses import list_owned
+            editais = [{'analysis_id':r['analysis_id'],'pdf_filename':r['pdf_filename']} for r in (await list_owned(account.user_id))['editais'][:50]]
             notebooks = await db.notebooks.find(own, {'_id': 0, 'notebook_id': 1, 'name': 1, 'title': 1}).to_list(50)
             return {'editais': editais, 'notebooks': notebooks}
 

@@ -24,16 +24,14 @@ class Review(BaseModel):
     disciplinas: list[Subject] = Field(min_length=1, max_length=100)
 
 
-def review_router(db, authenticate):
+def review_router(authenticate):
     router = APIRouter(prefix='/study/programs/editais')
 
     async def owned(request, token, analysis_id):
         user = await authenticate(authorization=request.headers.get('Authorization'), session_token=token)
-        query = {'user_id': user.user_id, 'analysis_id': analysis_id}
-        doc = await db.edital_analyses.find_one(query, {'_id': 0})
-        if not doc:
-            raise HTTPException(404, 'Análise não encontrada')
-        return query, doc
+        from services.edital_analyses import get
+        doc = await get(user.user_id,analysis_id,include_source=True)
+        return user.user_id, doc
 
     @router.get('/{analysis_id}/source/{page}')
     async def get_page(request: Request, analysis_id: str, page: int, session_token: Optional[str] = Cookie(None)):
@@ -45,7 +43,7 @@ def review_router(db, authenticate):
 
     @router.put('/{analysis_id}/cargos/{cargo_index}')
     async def review(request: Request, analysis_id: str, cargo_index: int, body: Review, session_token: Optional[str] = Cookie(None)):
-        query, doc = await owned(request, session_token, analysis_id)
+        user_id, doc = await owned(request, session_token, analysis_id)
         cargos = doc.get('cargos', [])
         if not 0 <= cargo_index < len(cargos):
             raise HTTPException(404, 'Cargo não encontrado')
@@ -65,10 +63,19 @@ def review_router(db, authenticate):
         cargos[cargo_index].pop('conferencia', None)
         mark_discipline_quality(cargos)
         audit_cargos(cargos, doc.get('pdf_pages', []))
-        query['revision'] = body.revision if body.revision else {'$in': [0, None]}
-        changed = await db.edital_analyses.update_one(query, {'$set': {'cargos': cargos, 'reviewed_at': datetime.now(timezone.utc).isoformat()}, '$inc': {'revision': 1}})
-        if not changed.matched_count:
-            raise HTTPException(409, 'A análise mudou em outra aba. Recarregue antes de salvar.')
+        from services.edital_analyses import identity
+        from db.models.files import EditalAnalysis
+        from db.session import unit_of_work
+        from sqlalchemy import select
+        async with unit_of_work() as session:
+            row=await session.scalar(select(EditalAnalysis).where(EditalAnalysis.user_id==identity(user_id),
+                EditalAnalysis.id==identity(analysis_id)).with_for_update())
+            if row is None: raise HTTPException(404,'Análise não encontrada')
+            if row.revision != body.revision:
+                raise HTTPException(409, 'A análise mudou em outra aba. Recarregue antes de salvar.')
+            row.structured_payload={**row.structured_payload,'cargos':cargos}
+            row.reviewed_at=datetime.now(timezone.utc)
+            row.revision+=1
         return {'cargos': cargos, 'revision': body.revision + 1}
 
     return router

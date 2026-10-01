@@ -42,8 +42,8 @@ class Retrieval:
         return result.data
 
     async def index_edital(self, user_id, source_id):
-        source = await self.db.edital_analyses.find_one({'user_id': user_id, 'analysis_id': source_id})
-        if not source: raise HTTPException(404, 'Edital não encontrado.')
+        from services.edital_analyses import get
+        source = await get(user_id, source_id, include_source=True)
         pages = source.get('pdf_pages') or [source.get('pdf_text', '')]
         return await self.index_pages(user_id, source_id, 'edital', pages, source)
 
@@ -109,6 +109,13 @@ class Retrieval:
         for r in ranked[:5]:
             # Deleting an edital revokes retrieval immediately, even before cleanup.
             collection, field = {'notebook': ('notebooks', 'notebook_id'), 'attachment': ('ai_attachments', 'attachment_id')}.get(r.get('source_type'), ('edital_analyses', 'analysis_id'))
-            exists = await self.db[collection].find_one({'user_id': user_id, field: r['source_id']}, {'_id': 1})
+            if collection == 'edital_analyses':
+                from services.edital_analyses import get
+                try: exists = await get(user_id,r['source_id'])
+                except HTTPException as error:
+                    if error.status_code != 404: raise
+                    exists = None
+            else:
+                exists = await self.db[collection].find_one({'user_id': user_id, field: r['source_id']}, {'_id': 1})
             if exists: citations.append({k: r.get(k) for k in ('source_id', 'source_type', 'page', 'section', 'hash', 'text')})
         return {'method': method, 'citations': citations}

@@ -24,7 +24,10 @@ def load_routes():
              '_build_hydration_prompt', '_parse_json_lenient', '_strip_json_fences',
              '_hydrate_disciplinas_from_text', 'import_edital_with_cargo'}
     nodes = [n for n in TREE.body if getattr(n, 'name', '') in names]
+    import_tree = ast.parse((ROOT / 'services' / 'edital_import_routes.py').read_text(encoding='utf-8'))
+    nodes += [n for n in import_tree.body if getattr(n,'name','') == 'import_edital_with_cargo']
     ns = dict(globals(), api_router=APIRouter(), _HYDRATION_SYSTEM_MSG='test', _HYDRATION_SCHEMA={})
+    ns['router']=ns['api_router']
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), 'exec'), ns)
     return ns
 
@@ -110,16 +113,17 @@ class RepairTests(unittest.IsolatedAsyncioTestCase):
     async def test_import_does_not_copy_donor_when_repair_fails(self):
         ns = load_routes()
         db = MagicMock()
-        db.edital_analyses.find_one = AsyncMock(return_value={'analysis_version': 3, 'pdf_text': 'Complete source', 'cargos': [
+        sql_edital = SimpleNamespace(get=AsyncMock(return_value={'analysis_version': 3, 'pdf_text': 'Complete source', 'cargos': [
             {'nome': 'Oficial de Justiça', 'disciplinas': []},
-            {'nome': 'Contador', 'disciplinas': [subject('Contabilidade')]}]})
+            {'nome': 'Contador', 'disciplinas': [subject('Contabilidade')]}]}))
         db.study_programs.insert_one = AsyncMock()
-        ns.update(db=db, get_current_user=AsyncMock(return_value=SimpleNamespace(user_id='user')),
+        ns.update(db=db, sql_edital=sql_edital, programs=SimpleNamespace(validate_area=AsyncMock(),create=AsyncMock()), get_current_user=AsyncMock(return_value=SimpleNamespace(user_id='user')),
                   get_user_api_key=AsyncMock(return_value='test-key'), _hydrate_disciplinas_from_text=AsyncMock(return_value=[]))
         with self.assertRaises(HTTPException) as error:
             await ns['import_edital_with_cargo'](SimpleNamespace(headers={}), {'analysis_id': 'analysis', 'cargo_index': 0, 'area_id': 'area'}, None)
         self.assertEqual(error.exception.status_code, 422)
         db.study_programs.insert_one.assert_not_awaited()
+        ns['programs'].create.assert_not_awaited()
         ns['_hydrate_disciplinas_from_text'].assert_awaited_once()
 
 
