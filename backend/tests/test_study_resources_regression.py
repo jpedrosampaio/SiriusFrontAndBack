@@ -83,16 +83,6 @@ class LessonTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'unavailable')
         self.assertNotIn('test-secret', str(result))
 
-    async def test_lessons_require_owned_notebook(self):
-        source = ROOT / 'server.py'
-        nodes = [n for n in ast.parse(source.read_text(encoding='utf-8')).body if getattr(n, 'name', '') == 'get_study_lessons']
-        lookup = AsyncMock(return_value=None)
-        ns = dict(globals(), api_router=APIRouter(), db=SimpleNamespace(notebooks=SimpleNamespace(find_one=lookup)), get_current_user=AsyncMock(return_value=SimpleNamespace(user_id='owner')))
-        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), ns)
-        with self.assertRaises(HTTPException) as error:
-            await ns['get_study_lessons'](SimpleNamespace(headers={}), 'foreign', 'Topic', None)
-        self.assertEqual(error.exception.status_code, 404)
-        self.assertEqual(lookup.call_args.args[0], {'notebook_id': 'foreign', 'user_id': 'owner'})
 
 
 if __name__ == '__main__':

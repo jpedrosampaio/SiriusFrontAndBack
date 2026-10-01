@@ -5695,15 +5695,6 @@ IMPORTANTE: Retorne APENAS o JSON, sem markdown, sem ```json."""
 
 
 
-@api_router.get("/study/notebooks/{notebook_id}/lessons")
-async def get_study_lessons(request: Request, notebook_id: str, topic: str = Query("", max_length=300), session_token: Optional[str] = Cookie(None)):
-    user = await get_current_user(authorization=request.headers.get("Authorization"), session_token=session_token)
-    notebook = await db.notebooks.find_one({"notebook_id": notebook_id, "user_id": user.user_id}, {"_id": 0})
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Disciplina não encontrada")
-    from study_resources import youtube_lessons
-    query = " ".join(f"{notebook.get('name', '')} {topic} aula concurso".split())[:400]
-    return await youtube_lessons(query, os.environ.get("YOUTUBE_API_KEY", ""))
 
 
 
@@ -6904,95 +6895,6 @@ async def delete_mindmap(request: Request, mindmap_id: str, session_token: Optio
 
 # ========== PROGRESS HISTORY / COMPARATOR ==========
 
-@api_router.get("/study/programs/{program_id}/progress-history")
-async def get_progress_history(
-    request: Request,
-    program_id: str,
-    days: int = 30,
-    session_token: Optional[str] = Cookie(None)
-):
-    """Get progress history for all disciplines in a program, for comparison over time"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    notebooks = await db.notebooks.find(
-        {"program_id": program_id, "user_id": user.user_id}, {"_id": 0}
-    ).to_list(100)
-    
-    if not notebooks:
-        return {"program_id": program_id, "history": [], "notebooks": []}
-    
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    
-    history_data = {}
-    
-    for nb in notebooks:
-        nb_id = nb["notebook_id"]
-        nb_name = nb["name"]
-        nb_color = nb.get("color", "#007AFF")
-        
-        # Get question logs
-        q_logs = await db.question_logs.find({
-            "notebook_id": nb_id,
-            "user_id": user.user_id,
-            "created_at": {"$gte": cutoff}
-        }, {"_id": 0}).to_list(1000)
-        
-        # Get focus sessions
-        sessions = await db.study_sessions.find({
-            "notebook_id": nb_id,
-            "user_id": user.user_id,
-            "created_at": {"$gte": cutoff}
-        }, {"_id": 0}).to_list(1000)
-        
-        # Aggregate by date
-        for log in q_logs:
-            date = log.get("date", log.get("created_at", "")[:10])
-            if date not in history_data:
-                history_data[date] = {}
-            if nb_name not in history_data[date]:
-                history_data[date][nb_name] = {"questions": 0, "correct": 0, "minutes": 0, "color": nb_color}
-            history_data[date][nb_name]["questions"] += log.get("total", 0)
-            history_data[date][nb_name]["correct"] += log.get("correct", 0)
-        
-        for sess in sessions:
-            date = sess.get("date", sess.get("created_at", "")[:10])
-            if date not in history_data:
-                history_data[date] = {}
-            if nb_name not in history_data[date]:
-                history_data[date][nb_name] = {"questions": 0, "correct": 0, "minutes": 0, "color": nb_color}
-            history_data[date][nb_name]["minutes"] += sess.get("duration_minutes", 0)
-    
-    # Format for chart
-    sorted_dates = sorted(history_data.keys())
-    chart_data = []
-    cumulative = {}
-    
-    for date in sorted_dates:
-        entry = {"date": date}
-        for nb in notebooks:
-            nb_name = nb["name"]
-            day_data = history_data[date].get(nb_name, {"questions": 0, "correct": 0, "minutes": 0})
-            
-            if nb_name not in cumulative:
-                cumulative[nb_name] = {"questions": 0, "correct": 0, "minutes": 0}
-            cumulative[nb_name]["questions"] += day_data["questions"]
-            cumulative[nb_name]["correct"] += day_data["correct"]
-            cumulative[nb_name]["minutes"] += day_data["minutes"]
-            
-            entry[f"{nb_name}_questoes"] = cumulative[nb_name]["questions"]
-            entry[f"{nb_name}_acerto"] = round((cumulative[nb_name]["correct"] / cumulative[nb_name]["questions"] * 100) if cumulative[nb_name]["questions"] > 0 else 0, 1)
-            entry[f"{nb_name}_horas"] = round(cumulative[nb_name]["minutes"] / 60, 1)
-        chart_data.append(entry)
-    
-    nb_info = [{"name": nb["name"], "color": nb.get("color", "#007AFF"), "weight": nb.get("weight", 1)} for nb in notebooks]
-    
-    return {
-        "program_id": program_id,
-        "history": chart_data,
-        "notebooks": nb_info,
-        "days": days
-    }
 
 
 # ========== SCHEDULE-BASED NOTIFICATIONS ==========
@@ -9245,6 +9147,8 @@ api_router.include_router(study_quizzes.router)
 from services import study_tasks,study_statistics
 api_router.include_router(study_tasks.router)
 api_router.include_router(study_statistics.router)
+from services import study_history_routes
+api_router.include_router(study_history_routes.router)
 from services.edital_routes import router as edital_sql_router
 api_router.include_router(edital_sql_router)
 from services.studies_v2_routes import router as studies_v2_router

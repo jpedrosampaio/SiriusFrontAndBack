@@ -1,7 +1,7 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 351,
-  "remaining_collections": 63,
+  "remaining_direct_calls": 347,
+  "remaining_collections": 62,
   "remaining_dynamic_accesses": 8,
   "remaining_gridfs_constructors": 0,
   "domains": {
@@ -15,7 +15,7 @@
     "notifications": 24,
     "other": 17,
     "planning": 23,
-    "studies": 48
+    "studies": 44
   },
   "mongo_imports": [
     "ai/automations.py:7: pymongo",
