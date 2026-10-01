@@ -1,5 +1,21 @@
 # Sirius — handoff
 
+## PostgreSQL / Neon — em implementação, NÃO concluído
+
+Pedido autoritativo: anexo `6bb87c02-c033-4291-8374-c3491a44283c/Texto colado.txt`, seções 0–133 completas. Substituir Mongo por PostgreSQL/Neon; não migrar dados, não dual-write, não Performance 2.0, não continuação UX/Studies. Usuário autoriza commits/push/PR/merge quando tudo estiver seguro; sem DATABASE_URL não quebrar produção. Não apagar Atlas.
+
+Branch `feat/postgres-neon`, base main `e2b1bfd60c225d22329b9a28ac0daf3b4e8ee702`. PR draft [#21](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/21). Primeiro commit `46e7c1b` subiu com fundação; CI PostgreSQL e backend passaram. Nenhum merge/cutover foi feito. O runtime `server.py` ainda é Mongo; os novos services/repositories ainda precisam ser conectados às rotas. Não declarar a migração pronta por os testes da fundação passarem.
+
+Fundação atual: SQLAlchemy 2.0.54, psycopg 3.3.6, Alembic 1.20.0, 53 tabelas. Head Alembic `3b22081c7fa1`. Engine lazy pool 2+1, TLS Neon, UoW de serviços, lock de usuário/recibos, FKs compostas por dono, NUMERIC. Auth service/router testado isoladamente com HTTP; tarefas/hábitos, core writes Agent, treino e RAG lexical têm repositories/serviços/testes SQL. 14 testes PostgreSQL passaram localmente (última rodada 3,664 s), incluindo proposta de R$48 concorrente e rollback após despesa; treino de 4 semanas/20 dias; isolamento RAG e revogação. pgvector **não ativo**, pacote apenas instalado.
+
+Inventário: 80 collections, 669 chamadas diretas, 9 acessos dinâmicos, GridFS edital_inputs. `docs/DATABASE_REDESIGN_MAP.md` e JSON adjacente são mapa estático com origens; não migração de registros. Documentação de arquitetura/Neon/modelo/performance aponta explicitamente pendências.
+
+Local Windows sem Docker/psql instalado: baixados binários oficiais EDB PostgreSQL 17.11 para `Sirius/tmp/postgres` (fora do Git). Cluster descartável em `tmp/postgres/data`, host apenas 127.0.0.1, porta 55432, usuário sirius_test, banco sirius_test, auth trust exclusivamente local. Executável iniciado sem janela. Caminho curto 8.3 necessário para initdb devido ao nome Windows com acento. Testes: definir DATABASE_URL para esse banco local e RUN_POSTGRES_TESTS=true; `python -m alembic upgrade head`, `python -m alembic check`, `python -m unittest discover -s tests -p 'test_postgres_*.py' -q` em backend. Não usar Neon nos testes. Psycopg Windows usa SelectorEventLoop nos testes.
+
+Pendência externa perguntada uma vez: usuário já configurou DATABASE_URL pooled e DATABASE_URL_DIRECT no Render? Sem resposta até este registro. Nunca pedir que cole secrets no chat. Ausência de Neon não bloqueia continuar código/CI.
+
+Restante substancial: modelos/repositories/serviços de todos os domínios restantes (finance completo, planos/questões/simulados/edital, saúde completa, relatórios, notificações/Telegram/automations/contest já existentes), ligar auth e demais rotas, substituir GridFS pela abstração de storage com comportamento válido sem storage configurado, worker sem polling frequente no Neon Free, vetorial opcional se apropriado, cleanup, health/readiness, seed, E2E banco vazio/primeiro acesso, adaptar todos testes existentes e CI de Mongo, remover runtime/deps Mongo, smoke completo/frontend/lint/build, CI e só depois merge seguro. Não implementar um emulador de Mongo sobre uma coluna JSONB para acelerar o corte.
+
 ## UX 2.0 / Studies 2.0 — publicada
 
 Branch `feat/sirius-ux-studies-2`, baseada em `883d790`. AppShell único, Sirius contextual com anexos, quatro áreas de estudos, preparações genéricas, foco retomável, domínio por evidências, banco de erros, revisões, plano adaptativo, simulados transacionais e acompanhamento de fontes públicas. Arquitetura, limites e operação em [docs/UX_STUDIES_2.md](docs/UX_STUDIES_2.md).

@@ -109,6 +109,7 @@ class QuestionAttempt(Identity, Owned, Timestamps, Base):
     notebook_id: Mapped[UUID]
     topic_id: Mapped[UUID | None]
     question_id: Mapped[UUID | None]
+    exam_attempt_id: Mapped[UUID | None]
     source: Mapped[str]
     answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     total: Mapped[int] = mapped_column(default=1)
@@ -118,6 +119,8 @@ class QuestionAttempt(Identity, Owned, Timestamps, Base):
     error_cause: Mapped[str | None]
     evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
     __table_args__ = (ForeignKeyConstraint(['user_id','notebook_id'], ['study_notebooks.user_id','study_notebooks.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','question_id'], ['questions.user_id','questions.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','exam_attempt_id'], ['exam_attempts.user_id','exam_attempts.id'], ondelete='RESTRICT'),
         ForeignKeyConstraint(['user_id','topic_id'], ['study_topics.user_id','study_topics.id'], ondelete='RESTRICT'),
         Index('ix_attempts_owner_answered','user_id','answered_at'), Index('ix_attempts_owner_topic','user_id','topic_id'),
         CheckConstraint('total > 0 AND correct >= 0 AND correct <= total', name='counts'),
