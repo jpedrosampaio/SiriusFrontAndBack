@@ -118,7 +118,7 @@ async def generate_cards(request: Request,body: GenerateBody):
     except (ValueError,TypeError,KeyError): raise HTTPException(502,'A IA retornou flashcards inválidos; nenhum cartão foi salvo.')
     async def apply(session,owner):
         await owned(session,StudyNote,owner.id,body.note_id)
-        rows=[Flashcard(user_id=owner.id,**card.model_dump(),next_review=local_today(owner.timezone)) for card in cards]
+        rows=[Flashcard(user_id=owner.id,**card.model_dump(),ai_generated=True,next_review=local_today(owner.timezone)) for card in cards]
         session.add_all(rows); await session.flush()
         return {'message':f'{len(rows)} flashcards created','flashcards':[public(r) for r in rows]}
     return await mutate(request,['generate-cards',body.model_dump(mode='json')],apply)

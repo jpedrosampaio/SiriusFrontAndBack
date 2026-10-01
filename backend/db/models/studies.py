@@ -178,6 +178,8 @@ class ReviewEvent(Identity, Owned, Base):
 
 class StudyNote(Identity, Owned, Timestamps, Base):
     __tablename__ = 'study_notes'
+    ai_generated: Mapped[bool] = mapped_column(default=False)
+    source_pdf: Mapped[str | None]
     notebook_id: Mapped[UUID]
     title: Mapped[str]
     content: Mapped[str] = mapped_column(Text)
@@ -188,6 +190,8 @@ class StudyNote(Identity, Owned, Timestamps, Base):
 
 class Flashcard(Identity, Owned, Timestamps, Base):
     __tablename__ = 'flashcards'
+    ai_generated: Mapped[bool] = mapped_column(default=False)
+    source_pdf: Mapped[str | None]
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     tags: Mapped[list[str]] = mapped_column(ARRAY(String),default=list)
     notebook_id: Mapped[UUID]

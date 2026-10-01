@@ -14,10 +14,10 @@ Baseline: 669 chamadas diretas. Contagens geradas de código, não de dados. Um 
 | notifications | 24 |
 | other | 17 |
 | planning | 23 |
-| studies | 37 |
+| studies | 34 |
 
-Total direto: **340**; collections: **60**; dinâmicos: **8**; construtores GridFS: **0**; imports: **13**.
+Total direto: **337**; collections: **59**; dinâmicos: **8**; construtores GridFS: **0**; imports: **13**.
 
 Scripts de inventário, testes e server_partial.py (sem import pelo app) são excluídos. As chamadas dinâmicas ainda precisam ser migradas, mesmo quando repetem collections já contadas. As chamadas em helpers recebem os domínios das collections; uma operação composta pode aparecer em mais de uma linha.
 
-Histórico de implementação: 669 → 646 (identidade) → 627 (tarefas/hábitos/calendário) → 584 (finanças) → 578 (metas) → 544 (catálogo de estudos) → 526 (atividades de estudo) → 504 (workspace) → 462 (Studies 2.0) → 433 (análises/fila de editais; GridFS removido) → 407 (importação/cronogramas/verticalização) → 384 (simulados) → 369 (flashcards/quizzes) ? 351 (tarefas/estat?sticas de estudo) ? 347 (aulas/hist?rico) ? 340 (mapas/reda??es). Consulte o JSON para a contagem exata da revisão corrente.
+Histórico de implementação: 669 → 646 (identidade) → 627 (tarefas/hábitos/calendário) → 584 (finanças) → 578 (metas) → 544 (catálogo de estudos) → 526 (atividades de estudo) → 504 (workspace) → 462 (Studies 2.0) → 433 (análises/fila de editais; GridFS removido) → 407 (importação/cronogramas/verticalização) → 384 (simulados) → 369 (flashcards/quizzes) → 351 (tarefas/estatísticas de estudo) → 347 (aulas/histórico) → 340 (mapas/redações) → 337 (materiais PDF). Consulte o JSON para a contagem exata da revisão corrente.

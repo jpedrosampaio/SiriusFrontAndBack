@@ -60,34 +60,38 @@ def attempt_json(row,exam):
         'time_spent_seconds':row.duration_seconds,'completed_at':row.completed_at,'score':row.score})
 
 
-async def create(uid,key,fingerprint,document,questions,xp=0,kind='simulado'):
-    if not isinstance(questions,list) or not 1<=len(questions)<=500: raise HTTPException(422,'Quantidade de questões inválida.')
+async def create_in_session(session,user,document,questions,xp=0,kind="simulado"):
+    if not isinstance(questions,list) or not 1<=len(questions)<=500: raise HTTPException(422,"Quantidade de questões inválida.")
+    area,program,book,_=await scope(session,user.id,document.get('area_id'),document.get('program_id'),document.get('notebook_id'))
+    exam=Exam(user_id=user.id,area_id=book.area_id if book else (program.area_id if program else (area.id if area else None)),
+        program_id=book.program_id if book else (program.id if program else None),notebook_id=book.id if book else None,
+        title=document['title'],description=document.get('description'),kind=kind,status='ready',
+        duration_minutes=document.get('duration_minutes'),provenance={k:document[k] for k in
+            ('source_type','banca','disciplina','concurso','question_type','difficulty','pdf_filename','year_detected') if k in document})
+    session.add(exam); await session.flush(); values=[]
+    for index,data in enumerate(questions):
+        if not isinstance(data,dict) or not data.get('question_text') or not data.get('correct_answer'):
+            raise HTTPException(422,'Questão sem enunciado ou gabarito.')
+        _,_,notebook,topic=await scope(session,user.id,program_id=str(exam.program_id) if exam.program_id else None,
+            notebook_id=data.get('notebook_id') or document.get('notebook_id'),topic_key=data.get('topic_key'))
+        weight=positive_number(data.get('weight',1))
+        if weight is None or weight>100: raise HTTPException(422,'Peso de questão inválido.')
+        question=Question(user_id=user.id,notebook_id=notebook.id if notebook else None,topic_id=topic.id if topic else None,
+            statement=str(data['question_text']),question_type=data.get('type') or document.get('question_type','multipla_escolha'),
+            options=data.get('options') or [],correct_answer=str(data['correct_answer']),explanation=data.get('explanation'),
+            source=document.get('source_type','manual'),provenance={k:data[k] for k in
+                ('question_number','texto_base','disciplina','subdisciplina','difficulty','provenance') if k in data})
+        session.add(question); await session.flush()
+        session.add(ExamQuestion(user_id=user.id,exam_id=exam.id,question_id=question.id,position=index,weight=weight))
+        values.append(question_json(question,weight,index,topic.topic_key if topic else None))
+    apply_xp(user,xp); await session.flush()
+    return {'success':True,'simulado':{**exam_json(exam),'questions':values,'questions_count':len(values)},
+        'message':f'Simulado criado com {len(values)} questões!','xp_earned':xp}
+
+
+async def create(uid,key,fingerprint,document,questions,xp=0,kind="simulado"):
     async def apply(session,user):
-        area,program,book,_=await scope(session,user.id,document.get('area_id'),document.get('program_id'),document.get('notebook_id'))
-        exam=Exam(user_id=user.id,area_id=book.area_id if book else (program.area_id if program else (area.id if area else None)),
-            program_id=book.program_id if book else (program.id if program else None),notebook_id=book.id if book else None,
-            title=document['title'],description=document.get('description'),kind=kind,status='ready',
-            duration_minutes=document.get('duration_minutes'),provenance={k:document[k] for k in
-                ('source_type','banca','disciplina','concurso','question_type','difficulty','pdf_filename','year_detected') if k in document})
-        session.add(exam); await session.flush(); values=[]
-        for index,data in enumerate(questions):
-            if not isinstance(data,dict) or not data.get('question_text') or not data.get('correct_answer'):
-                raise HTTPException(422,'Questão sem enunciado ou gabarito.')
-            _,_,notebook,topic=await scope(session,user.id,program_id=str(exam.program_id) if exam.program_id else None,
-                notebook_id=data.get('notebook_id') or document.get('notebook_id'),topic_key=data.get('topic_key'))
-            weight=positive_number(data.get('weight',1))
-            if weight is None or weight>100: raise HTTPException(422,'Peso de questão inválido.')
-            question=Question(user_id=user.id,notebook_id=notebook.id if notebook else None,topic_id=topic.id if topic else None,
-                statement=str(data['question_text']),question_type=data.get('type') or document.get('question_type','multipla_escolha'),
-                options=data.get('options') or [],correct_answer=str(data['correct_answer']),explanation=data.get('explanation'),
-                source=document.get('source_type','manual'),provenance={k:data[k] for k in
-                    ('question_number','texto_base','disciplina','subdisciplina','difficulty','provenance') if k in data})
-            session.add(question); await session.flush()
-            session.add(ExamQuestion(user_id=user.id,exam_id=exam.id,question_id=question.id,position=index,weight=weight))
-            values.append(question_json(question,weight,index,topic.topic_key if topic else None))
-        apply_xp(user,xp); await session.flush()
-        return {'success':True,'simulado':{**exam_json(exam),'questions':values,'questions_count':len(values)},
-            'message':f'Simulado criado com {len(values)} questões!','xp_earned':xp}
+        return await create_in_session(session,user,document,questions,xp,kind)
     return await run_activity(identity(uid),key,fingerprint,apply)
 
 

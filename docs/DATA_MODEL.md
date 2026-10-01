@@ -68,6 +68,8 @@ completed. Essas alterações correspondem à migração anterior `d18c704a928e`
 
 `study_schedules` guarda blocos semanais com horários tipados e FK de caderno/dono. `study_programs.edital_data` é o snapshot estruturado de concurso/cargo/estratégia/fonte da importação, não armazenamento genérico de documentos; as disciplinas, tópicos, sessões e blocos ficam normalizados. Campos de fonte/status dos pesos e questões pertencem ao caderno.
 
-`study_tasks` e `study_task_checks` preservam o contrato de tarefas de estudo (caderno opcional, prazo/lembrete, minutos e recorr?ncia), distinto das tarefas gerais com data obrigat?ria. Checks normalizados t?m FK composta, unicidade di?ria e XP efetivamente concedido para desfazer corretamente. Migration `13ef5c5fbe1f`; 64 tabelas.
+`study_tasks` e `study_task_checks` preservam o contrato de tarefas de estudo (caderno opcional, prazo/lembrete, minutos e recorrência), distinto das tarefas gerais com data obrigatória. Checks normalizados têm FK composta, unicidade diária e XP efetivamente concedido para desfazer corretamente. Migration `13ef5c5fbe1f`; 64 tabelas.
 
-`study_mindmaps` guarda t?tulo, fonte, FK opcional de caderno e ?rvore espec?fica de n?s; `study_essay_corrections` guarda arquivo, instru??es e avalia??o estruturada da reda??o. N?o s?o cole??es gen?ricas. Head `d04654f48d58`, 66 tabelas.
+`study_mindmaps` guarda título, fonte, FK opcional de caderno e árvore específica de nós; `study_essay_corrections` guarda arquivo, instruções e avaliação estruturada da redação. Não são coleções genéricas. Head `d04654f48d58`, 66 tabelas.
+
+Migration `cb8efdf00b9f` preserva `ai_generated` e `source_pdf` de notas e cartões. Os materiais de PDF usam as mesmas tabelas normalizadas de notas/cartões/Exam/Question, com caderno obrigatório e transação única.

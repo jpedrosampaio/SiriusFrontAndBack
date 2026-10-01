@@ -52,6 +52,8 @@ Simulados agora usam Exam/Question/ExamQuestion/ExamAttempt nas rotas de geraç�
 
 Flashcards/revisões SM-2 e quizzes (manuais e IA) usam SQL, incluindo XP/recibo na mesma transação. Quizzes reaproveitam Exam/Question/ExamAttempt com kind quiz. Cartões excluídos são arquivados para preservar revisões, e biblioteca/fila/indicadores filtram o archive. Tags de cartões são ARRAY.
 
-Tarefas de estudo, estat?sticas gerais, gr?ficos de foco/quest?es e sugest?es usam SQL. Conclus?es t?m unicidade por dono/tarefa/data, com XP e recibo at?micos. Alterar recorr?ncia com hist?rico retorna conflito para preservar as evid?ncias.
+Tarefas de estudo, estatísticas gerais, gráficos de foco/questões e sugestões usam SQL. Conclusões têm unicidade por dono/tarefa/data, com XP e recibo atômicos. Alterar recorrência com histórico retorna conflito para preservar as evidências.
 
-Mapas mentais e reda??es persistem em SQL; IA fora da transa??o, resultado/XP/recibo at?micos. Listagens por dono t?m limite 50. Arquivos dessas gera??es s?o tempor?rios, sempre removidos em finally, sem promessa de reten??o do bin?rio.
+Mapas mentais e redações persistem em SQL; IA fora da transação, resultado/XP/recibo atômicos. Listagens por dono têm limite 50. Arquivos dessas gerações são temporários, sempre removidos em finally, sem promessa de retenção do binário.
+
+PDF para materiais valida caderno antes da IA e novamente no writer. Notas/cartões/quiz/XP/recibo são atômicos, com quantidades de geração validadas. Caderno obrigatório evita materiais órfãos; a interface já envia o caderno selecionado. IA continua fora da transação; replay evita duplicar dados/XP, mas uma repetição ainda pode chamar a IA antes de consultar o recibo.

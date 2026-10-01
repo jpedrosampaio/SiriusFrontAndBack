@@ -6,4 +6,4 @@ Ambiente de validação local: PostgreSQL 17.11, Windows, porta loopback 55432, 
 
 Pendente: EXPLAIN de consultas mensais, histórico de tentativas, revisões e conversas com dataset de teste representativo. SQL financeiro já usa intervalo `[início, próximo mês)` sobre coluna date; sem formatar a coluna no WHERE. Não há campanha Performance 2.0 nesta branch.
 
-Estat?sticas de estudo agregam sess?es e quest?es no SQL, limitando gr?ficos di?rios aos ?ltimos sete dias civis do usu?rio. Listagem de tarefas carrega as ?ltimas conclus?es em lote com DISTINCT ON, sem consulta por tarefa.
+Estatísticas de estudo agregam sessões e questões no SQL, limitando gráficos diários aos últimos sete dias civis do usuário. Listagem de tarefas carrega as últimas conclusões em lote com DISTINCT ON, sem consulta por tarefa.
