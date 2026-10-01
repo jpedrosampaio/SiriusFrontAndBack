@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from uuid import UUID
 from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
@@ -29,6 +29,8 @@ class StudyProgram(Identity, Owned, Timestamps, Base):
     icon: Mapped[str] = mapped_column(default='book')
     target_date: Mapped[date | None] = mapped_column(Date)
     status: Mapped[str] = mapped_column(default='active')
+    source_type: Mapped[str] = mapped_column(default='manual')
+    edital_data: Mapped[dict] = mapped_column(JSONB,default=dict)
     notebooks: Mapped[list['Notebook']] = relationship(back_populates='program', passive_deletes=True)
     __table_args__ = (UniqueConstraint('user_id','id'),
         ForeignKeyConstraint(['user_id','area_id'], ['study_areas.user_id','study_areas.id'], ondelete='RESTRICT'),
@@ -57,6 +59,12 @@ class Notebook(Identity, Owned, Timestamps, Base):
     dificuldade: Mapped[str] = mapped_column(default='media')
     user_difficulty: Mapped[str | None]
     num_questoes_edital: Mapped[int | None]
+    peso_fonte: Mapped[str] = mapped_column(default='')
+    peso_status: Mapped[str] = mapped_column(default='a_conferir')
+    num_questoes_fonte: Mapped[str] = mapped_column(default='')
+    num_questoes_status: Mapped[str] = mapped_column(default='a_conferir')
+    grupo: Mapped[str] = mapped_column(default='')
+    fontes: Mapped[list] = mapped_column(JSONB,default=list)
     recursos_recomendados: Mapped[list] = mapped_column(JSONB,default=list)
     area_id: Mapped[UUID]
     program_id: Mapped[UUID | None]
@@ -223,3 +231,18 @@ class StudyDraft(Identity, Owned, Timestamps, Base):
     __table_args__ = (UniqueConstraint('user_id','notebook_id','topic_key'),
         ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
         CheckConstraint('revision > 0',name='revision'))
+
+
+class StudySchedule(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_schedules'
+    notebook_id: Mapped[UUID]
+    day_of_week: Mapped[str]
+    start_time: Mapped[time]
+    end_time: Mapped[time]
+    repeat: Mapped[bool] = mapped_column(default=True)
+    tipo_estudo: Mapped[str] = mapped_column(default='Teoria + Questões')
+    prioridade: Mapped[str] = mapped_column(default='media')
+    assuntos_foco: Mapped[list[str]] = mapped_column(ARRAY(String),default=list)
+    __table_args__ = (ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
+        CheckConstraint('end_time > start_time',name='interval'),
+        CheckConstraint("day_of_week IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')",name='day'))
