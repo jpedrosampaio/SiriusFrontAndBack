@@ -5,6 +5,14 @@ Este documento não declara o cutover concluído: o servidor existente ainda usa
 
 ## Fundação
 
+Também conectadas: rotas financeiras de transações/categorias/orçamentos,
+cartões/faturas/parcelas, projeções, contas mensais, estatísticas/tendência,
+insights e exportações. Cálculos e persistência usam Decimal/NUMERIC; JSON de
+entrada é decodificado com Decimal. A conversão para números JSON ocorre apenas
+na serialização HTTP/recibo, preservando o contrato numérico do frontend.
+Agregados por mês/categoria são SQL, sem limites silenciosos de 500/1000 registros.
+Dashboard, relatórios gerais e Agent ainda possuem leitores financeiros Mongo.
+
 Rotas reais já conectadas: autenticação/perfil/credenciais; tarefas e hábitos (incluindo XP transacional, replay e Kanban); calendário com consultas por período. Templates excluídos são arquivados para preservar evidências. Demais consumidores de tarefas/hábitos, como Dashboard e Agent, ainda aguardam migração. O startup ainda depende de Mongo. Testes SQL agora incluem `server.app`, sem servidor Mongo disponível, mas ainda sem executar o lifespan legado.
 
 - SQLAlchemy 2.0.54, typed mappings e AsyncSession.

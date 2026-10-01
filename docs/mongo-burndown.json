@@ -1,14 +1,14 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 627,
-  "remaining_collections": 78,
+  "remaining_direct_calls": 584,
+  "remaining_collections": 73,
   "remaining_dynamic_accesses": 9,
   "remaining_gridfs_constructors": 1,
   "domains": {
     "agent": 58,
     "contest": 19,
     "files_rag": 49,
-    "finance": 65,
+    "finance": 22,
     "goals": 9,
     "health": 109,
     "identity": 11,
@@ -33,7 +33,7 @@
     "server.py:6: pymongo.errors",
     "server.py:7: pymongo.read_concern",
     "server.py:8: pymongo.write_concern",
-    "server.py:2271: pymongo.errors",
+    "server.py:2183: pymongo.errors",
     "study_workspace_routes.py:7: pymongo",
     "study_workspace_routes.py:8: pymongo.errors"
   ],

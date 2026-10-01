@@ -1,6 +1,6 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 56 tabelas. Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 60 tabelas. Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
 
 ```mermaid
 erDiagram
@@ -49,3 +49,15 @@ Dinheiro usa NUMERIC(18,2); relatórios somam no SQL. `budgets.limit` guarda lim
 JSONB contém estruturas variáveis (evidência, parâmetros de IA, análise de edital, preferências e resultados). Campos de proprietário, IDs, datas, status, valores, mensagens e tentativas são relacionais. Arquivos têm somente metadata/referências; bytes não estão no schema.
 
 CASCADE é usado para sessões de autenticação e índices de conteúdo descartáveis. Relações de histórico usam RESTRICT. Exclusões visíveis ao usuário ainda precisam ser adaptadas para preservar histórico sem gerar erros de constraint no frontend.
+## Integração financeira adicional
+
+Revisão `0e61828b3519` acrescenta `card_purchases`, `card_invoices`,
+`financial_projections` e `monthly_bills` (60 tabelas no total). São entidades
+tipadas, com NUMERIC(18,2), datas civis e referências compostas por proprietário.
+Transações referenciam compra ou conta quando aplicável; parcelas futuras referenciam
+a compra mesmo quando ainda não existe uma transação paga. Contas importadas de
+projeções têm unicidade por usuário/projeção; pagamentos têm unicidade por conta.
+Categorias passam a preservar ícone e cor usados pela interface.
+
+Tarefas/hábitos usam `archived_at`; `task_instances` exige coerência entre status e
+completed. Essas alterações correspondem à migração anterior `d18c704a928e`.

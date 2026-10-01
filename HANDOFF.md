@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Após planning `85a8018`, rotas financeiras conectadas ao SQL: transações, categorias, orçamentos, cartões/compras/parcelas/faturas, projeções/recorrências, contas mensais/pagamentos, estatísticas/tendência, insights e exportação PDF/XLSX. Schema agora 60 tabelas, Alembic head `0e61828b3519`. Burndown **669 → 646 → 627 → 584**. Finance ainda tem 22 acessos em leitores de outros módulos; não confundir rotas próprias com domínio inteiro concluído. Sete testes HTTP financeiros passaram, cobrindo centavos, replay concorrente, rollback, isolamento, dezembro/janeiro, importação de contas, empty states e exportações. Cálculos Decimal; somente boundary HTTP converte para JSON numérico. Mongo ainda inicializa no server; não fazer merge/cutover.
+
 Continuação autoritativa: anexo `0d137e4e-c640-43c1-b035-1bda4c319f08/Texto colado.txt`, seções 1–55. Continuar PR #21 até runtime Mongo zero. Não perguntar credenciais novamente, não merge parcial.
 
 Runtime já conectado: auth/cadastro/login/perfil/credenciais e uso Gemini (commit `7092735`); tarefas/hábitos/calendário agora usam SQL nas rotas reais. Migração Alembic `d18c704a928e`: archive de templates para preservar histórico e constraint de consistência status/completed. 56 tabelas. Burndown **669 → 646 → 627**; 78 collections, 9 acessos dinâmicos, 1 GridFS. Chamadas restantes de planning em Dashboard/Agent/outros leitores ainda precisam ser portadas. Inventário por domínio em `docs/MONGO_BURNDOWN.md`.
