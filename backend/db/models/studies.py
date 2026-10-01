@@ -248,3 +248,35 @@ class StudySchedule(Identity, Owned, Timestamps, Base):
     __table_args__ = (ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
         CheckConstraint('end_time > start_time',name='interval'),
         CheckConstraint("day_of_week IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')",name='day'))
+
+
+class StudyTask(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_tasks'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notebook_id: Mapped[UUID | None]
+    title: Mapped[str]
+    description: Mapped[str | None] = mapped_column(Text)
+    task_type: Mapped[str] = mapped_column(default='reading')
+    recurrence: Mapped[str] = mapped_column(default='once')
+    deadline: Mapped[date | None] = mapped_column(Date)
+    reminder: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    priority: Mapped[str] = mapped_column(default='medium')
+    estimated_minutes: Mapped[int] = mapped_column(default=30)
+    actual_minutes: Mapped[int] = mapped_column(default=0)
+    notes: Mapped[str | None] = mapped_column(Text)
+    xp_reward: Mapped[int] = mapped_column(default=10)
+    __table_args__ = (UniqueConstraint('user_id','id'),
+        ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
+        CheckConstraint("priority IN ('low','medium','high')",name='priority'),
+        CheckConstraint("recurrence IN ('once','daily','weekly','monthly')",name='recurrence'),
+        CheckConstraint('estimated_minutes >= 0 AND actual_minutes >= 0',name='minutes'))
+
+
+class StudyTaskCheck(Identity, Owned, Base):
+    __tablename__ = 'study_task_checks'
+    task_id: Mapped[UUID]
+    date: Mapped[date] = mapped_column(Date)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    xp_earned: Mapped[int]
+    __table_args__ = (UniqueConstraint('user_id','task_id','date'),
+        ForeignKeyConstraint(['user_id','task_id'],['study_tasks.user_id','study_tasks.id'],ondelete='RESTRICT'))

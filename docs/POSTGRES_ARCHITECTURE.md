@@ -51,3 +51,5 @@ Importação direta de PDF e por cargo salvo utilizam o mesmo writer SQL: progra
 Simulados agora usam Exam/Question/ExamQuestion/ExamAttempt nas rotas de geração, PDF, listagem, detalhe, correção, resultados e exclusão lógica. Estatísticas são agregados SQL; exclusão preserva fatos de estudo e oculta a prova/histórico da biblioteca. Correção grava respostas inclusive brancos, mas brancos não entram como tentativas individuais de domínio/revisão. IA mantém os prompts existentes e executa fora da transação.
 
 Flashcards/revisões SM-2 e quizzes (manuais e IA) usam SQL, incluindo XP/recibo na mesma transação. Quizzes reaproveitam Exam/Question/ExamAttempt com kind quiz. Cartões excluídos são arquivados para preservar revisões, e biblioteca/fila/indicadores filtram o archive. Tags de cartões são ARRAY.
+
+Tarefas de estudo, estat?sticas gerais, gr?ficos de foco/quest?es e sugest?es usam SQL. Conclus?es t?m unicidade por dono/tarefa/data, com XP e recibo at?micos. Alterar recorr?ncia com hist?rico retorna conflito para preservar as evid?ncias.

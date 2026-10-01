@@ -6,7 +6,7 @@ from pydantic import BaseModel,Field,StrictBool
 from sqlalchemy import select,func,Date as SQLDate
 from db.activity import run_activity
 from db.session import unit_of_work
-from db.models.studies import Notebook,StudySession,QuestionAttempt,StudyTopic,TopicProgress,ReviewEvent,FlashcardReview
+from db.models.studies import Notebook,StudySession,QuestionAttempt,StudyTopic,TopicProgress,ReviewEvent,FlashcardReview,StudyTaskCheck
 from db.repositories.studies import StudiesRepository
 from services.auth_routes import account
 from services.studies_catalog import owned
@@ -170,12 +170,17 @@ async def progress_update(request: Request,notebook_id: UUID,body: ProgressBody)
 @router.get('/streak')
 async def study_streak(request: Request):
     user=await account(request); uid=UUID(user['user_id']); today=local_today(user['timezone'])
-    days=select(StudySession.date.label('day')).where(StudySession.user_id==uid,StudySession.completed.is_(True))
-    other=[]
-    for model,column in ((QuestionAttempt,QuestionAttempt.answered_at),(ReviewEvent,ReviewEvent.reviewed_at),(FlashcardReview,FlashcardReview.reviewed_at)):
-        other.append(select(func.timezone(user['timezone'],column).cast(SQLDate).label('day')).where(model.user_id==uid))
-    union=days.union(*other).subquery()
     async with unit_of_work() as session:
-        dates=(await session.scalars(select(union.c.day).where(union.c.day<=today).order_by(union.c.day))).all()
+        return await streak_summary(session,uid,user['timezone'])
+
+
+async def streak_summary(session,uid,zone):
+    today=local_today(zone)
+    days=select(StudySession.date.label('day')).where(StudySession.user_id==uid,StudySession.completed.is_(True))
+    other=[select(StudyTaskCheck.date.label('day')).where(StudyTaskCheck.user_id==uid)]
+    for model,column in ((QuestionAttempt,QuestionAttempt.answered_at),(ReviewEvent,ReviewEvent.reviewed_at),(FlashcardReview,FlashcardReview.reviewed_at)):
+        other.append(select(func.timezone(zone,column).cast(SQLDate).label('day')).where(model.user_id==uid))
+    union=days.union(*other).subquery()
+    dates=(await session.scalars(select(union.c.day).where(union.c.day<=today).order_by(union.c.day))).all()
     current,best=streaks(dates,today)
     return {'current_streak':current,'best_streak':best,'total_study_days':len(dates),'last_study_date':dates[-1].isoformat() if dates else None}

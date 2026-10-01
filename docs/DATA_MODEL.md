@@ -67,3 +67,5 @@ completed. Essas alterações correspondem à migração anterior `d18c704a928e`
 `edital_analyses` separa identidade, hash, nome do arquivo, texto, páginas, versão, revisão de conferência e expiração da análise estruturada. `edital_jobs` persiste status, lease, referência de storage e resultado; FK composta impede ligar análise de outro dono. Excluir a análise limpa a referência no job e revoga suas fontes RAG. Binários não ficam no banco.
 
 `study_schedules` guarda blocos semanais com horários tipados e FK de caderno/dono. `study_programs.edital_data` é o snapshot estruturado de concurso/cargo/estratégia/fonte da importação, não armazenamento genérico de documentos; as disciplinas, tópicos, sessões e blocos ficam normalizados. Campos de fonte/status dos pesos e questões pertencem ao caderno.
+
+`study_tasks` e `study_task_checks` preservam o contrato de tarefas de estudo (caderno opcional, prazo/lembrete, minutos e recorr?ncia), distinto das tarefas gerais com data obrigat?ria. Checks normalizados t?m FK composta, unicidade di?ria e XP efetivamente concedido para desfazer corretamente. Migration `13ef5c5fbe1f`; 64 tabelas.
