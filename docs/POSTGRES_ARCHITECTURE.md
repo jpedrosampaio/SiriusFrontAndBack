@@ -53,3 +53,5 @@ Simulados agora usam Exam/Question/ExamQuestion/ExamAttempt nas rotas de geraç�
 Flashcards/revisões SM-2 e quizzes (manuais e IA) usam SQL, incluindo XP/recibo na mesma transação. Quizzes reaproveitam Exam/Question/ExamAttempt com kind quiz. Cartões excluídos são arquivados para preservar revisões, e biblioteca/fila/indicadores filtram o archive. Tags de cartões são ARRAY.
 
 Tarefas de estudo, estat?sticas gerais, gr?ficos de foco/quest?es e sugest?es usam SQL. Conclus?es t?m unicidade por dono/tarefa/data, com XP e recibo at?micos. Alterar recorr?ncia com hist?rico retorna conflito para preservar as evid?ncias.
+
+Mapas mentais e reda??es persistem em SQL; IA fora da transa??o, resultado/XP/recibo at?micos. Listagens por dono t?m limite 50. Arquivos dessas gera??es s?o tempor?rios, sempre removidos em finally, sem promessa de reten??o do bin?rio.

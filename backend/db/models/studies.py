@@ -8,6 +8,25 @@ from db.base import Base, Identity, Timestamps
 from db.models.planning import Owned
 
 
+class MindMap(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_mindmaps'
+    notebook_id: Mapped[UUID | None]
+    title: Mapped[str]
+    nodes: Mapped[list[dict]] = mapped_column(JSONB)
+    source: Mapped[str]
+    __table_args__ = (ForeignKeyConstraint(['user_id','notebook_id'], ['study_notebooks.user_id','study_notebooks.id'], ondelete='RESTRICT'),
+        Index('ix_mindmaps_owner_created','user_id','created_at'),
+        CheckConstraint("source IN ('file','text','topic','notebook')",name='source'))
+
+
+class EssayCorrection(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'study_essay_corrections'
+    filename: Mapped[str]
+    instructions: Mapped[str] = mapped_column(Text)
+    correction: Mapped[dict] = mapped_column(JSONB)
+    __table_args__ = (Index('ix_essays_owner_created','user_id','created_at'),)
+
+
 class StudyArea(Identity, Owned, Timestamps, Base):
     __tablename__ = 'study_areas'
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
