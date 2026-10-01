@@ -145,10 +145,6 @@
         {
           "location": "ai/routes.py:197",
           "operation": "count_documents"
-        },
-        {
-          "location": "studies_v2.py:247",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -1014,10 +1010,6 @@
         {
           "location": "server.py:8770",
           "operation": "update_one"
-        },
-        {
-          "location": "studies_v2.py:249",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -1160,10 +1152,6 @@
         {
           "location": "server.py:7316",
           "operation": "insert_one"
-        },
-        {
-          "location": "studies_v2.py:340",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -1185,16 +1173,11 @@
         {
           "location": "server.py:2224",
           "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:97",
-          "operation": "find"
         }
       ],
       "fields": [
         "_id",
         "date",
-        "focus_minutes",
         "user_id"
       ],
       "indexes": [],
@@ -1497,38 +1480,6 @@
         {
           "location": "simulado_scoring.py:91",
           "operation": "update_one"
-        },
-        {
-          "location": "studies_v2.py:175",
-          "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:191",
-          "operation": "update_one"
-        },
-        {
-          "location": "studies_v2.py:112",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:233",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:259",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:291",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:338",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:122",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -1549,10 +1500,7 @@
         "ai/core_writes.py:26",
         "ai/core_writes.py:29",
         "simulado_scoring.py:67",
-        "simulado_scoring.py:91",
-        "studies_v2.py:175",
-        "studies_v2.py:191",
-        "studies_v2.py:122"
+        "simulado_scoring.py:91"
       ]
     },
     "notification_logs": {
@@ -1722,10 +1670,6 @@
         {
           "location": "simulado_scoring.py:97",
           "operation": "insert_one"
-        },
-        {
-          "location": "studies_v2.py:190",
-          "operation": "insert_one"
         }
       ],
       "fields": [
@@ -1736,7 +1680,6 @@
         "created_at",
         "date",
         "disciplina",
-        "incorrect",
         "log_id",
         "notebook_id",
         "program_id",
@@ -1747,8 +1690,7 @@
       ],
       "indexes": [],
       "transactions": [
-        "simulado_scoring.py:97",
-        "studies_v2.py:190"
+        "simulado_scoring.py:97"
       ]
     },
     "quiz_attempts": {
@@ -1975,47 +1917,16 @@
         {
           "location": "simulado_scoring.py:50",
           "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:143",
-          "operation": "insert_one"
-        },
-        {
-          "location": "studies_v2.py:126",
-          "operation": "find"
         }
       ],
       "fields": [
         "_id",
-        "program_id",
         "simulado_id",
         "user_id"
       ],
       "indexes": [],
       "transactions": [
-        "simulado_scoring.py:50",
-        "studies_v2.py:143",
-        "studies_v2.py:126"
-      ]
-    },
-    "study_areas": {
-      "calls": [
-        {
-          "location": "studies_v2.py:162",
-          "operation": "insert_one"
-        }
-      ],
-      "fields": [
-        "area_id",
-        "color",
-        "created_at",
-        "icon",
-        "name",
-        "user_id"
-      ],
-      "indexes": [],
-      "transactions": [
-        "studies_v2.py:162"
+        "simulado_scoring.py:50"
       ]
     },
     "study_attempts": {
@@ -2035,42 +1946,10 @@
         {
           "location": "simulado_scoring.py:83",
           "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:203",
-          "operation": "update_one"
-        },
-        {
-          "location": "studies_v2.py:189",
-          "operation": "insert_one"
-        },
-        {
-          "location": "studies_v2.py:214",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:260",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:300",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:328",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:184",
-          "operation": "find"
         }
       ],
       "fields": [
-        "_id",
-        "attempt_id",
-        "correct",
-        "error_reason",
-        "user_id"
+        "_id"
       ],
       "indexes": [
         "db.study_attempts.create_index([('user_id', 1), ('program_id', 1), ('created_at', -1)])",
@@ -2078,30 +1957,8 @@
       ],
       "transactions": [
         "simulado_scoring.py:78",
-        "simulado_scoring.py:83",
-        "studies_v2.py:189",
-        "studies_v2.py:184"
+        "simulado_scoring.py:83"
       ]
-    },
-    "study_dated_plans": {
-      "calls": [
-        {
-          "location": "studies_v2.py:307",
-          "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:93",
-          "operation": "find"
-        }
-      ],
-      "fields": [
-        "_id",
-        "entries",
-        "program_id",
-        "user_id"
-      ],
-      "indexes": [],
-      "transactions": []
     },
     "study_drafts": {
       "calls": [
@@ -2202,49 +2059,16 @@
         {
           "location": "server.py:7676",
           "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:103",
-          "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:81",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:163",
-          "operation": "insert_one"
-        },
-        {
-          "location": "studies_v2.py:212",
-          "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:322",
-          "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:155",
-          "operation": "find_one"
         }
       ],
       "fields": [
         "_id",
-        "area_id",
-        "created_at",
         "name",
         "program_id",
-        "source_type",
-        "status",
-        "target_date",
         "user_id"
       ],
       "indexes": [],
-      "transactions": [
-        "studies_v2.py:103",
-        "studies_v2.py:163",
-        "studies_v2.py:155"
-      ]
+      "transactions": []
     },
     "study_schedules": {
       "calls": [
@@ -2327,17 +2151,12 @@
         {
           "location": "server.py:10716",
           "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:96",
-          "operation": "find"
         }
       ],
       "fields": [
         "_id",
         "created_at",
         "date",
-        "duration_minutes",
         "notebook_id",
         "user_id"
       ],
@@ -2396,36 +2215,13 @@
         {
           "location": "server.py:11565",
           "operation": "create_index"
-        },
-        {
-          "location": "studies_v2.py:166",
-          "operation": "insert_one"
-        },
-        {
-          "location": "studies_v2.py:290",
-          "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:157",
-          "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:80",
-          "operation": "find"
         }
       ],
-      "fields": [
-        "_id",
-        "program_id",
-        "user_id"
-      ],
+      "fields": [],
       "indexes": [
         "db.study_targets.create_index([('user_id', 1), ('program_id', 1)], unique=True)"
       ],
-      "transactions": [
-        "studies_v2.py:166",
-        "studies_v2.py:157"
-      ]
+      "transactions": []
     },
     "study_tasks": {
       "calls": [
@@ -2480,22 +2276,6 @@
         {
           "location": "simulado_scoring.py:84",
           "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:194",
-          "operation": "update_one"
-        },
-        {
-          "location": "studies_v2.py:186",
-          "operation": "find_one"
-        },
-        {
-          "location": "studies_v2.py:261",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:325",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -2514,9 +2294,7 @@
       "indexes": [],
       "transactions": [
         "simulado_scoring.py:87",
-        "simulado_scoring.py:84",
-        "studies_v2.py:194",
-        "studies_v2.py:186"
+        "simulado_scoring.py:84"
       ]
     },
     "task_instances": {
@@ -2669,14 +2447,6 @@
       "calls": [
         {
           "location": "server.py:6115",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:262",
-          "operation": "find"
-        },
-        {
-          "location": "studies_v2.py:292",
           "operation": "find"
         }
       ],
@@ -3158,10 +2928,6 @@
     {
       "location": "server.py:10475",
       "expression": "db[collection].find({'user_id': user.user_id, '$or': [{field: {'$regex': q, '$options': 'i'}} for field in fields]}, {'_id': 0})"
-    },
-    {
-      "location": "studies_v2.py:238",
-      "expression": "db[collection].find(scope, {'_id': 0})"
     }
   ],
   "gridfs": "edital_inputs.files + edital_inputs.chunks (edital_jobs.py)",

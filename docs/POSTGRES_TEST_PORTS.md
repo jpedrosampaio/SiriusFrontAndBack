@@ -43,3 +43,9 @@ preservation/overbooking and topic-practice replay/ownership/counts tests.
 Date validation is verified at the actual HTTP endpoint. Pure planner tests remain
 unchanged in `test_workspace_features_regression.py`; its fake draft collection
 was removed after the SQL equivalents passed.
+
+Studies 2.0: individual-attempt concurrent replay/ownership and target creation
+replay now run in `test_postgres_runtime_studies_v2.py`. That suite also covers
+the two former mock ownership tests, full performance/overview/library/reviews
+responses and normalized blueprint exam creation. The Mongo simulado submission
+test stays active until the corresponding submission route is connected to SQL.

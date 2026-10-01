@@ -37,6 +37,8 @@ class StudyProgram(Identity, Owned, Timestamps, Base):
 
 class StudyTarget(Identity, Owned, Timestamps, Base):
     __tablename__ = 'study_targets'
+    name: Mapped[str | None]
+    exam_date: Mapped[date | None] = mapped_column(Date)
     program_id: Mapped[UUID]
     kind: Mapped[str]
     institution: Mapped[str | None]

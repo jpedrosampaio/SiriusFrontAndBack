@@ -11502,8 +11502,8 @@ configure_ai_compatibility(agent_runtime.router)
 
 from services.study_workspace import router as workspace_router
 api_router.include_router(workspace_router)
-from studies_v2 import studies_v2_router
-api_router.include_router(studies_v2_router(db, get_current_user, run_activity_mutation))
+from services.studies_v2_routes import router as studies_v2_router
+api_router.include_router(studies_v2_router)
 from contest_watch import ContestWatcher
 contest_watcher = ContestWatcher(db, get_current_user)
 api_router.include_router(contest_watcher.router)
