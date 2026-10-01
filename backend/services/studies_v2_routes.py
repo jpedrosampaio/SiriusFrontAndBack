@@ -265,7 +265,7 @@ async def blueprint_create(request: Request,program_id: UUID,body: BlueprintInpu
             (Exam.id==ExamQuestion.exam_id)&(Exam.user_id==ExamQuestion.user_id)).join(Question,
             (Question.id==ExamQuestion.question_id)&(Question.user_id==ExamQuestion.user_id)).outerjoin(StudyTopic,
             (StudyTopic.id==Question.topic_id)&(StudyTopic.user_id==Question.user_id))
-            .where(ExamQuestion.user_id==user.id,Exam.program_id==program_id).order_by(Exam.id,ExamQuestion.position))).all()
+            .where(ExamQuestion.user_id==user.id,Exam.program_id==program_id,Exam.archived_at.is_(None)).order_by(Exam.id,ExamQuestion.position))).all()
         exams={}
         names={row['notebook_id']:row['name'] for row in notebooks}
         for link,q,exam,topic in rows:
@@ -274,7 +274,7 @@ async def blueprint_create(request: Request,program_id: UUID,body: BlueprintInpu
                 'correct_answer':q.correct_answer,'explanation':q.explanation,'disciplina':q.provenance.get('disciplina') or names.get(str(q.notebook_id),''),
                 'notebook_id':str(q.notebook_id) if q.notebook_id else None,'topic_key':topic.topic_key if topic else None})
         selected=assemble(plan['distribution'],list(exams.values()),request.headers['Idempotency-Key'])
-        exam=Exam(user_id=user.id,program_id=program_id,title=body.title,description='Montado com questões existentes conforme a distribuição extraída do edital.',
+        exam=Exam(user_id=user.id,program_id=program_id,area_id=program.area_id,title=body.title,description='Montado com questões existentes conforme a distribuição extraída do edital.',
             kind='simulado',status='ready',duration_minutes=body.duration_minutes,blueprint=plan,provenance={'source_type':'edital_blueprint','duration_provenance':'user_provided','question_type':'misto'})
         session.add(exam); await session.flush()
         for index,values in enumerate(selected):

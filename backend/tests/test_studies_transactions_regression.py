@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI
 import httpx
 from test_activity_regression import load_routes
-from simulado_scoring import submit_exam, grade
+from simulado_scoring import grade
 from study_blueprint import blueprint, assemble
 
 
@@ -36,40 +36,6 @@ class ExamTests(unittest.TestCase):
         self.assertFalse(blueprint([{'notebook_id': 'n', 'name': 'Português'}])['complete'])
 
 
-@unittest.skipUnless(os.environ.get('ACTIVITY_TEST_MONGO_URI'), 'replica set not configured')
-class StudyTransactions(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        from motor.motor_asyncio import AsyncIOMotorClient
-        self.mongo = AsyncIOMotorClient(os.environ['ACTIVITY_TEST_MONGO_URI'], serverSelectionTimeoutMS=5000)
-        self.db = self.mongo['sirius_studies2_test_' + uuid.uuid4().hex]
-        await self.db.users.insert_many([{'user_id': 'alice', 'xp': 0, 'rank': 'Recruta'}, {'user_id': 'bob', 'xp': 0, 'rank': 'Recruta'}])
-        self.ns, _ = load_routes(self.mongo, self.db)
-        await self.ns['setup_activity_collections']()
-        await self.db.notebooks.insert_one({'user_id': 'alice', 'notebook_id': 'nb', 'program_id': 'p', 'conteudo_programatico': [{'assunto': 'Crase', 'subtopicos': []}]})
-        await self.db.study_programs.insert_one({'user_id': 'alice', 'program_id': 'p', 'name': 'Preparação'})
-        app = FastAPI()
-        self.http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://sirius.test')
-
-    async def asyncTearDown(self):
-        await self.http.aclose()
-        await self.mongo.drop_database(self.db.name)
-        self.mongo.close()
-
-
-
-    async def test_simulado_replay_commits_one_grade_xp_and_evidence(self):
-        await self.db.simulados.insert_one({'user_id': 'alice', 'simulado_id': 'sim', 'program_id': 'p', 'questions': [{'question_text': 'Crase?', 'correct_answer': 'A', 'notebook_id': 'nb', 'topic_key': '0', 'disciplina': 'Português'}]})
-        payload = {'answers': [{'question_idx': 0, 'selected_answer': 'A'}], 'time_spent_seconds': 30}
-        submission = SimpleNamespace(**payload, model_dump=lambda: payload)
-        request = SimpleNamespace(headers={'Idempotency-Key': 'sim-once'})
-        async def submit():
-            return await submit_exam(self.db, 'alice', 'sim', submission, request, self.ns['run_activity_mutation'], self.ns['award_xp'], self.ns['update_study_streak'])
-        results = await asyncio.gather(*(submit() for _ in range(6)))
-        self.assertTrue(all(r['score'] == 100 for r in results))
-        self.assertEqual(await self.db.simulado_attempts.count_documents({}), 1)
-        self.assertEqual(await self.db.study_attempts.count_documents({}), 1)
-        self.assertEqual(await self.db.question_logs.count_documents({}), 1)
-        self.assertEqual((await self.db.users.find_one({'user_id': 'alice'}))['xp'], 2)
 
 
 if __name__ == '__main__': unittest.main()

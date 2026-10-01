@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
-from sqlalchemy import select,func,Date
+from sqlalchemy import select,func,Date,or_
 from db.models.studies import Notebook,StudyTopic,QuestionAttempt,ReviewEvent
 from db.models.exams import Question
 from study_mastery import mastery,adaptive_review
@@ -24,6 +24,7 @@ async def attempts(session,uid,zone,*,program_id=None,notebook_id=None,topic_id=
     query=query.outerjoin(StudyTopic,(StudyTopic.id==QuestionAttempt.topic_id)&(StudyTopic.user_id==QuestionAttempt.user_id))
     query=query.outerjoin(Question,(Question.id==QuestionAttempt.question_id)&(Question.user_id==QuestionAttempt.user_id))
     query=query.where(QuestionAttempt.user_id==uid,QuestionAttempt.total==1,QuestionAttempt.question_id.is_not(None),Notebook.archived_at.is_(None))
+    query=query.where(or_(QuestionAttempt.evidence['answered'].as_boolean().is_(None),QuestionAttempt.evidence['answered'].as_boolean().is_(True)))
     if program_id: query=query.where(Notebook.program_id==program_id)
     if notebook_id: query=query.where(QuestionAttempt.notebook_id==notebook_id)
     if topic_id: query=query.where(QuestionAttempt.topic_id==topic_id)

@@ -25,6 +25,8 @@ class Question(Identity, Owned, Timestamps, Base):
 
 class Exam(Identity, Owned, Timestamps, Base):
     __tablename__ = 'exams'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    area_id: Mapped[UUID | None]
     program_id: Mapped[UUID | None]
     notebook_id: Mapped[UUID | None]
     title: Mapped[str]
@@ -35,6 +37,7 @@ class Exam(Identity, Owned, Timestamps, Base):
     blueprint: Mapped[dict] = mapped_column(JSONB,default=dict)
     provenance: Mapped[dict] = mapped_column(JSONB,default=dict)
     __table_args__ = (UniqueConstraint('user_id','id'),
+        ForeignKeyConstraint(['user_id','area_id'],['study_areas.user_id','study_areas.id'],ondelete='RESTRICT'),
         ForeignKeyConstraint(['user_id','program_id'],['study_programs.user_id','study_programs.id'],ondelete='RESTRICT'),
         ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'))
 

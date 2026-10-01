@@ -7,7 +7,7 @@ class ExamRepository:
         self.session = session
 
     async def get(self,user_id,exam_id):
-        return await self.session.scalar(select(Exam).where(Exam.user_id == user_id,Exam.id == exam_id))
+        return await self.session.scalar(select(Exam).where(Exam.user_id == user_id,Exam.id == exam_id,Exam.archived_at.is_(None)))
 
     async def questions(self,user_id,exam_id):
         return (await self.session.execute(select(Question,ExamQuestion.weight).join(ExamQuestion,

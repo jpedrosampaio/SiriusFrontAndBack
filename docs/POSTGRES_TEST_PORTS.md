@@ -53,3 +53,5 @@ test stays active until the corresponding submission route is connected to SQL.
 - WorkspaceTests.test_saved_analysis_requires_owner_and_excludes_raw_pdf: consolidado em RuntimeEditais.test_saved_analysis_owner_source_exclusion_and_delete_cache_copies, com rotas reais e PostgreSQL, leitura entre donos negada e texto/páginas ausentes; teste mock Mongo removido após equivalência passar.
 
 - EditalJobTests (3 mocks GridFS): portados para RuntimeEditalJobs (PostgreSQL real + storage local descartável), mantendo sucesso/limpeza, falha sem retry de IA, validação de upload e limite por dono; acrescentados lease expirado, isolamento e 503 sem storage.
+
+- StudyTransactions.test_simulado_replay_commits_one_grade_xp_and_evidence e TopicExamTests (3 mocks): portados/consolidados em RuntimeExams, usando server.app e SQL real. Seis submits concorrentes geram uma correção/XP/revisão; gabarito ponderado e branco, contexto de tópico, dono antes da IA, contagem inválida sem gravação, rollback, histórico/estatísticas/archive e PDF com limpeza testados. O helper Mongo de correção foi removido; grade puro permanece coberto.
