@@ -611,14 +611,6 @@
         {
           "location": "ai/core_writes.py:36",
           "operation": "find_one"
-        },
-        {
-          "location": "study_workspace_routes.py:179",
-          "operation": "find"
-        },
-        {
-          "location": "study_workspace_routes.py:206",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -630,9 +622,7 @@
       ],
       "indexes": [],
       "transactions": [
-        "ai/core_writes.py:36",
-        "study_workspace_routes.py:179",
-        "study_workspace_routes.py:206"
+        "ai/core_writes.py:36"
       ]
     },
     "challenges": {
@@ -1539,22 +1529,6 @@
         {
           "location": "studies_v2.py:122",
           "operation": "find"
-        },
-        {
-          "location": "study_workspace_routes.py:45",
-          "operation": "find_one"
-        },
-        {
-          "location": "study_workspace_routes.py:66",
-          "operation": "find_one"
-        },
-        {
-          "location": "study_workspace_routes.py:86",
-          "operation": "update_one"
-        },
-        {
-          "location": "study_workspace_routes.py:158",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -1568,8 +1542,7 @@
         "topicos",
         "total_questions",
         "total_study_time_minutes",
-        "user_id",
-        "weight"
+        "user_id"
       ],
       "indexes": [],
       "transactions": [
@@ -1579,10 +1552,7 @@
         "simulado_scoring.py:91",
         "studies_v2.py:175",
         "studies_v2.py:191",
-        "studies_v2.py:122",
-        "study_workspace_routes.py:66",
-        "study_workspace_routes.py:86",
-        "study_workspace_routes.py:158"
+        "studies_v2.py:122"
       ]
     },
     "notification_logs": {
@@ -1756,14 +1726,6 @@
         {
           "location": "studies_v2.py:190",
           "operation": "insert_one"
-        },
-        {
-          "location": "study_workspace_routes.py:82",
-          "operation": "insert_one"
-        },
-        {
-          "location": "study_workspace_routes.py:165",
-          "operation": "aggregate"
         }
       ],
       "fields": [
@@ -1786,9 +1748,7 @@
       "indexes": [],
       "transactions": [
         "simulado_scoring.py:97",
-        "studies_v2.py:190",
-        "study_workspace_routes.py:82",
-        "study_workspace_routes.py:165"
+        "studies_v2.py:190"
       ]
     },
     "quiz_attempts": {
@@ -2103,10 +2063,6 @@
         {
           "location": "studies_v2.py:184",
           "operation": "find"
-        },
-        {
-          "location": "study_workspace_routes.py:172",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -2114,7 +2070,6 @@
         "attempt_id",
         "correct",
         "error_reason",
-        "program_id",
         "user_id"
       ],
       "indexes": [
@@ -2125,8 +2080,7 @@
         "simulado_scoring.py:78",
         "simulado_scoring.py:83",
         "studies_v2.py:189",
-        "studies_v2.py:184",
-        "study_workspace_routes.py:172"
+        "studies_v2.py:184"
       ]
     },
     "study_dated_plans": {
@@ -2138,26 +2092,6 @@
         {
           "location": "studies_v2.py:93",
           "operation": "find"
-        },
-        {
-          "location": "study_workspace_routes.py:143",
-          "operation": "find_one"
-        },
-        {
-          "location": "study_workspace_routes.py:185",
-          "operation": "replace_one"
-        },
-        {
-          "location": "study_workspace_routes.py:194",
-          "operation": "find_one"
-        },
-        {
-          "location": "study_workspace_routes.py:214",
-          "operation": "update_one"
-        },
-        {
-          "location": "study_workspace_routes.py:161",
-          "operation": "find_one"
         }
       ],
       "fields": [
@@ -2167,40 +2101,18 @@
         "user_id"
       ],
       "indexes": [],
-      "transactions": [
-        "study_workspace_routes.py:185",
-        "study_workspace_routes.py:194",
-        "study_workspace_routes.py:214",
-        "study_workspace_routes.py:161"
-      ]
+      "transactions": []
     },
     "study_drafts": {
       "calls": [
         {
           "location": "ai/rag.py:53",
           "operation": "find"
-        },
-        {
-          "location": "study_workspace_routes.py:104",
-          "operation": "find_one"
-        },
-        {
-          "location": "study_workspace_routes.py:128",
-          "operation": "find_one"
-        },
-        {
-          "location": "study_workspace_routes.py:122",
-          "operation": "find_one_and_update"
-        },
-        {
-          "location": "study_workspace_routes.py:117",
-          "operation": "insert_one"
         }
       ],
       "fields": [
         "_id",
         "notebook_id",
-        "revision",
         "text",
         "user_id"
       ],
@@ -2313,10 +2225,6 @@
         },
         {
           "location": "studies_v2.py:155",
-          "operation": "find_one"
-        },
-        {
-          "location": "study_workspace_routes.py:135",
           "operation": "find_one"
         }
       ],
@@ -2588,18 +2496,6 @@
         {
           "location": "studies_v2.py:325",
           "operation": "find"
-        },
-        {
-          "location": "study_workspace_routes.py:85",
-          "operation": "replace_one"
-        },
-        {
-          "location": "study_workspace_routes.py:55",
-          "operation": "find"
-        },
-        {
-          "location": "study_workspace_routes.py:176",
-          "operation": "find"
         }
       ],
       "fields": [
@@ -2609,22 +2505,18 @@
         "date",
         "due_date",
         "mastery",
-        "notebook_id",
         "program_id",
         "reason",
         "review_count",
         "title",
-        "total",
-        "user_id"
+        "total"
       ],
       "indexes": [],
       "transactions": [
         "simulado_scoring.py:87",
         "simulado_scoring.py:84",
         "studies_v2.py:194",
-        "studies_v2.py:186",
-        "study_workspace_routes.py:85",
-        "study_workspace_routes.py:176"
+        "studies_v2.py:186"
       ]
     },
     "task_instances": {

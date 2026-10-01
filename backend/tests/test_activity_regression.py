@@ -42,8 +42,6 @@ def load_routes(client, db):
     ns["get_current_user"] = auth
     app = FastAPI()
     app.include_router(ns["api_router"])
-    from study_workspace_routes import workspace_router
-    app.include_router(workspace_router(db, auth, ns['run_activity_mutation']), prefix='/api')
     return ns, app
 
 
@@ -139,21 +137,6 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['income'], 1005)
         self.assertEqual(result['study_stats']['study_time_today_minutes'], 25)
 
-    async def test_dated_plan_preserves_done_blocks_and_rejects_overbooking(self):
-        await self.db.study_programs.insert_one({'user_id': 'alice', 'program_id': 'p', 'target_date': '2026-10-30'})
-        await self.db.notebooks.insert_one({'user_id': 'alice', 'program_id': 'p', 'notebook_id': 'nb', 'name': 'Direito', 'weight': 2})
-        url = '/api/study/programs/p/dated-plan'
-        settings = {'start_date': '2026-09-28', 'end_date': '2026-10-02', 'availability': [60, 60, 60, 60, 60, 0, 0], 'block_minutes': 60}
-        generated = await self.http.post(url, json=settings)
-        self.assertEqual(generated.status_code, 200, generated.text)
-        entries = generated.json()['entries']
-        entry = entries[0]
-        self.assertEqual((await self.http.patch(url + '/' + entry['entry_id'], json={'date': entries[1]['date']})).status_code, 422)
-        self.assertEqual((await self.http.patch(url + '/' + entry['entry_id'], json={'completed': True})).status_code, 200)
-        regenerated = await self.http.post(url, json=settings)
-        self.assertEqual(regenerated.status_code, 200, regenerated.text)
-        self.assertTrue(any(e['entry_id'] == entry['entry_id'] and e['completed'] for e in regenerated.json()['entries']))
-        self.assertEqual((await self.http.get(url, headers={'Authorization': 'Bearer bob'})).status_code, 404)
 
 
 
@@ -162,25 +145,6 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
 
 
 
-    async def test_topic_practice_replay_owner_and_counts(self):
-        await self.db.notebooks.insert_one({'user_id': 'alice', 'notebook_id': 'nb', 'program_id': 'p',
-                                           'conteudo_programatico': [{'assunto': 'Crase', 'subtopicos': ['Exceções']}]})
-        url = '/api/study/notebooks/nb/practice'
-        body = {'topic_key': '0_0', 'total': 10, 'correct': 5}
-        headers = {'Idempotency-Key': 'practice-replay-001'}
-        first = await self.http.post(url, json=body, headers=headers)
-        self.assertEqual(first.status_code, 200, first.text)
-        self.assertEqual(first.json()['title'], 'Exceções')
-        replay = await self.http.post(url, json=body, headers=headers)
-        self.assertTrue(replay.json()['replayed'])
-        self.assertEqual(await self.db.question_logs.count_documents({}), 1)
-        self.assertEqual((await self.db.notebooks.find_one({'notebook_id': 'nb'}))['total_questions'], 10)
-        self.assertEqual(await self.db.study_topic_reviews.count_documents({}), 1)
-        foreign = await self.http.post(url, json=body, headers={**headers, 'Authorization': 'Bearer bob'})
-        self.assertEqual(foreign.status_code, 404)
-        invalid = await self.http.post(url, json={**body, 'correct': 11}, headers=headers)
-        self.assertEqual(invalid.status_code, 422)
-        await self.balance(0)
 
 
 

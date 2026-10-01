@@ -36,3 +36,10 @@ Focus completion/replay and injected-failure rollback from
 ownership and path/boolean-validation cases from `test_study_workspace_regression.py`.
 It additionally verifies SQL study/question totals and streaks. The saved-edital
 regression remains in its original suite until that domain is migrated.
+
+Workspace: draft save/read/retry/conflicting tabs and ownership/validation now run
+in `test_postgres_runtime_workspace.py`. The same suite ports the Mongo dated-plan
+preservation/overbooking and topic-practice replay/ownership/counts tests.
+Date validation is verified at the actual HTTP endpoint. Pure planner tests remain
+unchanged in `test_workspace_features_regression.py`; its fake draft collection
+was removed after the SQL equivalents passed.

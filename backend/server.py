@@ -11500,8 +11500,8 @@ api_router.include_router(agent_runtime.api)
 from gemini_service import configure as configure_ai_compatibility
 configure_ai_compatibility(agent_runtime.router)
 
-from study_workspace_routes import workspace_router
-api_router.include_router(workspace_router(db, get_current_user, run_activity_mutation))
+from services.study_workspace import router as workspace_router
+api_router.include_router(workspace_router)
 from studies_v2 import studies_v2_router
 api_router.include_router(studies_v2_router(db, get_current_user, run_activity_mutation))
 from contest_watch import ContestWatcher
