@@ -10,6 +10,7 @@ from db.models.planning import Owned
 
 class StudyArea(Identity, Owned, Timestamps, Base):
     __tablename__ = 'study_areas'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     name: Mapped[str]
     description: Mapped[str | None] = mapped_column(Text)
     color: Mapped[str] = mapped_column(default='#007AFF')
@@ -20,6 +21,7 @@ class StudyArea(Identity, Owned, Timestamps, Base):
 
 class StudyProgram(Identity, Owned, Timestamps, Base):
     __tablename__ = 'study_programs'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     area_id: Mapped[UUID]
     name: Mapped[str]
     description: Mapped[str | None] = mapped_column(Text)
@@ -48,6 +50,12 @@ class StudyTarget(Identity, Owned, Timestamps, Base):
 
 class Notebook(Identity, Owned, Timestamps, Base):
     __tablename__ = 'study_notebooks'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    weight: Mapped[float] = mapped_column(default=1)
+    dificuldade: Mapped[str] = mapped_column(default='media')
+    user_difficulty: Mapped[str | None]
+    num_questoes_edital: Mapped[int | None]
+    recursos_recomendados: Mapped[list] = mapped_column(JSONB,default=list)
     area_id: Mapped[UUID]
     program_id: Mapped[UUID | None]
     name: Mapped[str]
@@ -64,6 +72,7 @@ class Notebook(Identity, Owned, Timestamps, Base):
 
 class StudyTopic(Identity, Owned, Timestamps, Base):
     __tablename__ = 'study_topics'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notebook_id: Mapped[UUID]
     parent_id: Mapped[UUID | None]
     topic_key: Mapped[str]

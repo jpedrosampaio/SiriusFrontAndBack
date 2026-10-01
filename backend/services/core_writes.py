@@ -27,7 +27,7 @@ class CoreWrites:
             event = 'finance.'+row.type+'.created'
         elif name == 'record_study_session':
             notebook_id = UUID(args['notebook_id'])
-            notebook = await session.scalar(select(Notebook).where(Notebook.user_id == user.id,Notebook.id == notebook_id))
+            notebook = await session.scalar(select(Notebook).where(Notebook.user_id == user.id,Notebook.id == notebook_id,Notebook.archived_at.is_(None)))
             if notebook is None:
                 raise HTTPException(404,'Caderno não encontrado.')
             row = StudySession(user_id=user.id,notebook_id=notebook_id,date=day,duration_minutes=args['duration_minutes'],

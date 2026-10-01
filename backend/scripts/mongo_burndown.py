@@ -50,7 +50,7 @@ def main():
     lines += [f'| {k} | {v} |' for k,v in sorted(counts.items())]
     lines += ['',f"Total direto: **{report['remaining_direct_calls']}**; collections: **{report['remaining_collections']}**; dinâmicos: **{report['remaining_dynamic_accesses']}**; construtores GridFS: **{report['remaining_gridfs_constructors']}**; imports: **{len(imports)}**.",'',
         'Scripts de inventário, testes e server_partial.py (sem import pelo app) são excluídos. As chamadas dinâmicas ainda precisam ser migradas, mesmo quando repetem collections já contadas. As chamadas em helpers recebem os domínios das collections; uma operação composta pode aparecer em mais de uma linha.','',
-        'Histórico de implementação: 669 → 646 (identidade) → 627 (tarefas/hábitos/calendário) → 584 (rotas financeiras) → 578 (rotas de metas). Consulte o JSON para a contagem exata da revisão corrente.']
+        'Histórico de implementação: 669 → 646 (identidade) → 627 (tarefas/hábitos/calendário) → 584 (finanças) → 578 (metas) → 544 (catálogo de estudos). Consulte o JSON para a contagem exata da revisão corrente.']
     (destination/'MONGO_BURNDOWN.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
     print(json.dumps({k:v for k,v in report.items() if k!='mongo_imports'}))
 

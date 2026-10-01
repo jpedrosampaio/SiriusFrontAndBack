@@ -5833,173 +5833,14 @@ IMPORTANTE: Retorne APENAS o JSON, sem markdown, sem ```json."""
 
 # ========== STUDY ENDPOINTS ==========
 
-@api_router.get("/study/areas")
-async def get_study_areas(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get all study areas"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    areas = await db.study_areas.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    
-    # Create default areas if none exist
-    if not areas:
-        default_areas = [
-            {"name": "Faculdade", "color": "#007AFF", "icon": "graduation-cap", "order": 0},
-            {"name": "Concursos", "color": "#10B981", "icon": "file-text", "order": 1},
-            {"name": "Trabalho", "color": "#F59E0B", "icon": "briefcase", "order": 2},
-            {"name": "Outros", "color": "#8B5CF6", "icon": "folder", "order": 3}
-        ]
-        for i, area in enumerate(default_areas):
-            area_id = f"area_{uuid.uuid4().hex[:12]}"
-            area_doc = {
-                "area_id": area_id,
-                "user_id": user.user_id,
-                **area,
-                "description": None,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await db.study_areas.insert_one(area_doc)
-            area_doc.pop('_id', None)
-            areas.append(area_doc)
-    
-    return areas
 
-@api_router.post("/study/areas")
-async def create_study_area(request: Request, area_data: StudyAreaCreate, session_token: Optional[str] = Cookie(None)):
-    """Create a new study area"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Get max order
-    existing = await db.study_areas.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    max_order = max([a.get("order", 0) for a in existing], default=-1) + 1
-    
-    area_id = f"area_{uuid.uuid4().hex[:12]}"
-    area_doc = {
-        "area_id": area_id,
-        "user_id": user.user_id,
-        "name": area_data.name,
-        "description": area_data.description,
-        "color": area_data.color,
-        "icon": area_data.icon,
-        "order": max_order,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.study_areas.insert_one(area_doc)
-    area_doc.pop('_id', None)
-    return area_doc
 
-@api_router.delete("/study/areas/{area_id}")
-async def delete_study_area(request: Request, area_id: str, session_token: Optional[str] = Cookie(None)):
-    """Delete a study area"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.study_areas.delete_one({"area_id": area_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Area not found")
-    
-    # Also delete related notebooks
-    await db.notebooks.delete_many({"area_id": area_id, "user_id": user.user_id})
-    # Also delete related programs
-    await db.study_programs.delete_many({"area_id": area_id, "user_id": user.user_id})
-    
-    return {"message": "Area deleted"}
 
 # ========== STUDY PROGRAMS ==========
 
-@api_router.get("/study/programs")
-async def get_study_programs(request: Request, area_id: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get study programs, optionally filtered by area"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    query = {"user_id": user.user_id}
-    if area_id:
-        query["area_id"] = area_id
-    
-    programs = await db.study_programs.find(query, {"_id": 0}).to_list(100)
-    
-    # Enrich with notebook counts and question stats
-    for prog in programs:
-        nb_count = await db.notebooks.count_documents({"program_id": prog["program_id"], "user_id": user.user_id})
-        prog["notebooks_count"] = nb_count
-        # Get aggregated questions from notebooks in this program
-        nbs = await db.notebooks.find({"program_id": prog["program_id"], "user_id": user.user_id}, {"_id": 0}).to_list(100)
-        prog["total_questions"] = sum(n.get("total_questions", 0) for n in nbs)
-        prog["correct_questions"] = sum(n.get("correct_questions", 0) for n in nbs)
-        total_time = sum(n.get("total_study_time_minutes", 0) for n in nbs)
-        prog["total_study_time_minutes"] = total_time
-    
-    return programs
 
-@api_router.post("/study/programs")
-async def create_study_program(request: Request, program_data: StudyProgramCreate, session_token: Optional[str] = Cookie(None)):
-    """Create a new study program/course"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    program_id = f"prog_{uuid.uuid4().hex[:12]}"
-    program_doc = {
-        "program_id": program_id,
-        "user_id": user.user_id,
-        "area_id": program_data.area_id,
-        "name": program_data.name,
-        "description": program_data.description,
-        "color": program_data.color,
-        "icon": program_data.icon,
-        "target_date": program_data.target_date,
-        "status": "active",
-        "total_questions": 0,
-        "correct_questions": 0,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.study_programs.insert_one(program_doc)
-    program_doc.pop('_id', None)
-    return program_doc
 
-@api_router.patch("/study/programs/{program_id}")
-async def update_study_program(request: Request, program_id: str, data: dict, session_token: Optional[str] = Cookie(None)):
-    """Update a study program"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    update_fields = {}
-    for field in ["name", "description", "color", "icon", "target_date", "status"]:
-        if field in data:
-            update_fields[field] = data[field]
-    
-    if update_fields:
-        await db.study_programs.update_one(
-            {"program_id": program_id, "user_id": user.user_id},
-            {"$set": update_fields}
-        )
-    
-    updated = await db.study_programs.find_one({"program_id": program_id, "user_id": user.user_id}, {"_id": 0})
-    if not updated:
-        raise HTTPException(status_code=404, detail="Program not found")
-    return updated
 
-@api_router.delete("/study/programs/{program_id}")
-async def delete_study_program(request: Request, program_id: str, session_token: Optional[str] = Cookie(None)):
-    """Delete a study program and its notebooks"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.study_programs.delete_one({"program_id": program_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Program not found")
-    
-    # Delete related notebooks and their content
-    notebooks = await db.notebooks.find({"program_id": program_id, "user_id": user.user_id}, {"_id": 0}).to_list(100)
-    for nb in notebooks:
-        nb_id = nb.get("notebook_id")
-        await db.study_notes.delete_many({"notebook_id": nb_id, "user_id": user.user_id})
-        await db.flashcards.delete_many({"notebook_id": nb_id, "user_id": user.user_id})
-        await db.quizzes.delete_many({"notebook_id": nb_id, "user_id": user.user_id})
-    await db.notebooks.delete_many({"program_id": program_id, "user_id": user.user_id})
-    
-    return {"message": "Program deleted"}
 
 # ========== IMPORT EDITAL - AI STUDY PROGRAM GENERATOR ==========
 
@@ -6776,195 +6617,14 @@ async def study_ai_chat(request: Request, data: dict, session_token: Optional[st
     result = await agent_runtime.chat(user.user_id, body)
     return {**result, 'response': result['ai_message']['content']}
 
-@api_router.get("/study/notebooks")
-async def get_notebooks(request: Request, area_id: Optional[str] = None, program_id: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get notebooks, optionally filtered by area or program"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    query = {"user_id": user.user_id}
-    if area_id:
-        query["area_id"] = area_id
-    if program_id:
-        query["program_id"] = program_id
-    
-    notebooks = await db.notebooks.find(query, {"_id": 0}).to_list(1000)
-    return notebooks
 
-@api_router.post("/study/notebooks")
-async def create_notebook(request: Request, notebook_data: NotebookCreate, session_token: Optional[str] = Cookie(None)):
-    """Create a new notebook/subject"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    notebook_id = f"notebook_{uuid.uuid4().hex[:12]}"
-    notebook_doc = {
-        "notebook_id": notebook_id,
-        "user_id": user.user_id,
-        "area_id": notebook_data.area_id,
-        "program_id": notebook_data.program_id,
-        "name": notebook_data.name,
-        "description": notebook_data.description,
-        "color": notebook_data.color,
-        "tags": notebook_data.tags,
-        "total_study_time_minutes": 0,
-        "total_questions": 0,
-        "correct_questions": 0,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.notebooks.insert_one(notebook_doc)
-    notebook_doc.pop('_id', None)
-    return notebook_doc
 
-@api_router.patch("/study/notebooks/{notebook_id}")
-async def update_notebook(request: Request, notebook_id: str, data: dict, session_token: Optional[str] = Cookie(None)):
-    """Update a notebook"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    update_fields = {}
-    for field in ["name", "description", "color", "tags", "area_id", "program_id",
-                   "weight", "dificuldade", "user_difficulty", "topicos", "conteudo_programatico", "recursos_recomendados", "num_questoes_edital"]:
-        if field in data:
-            update_fields[field] = data[field]
-    
-    if update_fields:
-        await db.notebooks.update_one(
-            {"notebook_id": notebook_id, "user_id": user.user_id},
-            {"$set": update_fields}
-        )
-    
-    updated = await db.notebooks.find_one({"notebook_id": notebook_id, "user_id": user.user_id}, {"_id": 0})
-    return updated
 
-@api_router.delete("/study/notebooks/{notebook_id}")
-async def delete_notebook(request: Request, notebook_id: str, session_token: Optional[str] = Cookie(None)):
-    """Delete a notebook"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.notebooks.delete_one({"notebook_id": notebook_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Notebook not found")
-    
-    # Delete related notes, flashcards, etc.
-    await db.study_notes.delete_many({"notebook_id": notebook_id, "user_id": user.user_id})
-    await db.flashcards.delete_many({"notebook_id": notebook_id, "user_id": user.user_id})
-    await db.quizzes.delete_many({"notebook_id": notebook_id, "user_id": user.user_id})
-    
-    return {"message": "Notebook deleted"}
 
-@api_router.get("/study/notes")
-async def get_notes(request: Request, notebook_id: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get study notes"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    query = {"user_id": user.user_id}
-    if notebook_id:
-        query["notebook_id"] = notebook_id
-    
-    notes = await db.study_notes.find(query, {"_id": 0}).to_list(1000)
-    return notes
 
-@api_router.post("/study/notes")
-async def create_note(request: Request, note_data: StudyNoteCreate, session_token: Optional[str] = Cookie(None)):
-    """Create a new study note"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    note_id = f"note_{uuid.uuid4().hex[:12]}"
-    note_doc = {
-        "note_id": note_id,
-        "user_id": user.user_id,
-        "notebook_id": note_data.notebook_id,
-        "title": note_data.title,
-        "content": note_data.content,
-        "tags": note_data.tags,
-        "links": note_data.links,
-        "attachments": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.study_notes.insert_one(note_doc)
-    note_doc.pop('_id', None)
-    return note_doc
 
-@api_router.patch("/study/notes/{note_id}")
-async def update_note(request: Request, note_id: str, data: dict, session_token: Optional[str] = Cookie(None)):
-    """Update a note"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    update_fields = {"updated_at": datetime.now(timezone.utc).isoformat()}
-    for field in ["title", "content", "tags", "links"]:
-        if field in data:
-            update_fields[field] = data[field]
-    
-    await db.study_notes.update_one(
-        {"note_id": note_id, "user_id": user.user_id},
-        {"$set": update_fields}
-    )
-    
-    updated = await db.study_notes.find_one({"note_id": note_id, "user_id": user.user_id}, {"_id": 0})
-    return updated
 
-@api_router.delete("/study/notes/{note_id}")
-async def delete_note(request: Request, note_id: str, session_token: Optional[str] = Cookie(None)):
-    """Delete a note"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.study_notes.delete_one({"note_id": note_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Note not found")
-    return {"message": "Note deleted"}
 
-@api_router.post("/study/notes/{note_id}/upload")
-async def upload_attachment(
-    request: Request,
-    note_id: str,
-    file: UploadFile = File(...),
-    session_token: Optional[str] = Cookie(None)
-):
-    """Upload an attachment to a note"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Check note exists
-    note = await db.study_notes.find_one({"note_id": note_id, "user_id": user.user_id}, {"_id": 0})
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-    
-    # Allowed types
-    allowed_types = ["application/pdf", "image/jpeg", "image/png", "image/gif", "image/webp",
-                    "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"]
-    
-    if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail="File type not allowed. Use PDF, images, or presentations.")
-    
-    # Read and encode
-    content = await file.read()
-    if len(content) > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=400, detail="File size must be less than 10MB")
-    
-    file_base64 = base64.b64encode(content).decode('utf-8')
-    
-    attachment = {
-        "attachment_id": f"att_{uuid.uuid4().hex[:12]}",
-        "name": file.filename,
-        "type": file.content_type,
-        "data": f"data:{file.content_type};base64,{file_base64}",
-        "size": len(content),
-        "uploaded_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.study_notes.update_one(
-        {"note_id": note_id, "user_id": user.user_id},
-        {"$push": {"attachments": attachment}}
-    )
-    
-    return {"message": "Attachment uploaded", "attachment": {**attachment, "data": "[base64 data]"}}
 
 @api_router.get("/study/tasks")
 async def get_study_tasks(request: Request, notebook_id: Optional[str] = None, completed: Optional[bool] = None, session_token: Optional[str] = Cookie(None)):
@@ -12119,6 +11779,8 @@ from services.planning_routes import router as planning_router
 api_router.include_router(planning_router)
 from services.goals_routes import router as goals_router
 api_router.include_router(goals_router)
+from services.studies_catalog_routes import router as studies_catalog_router
+api_router.include_router(studies_catalog_router)
 from services.finance_routes import router as finance_router, configure_ai as configure_finance_ai
 from services.finance_export import router as finance_export_router
 configure_finance_ai(call_llm)

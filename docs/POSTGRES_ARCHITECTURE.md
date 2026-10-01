@@ -5,6 +5,12 @@ Este documento não declara o cutover concluído: o servidor existente ainda usa
 
 ## Fundação
 
+Catálogo de estudos conectado: áreas, programas, cadernos e notas. Sessões e
+tentativas são agregadas por caderno/programa para os totais; não existem novos
+contadores cumulativos duplicados. Archive oculta áreas/programas/cadernos e
+preserva as evidências. Upload de notas autentica/verifica dono e retorna 503
+enquanto storage durável não estiver disponível. Metas também usam transações SQL.
+
 Também conectadas: rotas financeiras de transações/categorias/orçamentos,
 cartões/faturas/parcelas, projeções, contas mensais, estatísticas/tendência,
 insights e exportações. Cálculos e persistência usam Decimal/NUMERIC; JSON de
