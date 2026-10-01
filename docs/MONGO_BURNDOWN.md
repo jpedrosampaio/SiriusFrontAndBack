@@ -10,14 +10,14 @@ Baseline: 669 chamadas diretas. Contagens geradas de código, não de dados. Um 
 | finance | 22 |
 | goals | 3 |
 | health | 109 |
-| identity | 11 |
+| identity | 10 |
 | notifications | 24 |
 | other | 17 |
 | planning | 25 |
-| studies | 207 |
+| studies | 190 |
 
-Total direto: **544**; collections: **73**; dinâmicos: **9**; construtores GridFS: **1**; imports: **18**.
+Total direto: **526**; collections: **73**; dinâmicos: **9**; construtores GridFS: **1**; imports: **18**.
 
 Scripts de inventário, testes e server_partial.py (sem import pelo app) são excluídos. As chamadas dinâmicas ainda precisam ser migradas, mesmo quando repetem collections já contadas. As chamadas em helpers recebem os domínios das collections; uma operação composta pode aparecer em mais de uma linha.
 
-Histórico de implementação: 669 → 646 (identidade) → 627 (tarefas/hábitos/calendário) → 584 (finanças) → 578 (metas) → 544 (catálogo de estudos). Consulte o JSON para a contagem exata da revisão corrente.
+Histórico de implementação: 669 → 646 (identidade) → 627 (tarefas/hábitos/calendário) → 584 (finanças) → 578 (metas) → 544 (catálogo de estudos) → 526 (atividades de estudo). Consulte o JSON para a contagem exata da revisão corrente.

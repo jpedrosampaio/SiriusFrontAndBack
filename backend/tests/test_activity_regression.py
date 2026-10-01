@@ -108,30 +108,7 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
         for response in responses:
             self.assertEqual(response.status_code, 200, response.text)
 
-    async def test_focus_retries_commit_one_session_time_and_xp(self):
-        await self.db.notebooks.insert_one({'notebook_id': 'nb', 'user_id': 'alice', 'total_study_time_minutes': 0})
-        payload = {'notebook_id': 'nb', 'focus_minutes': 25, 'break_minutes': 5, 'notes': 'draft'}
-        responses = await asyncio.gather(*(self.http.post('/api/study/focus/complete', json=payload, headers={'Idempotency-Key': 'focus-same-request'}) for _ in range(20)))
-        self.successes(responses)
-        self.assertEqual(await self.db.focus_sessions.count_documents({}), 1)
-        notebook = await self.db.notebooks.find_one({'notebook_id': 'nb'})
-        self.assertEqual(notebook['total_study_time_minutes'], 25)
-        await self.balance(5)
-        bad = await self.http.post('/api/study/focus/complete', json=payload, headers={'Authorization': 'Bearer bob'})
-        self.assertEqual(bad.status_code, 404)
 
-    async def test_focus_failure_rolls_back_minutes_and_session(self):
-        await self.db.notebooks.insert_one({'notebook_id': 'nb', 'user_id': 'alice', 'total_study_time_minutes': 0})
-        original = self.ns['award_xp']
-        self.ns['award_xp'] = AsyncMock(side_effect=RuntimeError('injected failure'))
-        try:
-            with self.assertRaises(RuntimeError):
-                await self.http.post('/api/study/focus/complete', json={'notebook_id': 'nb', 'focus_minutes': 25})
-        finally:
-            self.ns['award_xp'] = original
-        self.assertEqual(await self.db.focus_sessions.count_documents({}), 0)
-        self.assertEqual((await self.db.notebooks.find_one({'notebook_id': 'nb'}))['total_study_time_minutes'], 0)
-        await self.balance(0)
 
     async def test_workout_start_and_completion_serialize_and_replay(self):
         await self.db.workout_plans.insert_one({'plan_id': 'plan', 'user_id': 'alice', 'name': 'Plan', 'exercises': [{'name': 'Exercise', 'sets': 3, 'reps': 12}]})

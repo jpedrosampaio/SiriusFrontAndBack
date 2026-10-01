@@ -29,3 +29,10 @@ credential tests because legacy data is explicitly discarded.
 Additional SQL coverage checks archive semantics and retention of completion
 evidence. Mongo focus, workouts, dashboard, dated plans and practice tests remain
 until their equivalent runtime ports are ready.
+
+Focus completion/replay and injected-failure rollback from
+`test_activity_regression.py` now execute against PostgreSQL in
+`test_postgres_runtime_study_activity.py`. The same suite ports both topic-progress
+ownership and path/boolean-validation cases from `test_study_workspace_regression.py`.
+It additionally verifies SQL study/question totals and streaks. The saved-edital
+regression remains in its original suite until that domain is migrated.

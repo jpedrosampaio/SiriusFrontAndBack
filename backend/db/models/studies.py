@@ -102,6 +102,7 @@ class StudySession(Identity, Owned, Timestamps, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_minutes: Mapped[int]
+    break_minutes: Mapped[int | None]
     completed: Mapped[bool] = mapped_column(default=False)
     source: Mapped[str] = mapped_column(default='manual')
     notes: Mapped[str | None] = mapped_column(Text)

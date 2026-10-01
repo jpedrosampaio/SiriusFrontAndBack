@@ -810,64 +810,7 @@ async def test_gemini_key(request: Request, data: Optional[dict] = None, session
         return {'valid': False, 'status': error.kind, 'message': 'Não foi possível validar a chave agora.'}
 
 
-@api_router.post("/study/notebooks/{notebook_id}/topic-progress")
-async def update_topic_progress(request: Request, notebook_id: str, data: dict, session_token: Optional[str] = Cookie(None)):
-    """Mark a topic/subtopic as studied, reviewed, etc."""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    topic_key = data.get("topic_key", "")  # e.g. "0" for assunto index or "0_1" for subtopic
-    status = data.get("status", "studied")  # studied, reviewed, mastered
-    checked = data.get("checked", True)
-    
-    if not topic_key:
-        raise HTTPException(status_code=400, detail="topic_key é obrigatório")
-    import re
-    if not re.fullmatch(r"\d+(?:_\d+)?", str(topic_key)) or status not in ("studied", "reviewed", "mastered") or type(checked) is not bool:
-        raise HTTPException(status_code=422, detail="Progresso de assunto inválido")
-    notebook = await db.notebooks.find_one({"notebook_id": notebook_id, "user_id": user.user_id}, {"_id": 0})
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Disciplina não encontrada")
-    
-    progress_id = f"tp_{notebook_id}_{user.user_id}"
-    progress_doc = await db.topic_progress.find_one({"progress_id": progress_id}, {"_id": 0})
-    
-    if not progress_doc:
-        progress_doc = {
-            "progress_id": progress_id,
-            "notebook_id": notebook_id,
-            "user_id": user.user_id,
-            "topics": {},
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.topic_progress.insert_one(progress_doc)
-    
-    field_key = f"topics.{topic_key}.{status}"
-    if checked:
-        await db.topic_progress.update_one(
-            {"progress_id": progress_id},
-            {"$set": {field_key: True, "updated_at": datetime.now(timezone.utc).isoformat()}}
-        )
-    else:
-        await db.topic_progress.update_one(
-            {"progress_id": progress_id},
-            {"$unset": {field_key: ""}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
-        )
-    
-    updated = await db.topic_progress.find_one({"progress_id": progress_id}, {"_id": 0})
-    return updated
 
-@api_router.get("/study/notebooks/{notebook_id}/topic-progress")
-async def get_topic_progress(request: Request, notebook_id: str, session_token: Optional[str] = Cookie(None)):
-    """Get topic progress for a notebook"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    progress_doc = await db.topic_progress.find_one(
-        {"notebook_id": notebook_id, "user_id": user.user_id}, {"_id": 0}
-    )
-    
-    return progress_doc or {"topics": {}}
 
 async def setup_activity_collections():
     # All activity/XP writers locate the locked user by user_id. A collection
@@ -6448,162 +6391,11 @@ async def get_program_study_indicators(request: Request, program_id: str, sessio
 
 # ========== QUESTION TRACKING ==========
 
-@api_router.post("/study/questions/log")
-async def log_questions(request: Request, data: QuestionLogCreate, session_token: Optional[str] = Cookie(None)):
-    """Log questions answered for a notebook/subject"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    today = datetime.now().strftime("%Y-%m-%d")
-    incorrect = data.total - data.correct
-    
-    # Get notebook to find program_id
-    notebook = await db.notebooks.find_one({"notebook_id": data.notebook_id, "user_id": user.user_id}, {"_id": 0})
-    program_id = notebook.get("program_id") if notebook else None
-    
-    log_id = f"qlog_{uuid.uuid4().hex[:12]}"
-    log_doc = {
-        "log_id": log_id,
-        "user_id": user.user_id,
-        "notebook_id": data.notebook_id,
-        "program_id": program_id,
-        "total": data.total,
-        "correct": data.correct,
-        "incorrect": incorrect,
-        "source": data.source,
-        "date": today,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.question_logs.insert_one(log_doc)
-    
-    # Update notebook question counters
-    await db.notebooks.update_one(
-        {"notebook_id": data.notebook_id, "user_id": user.user_id},
-        {"$inc": {"total_questions": data.total, "correct_questions": data.correct}}
-    )
-    
-    # Award XP: 2 XP per correct answer
-    xp_earned = data.correct
-    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
-    
-    # Update study streak
-    await update_study_streak(user.user_id)
-    
-    log_doc.pop('_id', None)
-    log_doc["xp_earned"] = xp_earned
-    log_doc["new_xp"] = new_xp
-    return log_doc
 
-@api_router.get("/study/questions/stats")
-async def get_question_stats(request: Request, notebook_id: Optional[str] = None, program_id: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get question statistics"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    query = {"user_id": user.user_id}
-    if notebook_id:
-        query["notebook_id"] = notebook_id
-    if program_id:
-        query["program_id"] = program_id
-    
-    logs = await db.question_logs.find(query, {"_id": 0}).to_list(5000)
-    
-    total = sum(log.get("total", 0) for log in logs)
-    correct = sum(log.get("correct", 0) for log in logs)
-    incorrect = sum(log.get("incorrect", 0) for log in logs)
-    
-    # Stats by date (last 30 days)
-    daily_stats = {}
-    for log in logs:
-        date = log.get("date", "")
-        if date not in daily_stats:
-            daily_stats[date] = {"total": 0, "correct": 0, "incorrect": 0}
-        daily_stats[date]["total"] += log.get("total", 0)
-        daily_stats[date]["correct"] += log.get("correct", 0)
-        daily_stats[date]["incorrect"] += log.get("incorrect", 0)
-    
-    # Stats by notebook
-    by_notebook = {}
-    for log in logs:
-        nb_id = log.get("notebook_id", "")
-        if nb_id not in by_notebook:
-            by_notebook[nb_id] = {"total": 0, "correct": 0, "incorrect": 0}
-        by_notebook[nb_id]["total"] += log.get("total", 0)
-        by_notebook[nb_id]["correct"] += log.get("correct", 0)
-        by_notebook[nb_id]["incorrect"] += log.get("incorrect", 0)
-    
-    return {
-        "total_questions": total,
-        "correct": correct,
-        "incorrect": incorrect,
-        "accuracy": round((correct / total * 100), 1) if total > 0 else 0,
-        "daily_stats": daily_stats,
-        "by_notebook": by_notebook
-    }
 
 # ========== FOCUS/POMODORO ==========
 
-@api_router.post("/study/focus/complete")
-async def complete_focus_session(request: Request, data: FocusSessionCreate, session_token: Optional[str] = Cookie(None)):
-    """Complete a focus/pomodoro session"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
-    request_key = request.headers.get("Idempotency-Key")
-    fingerprint = ["focus", data.notebook_id, data.focus_minutes, data.break_minutes, data.notes]
 
-    async def apply(session, balance):
-        if data.notebook_id and not await db.notebooks.find_one(
-            {"notebook_id": data.notebook_id, "user_id": user.user_id}, {"_id": 1}, session=session
-        ):
-            raise HTTPException(404, "Matéria não encontrada")
-        xp_earned = max(3, (data.focus_minutes // 25) * 5)
-        focus_doc = {
-            "focus_id": f"focus_{uuid.uuid4().hex[:12]}", "user_id": user.user_id,
-            "notebook_id": data.notebook_id, "focus_minutes": data.focus_minutes,
-            "break_minutes": data.break_minutes, "completed": True, "date": today,
-            "notes": data.notes, "xp_earned": xp_earned,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await db.focus_sessions.insert_one(focus_doc, session=session)
-        if data.notebook_id:
-            await db.notebooks.update_one(
-                {"notebook_id": data.notebook_id, "user_id": user.user_id},
-                {"$inc": {"total_study_time_minutes": data.focus_minutes}}, session=session)
-        new_xp, new_rank = await award_xp(user.user_id, xp_earned, session=session)
-        await update_study_streak(user.user_id, session=session)
-        focus_doc.pop('_id', None)
-        return {**focus_doc, "new_xp": new_xp, "new_rank": new_rank}
-
-    return await run_activity_mutation(user.user_id, request_key, fingerprint, apply)
-
-@api_router.get("/study/focus/stats")
-async def get_focus_stats(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get focus/pomodoro statistics"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    from dashboard_service import aggregate_one
-    from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo("America/Sao_Paulo"))
-    today_str = today.strftime("%Y-%m-%d")
-    own = {"user_id": user.user_id}
-    fields = {"sessions": {"$sum": 1}, "total_minutes": {"$sum": "$focus_minutes"}, "xp_earned": {"$sum": "$xp_earned"}}
-    current, total, days = await asyncio.gather(
-        aggregate_one(db.focus_sessions, {**own, "date": today_str}, fields),
-        aggregate_one(db.focus_sessions, own, fields),
-        db.focus_sessions.aggregate([
-            {"$match": {**own, "date": {"$gte": (today - timedelta(days=6)).strftime("%Y-%m-%d"), "$lte": today_str}}},
-            {"$group": {"_id": "$date", **fields}},
-        ]).to_list(7),
-    )
-    return {
-        "today": {"sessions": current.get("sessions", 0), "total_minutes": current.get("total_minutes", 0), "xp_earned": current.get("xp_earned", 0)},
-        "week": {"sessions": sum(d["sessions"] for d in days), "total_minutes": sum(d["total_minutes"] for d in days), "daily_minutes": {d["_id"]: d["total_minutes"] for d in days}},
-        "all_time": {"sessions": total.get("sessions", 0), "total_minutes": total.get("total_minutes", 0), "total_hours": round(total.get("total_minutes", 0) / 60, 1)},
-    }
 
 # ========== AI STUDY ASSISTANT ==========
 
@@ -6758,38 +6550,7 @@ async def delete_study_task(request: Request, task_id: str, session_token: Optio
         raise HTTPException(status_code=404, detail="Task not found")
     return {"message": "Task deleted"}
 
-@api_router.get("/study/sessions")
-async def get_study_sessions(request: Request, notebook_id: Optional[str] = None, date: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get study sessions"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    query = {"user_id": user.user_id}
-    if notebook_id:
-        query["notebook_id"] = notebook_id
-    if date:
-        query["date"] = date
-    
-    sessions = await db.study_sessions.find(query, {"_id": 0}).to_list(1000)
-    return sessions
 
-@api_router.post("/study/sessions")
-async def create_study_session(request: Request, session_data: StudySessionCreate, session_token: Optional[str] = Cookie(None)):
-    """Log a study session"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-
-    from ai.registry import StudyArgs
-    from ai.core_writes import CoreWrites
-    values = session_data.model_dump()
-    validate_activity_date(session_data.date)
-    values['notes'] = values.get('notes') or ''
-    args = StudyArgs.model_validate(values).model_dump(mode='json')
-    async def apply(session, balance):
-        result = await CoreWrites(db, award_xp, update_study_streak).execute('record_study_session', user.user_id, args, session)
-        updated = await db.users.find_one({'user_id': user.user_id}, session=session)
-        return {**result, 'new_xp': updated.get('xp', 0), 'new_rank': updated.get('rank', 'Recruta')}
-    return await run_activity_mutation(user.user_id, request.headers.get('Idempotency-Key'), ['study_session', args], apply)
 
 
 async def update_study_streak(user_id: str, session=None):
@@ -6844,16 +6605,6 @@ async def update_study_streak(user_id: str, session=None):
             }}, session=session
         )
 
-@api_router.get("/study/streak")
-async def get_study_streak(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get user's study streak"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    streak = await db.study_streaks.find_one({"user_id": user.user_id}, {"_id": 0})
-    if not streak:
-        return {"current_streak": 0, "best_streak": 0, "total_study_days": 0}
-    return streak
 
 @api_router.get("/study/schedule")
 async def get_study_schedule(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -11781,6 +11532,8 @@ from services.goals_routes import router as goals_router
 api_router.include_router(goals_router)
 from services.studies_catalog_routes import router as studies_catalog_router
 api_router.include_router(studies_catalog_router)
+from services.study_activity_routes import router as study_activity_router
+api_router.include_router(study_activity_router)
 from services.finance_routes import router as finance_router, configure_ai as configure_finance_ai
 from services.finance_export import router as finance_export_router
 configure_finance_ai(call_llm)
