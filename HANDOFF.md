@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Dietas/planos alimentares/compras SQL conectados; importação atômica (plano/refeições/metas/XP/recibo), validação de 7 dias e quantidade de refeições, receitas reais na lista de compras, archive preserva listas. Totais declarados na importação em meals.reported_*; refeições manuais derivam dos itens. Migration 1d41972a807e aplicada, 80 tabelas, alembic check limpo. 118 testes SQL passaram (71,123 s), 113 regressões passaram (12 Mongo-only locais). Mongo 242 diretas/50 collections/8 dinâmicos/GridFS 0. Próximo: exportações estudos/nutrição, relatórios/dashboard/analytics e demais domínios. Não merge/cutover.
+
 Receitas SQL conectadas: ingredientes normalizados, metas SQL no prompt, dicas persistidas, validação de IA antes da transação, recibo e isolamento. Migration e8f211413453, 73 tabelas, alembic check limpo. 2 testes SQL de receitas passaram (1,780 s); 113 regressões passaram (12 Mongo-only locais); última suíte geral 112 antes destes dois testes novos. Mongo 257 diretas/54 collections/8 dinâmicos/GridFS 0. Próximo: dietas/planos alimentares/compras e outros domínios. Não merge/cutover.
 
 Nutrição básica SQL conectada: refeições/itens normalizados, metas concorrentes, água e agregados diários/semanais. Totais independem do limite da listagem e respeitam quantidade e data civil; calendário corrigido para quantidade dos alimentos. 112 testes SQL passaram (66,269 s), 113 regressões passaram (12 Mongo-only locais). Mongo 262 diretas/55 collections/8 dinâmicos/GridFS 0. Schema permanece 32afa15613bd/71 tabelas. Próximo: receitas/dietas/planos alimentares/compras, depois demais domínios. Não merge/cutover.

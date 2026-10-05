@@ -2,6 +2,8 @@
 
 Documentação oficial consultada em 2026-09-30/2026-10-01. Não foi criado projeto, habilitado billing ou contratado recurso.
 
+Estado de implementação em 05/10: schema local até `1d41972a807e`, 80 tabelas. Saúde/Nutrição possuem rotas SQL, mas ainda existem leitores e inicialização Mongo. Não executar cutover com base apenas nessa etapa; produção continua inalterada.
+
 ## Limites consultados
 
 O [plano Free atual](https://neon.com/docs/introduction/plans) informa 100 projetos, 10 branches por projeto, 0,5 GB de armazenamento por projeto, 100 CU-horas por projeto/mês, até 2 CU e 5 GB de transferência pública por projeto. Scale-to-zero após cinco minutos de inatividade, sem opção de desabilitar no Free. Esses limites podem mudar; conferir o painel antes do cutover. Não selecionar Launch/Scale para contornar limites.

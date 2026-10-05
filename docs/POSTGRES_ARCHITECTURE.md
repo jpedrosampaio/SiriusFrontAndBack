@@ -5,6 +5,8 @@ Este documento não declara o cutover concluído: o servidor existente ainda usa
 
 ## Fundação
 
+Saúde conectada: planos/sessões/séries/logs/checklist de treino, histórico/cargas, medidas e insights; refeições, água, metas, receitas, dietas, planos alimentares e compras. Importar plano grava plano normalizado, refeições, metas, XP e recibo em uma transação. Resposta incompleta de geração semanal é rejeitada antes de gravar. Arquivos temporários de IA têm limpeza garantida. Relatórios, Dashboard e Agent ainda contêm leitores Mongo desses dados; startup SQL-only permanece pendente.
+
 Catálogo de estudos conectado: áreas, programas, cadernos e notas. Sessões e
 tentativas são agregadas por caderno/programa para os totais; não existem novos
 contadores cumulativos duplicados. Archive oculta áreas/programas/cadernos e

@@ -3261,48 +3261,8 @@ Retorne SOMENTE o JSON, nada mais."""
 
 
 
-@api_router.get("/nutrition/diets")
-async def get_diets(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get user's diets"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    diets = await db.diets.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    return diets
 
-@api_router.post("/nutrition/diets")
-async def create_diet(request: Request, diet_data: DietCreate, session_token: Optional[str] = Cookie(None)):
-    """Create a new diet plan"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    diet_id = f"diet_{uuid.uuid4().hex[:12]}"
-    diet_doc = {
-        "diet_id": diet_id,
-        "user_id": user.user_id,
-        "name": diet_data.name,
-        "description": diet_data.description,
-        "diet_type": diet_data.diet_type,
-        "meals_plan": diet_data.meals_plan,
-        "active": True,
-        "start_date": diet_data.start_date,
-        "end_date": diet_data.end_date,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.diets.insert_one(diet_doc)
-    diet_doc.pop('_id', None)
-    return diet_doc
 
-@api_router.delete("/nutrition/diets/{diet_id}")
-async def delete_diet(request: Request, diet_id: str, session_token: Optional[str] = Cookie(None)):
-    """Delete a diet"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.diets.delete_one({"diet_id": diet_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Diet not found")
-    return {"message": "Diet deleted"}
 
 
 
@@ -3310,180 +3270,6 @@ async def delete_diet(request: Request, diet_id: str, session_token: Optional[st
 
 # ========== IMPORT MEAL PLAN ==========
 
-@api_router.post("/nutrition/import-plan")
-async def import_meal_plan(
-    request: Request,
-    file: UploadFile = File(...),
-    session_token: Optional[str] = Cookie(None)
-):
-    """Import a meal plan from PDF or image file using AI extraction"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if not await get_user_api_key(user.user_id):
-        raise HTTPException(status_code=503, detail="Serviço de IA indisponível")
-    
-    allowed_types = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic"]
-    if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail="Formato não suportado. Envie PDF, JPG, PNG ou WEBP.")
-    
-    import tempfile
-    import os
-    content = await file.read()
-    suffix = ".pdf" if "pdf" in file.content_type else ".jpg" if "jpeg" in file.content_type else ".png" if "png" in file.content_type else ".webp"
-    
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        
-        uploaded_file = await upload_gemini_path(tmp_path, user.user_id)
-        
-        mime = file.content_type
-        prompt = """Analise este plano alimentar/dieta e extraia TODAS as refeições em formato JSON estruturado.
-
-Para cada refeição, extraia:
-- meal_type: "breakfast" (café da manhã), "lunch" (almoço), "dinner" (jantar), "snack" (lanche)
-- name: nome da refeição
-- time: horário sugerido (ex: "07:00")
-- foods: lista de alimentos com quantidade
-- calories: calorias estimadas (número)
-- protein: proteína em gramas (número)
-- carbs: carboidratos em gramas (número)
-- fat: gordura em gramas (número)
-- fiber: fibra em gramas (número, opcional)
-- notes: observações adicionais
-
-Também extraia informações gerais do plano:
-- plan_name: nome do plano
-- goal: objetivo (emagrecimento, hipertrofia, saúde, etc.)
-- daily_calories: meta calórica diária total
-- daily_protein: meta de proteína diária
-- daily_carbs: meta de carboidratos diária
-- daily_fat: meta de gordura diária
-- restrictions: restrições alimentares mencionadas
-- tips: dicas do nutricionista
-
-Responda APENAS com JSON válido neste formato:
-{
-  "plan_name": "Nome do Plano",
-  "goal": "objetivo",
-  "daily_calories": 2000,
-  "daily_protein": 150,
-  "daily_carbs": 200,
-  "daily_fat": 70,
-  "restrictions": ["restrição 1"],
-  "tips": ["dica 1", "dica 2"],
-  "meals": [
-    {
-      "meal_type": "breakfast",
-      "name": "Café da Manhã",
-      "time": "07:00",
-      "foods": [{"name": "Ovos mexidos", "quantity": "3 unidades", "calories": 210}],
-      "calories": 350,
-      "protein": 25,
-      "carbs": 30,
-      "fat": 15,
-      "notes": ""
-    }
-  ]
-}
-
-IMPORTANTE: Retorne APENAS o JSON, sem markdown, sem ```json."""
-
-        response = await request_gemini(task='nutrition_generation', contents=[gemini_file_part(file_uri=uploaded_file.uri, mime_type=mime), prompt], config=dict(system_instruction='Você é um nutricionista especialista. Extraia com precisão todas as informações do plano alimentar.'), user_id=user.user_id)
-        
-        response_text = response.text.strip()
-        if response_text.startswith("```"):
-            response_text = response_text.split("\n", 1)[1] if "\n" in response_text else response_text[3:]
-        if response_text.endswith("```"):
-            response_text = response_text[:-3].strip()
-        if response_text.startswith("json"):
-            response_text = response_text[4:].strip()
-        
-        plan_data = json.loads(response_text)
-        
-        # Save the imported plan
-        plan_id = f"mealplan_{uuid.uuid4().hex[:12]}"
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        
-        plan_doc = {
-            "plan_id": plan_id,
-            "user_id": user.user_id,
-            "name": plan_data.get("plan_name", "Plano Importado"),
-            "goal": plan_data.get("goal", ""),
-            "daily_calories": plan_data.get("daily_calories", 0),
-            "daily_protein": plan_data.get("daily_protein", 0),
-            "daily_carbs": plan_data.get("daily_carbs", 0),
-            "daily_fat": plan_data.get("daily_fat", 0),
-            "restrictions": plan_data.get("restrictions", []),
-            "tips": plan_data.get("tips", []),
-            "meals": plan_data.get("meals", []),
-            "source": "imported",
-            "source_filename": file.filename,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.meal_plans.insert_one(plan_doc)
-        plan_doc.pop('_id', None)
-        
-        # Also create individual meal entries for today
-        meals_created = 0
-        for meal in plan_data.get("meals", []):
-            meal_id = f"meal_{uuid.uuid4().hex[:12]}"
-            meal_doc = {
-                "meal_id": meal_id,
-                "user_id": user.user_id,
-                "date": today,
-                "meal_type": meal.get("meal_type", "snack"),
-                "name": meal.get("name", "Refeição importada"),
-                "foods": meal.get("foods", []),
-                "calories": meal.get("calories", 0),
-                "protein": meal.get("protein", 0),
-                "carbs": meal.get("carbs", 0),
-                "fat": meal.get("fat", 0),
-                "fiber": meal.get("fiber", 0),
-                "notes": meal.get("notes", ""),
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await db.meals.insert_one(meal_doc)
-            meals_created += 1
-        
-        # Update nutrition goals if plan has daily targets
-        if plan_data.get("daily_calories"):
-            await db.nutrition_goals.update_one(
-                {"user_id": user.user_id},
-                {"$set": {
-                    "calories": plan_data.get("daily_calories", 2000),
-                    "protein": plan_data.get("daily_protein", 150),
-                    "carbs": plan_data.get("daily_carbs", 200),
-                    "fat": plan_data.get("daily_fat", 70),
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }},
-                upsert=True
-            )
-        
-        # Award XP
-        xp_earned = 10
-        new_xp, new_rank = await award_xp(user.user_id, xp_earned)
-        
-        os.unlink(tmp_path)
-        
-        return {
-            "success": True,
-            "plan": plan_doc,
-            "meals_created": meals_created,
-            "goals_updated": bool(plan_data.get("daily_calories")),
-            "xp_earned": xp_earned
-        }
-        
-    except json.JSONDecodeError as e:
-        os.unlink(tmp_path)
-        raise HTTPException(status_code=422, detail=f"Não foi possível extrair dados do arquivo. Tente com outro formato. Erro: {str(e)}")
-    except Exception as e:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        logging.error(f"Import meal plan failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao importar plano: {str(e)}")
 
 # ========== STUDY ENDPOINTS ==========
 
@@ -4590,135 +4376,10 @@ async def get_general_archive(request: Request, before: Optional[str] = None, se
 
 
 # ========== AI MEAL PLAN GENERATION ==========
-@api_router.post("/nutrition/meal-plan/generate")
-async def generate_meal_plan(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Generate a personalized meal plan with AI"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if not await get_user_api_key(user.user_id):
-        raise HTTPException(status_code=503, detail="Serviço de IA indisponível")
-    
-    body = await request.json()
-    objective = body.get("objective", "saude")  # saude, emagrecimento, hipertrofia, definicao
-    restrictions = body.get("restrictions", [])  # vegetariano, vegano, sem_gluten, sem_lactose, low_carb
-    meals_per_day = body.get("meals_per_day", 5)
-    duration = body.get("duration", "dia")  # dia, semana
-    calories_target = body.get("calories_target", 0)  # 0 = auto
-    
-    restrictions_text = ""
-    if restrictions:
-        restrictions_text = f"\nRestrições alimentares: {', '.join(restrictions)}"
-    
-    calories_text = ""
-    if calories_target > 0:
-        calories_text = f"\nMeta calórica: {calories_target} kcal/dia"
-    
-    duration_instruction = "Crie um plano para UM DIA." if duration == "dia" else "Crie um plano para UMA SEMANA (segunda a domingo, 7 dias)."
-    
-    prompt = f"""Você é um nutricionista certificado. Gere um plano alimentar completo em JSON.
-
-PARÂMETROS:
-- Objetivo: {objective}
-- Refeições por dia: {meals_per_day}{restrictions_text}{calories_text}
-- {duration_instruction}
-
-FORMATO JSON OBRIGATÓRIO:
-{{
-  "name": "Plano Alimentar - {objective}",
-  "description": "Descrição breve",
-  "calories_total": 2000,
-  "macros": {{"protein_g": 150, "carbs_g": 200, "fat_g": 70, "fiber_g": 30}},
-  "days": [
-    {{
-      "day_name": "dia1",
-      "day_label": "Segunda-feira",
-      "calories": 2000,
-      "meals": [
-        {{
-          "meal_type": "café_da_manhã",
-          "time": "07:00",
-          "name": "Omelete de claras com aveia",
-          "foods": [
-            {{"name": "Clara de ovo", "quantity": "4 unidades", "calories": 68, "protein": 14, "carbs": 0, "fat": 0}},
-            {{"name": "Aveia", "quantity": "40g", "calories": 140, "protein": 5, "carbs": 24, "fat": 3}}
-          ],
-          "total_calories": 208,
-          "preparation": "Bata as claras, adicione sal e temperos. Cozinhe em frigideira antiaderente. Sirva com aveia cozida em água."
-        }}
-      ]
-    }}
-  ],
-  "shopping_list": [
-    {{"name": "Clara de ovo", "quantity": "20 unidades", "category": "proteínas"}},
-    {{"name": "Aveia", "quantity": "200g", "category": "cereais"}}
-  ],
-  "tips": ["Beba no mínimo 2L de água por dia", "Evite comer 2h antes de dormir"]
-}}
-
-IMPORTANTE:
-- Retorne APENAS o JSON, sem markdown, sem ```json
-- Inclua lista de compras (shopping_list) completa
-- Inclua dicas (tips) personalizadas ao objetivo
-- Macros devem ser realistas e adaptados ao objetivo
-- Cada refeição deve ter instrução de preparo
-- {"Retorne apenas 1 dia" if duration == "dia" else "Retorne 7 dias"} no array days"""
-
-    try:
-        response = await request_gemini(task='nutrition_generation', contents=prompt, config=dict(system_instruction='Você é um nutricionista profissional. Sempre responda em JSON válido.'), user_id=user.user_id)
-        
-        response_text = response.text.strip()
-        if response_text.startswith("```"):
-            response_text = response_text.split("\n", 1)[1] if "\n" in response_text else response_text[3:]
-        if response_text.endswith("```"):
-            response_text = response_text[:-3].strip()
-        if response_text.startswith("json"):
-            response_text = response_text[4:].strip()
-            
-        plan_data = json.loads(response_text)
-        
-        plan_id = f"mealplan_{uuid.uuid4().hex[:12]}"
-        plan_doc = {
-            "plan_id": plan_id,
-            "user_id": user.user_id,
-            "type": "meal_plan",
-            **plan_data,
-            "objective": objective,
-            "restrictions": restrictions,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-        await db.meal_plans.insert_one(plan_doc)
-        plan_doc.pop('_id', None)
-        
-        xp_earned = 5
-        new_xp, new_rank = await award_xp(user.user_id, xp_earned)
-        
-        return {"success": True, "plan": plan_doc, "xp_earned": xp_earned}
-        
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Erro ao processar resposta da IA. Tente novamente.")
-    except Exception as e:
-        logging.error(f"Meal plan generation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao gerar plano alimentar: {str(e)[:100]}")
 
 
-@api_router.get("/nutrition/meal-plans")
-async def get_meal_plans(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    plans = await db.meal_plans.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(20)
-    return plans
 
 
-@api_router.delete("/nutrition/meal-plans/{plan_id}")
-async def delete_meal_plan(request: Request, plan_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    result = await db.meal_plans.delete_one({"plan_id": plan_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Plano não encontrado")
-    return {"success": True}
 
 
 # ========== HEALTH CALCULATOR ==========
@@ -5440,86 +5101,10 @@ async def get_smart_reminders(request: Request, session_token: Optional[str] = C
 
 
 # ========== SHOPPING LIST FROM RECIPES ==========
-@api_router.post("/nutrition/shopping-list/generate")
-async def generate_shopping_list(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Generate shopping list from meal plan or recipes"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    body = await request.json()
-    plan_id = body.get("plan_id")
-    recipe_ids = body.get("recipe_ids", [])
-    
-    items = {}
-    
-    if plan_id:
-        plan = await db.meal_plans.find_one({"plan_id": plan_id, "user_id": user.user_id}, {"_id": 0})
-        if plan and plan.get("shopping_list"):
-            for item in plan["shopping_list"]:
-                name = item.get("name", "").lower()
-                if name in items:
-                    items[name]["quantity"] += f" + {item.get('quantity', '')}"
-                else:
-                    items[name] = {
-                        "name": item.get("name", ""),
-                        "quantity": item.get("quantity", ""),
-                        "category": item.get("category", "outros"),
-                        "checked": False
-                    }
-    
-    if recipe_ids:
-        for rid in recipe_ids:
-            recipe = await db.nutrition_recipes.find_one({"recipe_id": rid, "user_id": user.user_id}, {"_id": 0})
-            if recipe:
-                for ing in recipe.get("ingredients", []):
-                    name = ing.lower() if isinstance(ing, str) else ing.get("name", "").lower()
-                    if name not in items:
-                        items[name] = {
-                            "name": ing if isinstance(ing, str) else ing.get("name", ""),
-                            "quantity": "" if isinstance(ing, str) else ing.get("quantity", ""),
-                            "category": "ingredientes",
-                            "checked": False
-                        }
-    
-    shopping_list = list(items.values())
-    
-    list_id = f"shoplist_{uuid.uuid4().hex[:12]}"
-    list_doc = {
-        "list_id": list_id,
-        "user_id": user.user_id,
-        "items": shopping_list,
-        "plan_id": plan_id,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.shopping_lists.insert_one(list_doc)
-    list_doc.pop('_id', None)
-    
-    return {"success": True, "shopping_list": list_doc}
 
 
-@api_router.get("/nutrition/shopping-lists")
-async def get_shopping_lists(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    lists = await db.shopping_lists.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(10)
-    return lists
 
 
-@api_router.patch("/nutrition/shopping-lists/{list_id}/toggle/{item_idx}")
-async def toggle_shopping_item(request: Request, list_id: str, item_idx: int, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    doc = await db.shopping_lists.find_one({"list_id": list_id, "user_id": user.user_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Lista não encontrada")
-    
-    items = doc.get("items", [])
-    if 0 <= item_idx < len(items):
-        items[item_idx]["checked"] = not items[item_idx].get("checked", False)
-        await db.shopping_lists.update_one({"list_id": list_id}, {"$set": {"items": items}})
-    
-    return {"success": True, "items": items}
 
 
 # ========== UNIFIED CALENDAR ==========
@@ -6392,6 +5977,12 @@ from services import recipe_routes,recipe_generation_routes
 recipe_generation_routes.configure(get_current_user,get_user_api_key,request_gemini)
 api_router.include_router(recipe_generation_routes.api_router)
 api_router.include_router(recipe_routes.router)
+from services import nutrition_plans,nutrition_generation_routes
+nutrition_generation_routes.configure(get_current_user,get_user_api_key,request_gemini)
+api_router.include_router(nutrition_generation_routes.api_router)
+api_router.include_router(nutrition_plans.router)
+from services import nutrition_shopping
+api_router.include_router(nutrition_shopping.router)
 health_ai_routes.configure(get_current_user,call_llm,request_gemini)
 api_router.include_router(health_ai_routes.api_router)
 from services import workout_history_routes

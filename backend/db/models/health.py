@@ -173,6 +173,10 @@ class Meal(Identity, Owned, Timestamps, Base):
     meal_type: Mapped[str]
     date: Mapped[date] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
+    reported_calories: Mapped[float | None]
+    reported_protein: Mapped[float | None]
+    reported_carbs: Mapped[float | None]
+    reported_fat: Mapped[float | None]
     items: Mapped[list['MealItem']] = relationship(passive_deletes=True,order_by='MealItem.position')
     __table_args__ = (UniqueConstraint('user_id','id'),Index('ix_meals_owner_date','user_id','date'))
 
@@ -280,3 +284,106 @@ class RecipeIngredient(Identity, Owned, Base):
     unit: Mapped[str]
     __table_args__ = (ForeignKeyConstraint(['user_id','recipe_id'],['recipes.user_id','recipes.id'],ondelete='CASCADE'),
         UniqueConstraint('user_id','recipe_id','position'))
+
+
+class NutritionPlan(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'nutrition_plans'
+    kind: Mapped[str]
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    name: Mapped[str]
+    description: Mapped[str | None] = mapped_column(Text)
+    objective: Mapped[str] = mapped_column(default='')
+    diet_type: Mapped[str] = mapped_column(default='')
+    active: Mapped[bool] = mapped_column(default=True)
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    source_filename: Mapped[str | None]
+    daily_calories: Mapped[float] = mapped_column(default=0)
+    daily_protein: Mapped[float] = mapped_column(default=0)
+    daily_carbs: Mapped[float] = mapped_column(default=0)
+    daily_fat: Mapped[float] = mapped_column(default=0)
+    daily_fiber: Mapped[float] = mapped_column(default=0)
+    restrictions: Mapped[list[str]] = mapped_column(ARRAY(Text),default=list)
+    tips: Mapped[list[str]] = mapped_column(ARRAY(Text),default=list)
+    days: Mapped[list['NutritionPlanDay']] = relationship(passive_deletes=True,order_by='NutritionPlanDay.position')
+    shopping_items: Mapped[list['PlanShoppingItem']] = relationship(passive_deletes=True,order_by='PlanShoppingItem.position')
+    __table_args__ = (UniqueConstraint('user_id','id'),Index('ix_nutrition_plans_owner_created','user_id','created_at'),
+        CheckConstraint("kind IN ('diet','generated','imported')",name='kind'),
+        CheckConstraint('end_date IS NULL OR start_date IS NULL OR end_date >= start_date',name='dates'))
+
+
+class NutritionPlanDay(Identity, Owned, Base):
+    __tablename__ = 'nutrition_plan_days'
+    plan_id: Mapped[UUID]
+    position: Mapped[int]
+    day_name: Mapped[str]
+    day_label: Mapped[str]
+    calories: Mapped[float]
+    meals: Mapped[list['PlannedMeal']] = relationship(passive_deletes=True,order_by='PlannedMeal.position')
+    __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','plan_id','position'),
+        ForeignKeyConstraint(['user_id','plan_id'],['nutrition_plans.user_id','nutrition_plans.id'],ondelete='CASCADE'))
+
+
+class PlannedMeal(Identity, Owned, Base):
+    __tablename__ = 'planned_meals'
+    day_id: Mapped[UUID]
+    position: Mapped[int]
+    name: Mapped[str]
+    meal_type: Mapped[str]
+    time: Mapped[str]
+    preparation: Mapped[str] = mapped_column(Text)
+    notes: Mapped[str] = mapped_column(Text)
+    calories: Mapped[float]
+    protein: Mapped[float]
+    carbs: Mapped[float]
+    fat: Mapped[float]
+    fiber: Mapped[float]
+    foods: Mapped[list['PlannedFood']] = relationship(passive_deletes=True,order_by='PlannedFood.position')
+    __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','day_id','position'),
+        ForeignKeyConstraint(['user_id','day_id'],['nutrition_plan_days.user_id','nutrition_plan_days.id'],ondelete='CASCADE'))
+
+
+class PlannedFood(Identity, Owned, Base):
+    __tablename__ = 'planned_foods'
+    meal_id: Mapped[UUID]
+    position: Mapped[int]
+    name: Mapped[str]
+    quantity: Mapped[str]
+    unit: Mapped[str]
+    calories: Mapped[float]
+    protein: Mapped[float]
+    carbs: Mapped[float]
+    fat: Mapped[float]
+    __table_args__ = (UniqueConstraint('user_id','meal_id','position'),
+        ForeignKeyConstraint(['user_id','meal_id'],['planned_meals.user_id','planned_meals.id'],ondelete='CASCADE'))
+
+
+class PlanShoppingItem(Identity, Owned, Base):
+    __tablename__ = 'plan_shopping_items'
+    plan_id: Mapped[UUID]
+    position: Mapped[int]
+    name: Mapped[str]
+    quantity: Mapped[str]
+    category: Mapped[str]
+    __table_args__ = (UniqueConstraint('user_id','plan_id','position'),
+        ForeignKeyConstraint(['user_id','plan_id'],['nutrition_plans.user_id','nutrition_plans.id'],ondelete='CASCADE'))
+
+
+class ShoppingList(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'shopping_lists'
+    plan_id: Mapped[UUID | None]
+    items: Mapped[list['ShoppingItem']] = relationship(passive_deletes=True,order_by='ShoppingItem.position')
+    __table_args__ = (UniqueConstraint('user_id','id'),Index('ix_shopping_lists_owner_created','user_id','created_at'),
+        ForeignKeyConstraint(['user_id','plan_id'],['nutrition_plans.user_id','nutrition_plans.id']))
+
+
+class ShoppingItem(Identity, Owned, Base):
+    __tablename__ = 'shopping_items'
+    list_id: Mapped[UUID]
+    position: Mapped[int]
+    name: Mapped[str]
+    quantity: Mapped[str]
+    category: Mapped[str]
+    checked: Mapped[bool] = mapped_column(default=False)
+    __table_args__ = (UniqueConstraint('user_id','list_id','position'),
+        ForeignKeyConstraint(['user_id','list_id'],['shopping_lists.user_id','shopping_lists.id'],ondelete='CASCADE'))

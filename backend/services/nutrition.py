@@ -49,7 +49,7 @@ def goal_json(row):
 
 def meal_json(row):
     foods=[{key:getattr(item,key) for key in Food.model_fields} for item in row.items]
-    totals={key:sum(food[key]*food['quantity'] for food in foods) for key in MACROS}
+    totals={key:getattr(row,'reported_'+key) if getattr(row,'reported_'+key) is not None else sum(food[key]*food['quantity'] for food in foods) for key in MACROS}
     return jsonable_encoder({'meal_id':row.id,'user_id':row.user_id,'name':row.name,'meal_type':row.meal_type,
         'date':row.date,'notes':row.notes,'created_at':row.created_at,'foods':foods,
         **{'total_'+key:int(value) if key=='calories' else round(value,1) for key,value in totals.items()}})
@@ -131,7 +131,7 @@ async def period(session,uid,start,end):
     # Round per meal before summing, matching the existing meal response contract.
     expressions=[]
     for key in MACROS:
-        value=func.coalesce(func.sum(getattr(MealItem,key)*MealItem.quantity),0)
+        value=func.coalesce(getattr(Meal,'reported_'+key),func.sum(getattr(MealItem,key)*MealItem.quantity),0)
         value=func.trunc(cast(value,Numeric)) if key=='calories' else func.round(cast(value,Numeric),1)
         expressions.append(value.label(key))
     per_meal=select(Meal.id,Meal.date,*expressions).outerjoin(MealItem,

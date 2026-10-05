@@ -39,7 +39,7 @@ async def calendar_events(user_id, start, end, timezone):
         for row in workouts:
             events.append({'id':f'workout_{row.id}','title':f'Treino: {row.name}','date':row.date.isoformat(),
                 'type':'workout','color':'#EF4444','completed':row.completed,'duration_minutes':row.duration_minutes,'ref_id':str(row.id)})
-        meals = (await session.execute(select(Meal,func.coalesce(func.sum(MealItem.calories*MealItem.quantity),0)).outerjoin(MealItem,
+        meals = (await session.execute(select(Meal,func.coalesce(Meal.reported_calories,func.sum(MealItem.calories*MealItem.quantity),0)).outerjoin(MealItem,
             (MealItem.meal_id == Meal.id) & (MealItem.user_id == Meal.user_id)).where(Meal.user_id == user_id,
             Meal.date.between(start,end)).group_by(Meal.id))).all()
         for row,calories in meals:

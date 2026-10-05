@@ -2,6 +2,8 @@
 
 Base inspecionada: `e2b1bfd60c225d22329b9a28ac0daf3b4e8ee702`. Inventário estático de 80 collections com acesso direto, mais duas collections internas do GridFS. Destinos abaixo são o desenho de corte, não uma declaração de implementação concluída.
 
+Atualização da integração de Saúde/Nutrição: receitas usam `recipes`/`recipe_ingredients`; dietas e planos alimentares compartilham `nutrition_plans` com dias/refeições/alimentos separados; listas de compras usam `shopping_lists`/`shopping_items`. A antiga leitura de `nutrition_recipes` foi substituída pelo catálogo real de receitas. O inventário inicial abaixo é histórico; contagens atuais ficam em [MONGO_BURNDOWN.md](MONGO_BURNDOWN.md).
+
 Campos, chamadas e linhas exatas estão em [database-inventory.json](database-inventory.json). O inventário de campos captura literais nas queries e updates; modelos Pydantic e documentos construídos em variáveis precisam da revisão de domínio. Os nove acessos dinâmicos estão separados no JSON e não foram descartados.
 
 | Collection / finalidade | Domínio | Campos consultados (amostra) | Relações | Destino SQL / estratégia | Escritas transacionais atuais |
