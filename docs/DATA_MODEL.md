@@ -1,6 +1,8 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 80 tabelas (Alembic `1d41972a807e`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 81 tabelas (Alembic `9b0a2c5d026b`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+
+Relatórios preservam um snapshot tipado por período: contagens, minutos, macronutrientes, valores financeiros NUMERIC e texto de insights. Não há documento genérico de persistência; cada métrica tem coluna e o dinheiro continua Decimal durante o cálculo.
 
 Nutrição usa refeições/itens, água, metas, receitas/ingredientes e planos/dias/refeições/alimentos normalizados. Listas de compras têm itens e referência ao plano por dono. Dietas e planos gerados/importados compartilham `nutrition_plans`, diferenciados por `kind`; archive preserva referências. Totais explicitamente declarados em um documento importado ficam em `meals.reported_*`, pois não equivalem à soma dos nutrientes que a IA conseguiu extrair de cada alimento. Nas refeições manuais esses campos são nulos e os totais derivam dos itens e quantidades.
 

@@ -1790,57 +1790,7 @@ Se não conseguir identificar gastos na imagem, retorne:
         logging.error(f"Image analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao analisar imagem: {str(e)}")
 
-@api_router.get("/reports")
-async def get_reports(request: Request, type: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    query = {"user_id": user.user_id}
-    if type:
-        query["type"] = type
-    
-    reports = await db.reports.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
-    for report in reports:
-        if isinstance(report['created_at'], str):
-            report['created_at'] = datetime.fromisoformat(report['created_at'])
-    return reports
 
-@api_router.post("/reports/generate")
-async def generate_report(request: Request, report_type: str, period: str, start: Optional[str] = None, end: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    from report_metrics import report_window, period_metrics
-    from zoneinfo import ZoneInfo
-    try:
-        first, last = report_window(report_type, datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat(), start, end)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc))
-    data = await period_metrics(db, user.user_id, first, last)
-    period = f"{first} a {last}"
-    try:
-        prompt = f"Interprete em português estas métricas já calculadas do relatório {report_type}, período {period}. Não invente totais nem tendências sem comparação. Respeite as definições dos campos, diferencie ausência de registros de ausência de atividade. Dados: {json.dumps(data, ensure_ascii=False)}"
-
-        # Use Emergent LLM API
-        insights = await call_llm(prompt, f"report_{user.user_id}", user_id=user.user_id, task='report_analysis')
-        
-        report_id = f"report_{uuid.uuid4().hex[:12]}"
-        report_doc = {
-            "report_id": report_id,
-            "user_id": user.user_id,
-            "type": report_type,
-            "period": period,
-            "data": data,
-            "insights": insights,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.reports.insert_one(report_doc)
-        report_doc.pop('_id', None)  # Remove MongoDB ObjectId
-        report_doc['created_at'] = datetime.fromisoformat(report_doc['created_at'])
-        
-        return Report(**report_doc)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/stats/dashboard")
 async def get_dashboard_stats(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -2112,48 +2062,6 @@ DEFAULT_FINANCE_CATEGORIES = ["alimentação", "transporte", "moradia", "saúde"
 
 
 
-@api_router.get("/reports/{report_id}/download")
-async def download_report(report_id: str, request: Request, session_token: Optional[str] = Cookie(None)):
-    from fastapi.responses import StreamingResponse
-    import io
-    
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    report = await db.reports.find_one({"report_id": report_id, "user_id": user.user_id}, {"_id": 0})
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    
-    content = f"""SIRIUS - RELATÓRIO {report['type'].upper()}
-Período: {report['period']}
-Gerado em: {report['created_at']}
-
-{'='*60}
-DADOS DO PERÍODO
-{'='*60}
-
-Tarefas: {report['data']['tasks_completed']}/{report['data']['tasks']}
-Hábitos: {report['data']['total_habits_completions']} completações
-Receitas: R$ {report['data']['income']:.2f}
-Despesas: R$ {report['data']['expenses']:.2f}
-Metas: {report['data']['goals']} total
-Progresso Médio: {report['data']['goals_progress']:.1f}%
-
-{'='*60}
-INSIGHTS E SUGESTÕES
-{'='*60}
-
-{report['insights']}
-"""
-    
-    buffer = io.BytesIO(content.encode('utf-8'))
-    buffer.seek(0)
-    
-    return StreamingResponse(
-        buffer,
-        media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename=sirius_relatorio_{report_id}.txt"}
-    )
 
 class CreditCard(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -5758,6 +5666,9 @@ from services import nutrition_shopping
 api_router.include_router(nutrition_shopping.router)
 from services import domain_exports
 api_router.include_router(domain_exports.router)
+from services import reports
+reports.configure(call_llm)
+api_router.include_router(reports.router)
 health_ai_routes.configure(get_current_user,call_llm,request_gemini)
 api_router.include_router(health_ai_routes.api_router)
 from services import workout_history_routes

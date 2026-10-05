@@ -6,3 +6,5 @@ from db.models.agent import Conversation, Message, Memory, Action, ActionAudit, 
 from db.models.files import FileRecord, EditalAnalysis, RagSource, RagChunk
 from db.models.health import WorkoutPlan, WorkoutDay, PlanExercise, WorkoutSession, SessionExercise, WorkoutSet, WorkoutLog, Meal, MealItem, WaterLog, NutritionGoal
 from db.models.exams import Question, Exam, ExamQuestion, ExamAttempt
+
+from db.models.reports import Report

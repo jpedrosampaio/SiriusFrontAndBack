@@ -106,7 +106,7 @@ class Core:
     async def weekly(self, user_id):
         end = today()
         start = end - timedelta(days=end.weekday())
-        current, previous = await asyncio.gather(period_metrics(self.db, user_id, start.isoformat(), end.isoformat()), period_metrics(self.db, user_id, (start-timedelta(days=7)).isoformat(), (end-timedelta(days=7)).isoformat()))
+        current, previous = await asyncio.gather(period_metrics(user_id, start.isoformat(), end.isoformat()), period_metrics(user_id, (start-timedelta(days=7)).isoformat(), (end-timedelta(days=7)).isoformat()))
         adjustments = []
         if current['study_minutes'] < previous['study_minutes']: adjustments.append('Reserve um bloco de estudo compatível com a agenda desta semana.')
         if current['expenses'] > current['income']: adjustments.append('Revise as despesas do período antes de assumir novos gastos.')

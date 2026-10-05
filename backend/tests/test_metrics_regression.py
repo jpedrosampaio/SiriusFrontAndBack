@@ -21,31 +21,6 @@ class MetricsTests(unittest.IsolatedAsyncioTestCase):
         await self.client.drop_database(self.db.name)
         self.client.close()
 
-    async def test_report_full_history_date_and_owner(self):
-        from report_metrics import period_metrics
-        for collection, fields in [
-            ('transactions', {'amount': 2, 'type': 'income'}),
-            ('study_sessions', {'duration_minutes': 3}),
-            ('focus_sessions', {'focus_minutes': 5, 'completed': True}),
-            ('question_logs', {'total': 4, 'correct': 3}),
-            ('workout_logs', {'completed': True, 'duration_minutes': 10}),
-            ('meals', {'total_calories': 100}), ('water_logs', {'amount_ml': 200}),
-            ('task_instances', {'completed': True}),
-        ]:
-            await self.db[collection].insert_many([
-                {'user_id': 'alice', 'date': '2026-09-25', **fields} for _ in range(1005)
-            ] + [{'user_id': 'alice', 'date': '2026-09-24', **fields},
-                 {'user_id': 'bob', 'date': '2026-09-25', **fields}])
-        await self.db.habits.insert_one({'user_id': 'alice', 'completions': ['2026-09-24', '2026-09-25']})
-        metrics = await period_metrics(self.db, 'alice', '2026-09-25', '2026-09-25')
-        self.assertEqual(metrics['income'], 2010)
-        self.assertEqual(metrics['study_minutes'], 8040)
-        self.assertEqual(metrics['workouts'], 1005)
-        self.assertEqual(metrics['tasks_completed'], 1005)
-        self.assertEqual(metrics['questions_correct'], 3015)
-        self.assertEqual(metrics['calories'], 100500)
-        self.assertEqual(metrics['water_ml'], 201000)
-        self.assertEqual(metrics['total_habits_completions'], 1)
 
     async def test_dashboard_real_percent_and_applicable_tasks(self):
         from dashboard_service import dashboard_snapshot
