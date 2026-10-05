@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Telegram SQL connected: hashed single-use codes, unique owner/chat, leases and transactional update receipts with Decimal batch validation/rollback/replay, private-chat webhook, revoked-link check before writes, full aggregates. 5 SQL tests passed2.616s;18 security passed1.247s. Migration126b856daebb,96 tables,check clean. Last fullSQL165 before +3 notifications/+5 Telegram (next173). Mongo4 direct/3 collections/2 dynamic/GridFS0. IMPORTANT remaining dynamic sync_table/get_sync_data in server still Mongo; port typed mobile sync and fix native UUID generator/POST protocol, then startup and remove unused server_partial snapshot/dependencies/CI after coverage. No merge/cutover.
+
 Notifications SQL connected with owner FKs, local-date atomic claim, weekly midnight handling, deduplicated delivery receipts/reminder generation. Archived programs/notebooks excluded; schedule removal cascades. Migration7293cc85b93b,93 tables,check clean. 3 SQL tests passed2.749s;95 regressions passed1.445s(1 Mongo startup skip). Last fullSQL165 before +3 notifications. Mongo24 direct/7 collections/2 dynamic/GridFS0. Next Telegram then final startup/CI cleanup and emptySQL smoke. No merge/cutover.
 
 Contest tracking SQL connected: owned sources, updates and shared host cooldown; leases revoke deleted/in-flight fetches, source cap/dedupe/backoff preserved. Migration db4245d7971f,91 tables,check clean. FullSQL165 passed117.499s;95 regressions passed(1 Mongo startup skip). Mongo39 direct/12 collections/2 dynamic/GridFS0. Next notifications/Telegram then Mongo startup/requirements/CI cleanup and explicit empty PostgreSQL smoke. No merge/cutover.

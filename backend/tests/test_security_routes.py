@@ -224,12 +224,10 @@ class SecurityRoutesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 503)
 
     async def test_summaries_only_target_authenticated_user(self):
-        self.collection.find.return_value.to_list.return_value = [
-            {"user_id": "alice", "chat_id": 123}]
-        response = await self.client.post("/api/telegram/send-daily-summaries")
-        self.assertEqual(response.status_code, 200)
-        self.collection.find.assert_called_once_with({"status": "active", "user_id": "alice"})
-        self.ns["send_telegram_daily_summary"].assert_awaited_once_with("alice", 123)
+        with patch("services.telegram.TelegramService.daily", AsyncMock(return_value={"sent":1,"total":1})) as daily:
+            response=await self.client.post("/api/telegram/send-daily-summaries")
+        self.assertEqual(response.status_code,200)
+        daily.assert_awaited_once_with("alice")
 
     async def test_startup_rejects_untrusted_or_missing_configuration(self):
         for url in ("", "http://insecure.invalid", "https://user:pass@example.com",

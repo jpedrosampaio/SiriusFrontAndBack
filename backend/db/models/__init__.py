@@ -11,3 +11,4 @@ from db.models.reports import Report
 from db.models.gamification import Achievement, WeeklyChallenge, DailyQuote
 from db.models.contests import ContestSource, ContestUpdate, ContestHostLimit
 from db.models.notifications import Notification, NotificationDelivery
+from db.models.telegram import TelegramLink, TelegramCode, TelegramUpdate

@@ -1,6 +1,6 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 93 tabelas (Alembic `7293cc85b93b`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 96 tabelas (Alembic `126b856daebb`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
 
 Conquistas têm chave única por dono. Desafios semanais têm dono e unicidade por semana/tipo; conclusão, XP e conquista são atômicos com recibo por desafio. O catálogo visual permanece igual; progresso deriva de fatos SQL, contando apenas estudos/treinos concluídos e streaks reais.
 
