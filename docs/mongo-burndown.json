@@ -1,21 +1,21 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 200,
-  "remaining_collections": 45,
-  "remaining_dynamic_accesses": 8,
+  "remaining_direct_calls": 194,
+  "remaining_collections": 44,
+  "remaining_dynamic_accesses": 7,
   "remaining_gridfs_constructors": 0,
   "domains": {
     "agent": 56,
     "contest": 19,
     "files_rag": 19,
-    "finance": 19,
-    "goals": 3,
-    "health": 5,
+    "finance": 18,
+    "goals": 2,
+    "health": 4,
     "identity": 8,
     "notifications": 24,
     "other": 14,
-    "planning": 10,
-    "studies": 23
+    "planning": 8,
+    "studies": 22
   },
   "mongo_imports": [
     "ai/automations.py:7: pymongo",

@@ -4380,125 +4380,6 @@ async def calculate_health_metrics(request: Request, session_token: Optional[str
 
 
 # ========== GLOBAL SEARCH ==========
-@api_router.get("/search/global")
-async def global_search(request: Request, q: str = "", session_token: Optional[str] = Cookie(None)):
-    """Search across all user data"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if not q or len(q) < 2:
-        return {"results": []}
-    
-    import re
-    q = re.escape(q.strip()[:100])
-    results = []
-    
-    # Search transactions
-    transactions = await db.transactions.find(
-        {"user_id": user.user_id, "$or": [
-            {"description": {"$regex": q, "$options": "i"}},
-            {"category": {"$regex": q, "$options": "i"}}
-        ]},
-        {"_id": 0}
-    ).to_list(5)
-    for t in transactions:
-        results.append({
-            "type": "transaction",
-            "icon": "💰",
-            "title": f"{t.get('description', '')} - R$ {t.get('amount', 0):.2f}",
-            "subtitle": f"{t.get('category', '')} · {t.get('date', '')}",
-            "link": "/finance"
-        })
-    
-    # Search tasks
-    tasks = await db.tasks.find(
-        {"user_id": user.user_id, "title": {"$regex": q, "$options": "i"}},
-        {"_id": 0}
-    ).to_list(5)
-    for t in tasks:
-        results.append({
-            "type": "task",
-            "icon": "✅",
-            "title": t.get('title', ''),
-            "subtitle": f"{'Concluída' if t.get('completed') else 'Pendente'}",
-            "link": "/tasks"
-        })
-    
-    # Search habits
-    habits = await db.habits.find(
-        {"user_id": user.user_id, "name": {"$regex": q, "$options": "i"}},
-        {"_id": 0}
-    ).to_list(5)
-    for h in habits:
-        results.append({
-            "type": "habit",
-            "icon": "🔄",
-            "title": h.get('name', ''),
-            "subtitle": f"Streak: {h.get('streak', 0)} dias",
-            "link": "/habits"
-        })
-    
-    # Search workout plans
-    plans = await db.workout_plans.find(
-        {"user_id": user.user_id, "$or": [
-            {"name": {"$regex": q, "$options": "i"}},
-            {"description": {"$regex": q, "$options": "i"}}
-        ]},
-        {"_id": 0}
-    ).to_list(5)
-    for p in plans:
-        results.append({
-            "type": "workout_plan",
-            "icon": "🏋️",
-            "title": p.get('name', ''),
-            "subtitle": f"{len(p.get('exercises', []))} exercícios",
-            "link": "/workouts"
-        })
-    
-    # Search notes
-    notes = await db.study_notes.find(
-        {"user_id": user.user_id, "$or": [
-            {"title": {"$regex": q, "$options": "i"}},
-            {"content": {"$regex": q, "$options": "i"}}
-        ]},
-        {"_id": 0}
-    ).to_list(5)
-    for n in notes:
-        results.append({
-            "type": "note",
-            "icon": "📝",
-            "title": n.get('title', ''),
-            "subtitle": "Nota de estudo",
-            "link": "/studies"
-        })
-    
-    # Search goals
-    goals = await db.goals.find(
-        {"user_id": user.user_id, "title": {"$regex": q, "$options": "i"}},
-        {"_id": 0}
-    ).to_list(5)
-    for g in goals:
-        results.append({
-            "type": "goal",
-            "icon": "🎯",
-            "title": g.get('title', ''),
-            "subtitle": f"Progresso: {g.get('progress', 0)}%",
-            "link": "/goals"
-        })
-    
-    from urllib.parse import urlencode
-    for collection, fields, label in [
-        ('study_programs', ['name', 'description'], 'Programa de estudos'),
-        ('study_targets', ['name', 'institution', 'board', 'position'], 'Preparação'),
-        ('notebooks', ['name', 'description'], 'Matéria'),
-        ('calendar_commitments', ['title'], 'Compromisso')]:
-        records = await db[collection].find({'user_id': user.user_id, '$or': [{field: {'$regex': q, '$options': 'i'}} for field in fields]}, {'_id': 0}).to_list(5)
-        for record in records:
-            params = {'program': record['program_id']} if record.get('program_id') else {}
-            if collection == 'notebooks': params.update(notebook=record['notebook_id'], view='estudar')
-            link = '/calendar' if collection == 'calendar_commitments' else '/studies' + ('?' + urlencode(params) if params else '')
-            results.append({'type': collection, 'title': record.get('name') or record.get('title', ''), 'subtitle': label, 'link': link})
-    return {"results": results[:50]}
 
 
 # ========== SMART REMINDERS ==========
@@ -5148,6 +5029,8 @@ reports.configure(call_llm)
 api_router.include_router(reports.router)
 from services import dashboard
 api_router.include_router(dashboard.router)
+from services import global_search
+api_router.include_router(global_search.router)
 from services import dashboard_panels,daily_briefing
 daily_briefing.configure(call_llm)
 api_router.include_router(dashboard_panels.router)
