@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Numeric, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, Numeric, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from db.base import Base, Identity, Timestamps
@@ -146,6 +146,25 @@ class WorkoutLogExercise(Identity, Owned, ExerciseFields, Base):
     __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','log_id','position'),
         ForeignKeyConstraint(['user_id','log_id'],['workout_logs.user_id','workout_logs.id'],ondelete='CASCADE'),
         CheckConstraint('sets_completed BETWEEN 0 AND sets AND time_spent_seconds >= 0',name='completion'))
+
+
+class DailyWorkoutStatus(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'daily_workout_status'
+    plan_id: Mapped[UUID]
+    date: Mapped[date] = mapped_column(Date)
+    log_id: Mapped[UUID | None] = mapped_column(ForeignKey('workout_logs.id',ondelete='SET NULL'))
+    __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','plan_id','date'),
+        ForeignKeyConstraint(['user_id','plan_id'],['workout_plans.user_id','workout_plans.id'],ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','log_id'],['workout_logs.user_id','workout_logs.id'],ondelete='NO ACTION'))
+
+
+class DailyWorkoutCheck(Identity, Owned, Base):
+    __tablename__ = 'daily_workout_checks'
+    status_id: Mapped[UUID]
+    exercise_index: Mapped[int]
+    __table_args__ = (UniqueConstraint('user_id','status_id','exercise_index'),
+        ForeignKeyConstraint(['user_id','status_id'],['daily_workout_status.user_id','daily_workout_status.id'],ondelete='CASCADE'),
+        CheckConstraint('exercise_index >= 0',name='index'))
 
 
 class Meal(Identity, Owned, Timestamps, Base):

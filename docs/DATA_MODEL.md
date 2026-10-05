@@ -79,3 +79,5 @@ Migration `b91a1161f708` acrescenta archive a planos de treino e divisão/foco/n
 Migration `c20af75ad6b0` acrescenta resumo de melhorias e `improved_from`, uma FK composta que exige o mesmo dono do plano original. O conteúdo de dias e exercícios continua normalizado; parâmetros de geração guardam apenas as opções específicas e progressão semanal.
 
 Migration `99b09cc30936`: exercícios de registros manuais usam `workout_log_exercises`; séries reutilizam `workout_sets`, com constraint de exatamente uma origem e FKs compostas. Logs gerados por sessões referenciam a sessão e reutilizam seus exercícios, sem cópias redundantes. Total: 67 tabelas.
+
+Migration `6460b39c74a1`: `daily_workout_status` único por dono/plano/data e `daily_workout_checks` por índice do exercício. Conclusão referencia um log do mesmo dono. Excluir log limpa a referência; reset desfaz a conclusão e XP em uma transação. Total: 69 tabelas.

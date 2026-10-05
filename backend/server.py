@@ -3055,177 +3055,9 @@ Responda APENAS com a frase, sem explicações."""
         }
 
 # ========== DAILY WORKOUT STATUS ==========
-@api_router.get("/daily-workout-status/{plan_id}")
-async def get_daily_workout_status(request: Request, plan_id: str, session_token: Optional[str] = Cookie(None)):
-    """Get the exercise completion status for a plan on today's date"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    status = await db.daily_workout_status.find_one({
-        "user_id": user.user_id,
-        "plan_id": plan_id,
-        "date": today
-    }, {"_id": 0})
-    
-    return status or {"exercises_status": {}, "completed": False}
 
-@api_router.post("/daily-workout-status/{plan_id}/toggle/{exercise_idx}")
-async def toggle_daily_exercise(request: Request, plan_id: str, exercise_idx: int, session_token: Optional[str] = Cookie(None)):
-    """Toggle an exercise completion status for today"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    # Get or create today's status
-    status = await db.daily_workout_status.find_one({
-        "user_id": user.user_id,
-        "plan_id": plan_id,
-        "date": today
-    })
-    
-    if not status:
-        status = {
-            "status_id": f"dws_{uuid.uuid4().hex[:12]}",
-            "user_id": user.user_id,
-            "plan_id": plan_id,
-            "date": today,
-            "exercises_status": {},
-            "completed": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.daily_workout_status.insert_one(status)
-    
-    # Toggle the exercise
-    exercise_key = str(exercise_idx)
-    current_status = status.get("exercises_status", {}).get(exercise_key, False)
-    new_status = not current_status
-    
-    await db.daily_workout_status.update_one(
-        {"user_id": user.user_id, "plan_id": plan_id, "date": today},
-        {
-            "$set": {
-                f"exercises_status.{exercise_key}": new_status,
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }
-        }
-    )
-    
-    # Get updated status
-    updated = await db.daily_workout_status.find_one({
-        "user_id": user.user_id,
-        "plan_id": plan_id,
-        "date": today
-    }, {"_id": 0})
-    
-    return updated
 
-@api_router.post("/daily-workout-status/{plan_id}/complete")
-async def complete_daily_workout(request: Request, plan_id: str, data: dict, session_token: Optional[str] = Cookie(None)):
-    """Complete a daily workout and log it"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    # Get the plan
-    plan = await db.workout_plans.find_one({"plan_id": plan_id, "user_id": user.user_id}, {"_id": 0})
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    
-    # Get today's status
-    status = await db.daily_workout_status.find_one({
-        "user_id": user.user_id,
-        "plan_id": plan_id,
-        "date": today
-    }, {"_id": 0})
-    
-    exercises_status = status.get("exercises_status", {}) if status else {}
-    
-    # Build exercises_completed list
-    exercises_completed = []
-    for idx, ex in enumerate(plan.get("exercises", [])):
-        exercises_completed.append({
-            **ex,
-            "completed": exercises_status.get(str(idx), False)
-        })
-    
-    completed_count = sum(1 for ex in exercises_completed if ex.get("completed"))
-    total_exercises = len(exercises_completed)
-    
-    # Calculate XP based on completion
-    base_xp = 10
-    completion_bonus = int((completed_count / total_exercises) * 30) if total_exercises > 0 else 0
-    duration_bonus = (data.get("duration_minutes", 30) // 15) * 5
-    total_xp = base_xp + completion_bonus + duration_bonus
-    
-    # Estimate calories if not provided (rough estimate based on duration and activity)
-    calories = data.get("calories")
-    if not calories:
-        # Average 5-8 calories per minute for strength training
-        calories = int(data.get("duration_minutes", 30) * 6)
-    
-    # Create workout log
-    log_id = f"workout_{uuid.uuid4().hex[:12]}"
-    workout_doc = {
-        "log_id": log_id,
-        "user_id": user.user_id,
-        "plan_id": plan_id,
-        "activity_type": "weightlifting",
-        "name": plan.get("name", "Treino"),
-        "duration_minutes": data.get("duration_minutes", 30),
-        "calories": calories,
-        "exercises_completed": exercises_completed,
-        "notes": data.get("notes", ""),
-        "xp_earned": total_xp,
-        "completed": True,
-        "date": today,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.workout_logs.insert_one(workout_doc)
-    
-    # Update user XP
-    new_xp, new_rank = await award_xp(user.user_id, total_xp)
-    
-    # Mark daily status as completed
-    await db.daily_workout_status.update_one(
-        {"user_id": user.user_id, "plan_id": plan_id, "date": today},
-        {"$set": {"completed": True, "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    workout_doc.pop('_id', None)
-    return {
-        **workout_doc,
-        "new_xp": new_xp,
-        "new_rank": new_rank,
-        "exercises_completed_count": completed_count,
-        "total_exercises": total_exercises
-    }
 
-@api_router.post("/daily-workout-status/{plan_id}/reset")
-async def reset_daily_workout(request: Request, plan_id: str, session_token: Optional[str] = Cookie(None)):
-    """Reset today's workout status for a plan"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    await db.daily_workout_status.update_one(
-        {"user_id": user.user_id, "plan_id": plan_id, "date": today},
-        {
-            "$set": {
-                "exercises_status": {},
-                "completed": False,
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }
-        }
-    )
-    
-    return {"message": "Daily workout status reset", "date": today}
 
 # ========== NUTRITION MODELS ==========
 class Meal(BaseModel):
@@ -7273,6 +7105,8 @@ from services import workout_plan_routes
 api_router.include_router(workout_plan_routes.router)
 from services import workout_logs
 api_router.include_router(workout_logs.router)
+from services import workout_daily_routes
+api_router.include_router(workout_daily_routes.router)
 from services import workout_history_routes
 api_router.include_router(workout_history_routes.router)
 from services import workout_generation_routes
