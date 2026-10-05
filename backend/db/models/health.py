@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, Numeric, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from db.base import Base, Identity, Timestamps
 from db.models.planning import Owned
@@ -248,3 +248,35 @@ class WorkoutInsight(Identity, Owned, Timestamps, Base):
     has_measurements: Mapped[bool] = mapped_column(default=False)
     workout_types: Mapped[dict] = mapped_column(JSONB,default=dict)
     __table_args__ = (Index('ix_workout_insights_owner_created','user_id','created_at'),)
+
+
+class Recipe(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'recipes'
+    name: Mapped[str]
+    description: Mapped[str] = mapped_column(Text,default='')
+    instructions: Mapped[list[str]] = mapped_column(ARRAY(Text),default=list)
+    prep_time_minutes: Mapped[int] = mapped_column(default=0)
+    cook_time_minutes: Mapped[int] = mapped_column(default=0)
+    servings: Mapped[int] = mapped_column(default=1)
+    calories_per_serving: Mapped[float] = mapped_column(default=0)
+    protein_per_serving: Mapped[float] = mapped_column(default=0)
+    carbs_per_serving: Mapped[float] = mapped_column(default=0)
+    fat_per_serving: Mapped[float] = mapped_column(default=0)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(Text),default=list)
+    tips: Mapped[str] = mapped_column(Text,default='')
+    ai_generated: Mapped[bool] = mapped_column(default=True)
+    ingredients: Mapped[list['RecipeIngredient']] = relationship(passive_deletes=True,order_by='RecipeIngredient.position')
+    __table_args__ = (UniqueConstraint('user_id','id'),Index('ix_recipes_owner_created','user_id','created_at'),
+        CheckConstraint('servings > 0 AND prep_time_minutes >= 0 AND cook_time_minutes >= 0',name='portions_time'),
+        CheckConstraint('calories_per_serving >= 0 AND protein_per_serving >= 0 AND carbs_per_serving >= 0 AND fat_per_serving >= 0',name='macros'))
+
+
+class RecipeIngredient(Identity, Owned, Base):
+    __tablename__ = 'recipe_ingredients'
+    recipe_id: Mapped[UUID]
+    position: Mapped[int]
+    name: Mapped[str]
+    quantity: Mapped[str]
+    unit: Mapped[str]
+    __table_args__ = (ForeignKeyConstraint(['user_id','recipe_id'],['recipes.user_id','recipes.id'],ondelete='CASCADE'),
+        UniqueConstraint('user_id','recipe_id','position'))

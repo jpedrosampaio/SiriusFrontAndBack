@@ -3304,147 +3304,9 @@ async def delete_diet(request: Request, diet_id: str, session_token: Optional[st
         raise HTTPException(status_code=404, detail="Diet not found")
     return {"message": "Diet deleted"}
 
-@api_router.get("/nutrition/recipes")
-async def get_recipes(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get user's saved recipes"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    recipes = await db.recipes.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    return recipes
 
-@api_router.post("/nutrition/recipes/suggest")
-async def suggest_recipe(request: Request, preferences: dict, session_token: Optional[str] = Cookie(None)):
-    """Get AI-suggested recipe based on preferences"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Get user's nutrition goals for context
-    goals = await db.nutrition_goals.find_one({"user_id": user.user_id}, {"_id": 0})
-    
-    goal_info = ""
-    if goals:
-        goal_info = f"""
-Metas nutricionais do usuário:
-- Calorias diárias: {goals.get('daily_calories', 2000)} kcal
-- Proteína: {goals.get('daily_protein', 150)}g
-- Carboidratos: {goals.get('daily_carbs', 250)}g
-- Gordura: {goals.get('daily_fat', 65)}g
-"""
-    
-    diet_type = preferences.get("diet_type", "")
-    meal_type = preferences.get("meal_type", "")
-    ingredients = preferences.get("available_ingredients", [])
-    restrictions = preferences.get("restrictions", [])
-    cuisine = preferences.get("cuisine", "")
-    max_time = preferences.get("max_prep_time_minutes", 60)
-    
-    prompt = f"""Sugira uma receita saudável com as seguintes preferências:
-{goal_info}
-- Tipo de refeição: {meal_type or 'qualquer'}
-- Tipo de dieta: {diet_type or 'balanceada'}
-- Ingredientes disponíveis: {', '.join(ingredients) if ingredients else 'qualquer'}
-- Restrições alimentares: {', '.join(restrictions) if restrictions else 'nenhuma'}
-- Culinária preferida: {cuisine or 'qualquer'}
-- Tempo máximo de preparo: {max_time} minutos
 
-Forneça a resposta em formato JSON com a seguinte estrutura:
-{{
-    "name": "Nome da Receita",
-    "description": "Breve descrição",
-    "ingredients": [{{"name": "ingrediente", "quantity": "quantidade", "unit": "unidade"}}],
-    "instructions": ["Passo 1", "Passo 2"],
-    "prep_time_minutes": 15,
-    "cook_time_minutes": 30,
-    "servings": 4,
-    "calories_per_serving": 350,
-    "protein_per_serving": 25,
-    "carbs_per_serving": 40,
-    "fat_per_serving": 12,
-    "tags": ["saudável", "rápido"],
-    "tips": "Dica extra"
-}}"""
-    
-    if not await get_user_api_key(user.user_id):
-        raise HTTPException(status_code=503, detail="Serviço de IA não disponível")
-    
-    try:
-        # Call Gemini directly with response_mime_type for guaranteed JSON output
-        response = await request_gemini(task='nutrition_generation', contents=prompt, config=dict(system_instruction='Você é um nutricionista e chef experiente. Forneça receitas saudáveis e práticas. Sempre responda em JSON válido.', response_mime_type='application/json', response_schema={'type': 'OBJECT', 'required': ['name', 'description', 'ingredients', 'instructions'], 'properties': {'name': {'type': 'STRING'}, 'description': {'type': 'STRING'}, 'ingredients': {'type': 'ARRAY', 'items': {'type': 'OBJECT', 'properties': {'name': {'type': 'STRING'}, 'quantity': {'type': 'STRING'}, 'unit': {'type': 'STRING'}}}}, 'instructions': {'type': 'ARRAY', 'items': {'type': 'STRING'}}, 'prep_time_minutes': {'type': 'INTEGER'}, 'cook_time_minutes': {'type': 'INTEGER'}, 'servings': {'type': 'INTEGER'}, 'calories_per_serving': {'type': 'INTEGER'}, 'protein_per_serving': {'type': 'INTEGER'}, 'carbs_per_serving': {'type': 'INTEGER'}, 'fat_per_serving': {'type': 'INTEGER'}, 'tags': {'type': 'ARRAY', 'items': {'type': 'STRING'}}, 'tips': {'type': 'STRING'}}}), user_id=user.user_id)
-        
-        response_text = response.text.strip()
-        
-        # Parse JSON - should be valid since we used response_mime_type
-        try:
-            recipe_data = json.loads(response_text)
-        except json.JSONDecodeError:
-            # Fallback: clean markdown code blocks and retry
-            cleaned = response_text
-            if cleaned.startswith("```json"):
-                cleaned = cleaned[7:]
-            if cleaned.startswith("```"):
-                cleaned = cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            cleaned = cleaned.strip()
-            # Try fixing common JSON issues
-            import re
-            cleaned = re.sub(r',\s*}', '}', cleaned)  # Remove trailing commas before }
-            cleaned = re.sub(r',\s*]', ']', cleaned)  # Remove trailing commas before ]
-            recipe_data = json.loads(cleaned)
-        
-        # Save recipe
-        recipe_id = f"recipe_{uuid.uuid4().hex[:12]}"
-        recipe_doc = {
-            "recipe_id": recipe_id,
-            "user_id": user.user_id,
-            "name": recipe_data.get("name", "Receita Sugerida"),
-            "description": recipe_data.get("description", ""),
-            "ingredients": recipe_data.get("ingredients", []),
-            "instructions": recipe_data.get("instructions", []),
-            "prep_time_minutes": recipe_data.get("prep_time_minutes", 0),
-            "cook_time_minutes": recipe_data.get("cook_time_minutes", 0),
-            "servings": recipe_data.get("servings", 1),
-            "calories_per_serving": recipe_data.get("calories_per_serving", 0),
-            "protein_per_serving": recipe_data.get("protein_per_serving", 0),
-            "carbs_per_serving": recipe_data.get("carbs_per_serving", 0),
-            "fat_per_serving": recipe_data.get("fat_per_serving", 0),
-            "tags": recipe_data.get("tags", []),
-            "ai_generated": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.recipes.insert_one(recipe_doc)
-        recipe_doc.pop('_id', None)
-        recipe_doc["tips"] = recipe_data.get("tips", "")
-        return recipe_doc
-    except json.JSONDecodeError as je:
-        logging.error(f"Recipe JSON parse error: {je}")
-        raise HTTPException(status_code=500, detail="Erro ao interpretar resposta da IA. Tente novamente.")
-    except Exception as e:
-        logging.error(f"Recipe suggestion failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Falha ao gerar receita: {str(e)}")
 
-@api_router.get("/nutrition/recipes/{recipe_id}")
-async def get_recipe_detail(request: Request, recipe_id: str, session_token: Optional[str] = Cookie(None)):
-    """Get full recipe details"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    recipe = await db.recipes.find_one({"recipe_id": recipe_id, "user_id": user.user_id}, {"_id": 0})
-    if not recipe:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-    return recipe
-
-@api_router.delete("/nutrition/recipes/{recipe_id}")
-async def delete_recipe(request: Request, recipe_id: str, session_token: Optional[str] = Cookie(None)):
-    """Delete a recipe"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.recipes.delete_one({"recipe_id": recipe_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-    return {"message": "Recipe deleted"}
 
 # ========== IMPORT MEAL PLAN ==========
 
@@ -6526,6 +6388,10 @@ from services import body_measurements,health_ai_routes
 api_router.include_router(body_measurements.router)
 from services import nutrition
 api_router.include_router(nutrition.router)
+from services import recipe_routes,recipe_generation_routes
+recipe_generation_routes.configure(get_current_user,get_user_api_key,request_gemini)
+api_router.include_router(recipe_generation_routes.api_router)
+api_router.include_router(recipe_routes.router)
 health_ai_routes.configure(get_current_user,call_llm,request_gemini)
 api_router.include_router(health_ai_routes.api_router)
 from services import workout_history_routes
