@@ -2,7 +2,7 @@
 from datetime import date,timedelta
 from decimal import Decimal
 from uuid import UUID
-from fastapi import APIRouter,Request,HTTPException
+from fastapi import APIRouter,Request,HTTPException,Query
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select,func
 from db.models.identity import User
@@ -81,3 +81,10 @@ async def stats(request: Request):
 async def suggestions(request: Request):
     user=await account(request)
     return {'suggestions':suggestions_from_snapshot(await dashboard_snapshot(user['user_id']))}
+
+
+@router.get('/stats/analytics')
+async def analytics(request: Request,days: int=Query(7,ge=1)):
+    from analytics_service import analytics_snapshot
+    user=await account(request)
+    return jsonable_encoder(await analytics_snapshot(user['user_id'],days))

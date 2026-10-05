@@ -1,6 +1,6 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 227,
+  "remaining_direct_calls": 225,
   "remaining_collections": 47,
   "remaining_dynamic_accesses": 8,
   "remaining_gridfs_constructors": 0,
@@ -14,7 +14,7 @@
     "identity": 9,
     "notifications": 24,
     "other": 14,
-    "planning": 21,
+    "planning": 19,
     "studies": 26
   },
   "mongo_imports": [
@@ -30,7 +30,7 @@
     "server.py:6: pymongo.errors",
     "server.py:7: pymongo.read_concern",
     "server.py:8: pymongo.write_concern",
-    "server.py:1961: pymongo.errors"
+    "server.py:1951: pymongo.errors"
   ],
   "mongo_identifiers": {
     "AsyncIOMotorClient": 1

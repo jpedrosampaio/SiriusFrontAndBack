@@ -1794,16 +1794,6 @@ Se não conseguir identificar gastos na imagem, retorne:
 
 
 
-@api_router.get("/stats/analytics")
-async def get_analytics_data(request: Request, days: int = 7, session_token: Optional[str] = Cookie(None)):
-    """Get historical analytics data for dashboard charts"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if days < 1:
-        raise HTTPException(422, "days must be positive")
-    from analytics_service import analytics_snapshot
-    return await analytics_snapshot(db, user.user_id, days)
 
 
 

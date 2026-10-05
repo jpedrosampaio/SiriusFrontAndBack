@@ -1,6 +1,8 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 81 tabelas (Alembic `9b0a2c5d026b`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 82 tabelas (Alembic `060d04832219`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+
+`xp_entries` registra o delta efetivo de XP por dono e data civil, junto da alteração do usuário e recibo na mesma transação. Estornos são negativos; a repetição da ação não cria novo registro. Não há reconstrução/migração de histórico antigo.
 
 Relatórios preservam um snapshot tipado por período: contagens, minutos, macronutrientes, valores financeiros NUMERIC e texto de insights. Não há documento genérico de persistência; cada métrica tem coluna e o dinheiro continua Decimal durante o cálculo.
 

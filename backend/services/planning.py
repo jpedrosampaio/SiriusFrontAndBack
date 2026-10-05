@@ -1,7 +1,8 @@
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 from db.activity import run_activity
-from db.models.planning import TaskInstance, HabitCheck
+from db.models.planning import TaskInstance, HabitCheck, XPEntry
+from sqlalchemy.orm import object_session
 from db.repositories.planning import PlanningRepository
 from services.time import local_today
 
@@ -14,7 +15,12 @@ def rank_for_xp(xp):
 
 
 def apply_xp(user, delta):
-    user.xp = max(0, user.xp + delta)
+    session = object_session(user)
+    if session is None: raise RuntimeError('XP requires a transactional SQL user')
+    previous = user.xp
+    user.xp = max(0, previous + delta)
+    if user.xp != previous:
+        session.add(XPEntry(user_id=user.id,date=local_today(user.timezone),amount=user.xp-previous))
     user.rank = rank_for_xp(user.xp)
     return user.xp, user.rank
 

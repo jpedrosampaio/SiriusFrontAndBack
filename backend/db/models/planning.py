@@ -84,3 +84,10 @@ class CalendarEvent(Identity, Owned, Timestamps, Base):
     details: Mapped[dict] = mapped_column(JSONB, default=dict)
     __table_args__ = (Index('ix_calendar_owner_start','user_id','start_at'),
         CheckConstraint('end_at >= start_at', name='interval'))
+
+
+class XPEntry(Identity, Owned, Timestamps, Base):
+    __tablename__='xp_entries'
+    date: Mapped[date]=mapped_column(Date)
+    amount: Mapped[int]
+    __table_args__=(Index('ix_xp_entries_owner_date','user_id','date'),CheckConstraint('amount != 0',name='nonzero'))
