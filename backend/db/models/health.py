@@ -18,8 +18,11 @@ class WorkoutPlan(Identity, Owned, Timestamps, Base):
     level: Mapped[str | None]
     generated_by_ai: Mapped[bool] = mapped_column(default=False)
     generation_parameters: Mapped[dict] = mapped_column(JSONB, default=dict)
+    improved_from: Mapped[UUID | None]
+    improvements_summary: Mapped[str | None] = mapped_column(Text)
     days: Mapped[list['WorkoutDay']] = relationship(back_populates='plan', passive_deletes=True, order_by='WorkoutDay.position')
-    __table_args__ = (UniqueConstraint('user_id','id'),)
+    __table_args__ = (UniqueConstraint('user_id','id'),
+        ForeignKeyConstraint(['user_id','improved_from'],['workout_plans.user_id','workout_plans.id'],ondelete='RESTRICT'))
 
 
 class WorkoutDay(Identity, Owned, Base):

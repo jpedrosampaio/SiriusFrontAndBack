@@ -36,6 +36,7 @@ class RuntimeWorkoutGeneration(unittest.IsolatedAsyncioTestCase):
         result=self.ok(await self.generate({'Idempotency-Key':'generate-plan-001'}))
         self.assertEqual(len(result['plan']['days']),20); self.assertEqual(len(result['plan']['exercises']),160)
         self.assertEqual(result['plan']['days'][5]['week'],2)
+        self.ok(await self.http.patch('/api/workout-plans/'+result['plan']['plan_id'],json=result['plan']))
         self.assertEqual(self.llm.call_args.kwargs['user_id'],str(self.uid))
         replay=self.ok(await self.generate({'Idempotency-Key':'generate-plan-001'}))
         self.assertEqual(result['plan']['plan_id'],replay['plan']['plan_id'])
@@ -63,3 +64,18 @@ class RuntimeWorkoutGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(not Path(p).exists() for p in paths))
         self.assertEqual(result['plan']['source_filename'],'treino.pdf'); self.assertEqual(result['xp_earned'],10)
         self.assertEqual(self.ok(await self.http.get('/api/workout-plans'))[0]['plan_id'],result['plan']['plan_id'])
+
+    async def test_improve_owned_plan_preserves_four_weeks_and_parent(self):
+        self.llm.return_value=json.dumps(self.period())
+        original=self.ok(await self.generate())['plan']; pid=original['plan_id']
+        self.llm.reset_mock()
+        url='/api/workout-plans/'+pid+'/improve'
+        self.assertEqual((await self.http.post(url,headers={'Authorization':'Bearer bob'})).status_code,404)
+        self.llm.assert_not_awaited()
+        self.llm.side_effect=[json.dumps(self.period(10)),json.dumps({**self.period(),'improvements_summary':'Progressão controlada'})]
+        result=self.ok(await self.http.post(url))
+        self.assertEqual(len(result['plan']['days']),20); self.assertEqual(result['plan']['cycle_weeks'],4)
+        self.assertEqual(result['plan']['improved_from'],pid); self.assertEqual(result['improvements_summary'],'Progressão controlada')
+        self.assertEqual(self.llm.await_count,2); self.assertEqual(self.llm.call_args.kwargs['user_id'],str(self.uid))
+        plans=self.ok(await self.http.get('/api/workout-plans')); self.assertEqual(len(plans),2)
+        self.assertEqual(next(p for p in plans if p['plan_id']==pid)['days'],original['days'])

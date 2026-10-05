@@ -3,7 +3,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter,Request,HTTPException
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel,Field,field_validator
+from pydantic import BaseModel,Field,field_validator,model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from db.models.health import WorkoutPlan,WorkoutDay,WorkoutLog
@@ -49,6 +49,12 @@ class PlanBody(BaseModel):
     plan_duration: str=Field(default='dia',max_length=30)
     days: list[Day] | None=Field(default=None,max_length=366)
 
+    @model_validator(mode='before')
+    @classmethod
+    def normalized_days_are_authoritative(cls,value):
+        if isinstance(value,dict) and value.get('days'): return {**value,'exercises':[]}
+        return value
+
 
 def plan_json(row):
     days=[]
@@ -58,6 +64,7 @@ def plan_json(row):
             'progression_focus':d.progression_focus,'progression_notes':d.progression_notes,'exercises':exercises})
     return jsonable_encoder({**row.generation_parameters,'plan_id':row.id,'user_id':row.user_id,'name':row.name,'description':row.description,
         'plan_duration':row.plan_duration,'objective':row.objective,'level':row.level,'generated_by_ai':row.generated_by_ai,
+        'improved_from':row.improved_from,'improvements_summary':row.improvements_summary,
         'created_at':row.created_at,'days':days,'exercises':[ex for d in days for ex in d['exercises']]})
 
 

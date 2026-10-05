@@ -101,18 +101,6 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 model(objective='hipertrofia', level='iniciante', **args)
 
-    async def test_improve_uses_user_llm_and_preserves_four_weeks(self):
-        ns = route_context()
-        plan = {'name': 'Plan', 'plan_duration': 'mes', 'generation_mode': 'periodo', 'days': period()['days']}
-        ns['db'].workout_plans.find_one = AsyncMock(return_value=plan)
-        ns['db'].workout_sessions = SimpleNamespace(find=lambda *args: SimpleNamespace(to_list=AsyncMock(return_value=[])))
-        ns['db'].daily_workout_status = ns['db'].workout_sessions
-        ns['call_llm'] = AsyncMock(side_effect=[json.dumps(period(10)), json.dumps(period())])
-        result = await ns['improve_workout_plan'](SimpleNamespace(headers={}), 'original', None)
-        self.assertEqual(len(result['plan']['days']), 20)
-        self.assertEqual(result['plan']['cycle_weeks'], 4)
-        self.assertEqual(ns['call_llm'].call_args.kwargs['user_id'], 'user1')
-        self.assertEqual(ns['call_llm'].await_count, 2)
 
 
 

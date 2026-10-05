@@ -75,3 +75,5 @@ completed. Essas alterações correspondem à migração anterior `d18c704a928e`
 Migration `cb8efdf00b9f` preserva `ai_generated` e `source_pdf` de notas e cartões. Os materiais de PDF usam as mesmas tabelas normalizadas de notas/cartões/Exam/Question, com caderno obrigatório e transação única.
 
 Migration `b91a1161f708` acrescenta archive a planos de treino e divisão/foco/notas de progressão a cada dia normalizado. Editar dias não altera os exercícios já copiados para uma sessão. Planos arquivados deixam de aceitar novas sessões, mantendo os registros existentes.
+
+Migration `c20af75ad6b0` acrescenta resumo de melhorias e `improved_from`, uma FK composta que exige o mesmo dono do plano original. O conteúdo de dias e exercícios continua normalizado; parâmetros de geração guardam apenas as opções específicas e progressão semanal.
