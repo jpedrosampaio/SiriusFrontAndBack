@@ -100,7 +100,8 @@ class SessionExercise(Identity, Owned, ExerciseFields, Base):
 
 class WorkoutSet(Identity, Owned, Base):
     __tablename__ = 'workout_sets'
-    exercise_id: Mapped[UUID]
+    exercise_id: Mapped[UUID | None]
+    log_exercise_id: Mapped[UUID | None]
     position: Mapped[int]
     reps: Mapped[int | None]
     weight: Mapped[Decimal | None] = mapped_column(Numeric(10,3))
@@ -108,6 +109,9 @@ class WorkoutSet(Identity, Owned, Base):
     completed: Mapped[bool] = mapped_column(default=False)
     exercise: Mapped[SessionExercise] = relationship(back_populates='actual_sets')
     __table_args__ = (UniqueConstraint('user_id','exercise_id','position'),
+        UniqueConstraint('user_id','log_exercise_id','position'),
+        ForeignKeyConstraint(['user_id','log_exercise_id'],['workout_log_exercises.user_id','workout_log_exercises.id'],ondelete='CASCADE'),
+        CheckConstraint('(exercise_id IS NOT NULL)::integer + (log_exercise_id IS NOT NULL)::integer = 1',name='one_exercise_source'),
         ForeignKeyConstraint(['user_id','exercise_id'],['session_exercises.user_id','session_exercises.id'],ondelete='RESTRICT'),
         CheckConstraint('reps IS NULL OR reps >= 0',name='reps'),CheckConstraint('rpe IS NULL OR rpe BETWEEN 0 AND 10',name='rpe'))
 
@@ -125,10 +129,23 @@ class WorkoutLog(Identity, Owned, Timestamps, Base):
     xp_earned: Mapped[int] = mapped_column(default=0)
     completed: Mapped[bool] = mapped_column(default=True)
     date: Mapped[date] = mapped_column(Date)
-    __table_args__ = (UniqueConstraint('user_id','session_id'),
+    exercises: Mapped[list['WorkoutLogExercise']] = relationship(passive_deletes=True,order_by='WorkoutLogExercise.position')
+    __table_args__ = (UniqueConstraint('user_id','session_id'),UniqueConstraint('user_id','id'),
         ForeignKeyConstraint(['user_id','session_id'],['workout_sessions.user_id','workout_sessions.id'],ondelete='RESTRICT'),
         ForeignKeyConstraint(['user_id','plan_id'],['workout_plans.user_id','workout_plans.id'],ondelete='RESTRICT'),
         Index('ix_workout_logs_owner_date','user_id','date'),CheckConstraint('duration_minutes >= 0',name='duration'))
+
+
+class WorkoutLogExercise(Identity, Owned, ExerciseFields, Base):
+    __tablename__ = 'workout_log_exercises'
+    log_id: Mapped[UUID]
+    completed: Mapped[bool] = mapped_column(default=False)
+    sets_completed: Mapped[int] = mapped_column(default=0)
+    time_spent_seconds: Mapped[int] = mapped_column(default=0)
+    actual_sets: Mapped[list['WorkoutSet']] = relationship(passive_deletes=True,order_by='WorkoutSet.position')
+    __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','log_id','position'),
+        ForeignKeyConstraint(['user_id','log_id'],['workout_logs.user_id','workout_logs.id'],ondelete='CASCADE'),
+        CheckConstraint('sets_completed BETWEEN 0 AND sets AND time_spent_seconds >= 0',name='completion'))
 
 
 class Meal(Identity, Owned, Timestamps, Base):

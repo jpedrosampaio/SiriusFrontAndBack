@@ -520,31 +520,31 @@
     "body_measurements": {
       "calls": [
         {
-          "location": "server.py:3051",
+          "location": "server.py:2848",
           "operation": "find_one"
         },
         {
-          "location": "server.py:3103",
+          "location": "server.py:2900",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:3113",
+          "location": "server.py:2910",
           "operation": "delete_one"
         },
         {
-          "location": "server.py:3127",
+          "location": "server.py:2924",
           "operation": "find"
         },
         {
-          "location": "server.py:2598",
+          "location": "server.py:2395",
           "operation": "find"
         },
         {
-          "location": "server.py:3040",
+          "location": "server.py:2837",
           "operation": "find"
         },
         {
-          "location": "server.py:3228",
+          "location": "server.py:3025",
           "operation": "find"
         }
       ],
@@ -568,7 +568,7 @@
           "operation": "find"
         },
         {
-          "location": "server.py:6647",
+          "location": "server.py:6444",
           "operation": "find"
         },
         {
@@ -676,7 +676,7 @@
           "operation": "find"
         },
         {
-          "location": "server.py:5812",
+          "location": "server.py:5609",
           "operation": "find"
         }
       ],
@@ -822,19 +822,19 @@
     "daily_quotes": {
       "calls": [
         {
-          "location": "server.py:3302",
+          "location": "server.py:3099",
           "operation": "find_one"
         },
         {
-          "location": "server.py:3409",
+          "location": "server.py:3206",
           "operation": "update_one"
         },
         {
-          "location": "server.py:3310",
+          "location": "server.py:3107",
           "operation": "delete_one"
         },
         {
-          "location": "server.py:3401",
+          "location": "server.py:3198",
           "operation": "delete_one"
         }
       ],
@@ -855,11 +855,11 @@
     "daily_summaries": {
       "calls": [
         {
-          "location": "server.py:6358",
+          "location": "server.py:6155",
           "operation": "find_one"
         },
         {
-          "location": "server.py:6479",
+          "location": "server.py:6276",
           "operation": "update_one"
         }
       ],
@@ -874,35 +874,35 @@
     "daily_workout_status": {
       "calls": [
         {
-          "location": "server.py:3452",
+          "location": "server.py:3249",
           "operation": "find_one"
         },
         {
-          "location": "server.py:3469",
+          "location": "server.py:3266",
           "operation": "find_one"
         },
         {
-          "location": "server.py:3493",
+          "location": "server.py:3290",
           "operation": "update_one"
         },
         {
-          "location": "server.py:3504",
+          "location": "server.py:3301",
           "operation": "find_one"
         },
         {
-          "location": "server.py:3526",
+          "location": "server.py:3323",
           "operation": "find_one"
         },
         {
-          "location": "server.py:3581",
+          "location": "server.py:3378",
           "operation": "update_one"
         },
         {
-          "location": "server.py:3603",
+          "location": "server.py:3400",
           "operation": "update_one"
         },
         {
-          "location": "server.py:3486",
+          "location": "server.py:3283",
           "operation": "insert_one"
         }
       ],
@@ -921,15 +921,15 @@
     "diets": {
       "calls": [
         {
-          "location": "server.py:4400",
+          "location": "server.py:4197",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:4410",
+          "location": "server.py:4207",
           "operation": "delete_one"
         },
         {
-          "location": "server.py:4378",
+          "location": "server.py:4175",
           "operation": "find"
         }
       ],
@@ -956,7 +956,7 @@
           "operation": "find"
         },
         {
-          "location": "server.py:6844",
+          "location": "server.py:6641",
           "operation": "find"
         }
       ],
@@ -975,11 +975,11 @@
           "operation": "find"
         },
         {
-          "location": "server.py:6583",
+          "location": "server.py:6380",
           "operation": "find"
         },
         {
-          "location": "server.py:7359",
+          "location": "server.py:7156",
           "operation": "find"
         }
       ],
@@ -994,7 +994,7 @@
     "habit_logs": {
       "calls": [
         {
-          "location": "server.py:3330",
+          "location": "server.py:3127",
           "operation": "count_documents"
         }
       ],
@@ -1029,23 +1029,23 @@
           "operation": "find"
         },
         {
-          "location": "server.py:6142",
+          "location": "server.py:5939",
           "operation": "find"
         },
         {
-          "location": "server.py:6228",
+          "location": "server.py:6025",
           "operation": "find"
         },
         {
-          "location": "server.py:6382",
+          "location": "server.py:6179",
           "operation": "find"
         },
         {
-          "location": "server.py:6535",
+          "location": "server.py:6332",
           "operation": "find"
         },
         {
-          "location": "server.py:6682",
+          "location": "server.py:6479",
           "operation": "find"
         }
       ],
@@ -1061,23 +1061,23 @@
     "meal_plans": {
       "calls": [
         {
-          "location": "server.py:5995",
+          "location": "server.py:5792",
           "operation": "delete_one"
         },
         {
-          "location": "server.py:4672",
+          "location": "server.py:4469",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:5968",
+          "location": "server.py:5765",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:6733",
+          "location": "server.py:6530",
           "operation": "find_one"
         },
         {
-          "location": "server.py:5987",
+          "location": "server.py:5784",
           "operation": "find"
         }
       ],
@@ -1092,11 +1092,11 @@
     "meals": {
       "calls": [
         {
-          "location": "server.py:4016",
+          "location": "server.py:3813",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:4026",
+          "location": "server.py:3823",
           "operation": "delete_one"
         },
         {
@@ -1104,23 +1104,23 @@
           "operation": "find"
         },
         {
-          "location": "server.py:3986",
+          "location": "server.py:3783",
           "operation": "find"
         },
         {
-          "location": "server.py:4335",
+          "location": "server.py:4132",
           "operation": "find"
         },
         {
-          "location": "server.py:4694",
+          "location": "server.py:4491",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:6254",
+          "location": "server.py:6051",
           "operation": "find"
         },
         {
-          "location": "server.py:6391",
+          "location": "server.py:6188",
           "operation": "find"
         },
         {
@@ -1128,7 +1128,7 @@
           "operation": "find"
         },
         {
-          "location": "server.py:6976",
+          "location": "server.py:6773",
           "operation": "find"
         }
       ],
@@ -1168,11 +1168,11 @@
           "operation": "count_documents"
         },
         {
-          "location": "server.py:5618",
+          "location": "server.py:5415",
           "operation": "find"
         },
         {
-          "location": "server.py:6842",
+          "location": "server.py:6639",
           "operation": "find"
         }
       ],
@@ -1196,7 +1196,7 @@
     "notification_logs": {
       "calls": [
         {
-          "location": "server.py:2966",
+          "location": "server.py:2763",
           "operation": "insert_one"
         }
       ],
@@ -1207,47 +1207,47 @@
     "notifications": {
       "calls": [
         {
-          "location": "server.py:2854",
+          "location": "server.py:2651",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:2875",
+          "location": "server.py:2672",
           "operation": "update_one"
         },
         {
-          "location": "server.py:2888",
+          "location": "server.py:2685",
           "operation": "find_one"
         },
         {
-          "location": "server.py:2893",
+          "location": "server.py:2690",
           "operation": "update_one"
         },
         {
-          "location": "server.py:2904",
+          "location": "server.py:2701",
           "operation": "delete_one"
         },
         {
-          "location": "server.py:2951",
+          "location": "server.py:2748",
           "operation": "update_one"
         },
         {
-          "location": "server.py:5669",
+          "location": "server.py:5466",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:2827",
+          "location": "server.py:2624",
           "operation": "find"
         },
         {
-          "location": "server.py:2919",
+          "location": "server.py:2716",
           "operation": "find"
         },
         {
-          "location": "server.py:5705",
+          "location": "server.py:5502",
           "operation": "find"
         },
         {
-          "location": "server.py:5731",
+          "location": "server.py:5528",
           "operation": "update_one"
         }
       ],
@@ -1273,39 +1273,39 @@
           "operation": "find_one"
         },
         {
-          "location": "server.py:4239",
+          "location": "server.py:4036",
           "operation": "find_one"
         },
         {
-          "location": "server.py:4264",
+          "location": "server.py:4061",
           "operation": "find_one"
         },
         {
-          "location": "server.py:4288",
+          "location": "server.py:4085",
           "operation": "find_one"
         },
         {
-          "location": "server.py:4348",
+          "location": "server.py:4145",
           "operation": "find_one"
         },
         {
-          "location": "server.py:4431",
+          "location": "server.py:4228",
           "operation": "find_one"
         },
         {
-          "location": "server.py:4254",
+          "location": "server.py:4051",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:4267",
+          "location": "server.py:4064",
           "operation": "update_one"
         },
         {
-          "location": "server.py:4280",
+          "location": "server.py:4077",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:4699",
+          "location": "server.py:4496",
           "operation": "update_one"
         }
       ],
@@ -1331,7 +1331,7 @@
     "nutrition_recipes": {
       "calls": [
         {
-          "location": "server.py:6749",
+          "location": "server.py:6546",
           "operation": "find_one"
         }
       ],
@@ -1346,19 +1346,19 @@
     "recipes": {
       "calls": [
         {
-          "location": "server.py:4541",
+          "location": "server.py:4338",
           "operation": "find_one"
         },
         {
-          "location": "server.py:4552",
+          "location": "server.py:4349",
           "operation": "delete_one"
         },
         {
-          "location": "server.py:4524",
+          "location": "server.py:4321",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:4421",
+          "location": "server.py:4218",
           "operation": "find"
         }
       ],
@@ -1396,19 +1396,19 @@
     "shopping_lists": {
       "calls": [
         {
-          "location": "server.py:6771",
+          "location": "server.py:6568",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:6790",
+          "location": "server.py:6587",
           "operation": "find_one"
         },
         {
-          "location": "server.py:6797",
+          "location": "server.py:6594",
           "operation": "update_one"
         },
         {
-          "location": "server.py:6781",
+          "location": "server.py:6578",
           "operation": "find"
         }
       ],
@@ -1435,11 +1435,11 @@
     "study_attempts": {
       "calls": [
         {
-          "location": "server.py:7724",
+          "location": "server.py:7523",
           "operation": "create_index"
         },
         {
-          "location": "server.py:7725",
+          "location": "server.py:7524",
           "operation": "create_index"
         }
       ],
@@ -1473,7 +1473,7 @@
           "operation": "find"
         },
         {
-          "location": "server.py:6566",
+          "location": "server.py:6363",
           "operation": "find"
         }
       ],
@@ -1498,7 +1498,7 @@
           "operation": "find_one"
         },
         {
-          "location": "server.py:5610",
+          "location": "server.py:5407",
           "operation": "find_one"
         }
       ],
@@ -1513,7 +1513,7 @@
     "study_schedules": {
       "calls": [
         {
-          "location": "server.py:5614",
+          "location": "server.py:5411",
           "operation": "find"
         }
       ],
@@ -1532,19 +1532,19 @@
           "operation": "find"
         },
         {
-          "location": "server.py:6160",
+          "location": "server.py:5957",
           "operation": "find"
         },
         {
-          "location": "server.py:6236",
+          "location": "server.py:6033",
           "operation": "find"
         },
         {
-          "location": "server.py:6386",
+          "location": "server.py:6183",
           "operation": "find"
         },
         {
-          "location": "server.py:6843",
+          "location": "server.py:6640",
           "operation": "find"
         }
       ],
@@ -1567,19 +1567,19 @@
           "operation": "find_one"
         },
         {
-          "location": "server.py:4802",
+          "location": "server.py:4599",
           "operation": "find_one"
         },
         {
-          "location": "server.py:4815",
+          "location": "server.py:4612",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:4827",
+          "location": "server.py:4624",
           "operation": "update_one"
         },
         {
-          "location": "server.py:4838",
+          "location": "server.py:4635",
           "operation": "update_one"
         }
       ],
@@ -1593,16 +1593,16 @@
       ],
       "indexes": [],
       "transactions": [
-        "server.py:4802",
-        "server.py:4815",
-        "server.py:4827",
-        "server.py:4838"
+        "server.py:4599",
+        "server.py:4612",
+        "server.py:4624",
+        "server.py:4635"
       ]
     },
     "study_targets": {
       "calls": [
         {
-          "location": "server.py:7723",
+          "location": "server.py:7522",
           "operation": "create_index"
         }
       ],
@@ -1623,11 +1623,11 @@
           "operation": "count_documents"
         },
         {
-          "location": "server.py:6219",
+          "location": "server.py:6016",
           "operation": "find"
         },
         {
-          "location": "server.py:6374",
+          "location": "server.py:6171",
           "operation": "find"
         },
         {
@@ -1652,19 +1652,19 @@
           "operation": "count_documents"
         },
         {
-          "location": "server.py:6155",
+          "location": "server.py:5952",
           "operation": "find"
         },
         {
-          "location": "server.py:6373",
+          "location": "server.py:6170",
           "operation": "find"
         },
         {
-          "location": "server.py:6521",
+          "location": "server.py:6318",
           "operation": "find"
         },
         {
-          "location": "server.py:6697",
+          "location": "server.py:6494",
           "operation": "find"
         },
         {
@@ -1685,19 +1685,19 @@
     "telegram_link_codes": {
       "calls": [
         {
-          "location": "server.py:7109",
+          "location": "server.py:6906",
           "operation": "update_one"
         },
         {
-          "location": "server.py:7234",
+          "location": "server.py:7031",
           "operation": "find_one"
         },
         {
-          "location": "server.py:7269",
+          "location": "server.py:7066",
           "operation": "delete_one"
         },
         {
-          "location": "server.py:7244",
+          "location": "server.py:7041",
           "operation": "delete_one"
         }
       ],
@@ -1714,35 +1714,35 @@
     "telegram_links": {
       "calls": [
         {
-          "location": "server.py:7098",
+          "location": "server.py:6895",
           "operation": "find_one"
         },
         {
-          "location": "server.py:7147",
+          "location": "server.py:6944",
           "operation": "update_one"
         },
         {
-          "location": "server.py:7160",
+          "location": "server.py:6957",
           "operation": "find_one"
         },
         {
-          "location": "server.py:7283",
+          "location": "server.py:7080",
           "operation": "find_one"
         },
         {
-          "location": "server.py:7250",
+          "location": "server.py:7047",
           "operation": "update_many"
         },
         {
-          "location": "server.py:7254",
+          "location": "server.py:7051",
           "operation": "update_many"
         },
         {
-          "location": "server.py:7260",
+          "location": "server.py:7057",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:7589",
+          "location": "server.py:7386",
           "operation": "find"
         }
       ],
@@ -1769,23 +1769,23 @@
           "operation": "find"
         },
         {
-          "location": "server.py:6113",
+          "location": "server.py:5910",
           "operation": "find"
         },
         {
-          "location": "server.py:6504",
+          "location": "server.py:6301",
           "operation": "find"
         },
         {
-          "location": "server.py:6648",
+          "location": "server.py:6445",
           "operation": "find"
         },
         {
-          "location": "server.py:7481",
+          "location": "server.py:7278",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:7534",
+          "location": "server.py:7331",
           "operation": "find"
         },
         {
@@ -1793,15 +1793,15 @@
           "operation": "find"
         },
         {
-          "location": "server.py:7306",
+          "location": "server.py:7103",
           "operation": "find"
         },
         {
-          "location": "server.py:7330",
+          "location": "server.py:7127",
           "operation": "find"
         },
         {
-          "location": "server.py:7378",
+          "location": "server.py:7175",
           "operation": "find"
         },
         {
@@ -1839,7 +1839,7 @@
           "operation": "find_one"
         },
         {
-          "location": "server.py:7296",
+          "location": "server.py:7093",
           "operation": "find_one"
         },
         {
@@ -1863,7 +1863,7 @@
           "operation": "update_one"
         },
         {
-          "location": "server.py:7272",
+          "location": "server.py:7069",
           "operation": "find_one"
         },
         {
@@ -1891,15 +1891,15 @@
     "water_logs": {
       "calls": [
         {
-          "location": "server.py:4321",
+          "location": "server.py:4118",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:4300",
+          "location": "server.py:4097",
           "operation": "find"
         },
         {
-          "location": "server.py:4344",
+          "location": "server.py:4141",
           "operation": "find"
         },
         {
@@ -1918,15 +1918,15 @@
     "workout_insights": {
       "calls": [
         {
-          "location": "server.py:5846",
+          "location": "server.py:5643",
           "operation": "insert_one"
         },
         {
-          "location": "server.py:5863",
+          "location": "server.py:5660",
           "operation": "delete_one"
         },
         {
-          "location": "server.py:5855",
+          "location": "server.py:5652",
           "operation": "find"
         }
       ],
@@ -1945,35 +1945,15 @@
           "operation": "count_documents"
         },
         {
-          "location": "server.py:2332",
-          "operation": "insert_one"
-        },
-        {
-          "location": "server.py:2346",
+          "location": "server.py:2497",
           "operation": "find_one"
         },
         {
-          "location": "server.py:2353",
-          "operation": "update_one"
-        },
-        {
-          "location": "server.py:2374",
-          "operation": "find_one"
-        },
-        {
-          "location": "server.py:2382",
-          "operation": "delete_one"
-        },
-        {
-          "location": "server.py:2700",
-          "operation": "find_one"
-        },
-        {
-          "location": "server.py:3324",
+          "location": "server.py:3121",
           "operation": "count_documents"
         },
         {
-          "location": "server.py:3575",
+          "location": "server.py:3372",
           "operation": "insert_one"
         },
         {
@@ -1981,47 +1961,35 @@
           "operation": "find"
         },
         {
-          "location": "server.py:2399",
+          "location": "server.py:2389",
           "operation": "find"
         },
         {
-          "location": "server.py:2592",
+          "location": "server.py:5919",
           "operation": "find"
         },
         {
-          "location": "server.py:6122",
+          "location": "server.py:6042",
           "operation": "find"
         },
         {
-          "location": "server.py:6245",
+          "location": "server.py:6193",
           "operation": "find"
         },
         {
-          "location": "server.py:6396",
+          "location": "server.py:6420",
           "operation": "find"
         },
         {
-          "location": "server.py:6623",
+          "location": "server.py:2309",
           "operation": "find"
         },
         {
-          "location": "server.py:2297",
+          "location": "server.py:2553",
           "operation": "find"
         },
         {
-          "location": "server.py:2437",
-          "operation": "find"
-        },
-        {
-          "location": "server.py:2512",
-          "operation": "find"
-        },
-        {
-          "location": "server.py:2756",
-          "operation": "find"
-        },
-        {
-          "location": "server.py:3233",
+          "location": "server.py:3030",
           "operation": "find"
         }
       ],
@@ -2030,7 +1998,6 @@
         "completed",
         "date",
         "exercises_completed",
-        "log_id",
         "name",
         "user_id"
       ],
@@ -2040,15 +2007,15 @@
     "workout_plans": {
       "calls": [
         {
-          "location": "server.py:2684",
+          "location": "server.py:2481",
           "operation": "find_one"
         },
         {
-          "location": "server.py:3521",
+          "location": "server.py:3318",
           "operation": "find_one"
         },
         {
-          "location": "server.py:6549",
+          "location": "server.py:6346",
           "operation": "find"
         }
       ],
@@ -2065,11 +2032,11 @@
     "workout_sessions": {
       "calls": [
         {
-          "location": "server.py:6131",
+          "location": "server.py:5928",
           "operation": "find"
         },
         {
-          "location": "server.py:2506",
+          "location": "server.py:2303",
           "operation": "find"
         }
       ],
@@ -2116,7 +2083,7 @@
       "expression": "db[table_name].find({'user_id': user.user_id}, projection)"
     },
     {
-      "location": "server.py:6602",
+      "location": "server.py:6399",
       "expression": "db[collection].find({'user_id': user.user_id, '$or': [{field: {'$regex': q, '$options': 'i'}} for field in fields]}, {'_id': 0})"
     }
   ],

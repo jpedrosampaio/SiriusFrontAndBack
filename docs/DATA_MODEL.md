@@ -77,3 +77,5 @@ Migration `cb8efdf00b9f` preserva `ai_generated` e `source_pdf` de notas e cart�
 Migration `b91a1161f708` acrescenta archive a planos de treino e divisão/foco/notas de progressão a cada dia normalizado. Editar dias não altera os exercícios já copiados para uma sessão. Planos arquivados deixam de aceitar novas sessões, mantendo os registros existentes.
 
 Migration `c20af75ad6b0` acrescenta resumo de melhorias e `improved_from`, uma FK composta que exige o mesmo dono do plano original. O conteúdo de dias e exercícios continua normalizado; parâmetros de geração guardam apenas as opções específicas e progressão semanal.
+
+Migration `99b09cc30936`: exercícios de registros manuais usam `workout_log_exercises`; séries reutilizam `workout_sets`, com constraint de exatamente uma origem e FKs compostas. Logs gerados por sessões referenciam a sessão e reutilizam seus exercícios, sem cópias redundantes. Total: 67 tabelas.

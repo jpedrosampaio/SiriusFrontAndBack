@@ -2285,216 +2285,13 @@ class CardChargeRequest(BaseModel):
 
 
 
-@api_router.get("/workouts")
-async def get_workouts(request: Request, date: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    query = {"user_id": user.user_id}
-    if date:
-        query["date"] = date
-    
-    workouts = await db.workout_logs.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
-    for workout in workouts:
-        if isinstance(workout['created_at'], str):
-            workout['created_at'] = datetime.fromisoformat(workout['created_at'])
-    return workouts
 
 
 
-@api_router.post("/workouts")
-async def log_workout(request: Request, workout_data: WorkoutLogCreate, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Calcular XP baseado no tipo de atividade e duração
-    base_xp = 10
-    duration_bonus = (workout_data.duration_minutes // 15) * 5  # +5 XP a cada 15 min
-    xp_earned = base_xp + duration_bonus
-    
-    log_id = f"workout_{uuid.uuid4().hex[:12]}"
-    workout_doc = {
-        "log_id": log_id,
-        "user_id": user.user_id,
-        "plan_id": workout_data.plan_id,
-        "activity_type": workout_data.activity_type,
-        "name": workout_data.name,
-        "duration_minutes": workout_data.duration_minutes,
-        "distance_km": workout_data.distance_km,
-        "calories": workout_data.calories,
-        "exercises_completed": workout_data.exercises_completed,
-        "notes": workout_data.notes,
-        "xp_earned": xp_earned,
-        "completed": True,
-        "date": workout_data.date,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.workout_logs.insert_one(workout_doc)
-    workout_doc.pop('_id', None)  # Remove MongoDB ObjectId
-    
-    # Award XP to user
-    new_xp, new_rank = await award_xp(user.user_id, xp_earned)
-    
-    workout_doc['created_at'] = datetime.fromisoformat(workout_doc['created_at'])
-    return {**workout_doc, "new_xp": new_xp, "new_rank": new_rank}
 
-@api_router.patch("/workouts/{log_id}/toggle")
-async def toggle_workout(request: Request, log_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    workout = await db.workout_logs.find_one({"log_id": log_id, "user_id": user.user_id}, {"_id": 0})
-    if not workout:
-        raise HTTPException(status_code=404, detail="Workout not found")
-    
-    new_completed = not workout['completed']
-    xp_change = workout['xp_earned'] if new_completed else -workout['xp_earned']
-    
-    await db.workout_logs.update_one(
-        {"log_id": log_id},
-        {"$set": {"completed": new_completed}}
-    )
-    
-    # Update user XP
-    new_xp, new_rank = await award_xp(user.user_id, xp_change)
-    
-    return {
-        "message": "Workout toggled",
-        "completed": new_completed,
-        "xp_change": xp_change,
-        "new_xp": new_xp,
-        "new_rank": new_rank
-    }
 
-@api_router.delete("/workouts/{log_id}")
-async def delete_workout(request: Request, log_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    workout = await db.workout_logs.find_one({"log_id": log_id, "user_id": user.user_id}, {"_id": 0})
-    if not workout:
-        raise HTTPException(status_code=404, detail="Workout not found")
-    
-    # Deduct XP if was completed
-    if workout['completed']:
-        new_xp, new_rank = await award_xp(user.user_id, -(workout['xp_earned']))
-    
-    await db.workout_logs.delete_one({"log_id": log_id})
-    return {"message": "Workout deleted"}
 
-@api_router.get("/workout-stats")
-async def get_workout_stats(request: Request, period: str = "week", session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Calculate date range
-    today = datetime.now(timezone.utc)
-    if period == "week":
-        start_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-    elif period == "month":
-        start_date = (today - timedelta(days=30)).strftime("%Y-%m-%d")
-    else:
-        start_date = (today - timedelta(days=365)).strftime("%Y-%m-%d")
-    
-    workouts = await db.workout_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": start_date},
-        "completed": True
-    }, {"_id": 0}).to_list(1000)
-    
-    total_workouts = len(workouts)
-    total_duration = sum([w.get('duration_minutes', 0) for w in workouts])
-    total_distance = sum([w.get('distance_km', 0) or 0 for w in workouts])
-    total_calories = sum([w.get('calories', 0) or 0 for w in workouts])
-    total_xp = sum([w.get('xp_earned', 0) for w in workouts])
-    
-    # Count by activity type
-    by_type = {}
-    for w in workouts:
-        t = w['activity_type']
-        by_type[t] = by_type.get(t, 0) + 1
-    
-    return {
-        "period": period,
-        "total_workouts": total_workouts,
-        "total_duration_minutes": total_duration,
-        "total_distance_km": round(total_distance, 2),
-        "total_calories": total_calories,
-        "total_xp_earned": total_xp,
-        "by_activity_type": by_type
-    }
 
-@api_router.get("/workout-stats/detailed")
-async def get_detailed_workout_stats(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get detailed workout statistics for charts"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Get last 30 days of workouts
-    today = datetime.now(timezone.utc)
-    start_date = (today - timedelta(days=30)).strftime("%Y-%m-%d")
-    
-    workouts = await db.workout_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": start_date},
-        "completed": True
-    }, {"_id": 0}).sort("date", 1).to_list(1000)
-    
-    # Daily workout data for chart
-    daily_data = {}
-    for i in range(30):
-        date = (today - timedelta(days=29-i)).strftime("%Y-%m-%d")
-        daily_data[date] = {"duration": 0, "calories": 0, "count": 0}
-    
-    for w in workouts:
-        date = w['date']
-        if date in daily_data:
-            daily_data[date]['duration'] += w.get('duration_minutes', 0)
-            daily_data[date]['calories'] += w.get('calories', 0) or 0
-            daily_data[date]['count'] += 1
-    
-    # Calculate streak
-    current_streak = 0
-    best_streak = 0
-    temp_streak = 0
-    
-    for i in range(30):
-        date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-        if daily_data.get(date, {}).get('count', 0) > 0:
-            temp_streak += 1
-            if i == 0 or (i > 0 and temp_streak > 0):
-                current_streak = temp_streak
-            best_streak = max(best_streak, temp_streak)
-        else:
-            if i == 0:
-                current_streak = 0
-            temp_streak = 0
-    
-    # Weekly consistency (how many days trained per week)
-    weekly_consistency = {}
-    for date, data in daily_data.items():
-        week = datetime.strptime(date, "%Y-%m-%d").isocalendar()[1]
-        if week not in weekly_consistency:
-            weekly_consistency[week] = 0
-        if data['count'] > 0:
-            weekly_consistency[week] += 1
-    
-    # Calculate averages
-    trained_days = sum(1 for d in daily_data.values() if d['count'] > 0)
-    avg_duration = sum(d['duration'] for d in daily_data.values()) / max(trained_days, 1)
-    avg_calories = sum(d['calories'] for d in daily_data.values()) / max(trained_days, 1)
-    
-    return {
-        "daily_data": [{"date": k, **v} for k, v in sorted(daily_data.items())],
-        "current_streak": current_streak,
-        "best_streak": best_streak,
-        "trained_days": trained_days,
-        "total_days": 30,
-        "consistency_percentage": round((trained_days / 30) * 100, 1),
-        "avg_duration_minutes": round(avg_duration, 1),
-        "avg_calories": round(avg_calories, 1),
-        "weekly_consistency": weekly_consistency
-    }
 
 @api_router.get("/workout-stats/exercise-evolution")
 async def get_exercise_evolution(request: Request, exercise_name: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
@@ -7657,6 +7454,8 @@ from services import workout_session_routes
 api_router.include_router(workout_session_routes.router)
 from services import workout_plan_routes
 api_router.include_router(workout_plan_routes.router)
+from services import workout_logs
+api_router.include_router(workout_logs.router)
 from services import workout_generation_routes
 workout_generation_routes.configure(get_current_user,call_llm,get_user_api_key,request_gemini)
 api_router.include_router(workout_generation_routes.api_router)
