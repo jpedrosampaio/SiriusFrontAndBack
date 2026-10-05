@@ -12,7 +12,8 @@ from db.session import unit_of_work
 def public_user(user):
     data = {'user_id': str(user.id), 'email': user.email, 'name': user.name, 'picture': user.picture,
         'xp': user.xp, 'rank': user.rank, 'bio': user.bio, 'birth_date': user.preferences.get('birth_date'),
-        'timezone': user.timezone, 'created_at': user.created_at}
+        'timezone': user.timezone, 'created_at': user.created_at,
+        'health_condition': user.preferences.get('health_condition')}
     for provider in ('gemini', 'groq'):
         data[f'has_{provider}_key'] = bool(user.credentials.get(f'{provider}_api_key_encrypted'))
         data[f'{provider}_key_last4'] = user.credentials.get(f'{provider}_api_key_last4')

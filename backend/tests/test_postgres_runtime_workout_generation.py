@@ -65,6 +65,18 @@ class RuntimeWorkoutGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['plan']['source_filename'],'treino.pdf'); self.assertEqual(result['xp_earned'],10)
         self.assertEqual(self.ok(await self.http.get('/api/workout-plans'))[0]['plan_id'],result['plan']['plan_id'])
 
+    async def test_health_condition_saved_with_plan_and_rolled_back_on_failure(self):
+        from services.auth import AuthService
+        self.llm.return_value=json.dumps(self.period())
+        body={'objective':'hipertrofia','level':'iniciante','duration':'mes','health_condition':'Adaptar por lesão anterior'}
+        result=self.ok(await self.http.post('/api/workout-plans/generate',json=body))
+        self.assertEqual(result['plan']['health_condition'],body['health_condition'])
+        self.assertEqual((await AuthService().profile(self.uid))['health_condition'],body['health_condition'])
+        with patch('services.workout_plan_writes.apply_xp',side_effect=RuntimeError('rollback')):
+            response=await self.http.post('/api/workout-plans/generate',json={**body,'health_condition':'Outra condição'})
+            self.assertEqual(response.status_code,500)
+        self.assertEqual((await AuthService().profile(self.uid))['health_condition'],body['health_condition'])
+
     async def test_improve_owned_plan_preserves_four_weeks_and_parent(self):
         self.llm.return_value=json.dumps(self.period())
         original=self.ok(await self.generate())['plan']; pid=original['plan_id']

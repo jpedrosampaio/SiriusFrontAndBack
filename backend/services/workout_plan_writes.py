@@ -24,6 +24,8 @@ async def save(uid,key,fingerprint,document,xp):
     if not body.exercises and not any(d.exercises for d in body.days or []): raise HTTPException(502,'A IA não retornou exercícios.')
     async def apply(session,user):
         repo=HealthRepository(session)
+        if fingerprint[0]=='generate-workout-plan' and document.get('health_condition'):
+            user.preferences={**user.preferences,'health_condition':document['health_condition'].strip()}
         parent=UUID(document['improved_from']) if document.get('improved_from') else None
         if parent and await repo.plan(user.id,parent) is None: raise HTTPException(404,'Plano original não encontrado.')
         row=await repo.create_plan(user.id,**body.model_dump(),generated_by_ai=document.get('generated_by_ai',True),

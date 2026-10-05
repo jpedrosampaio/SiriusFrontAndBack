@@ -1,6 +1,6 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 201,
+  "remaining_direct_calls": 200,
   "remaining_collections": 45,
   "remaining_dynamic_accesses": 8,
   "remaining_gridfs_constructors": 0,
@@ -11,7 +11,7 @@
     "finance": 19,
     "goals": 3,
     "health": 5,
-    "identity": 9,
+    "identity": 8,
     "notifications": 24,
     "other": 14,
     "planning": 10,

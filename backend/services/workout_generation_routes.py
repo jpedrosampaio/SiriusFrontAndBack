@@ -30,7 +30,7 @@ class WorkoutPlanGenerate(BaseModel):
     include_cardio: bool = False
     cardio_type: Optional[str] = None  # "corrida", "bike", "HIIT", "caminhada", "natacao", "pular_corda"
     cardio_mode: Optional[str] = None  # "hibrido", "hibrido_alternado"
-    health_condition: Optional[str] = None  # user health conditions/injuries to consider
+    health_condition: Optional[str] = Field(default=None,max_length=5000)  # user health conditions/injuries to consider
     # Running-specific fields
     running_goal: Optional[str] = None  # "5km", "10km", "meia_maratona", "maratona", "condicionamento", "emagrecimento"
     weekly_frequency: Optional[int] = Field(default=None, ge=2, le=7)  # 2-7 days per week
@@ -58,12 +58,6 @@ Inclua exercícios de fortalecimento e reabilitação quando apropriado.
 Para cada exercício, adicione um campo "health_notes" com observações específicas sobre como adaptar o exercício à condição do usuário.
 Se algum exercício for contraindicado, substitua por uma alternativa segura e explique por quê.
 """
-        # Save health condition to user profile for future use
-        await db.users.update_one(
-            {"user_id": user.user_id},
-            {"$set": {"health_condition": gen_data.health_condition.strip()}}
-        )
-
     # ===== BUILD PROMPT BASED ON WORKOUT TYPE =====
     if gen_data.workout_type in ("corrida",):
         # --- RUNNING-ONLY WORKOUT ---
