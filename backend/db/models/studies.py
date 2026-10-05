@@ -268,7 +268,7 @@ class StudySchedule(Identity, Owned, Timestamps, Base):
     tipo_estudo: Mapped[str] = mapped_column(default='Teoria + Questões')
     prioridade: Mapped[str] = mapped_column(default='media')
     assuntos_foco: Mapped[list[str]] = mapped_column(ARRAY(String),default=list)
-    __table_args__ = (ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
+    __table_args__ = (UniqueConstraint('user_id','id'),ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
         CheckConstraint('end_time > start_time',name='interval'),
         CheckConstraint("day_of_week IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')",name='day'))
 

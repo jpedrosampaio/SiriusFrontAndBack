@@ -1114,153 +1114,12 @@ async def calculate_warmup(request: Request, session_token: Optional[str] = Cook
 
 
 # ========== NOTIFICATION ENDPOINTS ==========
-@api_router.get("/notifications")
-async def get_notifications(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    notifications = await db.notifications.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    for notif in notifications:
-        if isinstance(notif['created_at'], str):
-            notif['created_at'] = datetime.fromisoformat(notif['created_at'])
-    return notifications
 
-@api_router.post("/notifications")
-async def create_notification(request: Request, notif_data: NotificationCreate, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    notification_id = f"notif_{uuid.uuid4().hex[:12]}"
-    notification_doc = {
-        "notification_id": notification_id,
-        "user_id": user.user_id,
-        "title": notif_data.title,
-        "message": notif_data.message,
-        "type": notif_data.type,
-        "category": notif_data.category,
-        "scheduled_time": notif_data.scheduled_time,
-        "repeat": notif_data.repeat,
-        "repeat_days": notif_data.repeat_days,
-        "enabled": True,
-        "channels": notif_data.channels,
-        "last_sent": None,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.notifications.insert_one(notification_doc)
-    notification_doc.pop('_id', None)  # Remove MongoDB ObjectId
-    notification_doc['created_at'] = datetime.fromisoformat(notification_doc['created_at'])
-    return Notification(**notification_doc)
 
-@api_router.patch("/notifications/{notification_id}")
-async def update_notification(request: Request, notification_id: str, notif_data: NotificationCreate, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    update_data = {
-        "title": notif_data.title,
-        "message": notif_data.message,
-        "type": notif_data.type,
-        "category": notif_data.category,
-        "scheduled_time": notif_data.scheduled_time,
-        "repeat": notif_data.repeat,
-        "repeat_days": notif_data.repeat_days,
-        "channels": notif_data.channels
-    }
-    
-    result = await db.notifications.update_one(
-        {"notification_id": notification_id, "user_id": user.user_id},
-        {"$set": update_data}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Notification not found")
-    return {"message": "Notification updated"}
 
-@api_router.patch("/notifications/{notification_id}/toggle")
-async def toggle_notification(request: Request, notification_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    notif = await db.notifications.find_one({"notification_id": notification_id, "user_id": user.user_id}, {"_id": 0})
-    if not notif:
-        raise HTTPException(status_code=404, detail="Notification not found")
-    
-    new_enabled = not notif['enabled']
-    await db.notifications.update_one(
-        {"notification_id": notification_id},
-        {"$set": {"enabled": new_enabled}}
-    )
-    return {"message": "Notification toggled", "enabled": new_enabled}
 
-@api_router.delete("/notifications/{notification_id}")
-async def delete_notification(request: Request, notification_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.notifications.delete_one({"notification_id": notification_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Notification not found")
-    return {"message": "Notification deleted"}
 
-@api_router.get("/notifications/pending")
-async def get_pending_notifications(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get notifications that should be triggered now"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    current_time = datetime.now(timezone.utc).strftime("%H:%M")
-    current_day = datetime.now(timezone.utc).strftime("%A").lower()
-    
-    # Find enabled notifications for current time
-    notifications = await db.notifications.find({
-        "user_id": user.user_id,
-        "enabled": True,
-        "scheduled_time": current_time
-    }, {"_id": 0}).to_list(100)
-    
-    pending = []
-    for notif in notifications:
-        should_send = False
-        if notif['repeat'] == "none":
-            should_send = True
-        elif notif['repeat'] == "daily":
-            should_send = True
-        elif notif['repeat'] == "weekly":
-            if current_day in [d.lower() for d in notif.get('repeat_days', [])]:
-                should_send = True
-        elif notif['repeat'] == "custom":
-            if current_day in [d.lower() for d in notif.get('repeat_days', [])]:
-                should_send = True
-        
-        if should_send:
-            pending.append(notif)
-    
-    return pending
 
-@api_router.post("/notifications/{notification_id}/send")
-async def mark_notification_sent(request: Request, notification_id: str, channel: str, session_token: Optional[str] = Cookie(None)):
-    """Mark a notification as sent and log it"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Update last_sent timestamp
-    await db.notifications.update_one(
-        {"notification_id": notification_id, "user_id": user.user_id},
-        {"$set": {"last_sent": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    # Log the notification send
-    log_id = f"nlog_{uuid.uuid4().hex[:12]}"
-    log_doc = {
-        "log_id": log_id,
-        "notification_id": notification_id,
-        "user_id": user.user_id,
-        "sent_at": datetime.now(timezone.utc).isoformat(),
-        "channel": channel,
-        "status": "sent"
-    }
-    await db.notification_logs.insert_one(log_doc)
-    
-    return {"message": "Notification marked as sent", "log_id": log_id}
 
 # ========== NOTIFICATION TEMPLATES ==========
 @api_router.get("/notification-templates")
@@ -2737,144 +2596,10 @@ async def study_ai_chat_with_file(
 
 # ========== SCHEDULE-BASED NOTIFICATIONS ==========
 
-@api_router.post("/study/programs/{program_id}/create-reminders")
-async def create_schedule_reminders(
-    request: Request,
-    program_id: str,
-    data: dict,
-    session_token: Optional[str] = Cookie(None)
-):
-    """Create notifications/reminders from schedule blocks"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    program = await db.study_programs.find_one({"program_id": program_id, "user_id": user.user_id}, {"_id": 0})
-    if not program:
-        raise HTTPException(status_code=404, detail="Programa não encontrado")
-    
-    schedules = await db.study_schedules.find(
-        {"program_id": program_id, "user_id": user.user_id}, {"_id": 0}
-    ).to_list(200)
-    
-    notebooks = await db.notebooks.find(
-        {"program_id": program_id, "user_id": user.user_id}, {"_id": 0}
-    ).to_list(100)
-    nb_lookup = {nb["notebook_id"]: nb for nb in notebooks}
-    
-    reminder_minutes_before = data.get("minutes_before", 5)
-    include_end_reminder = data.get("include_end_reminder", False)
-    
-    day_map_reverse = {
-        "monday": "Seg", "tuesday": "Ter", "wednesday": "Qua",
-        "thursday": "Qui", "friday": "Sex", "saturday": "Sáb", "sunday": "Dom"
-    }
-    
-    created = 0
-    for sched in schedules:
-        nb = nb_lookup.get(sched.get("notebook_id"))
-        disc_name = nb["name"] if nb else "Matéria"
-        day_label = day_map_reverse.get(sched.get("day_of_week", ""), "")
-        
-        # Calculate reminder time (X minutes before start)
-        start_time = sched.get("start_time", "08:00")
-        try:
-            parts = start_time.split(":")
-            total_mins = int(parts[0]) * 60 + int(parts[1]) - reminder_minutes_before
-            if total_mins < 0:
-                total_mins = 0
-            reminder_time = f"{total_mins // 60:02d}:{total_mins % 60:02d}"
-        except (ValueError, IndexError):
-            reminder_time = start_time
-        
-        # Map day_of_week to repeat_days
-        day_of_week = sched.get("day_of_week", "")
-        
-        notification_id = f"notif_{uuid.uuid4().hex[:12]}"
-        notif_doc = {
-            "notification_id": notification_id,
-            "user_id": user.user_id,
-            "title": f"Hora de estudar: {disc_name}",
-            "message": f"{day_label} {start_time} - {sched.get('end_time', '')} | {sched.get('tipo_estudo', 'Estudo')}",
-            "type": "reminder",
-            "category": "study",
-            "scheduled_time": reminder_time,
-            "repeat": "weekly",
-            "repeat_days": [day_of_week],
-            "enabled": True,
-            "channels": ["in_app", "browser"],
-            "last_sent": None,
-            "program_id": program_id,
-            "schedule_id": sched.get("schedule_id"),
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.notifications.insert_one(notif_doc)
-        created += 1
-    
-    return {
-        "success": True,
-        "created": created,
-        "message": f"{created} lembretes criados para o cronograma de estudos!"
-    }
 
 
 # ========== FIX: PENDING NOTIFICATIONS WITH TIMEZONE ==========
 
-@api_router.get("/notifications/check")
-async def check_notifications(request: Request, timezone_offset: int = 0, session_token: Optional[str] = Cookie(None)):
-    """Check for pending notifications considering user timezone"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Use timezone offset from client to calculate local time
-    utc_now = datetime.now(timezone.utc)
-    user_local = utc_now - timedelta(minutes=timezone_offset)
-    current_time = user_local.strftime("%H:%M")
-    current_day = user_local.strftime("%A").lower()
-    
-    # Find enabled notifications matching current time (with 2 minute window)
-    try:
-        h, m = map(int, current_time.split(":"))
-        time_start_mins = h * 60 + m - 1
-        time_end_mins = h * 60 + m + 1
-        
-        times_to_check = []
-        for t_mins in range(max(0, time_start_mins), min(1440, time_end_mins + 1)):
-            times_to_check.append(f"{t_mins // 60:02d}:{t_mins % 60:02d}")
-    except (ValueError, IndexError):
-        times_to_check = [current_time]
-    
-    notifications = await db.notifications.find({
-        "user_id": user.user_id,
-        "enabled": True,
-        "scheduled_time": {"$in": times_to_check}
-    }, {"_id": 0}).to_list(100)
-    
-    pending = []
-    for notif in notifications:
-        should_send = False
-        if notif['repeat'] == "none":
-            if not notif.get('last_sent'):
-                should_send = True
-        elif notif['repeat'] == "daily":
-            # Check if not already sent today
-            last_sent = notif.get('last_sent')
-            if not last_sent or last_sent[:10] != user_local.strftime("%Y-%m-%d"):
-                should_send = True
-        elif notif['repeat'] in ["weekly", "custom"]:
-            if current_day in [d.lower() for d in notif.get('repeat_days', [])]:
-                last_sent = notif.get('last_sent')
-                if not last_sent or last_sent[:10] != user_local.strftime("%Y-%m-%d"):
-                    should_send = True
-        
-        if should_send:
-            pending.append(notif)
-            # Mark as sent
-            await db.notifications.update_one(
-                {"notification_id": notif["notification_id"]},
-                {"$set": {"last_sent": datetime.now(timezone.utc).isoformat()}}
-            )
-    
-    return pending
 
 
 # ========== REDAÇÃO (ESSAY) SECTION ==========
@@ -3797,6 +3522,8 @@ api_router.include_router(finance_router)
 api_router.include_router(finance_export_router)
 
 # Include router AFTER all endpoints are defined
+from services.notifications import router as notifications_router
+api_router.include_router(notifications_router)
 app.include_router(api_router)
 
 app.add_middleware(

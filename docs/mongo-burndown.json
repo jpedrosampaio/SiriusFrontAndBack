@@ -1,15 +1,15 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 39,
-  "remaining_collections": 12,
+  "remaining_direct_calls": 24,
+  "remaining_collections": 7,
   "remaining_dynamic_accesses": 2,
   "remaining_gridfs_constructors": 0,
   "domains": {
     "finance": 5,
     "goals": 1,
     "identity": 3,
-    "notifications": 24,
-    "studies": 6
+    "notifications": 12,
+    "studies": 3
   },
   "mongo_imports": [
     "operations.py:5: pymongo.errors",

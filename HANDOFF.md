@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Notifications SQL connected with owner FKs, local-date atomic claim, weekly midnight handling, deduplicated delivery receipts/reminder generation. Archived programs/notebooks excluded; schedule removal cascades. Migration7293cc85b93b,93 tables,check clean. 3 SQL tests passed2.749s;95 regressions passed1.445s(1 Mongo startup skip). Last fullSQL165 before +3 notifications. Mongo24 direct/7 collections/2 dynamic/GridFS0. Next Telegram then final startup/CI cleanup and emptySQL smoke. No merge/cutover.
+
 Contest tracking SQL connected: owned sources, updates and shared host cooldown; leases revoke deleted/in-flight fetches, source cap/dedupe/backoff preserved. Migration db4245d7971f,91 tables,check clean. FullSQL165 passed117.499s;95 regressions passed(1 Mongo startup skip). Mongo39 direct/12 collections/2 dynamic/GridFS0. Next notifications/Telegram then Mongo startup/requirements/CI cleanup and explicit empty PostgreSQL smoke. No merge/cutover.
 
 Daily quote/alerts SQL connected in services/quotes_alerts.py. Quote5am reset uses user timezone, cache unique owner/day rechecked under lock, provider outside TX/fallback not cached. Alerts derive actual Decimal spending, avoid zero budget divide, real habit streak. Migrationa600df30ea2f applied/check clean,88 tables. 2 SQL tests passed1.771s;95 regressions passed(1 Mongo startup skip). Mongo60 direct/15 collections/2 dynamic/GridFS0. Last fullSQL154 before completion+1/gamification+4/quotes+2 (next161). Next contest watch (models/service not started), notifications/Telegram, startup cleanup. No merge/cutover.
