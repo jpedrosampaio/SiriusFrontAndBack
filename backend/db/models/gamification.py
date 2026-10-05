@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from sqlalchemy import CheckConstraint, DateTime, Index, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, Index, UniqueConstraint, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from db.base import Base, Identity, Timestamps
 from db.models.planning import Owned
@@ -27,3 +27,13 @@ class WeeklyChallenge(Identity, Owned, Timestamps, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__=(UniqueConstraint('user_id','week_start','kind'),
         CheckConstraint('xp_reward >= 0 AND week_end > week_start',name='reward_period'))
+
+
+class DailyQuote(Identity, Owned, Timestamps, Base):
+    __tablename__='daily_quotes'
+    motivational_date: Mapped[date]
+    quote: Mapped[str] = mapped_column(Text)
+    workouts_this_week: Mapped[int]
+    habits_today: Mapped[int]
+    time_of_day: Mapped[str]
+    __table_args__=(UniqueConstraint('user_id','motivational_date'),)

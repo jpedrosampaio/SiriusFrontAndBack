@@ -1,18 +1,15 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 68,
-  "remaining_collections": 20,
+  "remaining_direct_calls": 60,
+  "remaining_collections": 15,
   "remaining_dynamic_accesses": 2,
   "remaining_gridfs_constructors": 0,
   "domains": {
     "contest": 19,
-    "finance": 6,
+    "finance": 5,
     "goals": 1,
-    "health": 1,
     "identity": 3,
     "notifications": 24,
-    "other": 4,
-    "planning": 2,
     "studies": 8
   },
   "mongo_imports": [

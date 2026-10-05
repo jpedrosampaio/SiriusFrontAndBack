@@ -881,41 +881,6 @@ async def analyze_image_for_expenses(
 
 
 
-@api_router.get("/alerts")
-async def get_alerts(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get automatic system alerts (budget, habits, etc.)"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    notifications = []
-    
-    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
-    budgets = await db.budgets.find({"user_id": user.user_id, "month": current_month}, {"_id": 0}).to_list(100)
-    
-    for budget in budgets:
-        percentage = (budget['spent'] / budget['limit']) * 100
-        if percentage >= 90:
-            notifications.append({
-                "type": "budget_alert",
-                "severity": "high" if percentage >= 100 else "warning",
-                "title": "Orçamento Estourado" if percentage >= 100 else "Orçamento Quase Estourado",
-                "message": f"Categoria {budget['category']}: {percentage:.0f}% do orçamento usado",
-                "data": budget
-            })
-    
-    habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    for habit in habits:
-        if today not in habit['completions'] and habit['streak'] > 0:
-            notifications.append({
-                "type": "habit_reminder",
-                "severity": "info",
-                "title": "Hábito Pendente",
-                "message": f"{habit['name']}: Não esqueça de marcar hoje! Streak: {habit['streak']} dias",
-                "data": habit
-            })
-    
-    return notifications
 
 def calculate_rank(xp: int) -> str:
     ranks = [
@@ -1372,161 +1337,6 @@ async def get_notification_templates():
 # ========== AI RECOMMENDATIONS ==========
 
 # ========== MOTIVATIONAL QUOTES ==========
-@api_router.get("/motivational-quote")
-async def get_motivational_quote(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get a personalized motivational quote - one per day, resets at 5:00 AM"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Calculate the "motivational day" - resets at 5:00 AM
-    now = datetime.now()
-    if now.hour < 5:
-        # Before 5 AM, still "yesterday's" motivational day
-        motivational_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-    else:
-        motivational_date = now.strftime("%Y-%m-%d")
-    
-    # Check if we already have a quote for this motivational day
-    cached_quote = await db.daily_quotes.find_one({
-        "user_id": user.user_id,
-        "motivational_date": motivational_date
-    }, {"_id": 0})
-    
-    if cached_quote:
-        cached_text = cached_quote.get("quote", "")
-        if cached_text.startswith("⚠"):
-            await db.daily_quotes.delete_one({"user_id": user.user_id, "motivational_date": motivational_date})
-        else:
-            return {
-                "quote": cached_text,
-                "motivational_date": motivational_date,
-                "cached": True,
-                "context": cached_quote.get("context", {})
-            }
-    
-    # Generate a new quote for today
-    today = datetime.now().strftime("%Y-%m-%d")
-    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-    hour = datetime.now().hour
-    
-    workouts_this_week = await db.workout_logs.count_documents({
-        "user_id": user.user_id,
-        "date": {"$gte": week_ago},
-        "completed": True
-    })
-    
-    habits_today = await db.habit_logs.count_documents({
-        "user_id": user.user_id,
-        "date": today,
-        "completed": True
-    })
-    
-    # Determine time of day
-    if hour < 12:
-        time_of_day = "manhã"
-    elif hour < 18:
-        time_of_day = "tarde"
-    else:
-        time_of_day = "noite"
-    
-    prompt = f"""Gere UMA frase motivacional ÚNICA, CRIATIVA e IMPACTANTE.
-
-CONTEXTO:
-- Nome: {user.name}
-- Hora do dia: {time_of_day}
-- Treinos esta semana: {workouts_this_week}
-- Atividades hoje: {habits_today}
-
-ESTILOS POSSÍVEIS (escolha um aleatoriamente):
-1. Frase filosófica profunda sobre disciplina e crescimento
-2. Citação inspiradora no estilo de grandes líderes ou atletas
-3. Metáfora poderosa sobre superação
-4. Desafio direto e provocativo
-5. Reflexão sobre mentalidade de guerreiro/campeão
-6. Frase sobre consistência e processo
-7. Motivação brutal e direta estilo militar
-8. Insight sobre autoconhecimento e evolução
-9. Comparação inspiradora com a natureza ou elementos
-10. Frase sobre legado e propósito
-
-REGRAS:
-- Máximo 2 linhas
-- Seja CRIATIVO e ORIGINAL - evite clichês
-- Pode ou não mencionar o nome "{user.name}"
-- Use 1-2 emojis impactantes (🔥💪⚡🎯🏆🦁⚔️🌟💎🚀)
-- A frase deve causar IMPACTO e fazer a pessoa querer agir
-- Varie entre tom filosófico, agressivo, reflexivo ou desafiador
-- NÃO precisa falar de XP, patente ou progresso no app
-
-Responda APENAS com a frase, sem explicações."""
-
-    # Fallback quotes used when AI is unavailable
-    fallback_quotes = [
-        "🔥 A dor do treino é temporária. A dor do arrependimento é permanente.",
-        "⚔️ Guerreiros não nascem. São forjados no fogo da disciplina diária.",
-        "🦁 Seja a pessoa que você precisava quando era mais novo.",
-        "💎 Diamantes são apenas pedras que não desistiram sob pressão.",
-        "🎯 Enquanto outros dormem, você constrói seu império.",
-        "⚡ Sua única competição é quem você era ontem.",
-        "🏆 Champions são feitos quando ninguém está olhando.",
-        "🚀 Conforto é a morte lenta dos seus sonhos. Acorde!",
-        "💪 Seu corpo pode quase tudo. É sua mente que você precisa convencer.",
-        "🌟 A excelência não é um ato, é um hábito. Que hábito você está construindo?"
-    ]
-
-    try:
-        response = await call_llm(
-            prompt=prompt,
-            session_id=f"motivation_{user.user_id}_{motivational_date}",
-            system_message="Você é um mestre motivacional que combina sabedoria filosófica, mentalidade de elite atlética e coaching de alta performance. Suas frases são impactantes, únicas e memoráveis.",
-            user_id=user.user_id
-        , task='assistant_chat')
-        
-        quote_text = response.strip()
-        
-        # If LLM returned an error message, don't cache it — use fallback
-        if quote_text.startswith("⚠"):
-            await db.daily_quotes.delete_one({"user_id": user.user_id, "motivational_date": motivational_date})
-            return {
-                "quote": random.choice(fallback_quotes),
-                "motivational_date": motivational_date,
-                "fallback": True
-            }
-        
-        # Cache the quote for this motivational day
-        await db.daily_quotes.update_one(
-            {"user_id": user.user_id, "motivational_date": motivational_date},
-            {"$set": {
-                "user_id": user.user_id,
-                "motivational_date": motivational_date,
-                "quote": quote_text,
-                "context": {
-                    "workouts_this_week": workouts_this_week,
-                    "habits_today": habits_today,
-                    "time_of_day": time_of_day
-                },
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }},
-            upsert=True
-        )
-        
-        return {
-            "quote": quote_text,
-            "motivational_date": motivational_date,
-            "cached": False,
-            "context": {
-                "workouts_this_week": workouts_this_week,
-                "habits_today": habits_today
-            }
-        }
-        
-    except Exception as e:
-        logging.error(f"Quote generation failed: {e}")
-        return {
-            "quote": random.choice(fallback_quotes),
-            "motivational_date": motivational_date,
-            "fallback": True
-        }
 
 # ========== DAILY WORKOUT STATUS ==========
 
@@ -3875,6 +3685,8 @@ agent_runtime = AgentRuntime(get_current_user)
 api_router.include_router(agent_runtime.api)
 from services.gamification import router as gamification_router
 api_router.include_router(gamification_router)
+from services.quotes_alerts import router as quotes_alerts_router
+api_router.include_router(quotes_alerts_router)
 from gemini_service import configure as configure_ai_compatibility
 configure_ai_compatibility(agent_runtime.router)
 
