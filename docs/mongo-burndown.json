@@ -1,6 +1,6 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 242,
+  "remaining_direct_calls": 238,
   "remaining_collections": 50,
   "remaining_dynamic_accesses": 8,
   "remaining_gridfs_constructors": 0,
@@ -10,12 +10,12 @@
     "files_rag": 19,
     "finance": 22,
     "goals": 3,
-    "health": 14,
+    "health": 13,
     "identity": 9,
     "notifications": 24,
     "other": 17,
     "planning": 23,
-    "studies": 34
+    "studies": 31
   },
   "mongo_imports": [
     "ai/automations.py:7: pymongo",
