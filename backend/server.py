@@ -2108,58 +2108,6 @@ DEFAULT_FINANCE_CATEGORIES = ["alimentação", "transporte", "moradia", "saúde"
 
 
 
-@api_router.get("/nutrition/weekly-trend")
-async def get_nutrition_weekly_trend(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get last 7 days nutrition data for charts"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    today = datetime.now()
-    days_data = []
-    
-    for i in range(6, -1, -1):
-        day = today - timedelta(days=i)
-        date_str = day.strftime("%Y-%m-%d")
-        day_label = day.strftime("%a")
-        
-        meals = await db.meals.find({"user_id": user.user_id, "date": date_str}, {"_id": 0}).to_list(50)
-        water = await db.water_logs.find({"user_id": user.user_id, "date": date_str}, {"_id": 0}).to_list(50)
-        
-        cal = sum(m.get("total_calories", 0) for m in meals)
-        prot = sum(m.get("total_protein", 0) for m in meals)
-        carb = sum(m.get("total_carbs", 0) for m in meals)
-        fat = sum(m.get("total_fat", 0) for m in meals)
-        water_ml = sum(w.get("amount_ml", 0) for w in water)
-        
-        days_data.append({
-            "day": day_label,
-            "date": date_str,
-            "calorias": round(cal),
-            "proteina": round(prot, 1),
-            "carboidratos": round(carb, 1),
-            "gordura": round(fat, 1),
-            "agua_ml": water_ml,
-            "refeicoes": len(meals)
-        })
-    
-    goals = await db.nutrition_goals.find_one({"user_id": user.user_id}, {"_id": 0})
-    if not goals:
-        goals = {"daily_calories": 2000, "daily_protein": 150, "daily_carbs": 250, "daily_fat": 65, "water_goal_ml": 2000}
-    
-    # Calculate averages
-    days_with_data = [d for d in days_data if d['calorias'] > 0]
-    avg_cal = round(sum(d['calorias'] for d in days_with_data) / max(len(days_with_data), 1))
-    avg_prot = round(sum(d['proteina'] for d in days_with_data) / max(len(days_with_data), 1), 1)
-    
-    return {
-        "daily": days_data,
-        "goals": goals,
-        "averages": {
-            "calorias": avg_cal,
-            "proteina": avg_prot,
-            "dias_registrados": len(days_with_data)
-        }
-    }
 
 
 
@@ -3103,60 +3051,8 @@ class StudyStats(BaseModel):
 
 # ========== NUTRITION ENDPOINTS ==========
 
-@api_router.get("/nutrition/meals")
-async def get_meals(request: Request, date: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get meals for a specific date or all meals"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    query = {"user_id": user.user_id}
-    if date:
-        query["date"] = date
-    
-    meals = await db.meals.find(query, {"_id": 0}).to_list(1000)
-    return meals
 
-@api_router.post("/nutrition/meals")
-async def create_meal(request: Request, meal_data: MealCreate, session_token: Optional[str] = Cookie(None)):
-    """Create a new meal"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Calculate totals from foods
-    total_calories = sum(f.get("calories", 0) * f.get("quantity", 1) for f in meal_data.foods)
-    total_protein = sum(f.get("protein", 0) * f.get("quantity", 1) for f in meal_data.foods)
-    total_carbs = sum(f.get("carbs", 0) * f.get("quantity", 1) for f in meal_data.foods)
-    total_fat = sum(f.get("fat", 0) * f.get("quantity", 1) for f in meal_data.foods)
-    
-    meal_id = f"meal_{uuid.uuid4().hex[:12]}"
-    meal_doc = {
-        "meal_id": meal_id,
-        "user_id": user.user_id,
-        "name": meal_data.name,
-        "meal_type": meal_data.meal_type,
-        "foods": meal_data.foods,
-        "total_calories": int(total_calories),
-        "total_protein": round(total_protein, 1),
-        "total_carbs": round(total_carbs, 1),
-        "total_fat": round(total_fat, 1),
-        "date": meal_data.date,
-        "notes": meal_data.notes,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.meals.insert_one(meal_doc)
-    meal_doc.pop('_id', None)
-    return meal_doc
 
-@api_router.delete("/nutrition/meals/{meal_id}")
-async def delete_meal(request: Request, meal_id: str, session_token: Optional[str] = Cookie(None)):
-    """Delete a meal"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.meals.delete_one({"meal_id": meal_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Meal not found")
-    return {"message": "Meal deleted"}
 
 @api_router.post("/nutrition/estimate-food")
 async def estimate_food_nutrition(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -3360,144 +3256,10 @@ Retorne SOMENTE o JSON, nada mais."""
 
 
 
-@api_router.get("/nutrition/goals")
-async def get_nutrition_goals(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get user's nutrition goals"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    goals = await db.nutrition_goals.find_one({"user_id": user.user_id}, {"_id": 0})
-    if not goals:
-        # Create default goals
-        goal_id = f"ngoal_{uuid.uuid4().hex[:12]}"
-        goals = {
-            "goal_id": goal_id,
-            "user_id": user.user_id,
-            "daily_calories": 2000,
-            "daily_protein": 150,
-            "daily_carbs": 250,
-            "daily_fat": 65,
-            "water_goal_ml": 2000,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.nutrition_goals.insert_one(goals)
-        goals.pop('_id', None)
-    return goals
 
-@api_router.put("/nutrition/goals")
-async def update_nutrition_goals(request: Request, goal_data: NutritionGoalCreate, session_token: Optional[str] = Cookie(None)):
-    """Update user's nutrition goals"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    existing = await db.nutrition_goals.find_one({"user_id": user.user_id}, {"_id": 0})
-    
-    if existing:
-        await db.nutrition_goals.update_one(
-            {"user_id": user.user_id},
-            {"$set": {
-                "daily_calories": goal_data.daily_calories,
-                "daily_protein": goal_data.daily_protein,
-                "daily_carbs": goal_data.daily_carbs,
-                "daily_fat": goal_data.daily_fat,
-                "water_goal_ml": goal_data.water_goal_ml,
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }}
-        )
-    else:
-        goal_id = f"ngoal_{uuid.uuid4().hex[:12]}"
-        await db.nutrition_goals.insert_one({
-            "goal_id": goal_id,
-            "user_id": user.user_id,
-            **goal_data.model_dump(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        })
-    
-    updated = await db.nutrition_goals.find_one({"user_id": user.user_id}, {"_id": 0})
-    return updated
 
-@api_router.get("/nutrition/water")
-async def get_water_logs(request: Request, date: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get water logs for a date"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
-    
-    logs = await db.water_logs.find({"user_id": user.user_id, "date": date}, {"_id": 0}).to_list(100)
-    total = sum(log.get("amount_ml", 0) for log in logs)
-    return {"logs": logs, "total_ml": total, "date": date}
 
-@api_router.post("/nutrition/water")
-async def log_water(request: Request, amount_ml: int, date: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Log water intake"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
-    
-    log_id = f"water_{uuid.uuid4().hex[:12]}"
-    log_doc = {
-        "log_id": log_id,
-        "user_id": user.user_id,
-        "amount_ml": amount_ml,
-        "date": date,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.water_logs.insert_one(log_doc)
-    log_doc.pop('_id', None)
-    return log_doc
 
-@api_router.get("/nutrition/stats")
-async def get_nutrition_stats(request: Request, date: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get nutrition statistics for a date"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
-    
-    # Get meals for the date
-    meals = await db.meals.find({"user_id": user.user_id, "date": date}, {"_id": 0}).to_list(100)
-    
-    # Calculate totals
-    total_calories = sum(m.get("total_calories", 0) for m in meals)
-    total_protein = sum(m.get("total_protein", 0) for m in meals)
-    total_carbs = sum(m.get("total_carbs", 0) for m in meals)
-    total_fat = sum(m.get("total_fat", 0) for m in meals)
-    
-    # Get water
-    water_data = await db.water_logs.find({"user_id": user.user_id, "date": date}, {"_id": 0}).to_list(100)
-    total_water = sum(w.get("amount_ml", 0) for w in water_data)
-    
-    # Get goals
-    goals = await db.nutrition_goals.find_one({"user_id": user.user_id}, {"_id": 0})
-    if not goals:
-        goals = {"daily_calories": 2000, "daily_protein": 150, "daily_carbs": 250, "daily_fat": 65, "water_goal_ml": 2000}
-    
-    return {
-        "date": date,
-        "consumed": {
-            "calories": total_calories,
-            "protein": round(total_protein, 1),
-            "carbs": round(total_carbs, 1),
-            "fat": round(total_fat, 1),
-            "water_ml": total_water
-        },
-        "goals": goals,
-        "meals_count": len(meals),
-        "remaining": {
-            "calories": goals.get("daily_calories", 2000) - total_calories,
-            "protein": round(goals.get("daily_protein", 150) - total_protein, 1),
-            "carbs": round(goals.get("daily_carbs", 250) - total_carbs, 1),
-            "fat": round(goals.get("daily_fat", 65) - total_fat, 1),
-            "water_ml": goals.get("water_goal_ml", 2000) - total_water
-        }
-    }
 
 @api_router.get("/nutrition/diets")
 async def get_diets(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -6762,6 +6524,8 @@ from services import workout_daily_routes
 api_router.include_router(workout_daily_routes.router)
 from services import body_measurements,health_ai_routes
 api_router.include_router(body_measurements.router)
+from services import nutrition
+api_router.include_router(nutrition.router)
 health_ai_routes.configure(get_current_user,call_llm,request_gemini)
 api_router.include_router(health_ai_routes.api_router)
 from services import workout_history_routes
