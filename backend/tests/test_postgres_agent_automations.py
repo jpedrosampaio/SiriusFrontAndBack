@@ -8,6 +8,7 @@ from sqlalchemy import select,func
 from db.session import unit_of_work
 from db.models.agent import Event,Insight,Usage
 from db.models.finance import Budget,FinancialTransaction
+from db.models.planning import Task
 from services.agent_automations import claim,finish
 from services.ai_usage import internal_today,gemini_today
 from services.time import local_today
@@ -80,3 +81,14 @@ class AgentAutomations(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(insights[0]['evidence']['spent'],'80.00')
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(FinancialTransaction).where(FinancialTransaction.user_id==self.uid)),1)
+
+    async def test_completed_domain_activity_emits_once_with_replay(self):
+        from services.planning import set_task_completion
+        day=local_today('America/Sao_Paulo')
+        async with unit_of_work() as session:
+            task=Task(user_id=self.uid,title='Task',date=day,xp_reward=10);session.add(task);await session.flush();tid=task.id
+        await asyncio.gather(*(set_task_completion(self.uid,tid,day,'done','event-task-001') for _ in range(6)))
+        await set_task_completion(self.uid,tid,day,'done','event-task-002')
+        async with unit_of_work() as session:
+            events=(await session.scalars(select(Event).where(Event.user_id==self.uid))).all()
+            self.assertEqual(len(events),1);self.assertEqual(events[0].event_type,'task.completed')

@@ -4,6 +4,7 @@ import json
 from sqlalchemy import select
 from fastapi import HTTPException
 from db.models.identity import ActivityReceipt
+from db.models.agent import Event
 from db.repositories.identity import IdentityRepository
 from db.session import unit_of_work
 
@@ -25,6 +26,10 @@ async def run_activity(user_id, request_key, fingerprint, apply):
                     raise HTTPException(409, 'Idempotency-Key already used for another action')
                 return {**previous.result, 'replayed': True}
         result = await apply(session, user)
+        event_type = {'task':'task.completed', 'complete_session':'workout.completed', 'focus':'study.session.completed'}.get(
+            fingerprint[0] if fingerprint else None)
+        if event_type and result.get('xp_earned', 0) > 0:
+            session.add(Event(user_id=user.id, event_type=event_type, payload={'result':result}))
         if request_key is not None:
             session.add(ActivityReceipt(user_id=user_id, request_key=request_key, fingerprint=digest, result=result))
         await session.flush()
