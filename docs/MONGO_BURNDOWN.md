@@ -9,14 +9,14 @@ Baseline: 669 chamadas diretas. Contagens geradas de código, não de dados. Um 
 | files_rag | 19 |
 | finance | 22 |
 | goals | 3 |
-| health | 92 |
+| health | 90 |
 | identity | 9 |
 | notifications | 24 |
 | other | 17 |
 | planning | 23 |
 | studies | 34 |
 
-Total direto: **320**; collections: **59**; dinâmicos: **8**; construtores GridFS: **0**; imports: **13**.
+Total direto: **318**; collections: **59**; dinâmicos: **8**; construtores GridFS: **0**; imports: **13**.
 
 Scripts de inventário, testes e server_partial.py (sem import pelo app) são excluídos. As chamadas dinâmicas ainda precisam ser migradas, mesmo quando repetem collections já contadas. As chamadas em helpers recebem os domínios das collections; uma operação composta pode aparecer em mais de uma linha.
 

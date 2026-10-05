@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Geração/importação de planos conectadas em workout_generation_routes.py e workout_plan_writes.py. Prompts/calendário preservados, writer de plano/dias/exercícios/XP/recibo atômico, 160 exercícios distribuídos em 20 dias testados. 96 testes SQL passaram (59,370 s), 115 regressões passaram (12 Mongo-only locais). CI de 902c6e8 verde nos três workflows. Mongo 318 diretas. Alembic b91a1161f708, 66 tabelas. Melhoria de plano ainda lê/grava Mongo, próxima etapa; logs/daily/stats/medidas/nutrição e demais domínios também pendentes. Não merge/cutover.
+
 Planos de treino CRUD e agenda do dia agora SQL em workout_plan_routes.py; dias/exercícios normalizados, archive preserva sessões e editar plano mantém snapshots ativos. Descanso zero preservado. Migration b91a1161f708 adiciona archive e split/progressão tipados por dia; 66 tabelas. 93 testes PostgreSQL passaram (55,890 s); 115 regressões passaram (12 Mongo-only locais); alembic check limpo. Próximo: geração/importação/melhoria de planos, logs/daily-status/stats/insights/medidas/nutrição; leitores restantes ainda Mongo. Não merge/cutover.
 
 Sessões de treino SQL conectadas: start/active/séries/complete/abandon/history, respostas completas para o frontend, séries normalizadas, revisão otimista, XP/log/recibo atômicos. Helper workout_session_service Mongo removido. 90 testes SQL passaram antes da pausa; após retomada em 05/10, PostgreSQL local reiniciado e 4 testes específicos passaram, incluindo port do teste de dia inválido. 115 regressões passaram (12 Mongo-only locais). Mongo 326 diretas, 59 collections, 8 dinâmicos, GridFS 0. Schema head ainda cb8efdf00b9f. Próximo: planos/logs/stats/geração de treino e demais domínios. Sem merge/cutover.

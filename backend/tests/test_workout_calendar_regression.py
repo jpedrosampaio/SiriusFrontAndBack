@@ -19,6 +19,8 @@ from workout_calendar import calendar_shape, validate_ai_calendar
 
 TREE = ast.parse((ROOT / 'server.py').read_text(encoding='utf-8'))
 NODES = [n for n in TREE.body if getattr(n, 'name', '') in ('WorkoutPlanGenerate', 'generate_workout_plan', 'improve_workout_plan', 'start_workout_session', '_strip_json_fences')]
+GENERATION_TREE=ast.parse((ROOT/'services/workout_generation_routes.py').read_text(encoding='utf-8'))
+NODES=[n for n in GENERATION_TREE.body if getattr(n,'name','') in ('WorkoutPlanGenerate','generate_workout_plan')]+NODES
 
 
 def route_context():
@@ -30,6 +32,10 @@ def route_context():
         return await apply(None, {})
     ns['run_activity_mutation'] = mutate
     ns['award_xp'] = AsyncMock(return_value=(5, 'E'))
+    async def save(uid,key,fingerprint,document,xp):
+        await ns['db'].workout_plans.insert_one(document)
+        return {'success':True,'plan':document,'xp_earned':xp}
+    ns['sql_plans']=SimpleNamespace(save=save)
     return ns
 
 
