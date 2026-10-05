@@ -1,6 +1,8 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 83 tabelas (Alembic `93726080ad93`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 84 tabelas (Alembic `4e16ba167d61`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+
+Conversas usam chave externa por dono, lease com token/prazo e sequência de mensagens normalizadas. O resumo guarda extratos limitados; `context_from` separa o contexto recente do arquivo de até 200 mensagens. `ai_conversation_receipts` guarda os últimos 12 resultados idempotentes por conversa. A IA é chamada fora da transação; um escritor com lease substituído não pode salvar a resposta. Memórias bloqueadas apagam conteúdo/proveniência e preservam somente categoria/hash para impedir recriação.
 
 `daily_summaries` guarda o resumo diário em campos tipados, com unicidade dono/data e validade de quatro horas verificada na leitura. Chamadas de IA ocorrem fora da transação; o writer revalida o cache depois de obter o lock do usuário.
 

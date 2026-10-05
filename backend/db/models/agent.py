@@ -13,8 +13,14 @@ class Conversation(Identity, Owned, Timestamps, Base):
     title: Mapped[str]
     summary: Mapped[str | None] = mapped_column(Text)
     primary: Mapped[bool] = mapped_column(default=False)
+    external_id: Mapped[str]
+    lease_token: Mapped[UUID | None]
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_sequence: Mapped[int] = mapped_column(default=0)
+    context_from: Mapped[int] = mapped_column(default=1)
     messages: Mapped[list['Message']] = relationship(back_populates='conversation', passive_deletes=True)
-    __table_args__ = (UniqueConstraint('user_id','id'),
+    __table_args__ = (UniqueConstraint('user_id','id'), UniqueConstraint('user_id','external_id'),
+        CheckConstraint('last_sequence >= 0 AND context_from >= 1', name='sequence'),
         Index('ix_conversations_owner_updated','user_id','updated_at'),
         Index('uq_conversation_primary','user_id', unique=True, postgresql_where=primary.is_(True)))
 
@@ -23,13 +29,26 @@ class Message(Identity, Owned, Base):
     __tablename__ = 'ai_messages'
     conversation_id: Mapped[UUID]
     role: Mapped[str]
+    sequence: Mapped[int]
     content: Mapped[str] = mapped_column(Text)
     context: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     conversation: Mapped[Conversation] = relationship(back_populates='messages')
-    __table_args__ = (ForeignKeyConstraint(['user_id','conversation_id'], ['ai_conversations.user_id','ai_conversations.id'], ondelete='CASCADE'),
+    __table_args__ = (UniqueConstraint('conversation_id','sequence'),
+        ForeignKeyConstraint(['user_id','conversation_id'], ['ai_conversations.user_id','ai_conversations.id'], ondelete='CASCADE'),
         Index('ix_messages_conversation_created','conversation_id','created_at'),
         CheckConstraint("role IN ('user','assistant','system','tool')", name='role'))
+
+
+class ConversationReceipt(Identity, Owned, Base):
+    __tablename__ = 'ai_conversation_receipts'
+    conversation_id: Mapped[UUID]
+    request_id: Mapped[str]
+    message_hash: Mapped[str]
+    sequence: Mapped[int]
+    result: Mapped[dict] = mapped_column(JSONB)
+    __table_args__ = (UniqueConstraint('conversation_id','request_id'),
+        ForeignKeyConstraint(['user_id','conversation_id'], ['ai_conversations.user_id','ai_conversations.id'], ondelete='CASCADE'))
 
 
 class Memory(Identity, Owned, Timestamps, Base):

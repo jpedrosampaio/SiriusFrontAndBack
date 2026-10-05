@@ -5,6 +5,10 @@ Este documento não declara o cutover concluído: o servidor existente ainda usa
 
 ## Fundação
 
+Dashboard, relatórios, busca global e leitores do Agent agora usam SQL. Também estão conectadas as propostas/execuções confirmadas, preferências, memórias e conversas com mensagens/recibos normalizados. As notas históricas de leitores pendentes abaixo não se aplicam mais a esses fluxos; RAG, automações, notificações e outros consumidores ainda aguardam migração.
+
+O alias `/chat/send` usa o mesmo Agent e histórico SQL. `/chat/analyze-image`, rota antiga sem consumidor no frontend atual que gravava despesas automaticamente, retorna 410 apontando para `/ai/attachments` e `/ai/chat`, onde propostas exigem confirmação. O startup SQL-only permanece pendente.
+
 Saúde conectada: planos/sessões/séries/logs/checklist de treino, histórico/cargas, medidas e insights; refeições, água, metas, receitas, dietas, planos alimentares e compras. Importar plano grava plano normalizado, refeições, metas, XP e recibo em uma transação. Resposta incompleta de geração semanal é rejeitada antes de gravar. Arquivos temporários de IA têm limpeza garantida. Relatórios, Dashboard e Agent ainda contêm leitores Mongo desses dados; startup SQL-only permanece pendente.
 
 Catálogo de estudos conectado: áreas, programas, cadernos e notas. Sessões e

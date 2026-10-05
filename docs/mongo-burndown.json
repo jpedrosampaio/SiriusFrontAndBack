@@ -1,14 +1,14 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 158,
-  "remaining_collections": 38,
+  "remaining_direct_calls": 133,
+  "remaining_collections": 36,
   "remaining_dynamic_accesses": 4,
   "remaining_gridfs_constructors": 0,
   "domains": {
-    "agent": 31,
+    "agent": 15,
     "contest": 19,
     "files_rag": 19,
-    "finance": 16,
+    "finance": 7,
     "goals": 2,
     "health": 3,
     "identity": 7,
@@ -21,7 +21,6 @@
     "ai/automations.py:8: pymongo",
     "ai/rag.py:7: pymongo.errors",
     "ai/routes.py:6: pymongo",
-    "assistant_service.py:7: pymongo",
     "contest_watch.py:12: pymongo",
     "contest_watch.py:13: pymongo.errors",
     "operations.py:5: pymongo.errors",
@@ -30,7 +29,7 @@
     "server.py:6: pymongo.errors",
     "server.py:7: pymongo.read_concern",
     "server.py:8: pymongo.write_concern",
-    "server.py:1951: pymongo.errors"
+    "server.py:1210: pymongo.errors"
   ],
   "mongo_identifiers": {
     "AsyncIOMotorClient": 1

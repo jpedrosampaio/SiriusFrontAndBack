@@ -87,16 +87,13 @@ class AgentRuntime:
 
         @self.api.get('/conversations')
         async def conversations(account=Depends(user)):
-            return await db.ai_conversations.find({'user_id': account.user_id}, {'_id': 0, 'conversation_id': 1, 'title': 1, 'created_at': 1, 'updated_at': 1}).sort('updated_at', -1).to_list(30)
+            from services.conversations import Conversations
+            return await Conversations().list(account.user_id)
 
         @self.api.get('/conversations/{conversation_id}/history')
         async def conversation_history(conversation_id: str, offset: int = Query(0, ge=0, le=200), account=Depends(user)):
-            from assistant_service import Conversations
-            row = await db.ai_conversations.find_one({'_id': Conversations(db, None).key(account.user_id, conversation_id), 'user_id': account.user_id}, {'archive': 1}) or {}
-            archive = row.get('archive', [])
-            stop = max(0, len(archive)-offset)
-            start = max(0, stop-30)
-            return {'messages': archive[start:stop], 'next_offset': offset+30 if start else None, 'retention_messages': 200}
+            from services.conversations import Conversations
+            return await Conversations().history(account.user_id, conversation_id, offset)
 
         @self.api.post('/cancel/{request_id}')
         async def cancel(request_id: str, account=Depends(user)):
@@ -241,12 +238,12 @@ class AgentRuntime:
         return bool(row)
 
     async def chat(self, user_id, body):
-        from assistant_service import Conversations
+        from services.conversations import Conversations
         if not self.settings.agent: raise HTTPException(503, 'Agente desabilitado.')
         key = (user_id, body.request_id)
         if key in self.running: raise HTTPException(409, 'Esta mensagem já está em processamento.')
         async def generate(prompt, **kwargs): return await self.agent.respond(user_id, body, prompt)
-        task = asyncio.create_task(Conversations(self.db, generate).send(user_id, body, ''))
+        task = asyncio.create_task(Conversations(generate).send(user_id, body, ''))
         self.running[key] = task
         try:
             return await asyncio.wait_for(task, timeout=150)
@@ -258,6 +255,5 @@ class AgentRuntime:
         for name in ('ai_events', 'ai_chunks', 'ai_usage'):
             await self.db[name].create_index('user_id')
         await self.db.ai_chunks.create_index([('user_id', 1), ('terms', 1)])
-        await self.db.ai_conversations.create_index([('user_id', 1), ('updated_at', -1)])
         await self.db.ai_attachments.create_index([('user_id', 1), ('attachment_id', 1)], unique=True)
         await self.automations.start()
