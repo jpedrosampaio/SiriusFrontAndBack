@@ -3763,7 +3763,7 @@ api_router.include_router(edital_sql_router)
 from services.studies_v2_routes import router as studies_v2_router
 api_router.include_router(studies_v2_router)
 from contest_watch import ContestWatcher
-contest_watcher = ContestWatcher(db, get_current_user)
+contest_watcher = ContestWatcher(get_current_user)
 api_router.include_router(contest_watcher.router)
 from edital_review_routes import review_router
 api_router.include_router(review_router(get_current_user))

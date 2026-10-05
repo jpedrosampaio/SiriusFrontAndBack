@@ -1,20 +1,17 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 60,
-  "remaining_collections": 15,
+  "remaining_direct_calls": 39,
+  "remaining_collections": 12,
   "remaining_dynamic_accesses": 2,
   "remaining_gridfs_constructors": 0,
   "domains": {
-    "contest": 19,
     "finance": 5,
     "goals": 1,
     "identity": 3,
     "notifications": 24,
-    "studies": 8
+    "studies": 6
   },
   "mongo_imports": [
-    "contest_watch.py:12: pymongo",
-    "contest_watch.py:13: pymongo.errors",
     "operations.py:5: pymongo.errors",
     "server.py:4: motor.motor_asyncio",
     "server.py:5: pymongo.errors"
