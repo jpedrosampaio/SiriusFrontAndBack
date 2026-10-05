@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 from sqlalchemy import CheckConstraint, DateTime, ForeignKeyConstraint, Index, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
@@ -94,13 +94,29 @@ class ActionAudit(Identity, Owned, Base):
 class Event(Identity, Owned, Base):
     __tablename__ = 'ai_events'
     event_type: Mapped[str]
+    dedup_key: Mapped[str | None]
     entity_type: Mapped[str | None]
     entity_id: Mapped[UUID | None]
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(default='pending')
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    __table_args__ = (Index('ix_events_status_lease','status','lease_until'), Index('ix_events_owner_created','user_id','created_at'))
+    __table_args__ = (UniqueConstraint('user_id','dedup_key'), Index('ix_events_status_lease','status','lease_until'), Index('ix_events_owner_created','user_id','created_at'))
+
+
+class Insight(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'ai_insights'
+    rule: Mapped[str]
+    title: Mapped[str]
+    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    link: Mapped[str]
+    date: Mapped[date]
+    feedback: Mapped[str | None]
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dry_run: Mapped[bool] = mapped_column(default=True)
+    __table_args__ = (UniqueConstraint('user_id','rule','date'), Index('ix_insights_owner_date','user_id','date'),
+        CheckConstraint("feedback IS NULL OR feedback IN ('dismiss','snooze','never','helpful')", name='feedback'))
 
 
 class Preferences(Identity, Owned, Timestamps, Base):

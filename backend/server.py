@@ -4225,7 +4225,7 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
 
 
 from ai.routes import AgentRuntime
-agent_runtime = AgentRuntime(db, get_current_user, run_activity_mutation, award_xp, update_study_streak)
+agent_runtime = AgentRuntime(get_current_user)
 api_router.include_router(agent_runtime.api)
 from gemini_service import configure as configure_ai_compatibility
 configure_ai_compatibility(agent_runtime.router)

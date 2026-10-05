@@ -1,6 +1,8 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 84 tabelas (Alembic `8721bc0c9cf9`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 85 tabelas (Alembic `221a3e378a66`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+
+`ai_insights` tem regra/data únicas por dono, feedback e prazo de adiamento. `ai_events` tem chave de deduplicação e lease com token; claim usa SKIP LOCKED e finalização confere o token. Cotas internas são reservas em `ai_usage`, separadas do uso informado pelo provedor; o lock do usuário impede ultrapassar o limite concorrente. Sugestões respeitam opt-in, fuso, silêncio, limite diário e bloqueio permanente, sem executar ações de negócio.
 
 RAG usa fontes únicas por referência/dono e chunks normalizados, termos com índice GIN e busca lexical explícita. Exclusão da referência revoga por CASCADE; cadernos arquivados são filtrados na consulta. Substituição de chunks é atômica. Anexos de consulta conservam metadados e texto extraído, sem binário em PostgreSQL ou filesystem: a resposta informa `original_available: false` e `retention: extracted_text_only`. Isso não equivale a storage durável para download do original.
 

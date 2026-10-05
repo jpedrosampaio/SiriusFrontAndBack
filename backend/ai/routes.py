@@ -3,7 +3,6 @@ import asyncio
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, HTTPException, UploadFile, File, Query
 from pydantic import Field
-from pymongo import ReturnDocument
 from ai.types import StrictModel, AIError
 from ai.config import Settings, MODELS
 from ai.router import AIRouter
@@ -32,13 +31,13 @@ class InsightFeedback(StrictModel):
 
 
 class AgentRuntime:
-    def __init__(self, db, auth, transact, award_xp, update_streak):
-        self.db, self.settings = db, Settings()
+    def __init__(self, auth):
+        self.settings = Settings()
         self.credentials = Credentials()
         self.router = AIRouter(self.settings, reserve=self.reserve)
         self.core, self.memory, self.retrieval = Core(), Memories(), Retrieval()
         self.actions = Actions()
-        self.automations = Automations(db, self.core, self.settings)
+        self.automations = Automations(self.core, self.settings)
         self.agent = SiriusAgent(self.core, self.router, self.credentials, self.actions, self.memory, self.retrieval)
         self.running = {}
         self.api = APIRouter(prefix='/ai')
@@ -51,9 +50,10 @@ class AgentRuntime:
             import time
             from services.auth import AuthService
             public = await AuthService().profile(account.user_id)
-            usage = await db.ai_usage.find_one({'_id': self.usage_key(account.user_id)}) or {}
+            from services.ai_usage import internal_today
+            usage = await internal_today(account.user_id)
             return {'flags': self.settings.flags(), 'providers': {p: {'has_key': public[f'has_{p}_key'], 'last4': public[f'{p}_key_last4'], 'live_checked': False} for p in ('gemini', 'groq')},
-                    'encryption_configured': bool(cipher()), 'internal_daily_limit': self.settings.daily_limit, 'internal_requests_today': usage.get('count', 0),
+                    'encryption_configured': bool(cipher()), 'internal_daily_limit': self.settings.daily_limit, 'internal_requests_today': usage,
                     'models': {k: {'provider': m.provider, 'model': m.name, 'capabilities': sorted(m.capabilities)} for k, m in MODELS.items()},
                     'capabilities': {'chat': self.settings.agent, 'actions': 'confirmation_required', 'rag': 'lexical' if self.settings.rag else 'disabled', 'streaming': False, 'voice': self.settings.voice, 'automations': 'suggestions_only', 'automatic_writes': False},
                     'cooldowns': [{'provider': p, 'model': m, 'seconds': max(0, round(until-time.monotonic()))} for (owner, p, m), until in self.router.cooldowns.items() if owner == account.user_id and until > time.monotonic()],
@@ -69,17 +69,13 @@ class AgentRuntime:
 
         @self.api.get('/insights')
         async def insights(account=Depends(user)):
-            await db.ai_insights.update_many({'user_id': account.user_id, 'feedback': 'snooze', 'snoozed_until': {'$lte': datetime.now(timezone.utc).isoformat()}}, {'$set': {'feedback': None}})
-            return await db.ai_insights.find({'user_id': account.user_id, 'feedback': None}, {'_id': 0}).sort('date', -1).to_list(10)
+            from services.agent_automations import list_insights
+            return await list_insights(account.user_id)
 
         @self.api.post('/insights/{insight_id}/feedback')
         async def feedback(insight_id: str, body: InsightFeedback, account=Depends(user)):
-            from datetime import timedelta
-            fields = {'feedback': body.feedback}
-            if body.feedback == 'snooze': fields['snoozed_until'] = (datetime.now(timezone.utc)+timedelta(days=1)).isoformat()
-            result = await db.ai_insights.update_one({'user_id': account.user_id, 'insight_id': insight_id}, {'$set': fields})
-            if not result.matched_count: raise HTTPException(404, 'Sugestão não encontrada.')
-            return fields
+            from services.agent_automations import feedback
+            return await feedback(account.user_id,insight_id,body.feedback)
 
         @self.api.put('/preferences')
         async def save_preferences(body: Preferences, account=Depends(user)):
@@ -215,14 +211,9 @@ class AgentRuntime:
         async def delete_attachment(source_id: str, account=Depends(user)):
             return await self.retrieval.remove_attachment(account.user_id, source_id)
 
-    def usage_key(self, user_id):
-        return user_id + ':' + datetime.now(timezone.utc).strftime('%Y-%m-%d')
-
     async def reserve(self, user_id, model):
-        key = self.usage_key(user_id)
-        await self.db.ai_usage.update_one({'_id': key}, {'$setOnInsert': {'user_id': user_id, 'count': 0}}, upsert=True)
-        row = await self.db.ai_usage.find_one_and_update({'_id': key, 'count': {'$lt': self.settings.daily_limit}}, {'$inc': {'count': 1}}, return_document=ReturnDocument.AFTER)
-        return bool(row)
+        from services.ai_usage import reserve_internal
+        return await reserve_internal(user_id,model,self.settings.daily_limit)
 
     async def chat(self, user_id, body):
         from services.conversations import Conversations
@@ -239,6 +230,4 @@ class AgentRuntime:
         finally: self.running.pop(key, None)
 
     async def setup(self):
-        for name in ('ai_events', 'ai_usage'):
-            await self.db[name].create_index('user_id')
         await self.automations.start()

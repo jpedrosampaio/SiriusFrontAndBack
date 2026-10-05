@@ -26,7 +26,7 @@ class RuntimeAgentActions(unittest.IsolatedAsyncioTestCase):
         async def auth(authorization=None, session_token=None):
             return SimpleNamespace(user_id=str(self.other if authorization=='Bearer bob' else self.uid))
         with patch.dict(os.environ, {'AI_AGENT_ENABLED':'true'}):
-            self.runtime = AgentRuntime(object(), auth, None, None, None)
+            self.runtime = AgentRuntime(auth)
         app = FastAPI(); app.include_router(self.runtime.api)
         self.http = AsyncClient(transport=ASGITransport(app), base_url='https://sirius.test')
 
