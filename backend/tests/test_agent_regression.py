@@ -14,7 +14,7 @@ from ai.registry import validate_call, TOOLS
 from ai.actions import autonomy, Preferences
 from ai.planning import plan_day
 from ai.memory import MemoryInput, fingerprint
-from ai.rag import Retrieval, chunks
+from ai.rag import chunks
 from ai.automations import quiet
 
 
@@ -76,20 +76,6 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_memory_fingerprint_normalizes_case_and_spacing(self):
         self.assertEqual(fingerprint(' No reminders '), fingerprint('no REMINDERS'))
 
-    async def test_retrieval_is_owned_and_revokes_deleted_sources(self):
-        cursor = MagicMock()
-        cursor.limit.return_value = cursor
-        cursor.to_list = AsyncMock(return_value=[{'source_id': 'source', 'terms': ['direito'], 'text': 'direito', 'page': 1}])
-        db = SimpleNamespace(ai_chunks=SimpleNamespace(find=MagicMock(return_value=cursor)), edital_analyses=SimpleNamespace(find_one=AsyncMock(return_value=None)))
-        class Database:
-            def __getattr__(self, key): return getattr(db, key)
-            def __getitem__(self, key): return getattr(db, key)
-        from fastapi import HTTPException
-        with patch('services.edital_analyses.get',new=AsyncMock(side_effect=HTTPException(404,'Not found'))) as get_analysis:
-            result = await Retrieval(Database()).search('alice', 'direito')
-        self.assertEqual(result['citations'], [])
-        self.assertEqual(db.ai_chunks.find.call_args.args[0]['user_id'], 'alice')
-        get_analysis.assert_awaited_once_with('alice','source')
 
     def test_chunks_retain_page_and_quiet_hours_cross_midnight(self):
         row = list(chunks([{'page': 7, 'text': 'Direito constitucional ' * 100}]))

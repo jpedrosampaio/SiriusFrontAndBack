@@ -48,7 +48,8 @@ class RagSource(Identity, Owned, Timestamps, Base):
     notebook_id: Mapped[UUID | None]
     generation: Mapped[str]
     source_type: Mapped[str]
-    __table_args__ = (UniqueConstraint('user_id','id'),
+    __table_args__ = (UniqueConstraint('user_id','id'), UniqueConstraint('user_id','file_id'),
+        UniqueConstraint('user_id','analysis_id'), UniqueConstraint('user_id','notebook_id'),
         ForeignKeyConstraint(['user_id','file_id'], ['files.user_id','files.id'], ondelete='CASCADE'),
         ForeignKeyConstraint(['user_id','analysis_id'], ['edital_analyses.user_id','edital_analyses.id'], ondelete='CASCADE'),
         ForeignKeyConstraint(['user_id','notebook_id'], ['study_notebooks.user_id','study_notebooks.id'], ondelete='CASCADE'),

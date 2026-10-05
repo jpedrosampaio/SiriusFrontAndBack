@@ -13,7 +13,7 @@ from services.agent_actions import Actions
 from ai.actions import Preferences
 from ai.memory import MemoryInput
 from services.agent_memory import Memories
-from ai.rag import Retrieval
+from services.retrieval import Retrieval
 from ai.agent import SiriusAgent
 from ai.automations import Automations
 
@@ -36,7 +36,7 @@ class AgentRuntime:
         self.db, self.settings = db, Settings()
         self.credentials = Credentials()
         self.router = AIRouter(self.settings, reserve=self.reserve)
-        self.core, self.memory, self.retrieval = Core(), Memories(), Retrieval(db, self.router, self.credentials)
+        self.core, self.memory, self.retrieval = Core(), Memories(), Retrieval()
         self.actions = Actions()
         self.automations = Automations(db, self.core, self.settings)
         self.agent = SiriusAgent(self.core, self.router, self.credentials, self.actions, self.memory, self.retrieval)
@@ -151,11 +151,7 @@ class AgentRuntime:
 
         @self.api.get('/rag/sources')
         async def sources(account=Depends(user)):
-            own = {'user_id': account.user_id}
-            from services.edital_analyses import list_owned
-            editais = [{'analysis_id':r['analysis_id'],'pdf_filename':r['pdf_filename']} for r in (await list_owned(account.user_id))['editais'][:50]]
-            notebooks = await db.notebooks.find(own, {'_id': 0, 'notebook_id': 1, 'name': 1, 'title': 1}).to_list(50)
-            return {'editais': editais, 'notebooks': notebooks}
+            return await self.retrieval.sources(account.user_id)
 
         @self.api.post('/rag/notebooks/{source_id}')
         async def index_notebook(source_id: str, account=Depends(user)):
@@ -185,12 +181,9 @@ class AgentRuntime:
                 raise HTTPException(415, 'Envie PDF, JPG, PNG ou WebP.')
             content = await file.read(8 * 1024 * 1024 + 1)
             if not content or len(content) > 8 * 1024 * 1024: raise HTTPException(413, 'Limite de 8 MB por arquivo.')
-            source_id = 'attachment_' + hashlib.sha256(content).hexdigest()[:40]
-            own = {'user_id': account.user_id, 'attachment_id': source_id}
-            previous = await db.ai_attachments.find_one(own, {'_id': 0})
+            digest = hashlib.sha256(content).hexdigest()
+            previous = await self.retrieval.existing_attachment(account.user_id, digest)
             if previous and previous.get('indexed'): return previous
-            if await db.ai_attachments.count_documents({'user_id': account.user_id}, limit=100) >= 100:
-                raise HTTPException(409, 'Limite de 100 anexos. Remova arquivos antigos antes de enviar novos.')
             if mime == 'application/pdf':
                 if not content.startswith(b'%PDF-'): raise HTTPException(422, 'PDF inválido.')
                 def extract():
@@ -215,18 +208,12 @@ class AgentRuntime:
                         prompt='Transcreva este material para consulta posterior.', parts=[{'inlineData': {'mimeType': mime, 'data': base64.b64encode(content).decode()}}, {'text': 'Transcreva este material para consulta posterior.'}])
                 except AIError: raise HTTPException(503, 'Leitura de imagem indisponível. Confira suas chaves ou envie um PDF com texto.') from None
                 pages, provenance = [{'page': 1, 'text': result.text[:30000]}], 'inferred'
-            doc = {**own, 'filename': (file.filename or 'Material')[:180], 'name': (file.filename or 'Material')[:180], 'provenance': provenance,
-                   'created_at': datetime.now(timezone.utc).isoformat(), 'indexed': False}
-            await db.ai_attachments.update_one(own, {'$set': doc}, upsert=True)
-            await self.retrieval.index_pages(account.user_id, source_id, 'attachment', pages, doc)
-            await db.ai_attachments.update_one(own, {'$set': {'indexed': True}})
-            return {**doc, 'indexed': True}
+            return await self.retrieval.attach(account.user_id, digest, (file.filename or 'Material')[:180],
+                mime, len(content), pages, provenance)
 
         @self.api.delete('/attachments/{source_id}')
         async def delete_attachment(source_id: str, account=Depends(user)):
-            await db.ai_attachments.delete_one({'user_id': account.user_id, 'attachment_id': source_id})
-            await db.ai_chunks.delete_many({'user_id': account.user_id, 'source_id': source_id, 'source_type': 'attachment'})
-            return {'deleted': True}
+            return await self.retrieval.remove_attachment(account.user_id, source_id)
 
     def usage_key(self, user_id):
         return user_id + ':' + datetime.now(timezone.utc).strftime('%Y-%m-%d')
@@ -252,8 +239,6 @@ class AgentRuntime:
         finally: self.running.pop(key, None)
 
     async def setup(self):
-        for name in ('ai_events', 'ai_chunks', 'ai_usage'):
+        for name in ('ai_events', 'ai_usage'):
             await self.db[name].create_index('user_id')
-        await self.db.ai_chunks.create_index([('user_id', 1), ('terms', 1)])
-        await self.db.ai_attachments.create_index([('user_id', 1), ('attachment_id', 1)], unique=True)
         await self.automations.start()

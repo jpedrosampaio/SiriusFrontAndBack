@@ -1,5 +1,12 @@
 from sqlalchemy import delete, select, func, Integer
 from db.models.files import RagSource, RagChunk
+from db.models.studies import Notebook
+
+
+def live_source():
+    return (RagSource.notebook_id.is_(None) | select(Notebook.id).where(
+        Notebook.user_id==RagSource.user_id, Notebook.id==RagSource.notebook_id,
+        Notebook.archived_at.is_(None)).exists())
 
 
 class RagRepository:
@@ -32,7 +39,7 @@ class RagRepository:
             return []
         # Both ends of the join are scoped; deleting a source immediately revokes retrieval.
         query = select(RagChunk).join(RagSource,(RagChunk.source_id == RagSource.id) & (RagChunk.user_id == RagSource.user_id))
-        query = query.where(RagChunk.user_id == user_id,RagSource.user_id == user_id,RagChunk.terms.overlap(list(tokens)[:30]))
+        query = query.where(RagChunk.user_id == user_id,RagSource.user_id == user_id,live_source(),RagChunk.terms.overlap(list(tokens)[:30]))
         if source_id:
             query = query.where(RagSource.id == source_id)
         score = sum(func.coalesce(RagChunk.terms.any(token),False).cast(Integer) for token in list(tokens)[:30])
