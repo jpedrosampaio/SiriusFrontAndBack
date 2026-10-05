@@ -4,8 +4,8 @@ import hashlib
 import logging
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+from decimal import Decimal
 from pymongo import ReturnDocument
-from ai.actions import Preferences
 
 EVENTS = frozenset(('task.created', 'task.completed', 'task.overdue', 'study.session.completed', 'study.review.overdue', 'study.performance.changed', 'workout.completed', 'workout.skipped', 'budget.threshold_reached', 'goal.progress_changed', 'calendar.event_created', 'edital.updated', 'finance.expense.created'))
 
@@ -24,8 +24,8 @@ class Automations:
         await self.db.ai_events.update_one({'_id': key, 'user_id': user_id}, {'$setOnInsert': {'type': event, 'status': 'pending', 'created_at': datetime.now(timezone.utc).isoformat()}}, upsert=True, session=session)
 
     async def suggest(self, user_id, rule, title, evidence, link, now):
-        prefs_doc = await self.db.ai_preferences.find_one({'user_id': user_id}) or {}
-        prefs = Preferences.model_validate(prefs_doc.get('settings', {}))
+        from services.agent_actions import Actions
+        prefs = await Actions().preferences(user_id)
         if not prefs.automations or quiet(now, prefs.quiet_start, prefs.quiet_end): return
         if await self.db.ai_insights.find_one({'user_id': user_id, 'rule': rule, 'feedback': 'never'}): return
         # One suggestion per rule per day. Dismissal/snooze cannot recreate it.
@@ -40,8 +40,8 @@ class Automations:
         if event['type'] in ('finance.expense.created', 'budget.threshold_reached'):
             for budget in await self.core.read('get_budget_status', user_id):
                 limit = budget.get('amount') or budget.get('limit') or 0
-                if limit > 0 and budget['spent'] >= limit * .8:
-                    await self.suggest(user_id, 'budget:' + budget.get('category', ''), 'Seu orçamento está próximo do limite', {'category': budget.get('category'), 'spent': budget['spent'], 'limit': limit}, '/finance', now)
+                if limit > 0 and budget['spent'] >= limit * Decimal('0.8'):
+                    await self.suggest(user_id, 'budget:' + budget.get('category', ''), 'Seu orçamento está próximo do limite', {'category': budget.get('category'), 'spent': str(budget['spent']), 'limit': str(limit)}, '/finance', now)
         elif event['type'] in ('study.session.completed', 'study.review.overdue', 'study.performance.changed'):
             await self.suggest(user_id, 'study_review', 'Confira seus próximos blocos de estudo', {'next_blocks': await self.core.read('get_next_study_block', user_id)}, '/studies', now)
         elif event['type'] in ('task.created', 'task.overdue', 'calendar.event_created'):

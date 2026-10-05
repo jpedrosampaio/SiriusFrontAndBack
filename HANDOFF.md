@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Agent Actions/preferences/list/confirm/cancel now actual SQL routes; conversation live actions refresh SQL; old ai/core_writes and Mongo Actions removed. Expiry persists, preference changes serialized with confirmation, owner/version/cancel/rollback/replay tested. 6 SQL tests passed (1.551s), 107 regressions passed (6 Mongo-only local skips); two Mongo action cases ported. Mongo165 direct/39 collections/4 dynamic/GridFS0. Last fullSQL136 before 4 new action route tests. Next: conversations, memory/RAG/automations/usage, other remaining domains. No merge/cutover.
+
 Agent Core reads/page context and assistant snapshot now use SQL. 5 new SQL tests passed (3.353s), 109 regressions passed (8 Mongo-only local skips). Full SQL 136 tests passed (93.229s). Mongo 187 direct/43 collections/5 dynamic/GridFS0. CI ee54c68 all workflows success. Next: actual Agent Actions/preferences routes, conversations/live action refresh, memory/RAG. No merge/cutover.
 
 Busca global SQL conectada: dez tipos, até 5 resultados por tipo, texto literal com autoescape, dono/archive e links preservados; nomes/valores/contagens derivam das tabelas reais. 2 testes SQL passaram (1,760 s), 109 regressões passaram (8 Mongo-only locais). Mongo 194 diretas/44 collections/7 dinâmicos/GridFS 0. Schema 93726080ad93/83 tabelas. Última suíte geral 128 antes de health_condition +1 e busca +2. Próximo: leitores do Agent (ai/core.py/context_prompt), persistência de conversas/ações/memórias/RAG, notifications/contest/achievements e cleanup. CI após correção do import bcrypt ainda precisa ser confirmado pelo SHA, pois última consulta retornou runs de commit antigo. Não merge/cutover.

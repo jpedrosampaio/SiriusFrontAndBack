@@ -9,8 +9,8 @@ from ai.config import Settings, MODELS
 from ai.router import AIRouter
 from ai.credentials import Credentials, public_profile, cipher
 from ai.core import Core
-from ai.core_writes import CoreWrites
-from ai.actions import Actions, Preferences
+from services.agent_actions import Actions
+from ai.actions import Preferences
 from ai.memory import Memory, MemoryInput
 from ai.rag import Retrieval
 from ai.agent import SiriusAgent
@@ -36,7 +36,7 @@ class AgentRuntime:
         self.credentials = Credentials()
         self.router = AIRouter(self.settings, reserve=self.reserve)
         self.core, self.memory, self.retrieval = Core(db), Memory(db), Retrieval(db, self.router, self.credentials)
-        self.actions = Actions(db, CoreWrites(db, award_xp, update_streak), transact)
+        self.actions = Actions()
         self.automations = Automations(db, self.core, self.settings)
         self.agent = SiriusAgent(self.core, self.router, self.credentials, self.actions, self.memory, self.retrieval)
         self.running = {}
@@ -82,10 +82,7 @@ class AgentRuntime:
 
         @self.api.put('/preferences')
         async def save_preferences(body: Preferences, account=Depends(user)):
-            from ai.registry import TOOLS
-            if any(n not in TOOLS for n in body.blocked_tools): raise HTTPException(422, 'Ferramenta desconhecida.')
-            await db.ai_preferences.update_one({'user_id': account.user_id}, {'$set': {'settings': body.model_dump()}}, upsert=True)
-            return body
+            return await self.actions.save_preferences(account.user_id, body)
 
         @self.api.get('/conversations')
         async def conversations(account=Depends(user)):
@@ -108,8 +105,7 @@ class AgentRuntime:
 
         @self.api.get('/actions')
         async def actions(account=Depends(user)):
-            await db.ai_actions.update_many({'user_id': account.user_id, 'status': 'pending', 'expires_at': {'$lte': datetime.now(timezone.utc).isoformat()}}, {'$set': {'status': 'expired'}})
-            return await db.ai_actions.find({'user_id': account.user_id}, {'_id': 0}).sort('created_at', -1).to_list(30)
+            return await self.actions.list(account.user_id)
 
         @self.api.post('/actions/{action_id}/confirm')
         async def confirm(action_id: str, account=Depends(user)):
@@ -258,9 +254,8 @@ class AgentRuntime:
         finally: self.running.pop(key, None)
 
     async def setup(self):
-        for name in ('ai_actions', 'ai_audit', 'ai_events', 'ai_memory', 'ai_chunks', 'ai_usage', 'calendar_commitments', 'transactions', 'budgets', 'notebooks', 'study_sessions', 'tasks'):
+        for name in ('ai_events', 'ai_memory', 'ai_chunks', 'ai_usage'):
             await self.db[name].create_index('user_id')
-        await self.db.ai_preferences.create_index('user_id', unique=True)
         await self.db.ai_chunks.create_index([('user_id', 1), ('terms', 1)])
         await self.db.ai_conversations.create_index([('user_id', 1), ('updated_at', -1)])
         await self.db.ai_attachments.create_index([('user_id', 1), ('attachment_id', 1)], unique=True)

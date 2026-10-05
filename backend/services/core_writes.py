@@ -26,7 +26,8 @@ class CoreWrites:
             result = {**args,'transaction_id':str(row.id),'user_id':str(user.id),'type':row.type,'amount':str(row.amount)}
             event = 'finance.'+row.type+'.created'
         elif name == 'record_study_session':
-            notebook_id = UUID(args['notebook_id'])
+            try: notebook_id = UUID(args['notebook_id'])
+            except (ValueError, TypeError): raise HTTPException(404,'Caderno não encontrado.') from None
             notebook = await session.scalar(select(Notebook).where(Notebook.user_id == user.id,Notebook.id == notebook_id,Notebook.archived_at.is_(None)))
             if notebook is None:
                 raise HTTPException(404,'Caderno não encontrado.')

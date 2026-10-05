@@ -2,6 +2,9 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from uuid import UUID
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 from fastapi import HTTPException
 from pydantic import Field
 from ai.actions import Preferences, autonomy
@@ -10,6 +13,14 @@ from db.activity import run_activity
 from db.repositories.agent import AgentRepository
 from db.session import unit_of_work
 from services.core_writes import CoreWrites
+from db.models.agent import Action, Preferences as StoredPreferences
+
+
+def identity(value):
+    try:
+        return UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(404, 'Proposta não encontrada.') from None
 
 
 class ExactExpenseArgs(ExpenseArgs):
@@ -33,7 +44,44 @@ class Actions:
     def __init__(self,writer=None):
         self.writer = writer or CoreWrites()
 
+    async def preferences(self, user_id):
+        async with unit_of_work() as session:
+            return Preferences.model_validate(await AgentRepository(session).preferences(identity(user_id)))
+
+    async def save_preferences(self, user_id, body):
+        if any(name not in TOOLS for name in body.blocked_tools):
+            raise HTTPException(422, 'Ferramenta desconhecida.')
+        async def apply(session, user):
+            await session.execute(insert(StoredPreferences).values(user_id=user.id, settings=body.model_dump())
+                .on_conflict_do_update(index_elements=['user_id'], set_={'settings': body.model_dump()}))
+            return body.model_dump()
+        return await run_activity(identity(user_id), None, ['agent_preferences'], apply)
+
+    async def expire(self, user_id):
+        async with unit_of_work() as session:
+            await session.execute(update(Action).where(Action.user_id == identity(user_id), Action.status == 'pending',
+                Action.expires_at <= datetime.now(timezone.utc)).values(status='expired'))
+
+    async def list(self, user_id):
+        await self.expire(user_id)
+        async with unit_of_work() as session:
+            rows = (await session.scalars(select(Action).where(Action.user_id == identity(user_id))
+                .order_by(Action.created_at.desc(), Action.id).limit(30))).all()
+            return [public_action(row) for row in rows]
+
+    async def by_ids(self, user_id, action_ids):
+        ids = []
+        for value in action_ids:
+            try: ids.append(UUID(str(value)))
+            except (ValueError, TypeError, AttributeError): continue
+        if not ids: return []
+        await self.expire(user_id)
+        async with unit_of_work() as session:
+            rows = (await session.scalars(select(Action).where(Action.user_id == identity(user_id), Action.id.in_(ids)))).all()
+            return [public_action(row) for row in rows]
+
     async def propose(self,user_id,request_id,index,name,arguments,reason,evidence=None):
+        user_id = identity(user_id)
         tool = TOOLS.get(name)
         if not tool or tool.permission != 'write':
             raise HTTPException(422,'Ação inválida.')
@@ -50,6 +98,8 @@ class Actions:
             return public_action(row)
 
     async def confirm(self,user_id,action_id):
+        user_id, action_id = identity(user_id), identity(action_id)
+        await self.expire(user_id)
         async def apply(session,user):
             repo = AgentRepository(session)
             row = await repo.action(user.id,action_id)
@@ -73,6 +123,8 @@ class Actions:
         return await run_activity(user_id,'agent_'+str(action_id),['agent',str(action_id)],apply)
 
     async def cancel(self,user_id,action_id):
+        user_id, action_id = identity(user_id), identity(action_id)
+        await self.expire(user_id)
         async def apply(session,user):
             row = await AgentRepository(session).action(user.id,action_id)
             if row is None or row.status != 'pending':

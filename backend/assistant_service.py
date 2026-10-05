@@ -56,7 +56,8 @@ class Conversations:
         messages = row.get('messages', []) if row else await self.legacy(user_id, conversation_id)
         action_ids = [a['action_id'] for m in messages for a in m.get('actions', [])]
         if action_ids:
-            live = await self.db.ai_actions.find({'user_id': user_id, 'action_id': {'$in': action_ids}}, {'_id': 0}).to_list(120)
+            from services.agent_actions import Actions
+            live = await Actions().by_ids(user_id, action_ids)
             by_id = {a['action_id']: a for a in live}
             for message in messages:
                 if 'actions' in message: message['actions'] = [by_id[a['action_id']] for a in message['actions'] if a['action_id'] in by_id]
