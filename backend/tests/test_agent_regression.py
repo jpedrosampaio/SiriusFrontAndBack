@@ -13,7 +13,7 @@ from ai.credentials import Credentials, credential_fields, public_profile
 from ai.registry import validate_call, TOOLS
 from ai.actions import autonomy, Preferences
 from ai.planning import plan_day
-from ai.memory import Memory, MemoryInput, fingerprint
+from ai.memory import MemoryInput, fingerprint
 from ai.rag import Retrieval, chunks
 from ai.automations import quiet
 
@@ -73,10 +73,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result['unscheduled']), 1)
         self.assertEqual(result['remaining_minutes'], 30)
 
-    async def test_blocked_memory_cannot_be_recreated(self):
-        db = SimpleNamespace(ai_memory=SimpleNamespace(find_one=AsyncMock(return_value={'blocked': True}), insert_one=AsyncMock()))
-        with self.assertRaises(HTTPException): await Memory(db).save('alice', MemoryInput(category='rule', content='No reminders'))
-        db.ai_memory.insert_one.assert_not_awaited()
+    async def test_memory_fingerprint_normalizes_case_and_spacing(self):
         self.assertEqual(fingerprint(' No reminders '), fingerprint('no REMINDERS'))
 
     async def test_retrieval_is_owned_and_revokes_deleted_sources(self):

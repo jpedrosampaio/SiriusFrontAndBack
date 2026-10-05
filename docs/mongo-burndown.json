@@ -1,11 +1,11 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 165,
-  "remaining_collections": 39,
+  "remaining_direct_calls": 158,
+  "remaining_collections": 38,
   "remaining_dynamic_accesses": 4,
   "remaining_gridfs_constructors": 0,
   "domains": {
-    "agent": 38,
+    "agent": 31,
     "contest": 19,
     "files_rag": 19,
     "finance": 16,

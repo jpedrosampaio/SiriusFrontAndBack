@@ -11,7 +11,8 @@ from ai.credentials import Credentials, public_profile, cipher
 from ai.core import Core
 from services.agent_actions import Actions
 from ai.actions import Preferences
-from ai.memory import Memory, MemoryInput
+from ai.memory import MemoryInput
+from services.agent_memory import Memories
 from ai.rag import Retrieval
 from ai.agent import SiriusAgent
 from ai.automations import Automations
@@ -35,7 +36,7 @@ class AgentRuntime:
         self.db, self.settings = db, Settings()
         self.credentials = Credentials()
         self.router = AIRouter(self.settings, reserve=self.reserve)
-        self.core, self.memory, self.retrieval = Core(db), Memory(db), Retrieval(db, self.router, self.credentials)
+        self.core, self.memory, self.retrieval = Core(), Memories(), Retrieval(db, self.router, self.credentials)
         self.actions = Actions()
         self.automations = Automations(db, self.core, self.settings)
         self.agent = SiriusAgent(self.core, self.router, self.credentials, self.actions, self.memory, self.retrieval)
@@ -254,7 +255,7 @@ class AgentRuntime:
         finally: self.running.pop(key, None)
 
     async def setup(self):
-        for name in ('ai_events', 'ai_memory', 'ai_chunks', 'ai_usage'):
+        for name in ('ai_events', 'ai_chunks', 'ai_usage'):
             await self.db[name].create_index('user_id')
         await self.db.ai_chunks.create_index([('user_id', 1), ('terms', 1)])
         await self.db.ai_conversations.create_index([('user_id', 1), ('updated_at', -1)])

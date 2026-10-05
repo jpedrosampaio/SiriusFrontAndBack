@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Agent memory CRUD connected to SQL (services/agent_memory.py), user lock serializes 50-cap and duplicate saves. Delete/block erases content/provenance and retains hash tombstone; cross-category recreation denied. 2 SQL tests passed (0.656s), 107 regressions passed (6 Mongo-only skips). Mongo158 direct/38 collections/4 dynamic/GridFS0. Last fullSQL136 before +4 actions/+2 memory tests. Next conversations/usage/RAG/automations and other remaining domains. No merge/cutover.
+
 Agent Actions/preferences/list/confirm/cancel now actual SQL routes; conversation live actions refresh SQL; old ai/core_writes and Mongo Actions removed. Expiry persists, preference changes serialized with confirmation, owner/version/cancel/rollback/replay tested. 6 SQL tests passed (1.551s), 107 regressions passed (6 Mongo-only local skips); two Mongo action cases ported. Mongo165 direct/39 collections/4 dynamic/GridFS0. Last fullSQL136 before 4 new action route tests. Next: conversations, memory/RAG/automations/usage, other remaining domains. No merge/cutover.
 
 Agent Core reads/page context and assistant snapshot now use SQL. 5 new SQL tests passed (3.353s), 109 regressions passed (8 Mongo-only local skips). Full SQL 136 tests passed (93.229s). Mongo 187 direct/43 collections/5 dynamic/GridFS0. CI ee54c68 all workflows success. Next: actual Agent Actions/preferences routes, conversations/live action refresh, memory/RAG. No merge/cutover.
