@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Agent Core reads/page context and assistant snapshot now use SQL. 5 new SQL tests passed (3.353s), 109 regressions passed (8 Mongo-only local skips). Full SQL 136 tests passed (93.229s). Mongo 187 direct/43 collections/5 dynamic/GridFS0. CI ee54c68 all workflows success. Next: actual Agent Actions/preferences routes, conversations/live action refresh, memory/RAG. No merge/cutover.
+
 Busca global SQL conectada: dez tipos, até 5 resultados por tipo, texto literal com autoescape, dono/archive e links preservados; nomes/valores/contagens derivam das tabelas reais. 2 testes SQL passaram (1,760 s), 109 regressões passaram (8 Mongo-only locais). Mongo 194 diretas/44 collections/7 dinâmicos/GridFS 0. Schema 93726080ad93/83 tabelas. Última suíte geral 128 antes de health_condition +1 e busca +2. Próximo: leitores do Agent (ai/core.py/context_prompt), persistência de conversas/ações/memórias/RAG, notifications/contest/achievements e cleanup. CI após correção do import bcrypt ainda precisa ser confirmado pelo SHA, pois última consulta retornou runs de commit antigo. Não merge/cutover.
 
 Corrigido último ramo Mongo da geração de treino: health_condition agora é preferência SQL escrita junto do plano e retornada em public_user; limite 5000 caracteres. Cinco testes SQL de geração passaram (3,274 s), incluindo rollback da preferência e plano; 109 regressões passaram (8 Mongo-only locais). Mongo 200 diretas/45 collections/8 dinâmicos/GridFS 0. Schema 93726080ad93/83 tabelas. Próximo: busca global, leitores Agent/achievements/notifications/etc. Último full SQL 128 antes deste novo teste. Não merge/cutover.

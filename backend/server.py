@@ -4954,7 +4954,7 @@ class AiChatRequest(BaseModel):
 
 async def build_ai_system_prompt(user_id: str, page: str = "", page_context: str = "") -> str:
     from assistant_service import context_prompt
-    return await context_prompt(db, user_id, page, page_context)
+    return await context_prompt(user_id, page, page_context)
 
 @api_router.get("/ai/conversation")
 async def ai_conversation(request: Request, conversation_id: str = "primary", session_token: Optional[str] = Cookie(None)):
