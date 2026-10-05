@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Planos de treino CRUD e agenda do dia agora SQL em workout_plan_routes.py; dias/exercícios normalizados, archive preserva sessões e editar plano mantém snapshots ativos. Descanso zero preservado. Migration b91a1161f708 adiciona archive e split/progressão tipados por dia; 66 tabelas. 93 testes PostgreSQL passaram (55,890 s); 115 regressões passaram (12 Mongo-only locais); alembic check limpo. Próximo: geração/importação/melhoria de planos, logs/daily-status/stats/insights/medidas/nutrição; leitores restantes ainda Mongo. Não merge/cutover.
+
 Sessões de treino SQL conectadas: start/active/séries/complete/abandon/history, respostas completas para o frontend, séries normalizadas, revisão otimista, XP/log/recibo atômicos. Helper workout_session_service Mongo removido. 90 testes SQL passaram antes da pausa; após retomada em 05/10, PostgreSQL local reiniciado e 4 testes específicos passaram, incluindo port do teste de dia inválido. 115 regressões passaram (12 Mongo-only locais). Mongo 326 diretas, 59 collections, 8 dinâmicos, GridFS 0. Schema head ainda cb8efdf00b9f. Próximo: planos/logs/stats/geração de treino e demais domínios. Sem merge/cutover.
 
 Atualização autoritativa após `956c612`: tarefas/checks/estatísticas de estudo (3339cd5), aulas/histórico (519a82e), mapas mentais/redações (956c612) usam SQL. 83 testes PostgreSQL passaram (47,804 s), 117 regressões passaram (13 Mongo-only locais); CI de 519a82e verde nos três workflows. Schema 66 tabelas; migration d04654f48d58 aplicada. Mongo 340 diretas, 60 collections, 8 dinâmicos, GridFS 0. Históricos abaixo são registros de etapas anteriores.

@@ -73,3 +73,5 @@ completed. Essas alterações correspondem à migração anterior `d18c704a928e`
 `study_mindmaps` guarda título, fonte, FK opcional de caderno e árvore específica de nós; `study_essay_corrections` guarda arquivo, instruções e avaliação estruturada da redação. Não são coleções genéricas. Head `d04654f48d58`, 66 tabelas.
 
 Migration `cb8efdf00b9f` preserva `ai_generated` e `source_pdf` de notas e cartões. Os materiais de PDF usam as mesmas tabelas normalizadas de notas/cartões/Exam/Question, com caderno obrigatório e transação única.
+
+Migration `b91a1161f708` acrescenta archive a planos de treino e divisão/foco/notas de progressão a cada dia normalizado. Editar dias não altera os exercícios já copiados para uma sessão. Planos arquivados deixam de aceitar novas sessões, mantendo os registros existentes.

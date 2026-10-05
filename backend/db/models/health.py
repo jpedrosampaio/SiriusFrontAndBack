@@ -10,6 +10,7 @@ from db.models.planning import Owned
 
 class WorkoutPlan(Identity, Owned, Timestamps, Base):
     __tablename__ = 'workout_plans'
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     name: Mapped[str]
     description: Mapped[str | None] = mapped_column(Text)
     plan_duration: Mapped[str] = mapped_column(default='dia')
@@ -28,6 +29,9 @@ class WorkoutDay(Identity, Owned, Base):
     week: Mapped[int]
     label: Mapped[str]
     name: Mapped[str]
+    split_label: Mapped[str] = mapped_column(default='')
+    progression_focus: Mapped[str] = mapped_column(default='')
+    progression_notes: Mapped[str] = mapped_column(Text,default='')
     plan: Mapped[WorkoutPlan] = relationship(back_populates='days')
     exercises: Mapped[list['PlanExercise']] = relationship(back_populates='day',passive_deletes=True,order_by='PlanExercise.position')
     __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','plan_id','position'),

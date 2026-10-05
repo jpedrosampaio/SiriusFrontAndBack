@@ -2303,69 +2303,9 @@ class CardChargeRequest(BaseModel):
 
 
 # ========== WORKOUT ENDPOINTS ==========
-@api_router.get("/workout-plans")
-async def get_workout_plans(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    plans = await db.workout_plans.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    for plan in plans:
-        if isinstance(plan['created_at'], str):
-            plan['created_at'] = datetime.fromisoformat(plan['created_at'])
-    return plans
 
-@api_router.post("/workout-plans")
-async def create_workout_plan(request: Request, plan_data: WorkoutPlanCreate, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    plan_id = f"plan_{uuid.uuid4().hex[:12]}"
-    plan_doc = {
-        "plan_id": plan_id,
-        "user_id": user.user_id,
-        "name": plan_data.name,
-        "description": plan_data.description,
-        "exercises": plan_data.exercises,
-        "plan_duration": plan_data.plan_duration or "dia",
-        "generated_by_ai": False,
-        "days": plan_data.days,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.workout_plans.insert_one(plan_doc)
-    plan_doc.pop('_id', None)  # Remove MongoDB ObjectId
-    plan_doc['created_at'] = datetime.fromisoformat(plan_doc['created_at'])
-    return WorkoutPlan(**plan_doc)
 
-@api_router.patch("/workout-plans/{plan_id}")
-async def update_workout_plan(request: Request, plan_id: str, plan_data: WorkoutPlanCreate, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    update_data = {
-        "name": plan_data.name,
-        "description": plan_data.description,
-        "exercises": plan_data.exercises,
-        "plan_duration": plan_data.plan_duration or "dia",
-        "days": plan_data.days
-    }
-    
-    result = await db.workout_plans.update_one(
-        {"plan_id": plan_id, "user_id": user.user_id},
-        {"$set": update_data}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Workout plan not found")
-    return {"message": "Workout plan updated"}
 
-@api_router.delete("/workout-plans/{plan_id}")
-async def delete_workout_plan(request: Request, plan_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.workout_plans.delete_one({"plan_id": plan_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Workout plan not found")
-    return {"message": "Workout plan deleted"}
 
 @api_router.get("/workouts")
 async def get_workouts(request: Request, date: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
@@ -2383,59 +2323,6 @@ async def get_workouts(request: Request, date: Optional[str] = None, session_tok
     return workouts
 
 
-@api_router.get("/workouts/today-schedule")
-async def get_today_workout_schedule(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get today's scheduled workout from the user's plan."""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Find the user's plans with days, ordered by creation date
-    plans = await db.workout_plans.find(
-        {"user_id": user.user_id, "days": {"$exists": True, "$ne": []}},
-        {"_id": 0}
-    ).sort("created_at", -1).to_list(20)
-    
-    if not plans:
-        return {"scheduled": False, "message": "Nenhum plano de treino encontrado"}
-    
-    plan = plans[0]
-    days = plan.get("days", [])
-    if not days:
-        return {"scheduled": False, "message": "Plano não possui dias definidos"}
-    
-    created_at = plan.get("created_at")
-    if isinstance(created_at, str):
-        created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-    
-    now = datetime.now(timezone.utc)
-    days_since_start = (now - created_at).days
-    day_index = days_since_start % len(days)
-    
-    today_workout = days[day_index]
-    exercises = today_workout.get("exercises", [])
-    
-    # Check if already logged today
-    today_str = now.strftime("%Y-%m-%d")
-    already_logged = await db.workout_logs.find_one({
-        "user_id": user.user_id,
-        "plan_id": plan.get("plan_id"),
-        "date": today_str
-    })
-    
-    return {
-        "scheduled": True,
-        "plan_id": plan.get("plan_id"),
-        "plan_name": plan.get("name", ""),
-        "day_name": today_workout.get("day_name", ""),
-        "day_label": today_workout.get("day_label", ""),
-        "split_label": today_workout.get("split_label", ""),
-        "week": today_workout.get("week", 0),
-        "day_index": day_index,
-        "total_days": len(days),
-        "exercises": exercises,
-        "exercise_count": len(exercises),
-        "already_completed": already_logged is not None
-    }
 
 @api_router.post("/workouts")
 async def log_workout(request: Request, workout_data: WorkoutLogCreate, session_token: Optional[str] = Cookie(None)):
@@ -8605,6 +8492,8 @@ from services import study_pdf_materials
 api_router.include_router(study_pdf_materials.router)
 from services import workout_session_routes
 api_router.include_router(workout_session_routes.router)
+from services import workout_plan_routes
+api_router.include_router(workout_plan_routes.router)
 from services.edital_routes import router as edital_sql_router
 api_router.include_router(edital_sql_router)
 from services.studies_v2_routes import router as studies_v2_router
