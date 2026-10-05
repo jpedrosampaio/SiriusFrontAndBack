@@ -9,7 +9,7 @@ from db.models.finance import FinancialTransaction
 from db.models.studies import StudySession,QuestionAttempt
 from db.models.health import WorkoutLog
 from db.session import unit_of_work
-from services.nutrition import period
+from services.nutrition_data import period
 
 
 def report_window(kind, today, start=None, end=None):

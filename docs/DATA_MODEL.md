@@ -1,6 +1,8 @@
 # Modelo relacional — fundação em desenvolvimento
 
-O schema atual da branch tem 82 tabelas (Alembic `060d04832219`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema atual da branch tem 83 tabelas (Alembic `93726080ad93`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+
+`daily_summaries` guarda o resumo diário em campos tipados, com unicidade dono/data e validade de quatro horas verificada na leitura. Chamadas de IA ocorrem fora da transação; o writer revalida o cache depois de obter o lock do usuário.
 
 `xp_entries` registra o delta efetivo de XP por dono e data civil, junto da alteração do usuário e recibo na mesma transação. Estornos são negativos; a repetição da ação não cria novo registro. Não há reconstrução/migração de histórico antigo.
 
