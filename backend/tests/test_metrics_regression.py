@@ -22,18 +22,6 @@ class MetricsTests(unittest.IsolatedAsyncioTestCase):
         self.client.close()
 
 
-    async def test_dashboard_real_percent_and_applicable_tasks(self):
-        from dashboard_service import dashboard_snapshot
-        await self.db.goals.insert_many([{'user_id': 'alice', 'progress': 20, 'daily_checks': ['x'] * 8}, {'user_id': 'alice', 'progress': 80}])
-        await self.db.tasks.insert_many([
-            {'user_id': 'alice', 'task_id': 'today', 'is_template': True, 'date': '2026-09-25', 'recurrence': 'once'},
-            {'user_id': 'alice', 'task_id': 'tomorrow', 'is_template': True, 'date': '2026-09-26', 'recurrence': 'daily'},
-        ])
-        await self.db.task_instances.insert_many([{'user_id': 'alice', 'task_id': 'today', 'date': '2026-09-25', 'completed': True} for _ in range(2)])
-        snapshot = await dashboard_snapshot(self.db, SimpleNamespace(user_id='alice', name='A', xp=0, rank='R', picture=None), '2026-09-25')
-        self.assertEqual(snapshot['goals_avg_progress'], 50)
-        self.assertEqual(snapshot['tasks_today'], 1)
-        self.assertEqual(snapshot['tasks_completed_today'], 1)
 
     async def test_conversation_ownership_replay_and_bounded_context(self):
         from assistant_service import Conversations

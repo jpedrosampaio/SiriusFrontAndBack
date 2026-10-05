@@ -1,7 +1,7 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 233,
-  "remaining_collections": 49,
+  "remaining_direct_calls": 227,
+  "remaining_collections": 47,
   "remaining_dynamic_accesses": 8,
   "remaining_gridfs_constructors": 0,
   "domains": {
@@ -10,12 +10,12 @@
     "files_rag": 19,
     "finance": 22,
     "goals": 3,
-    "health": 13,
+    "health": 12,
     "identity": 9,
     "notifications": 24,
     "other": 14,
     "planning": 21,
-    "studies": 31
+    "studies": 26
   },
   "mongo_imports": [
     "ai/automations.py:7: pymongo",
@@ -30,7 +30,7 @@
     "server.py:6: pymongo.errors",
     "server.py:7: pymongo.read_concern",
     "server.py:8: pymongo.write_concern",
-    "server.py:1973: pymongo.errors"
+    "server.py:1961: pymongo.errors"
   ],
   "mongo_identifiers": {
     "AsyncIOMotorClient": 1

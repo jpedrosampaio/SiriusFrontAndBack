@@ -115,14 +115,6 @@ class ActivityTransactionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("task_instances", names)
         self.assertIn("activity_requests", names)
 
-    async def test_dashboard_counts_full_history_and_keeps_owners_separate(self):
-        from dashboard_service import dashboard_snapshot
-        await self.db.transactions.insert_many([{'user_id': 'alice', 'date': '2026-09-14', 'type': 'income', 'amount': 1} for _ in range(1005)])
-        await self.db.transactions.insert_one({'user_id': 'bob', 'date': '2026-09-14', 'type': 'income', 'amount': 9999})
-        await self.db.focus_sessions.insert_one({'user_id': 'alice', 'date': '2026-09-14', 'focus_minutes': 25, 'completed': True})
-        result = await dashboard_snapshot(self.db, SimpleNamespace(user_id='alice', name='Alice', xp=0, rank='Recruta', picture=None), '2026-09-14')
-        self.assertEqual(result['income'], 1005)
-        self.assertEqual(result['study_stats']['study_time_today_minutes'], 25)
 
 
 

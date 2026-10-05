@@ -1792,18 +1792,6 @@ Se não conseguir identificar gastos na imagem, retorne:
 
 
 
-@api_router.get("/stats/dashboard")
-async def get_dashboard_stats(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    from zoneinfo import ZoneInfo
-    from dashboard_service import dashboard_snapshot
-    today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d")
-    result = await dashboard_snapshot(db, user, today)
-    from cross_module_rules import suggestions_from_snapshot
-    result["suggestions"] = suggestions_from_snapshot(result)
-    return result
 
 
 @api_router.get("/stats/analytics")
@@ -5020,17 +5008,6 @@ async def get_smart_reminders(request: Request, session_token: Optional[str] = C
 
 
 # ========== CROSS-MODULE SUGGESTIONS ==========
-@api_router.get("/suggestions/cross-module")
-async def get_cross_module_suggestions(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get smart suggestions that connect different modules"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    from dashboard_service import dashboard_snapshot
-    from cross_module_rules import suggestions_from_snapshot
-    from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo("America/Sao_Paulo")).date().isoformat()
-    return {"suggestions": suggestions_from_snapshot(await dashboard_snapshot(db, user, today))}
 
 
 @api_router.get("/dashboard/panels")
@@ -5669,6 +5646,8 @@ api_router.include_router(domain_exports.router)
 from services import reports
 reports.configure(call_llm)
 api_router.include_router(reports.router)
+from services import dashboard
+api_router.include_router(dashboard.router)
 health_ai_routes.configure(get_current_user,call_llm,request_gemini)
 api_router.include_router(health_ai_routes.api_router)
 from services import workout_history_routes
