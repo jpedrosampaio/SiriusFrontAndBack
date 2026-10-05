@@ -2,10 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, File, UploadFile, Form, C
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ReturnDocument
 from pymongo.errors import OperationFailure, CollectionInvalid
-from pymongo.read_concern import ReadConcern
-from pymongo.write_concern import WriteConcern
 import hashlib
 import os
 import logging
@@ -822,64 +819,6 @@ def validate_activity_date(value: str) -> str:
     return value
 
 
-async def run_activity_mutation(user_id, request_key, fingerprint, apply):
-    """Serialize activity transitions per user and commit state, XP and receipt together."""
-    receipt_id = None
-    if request_key is not None:
-        if not (8 <= len(request_key) <= 128) or not all(
-            c.isascii() and (c.isalnum() or c in "-_") for c in request_key
-        ):
-            raise HTTPException(status_code=422, detail="Invalid Idempotency-Key")
-        receipt_id = hashlib.sha256(
-            json.dumps([user_id, request_key]).encode("utf-8")
-        ).hexdigest()
-
-    async def transact(session):
-        # This write makes simultaneous transitions for this user conflict.
-        # Motor retries the entire transaction against a fresh snapshot.
-        balance = await db.users.find_one_and_update(
-            {"user_id": user_id}, {"$inc": {"activity_revision": 1}},
-            return_document=ReturnDocument.AFTER, session=session
-        )
-        if balance is None:
-            raise HTTPException(status_code=404, detail="User not found")
-        # This transaction already owns the user write lock and an authoritative
-        # snapshot. Avoid another read queued behind non-transactional XP writers.
-        # with_transaction retries reset this cache from the new snapshot.
-        session._sirius_xp_balances = {user_id: balance.get('xp', 0)}
-        if receipt_id is not None:
-            previous = await db.activity_requests.find_one({"_id": receipt_id}, session=session)
-            if previous is not None:
-                if previous["fingerprint"] != fingerprint:
-                    raise HTTPException(status_code=409, detail="Idempotency-Key already used for another action")
-                return {**previous["result"], "replayed": True}
-
-        result = await apply(session, balance)
-        event_names = {'task': 'task.completed', 'complete_session': 'workout.completed', 'focus': 'study.session.completed'}
-        event_type = event_names.get(fingerprint[0]) if fingerprint else None
-        if fingerprint and fingerprint[0] == 'task' and not result.get('completed'): event_type = None
-        if event_type:
-            await db.ai_events.insert_one({'user_id': user_id, 'event_id': uuid.uuid4().hex, 'type': event_type,
-                'status': 'pending', 'created_at': datetime.now(timezone.utc).isoformat()}, session=session)
-
-        if receipt_id is not None:
-            await db.activity_requests.insert_one({
-                "_id": receipt_id, "user_id": user_id, "fingerprint": fingerprint,
-                "result": result, "created_at": datetime.now(timezone.utc).isoformat()
-            }, session=session)
-        return result
-
-    try:
-        async with await client.start_session() as session:
-            return await session.with_transaction(
-                transact, read_concern=ReadConcern("snapshot"),
-                write_concern=WriteConcern("majority"), max_commit_time_ms=10000
-            )
-    except OperationFailure as exc:
-        if exc.code == 20:
-            logging.error("Activity transactions require MongoDB replica set or mongos")
-            raise HTTPException(status_code=503, detail="Activity transactions unavailable") from exc
-        raise
 
 
 
@@ -906,124 +845,8 @@ async def run_activity_mutation(user_id, request_key, fingerprint, apply):
 
 
 
-@api_router.get("/achievements")
-async def get_achievements(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    achievements = await db.achievements.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    for achievement in achievements:
-        if isinstance(achievement.get('unlocked_at'), str):
-            achievement['unlocked_at'] = datetime.fromisoformat(achievement['unlocked_at'])
-    return achievements
 
 
-@api_router.get("/achievements/full")
-async def get_full_achievements(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get all possible achievements with progress tracking"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Fetch data for progress calculation
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    tasks_completed = await db.task_instances.count_documents({"user_id": user.user_id, "completed": True})
-    habits = await db.habits.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    transactions = await db.transactions.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
-    study_sessions = await db.study_sessions.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
-    workout_logs = await db.workout_logs.find({"user_id": user.user_id, "completed": True}, {"_id": 0}).to_list(1000)
-    flashcards = await db.flashcards.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
-    meals = await db.meals.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
-    goals = await db.goals.find({"user_id": user.user_id}, {"_id": 0}).to_list(100)
-    study_streak = await db.study_streaks.find_one({"user_id": user.user_id}, {"_id": 0})
-    
-    total_study_minutes = sum(s.get("duration_minutes", 0) for s in study_sessions)
-    total_workout_minutes = sum(w.get("duration_minutes", 0) for w in workout_logs)
-    max_habit_streak = max((h.get("current_streak", 0) for h in habits), default=0)
-    longest_study_streak = study_streak.get("longest_streak", 0) if study_streak else 0
-    
-    # Define all achievements
-    all_achievements = [
-        # Tasks
-        {"id": "task_1", "title": "Primeira Missão", "description": "Complete sua primeira tarefa", "icon": "check", "category": "tasks", "color": "#007AFF", "target": 1, "current": min(tasks_completed, 1)},
-        {"id": "task_10", "title": "Executor", "description": "Complete 10 tarefas", "icon": "check-double", "category": "tasks", "color": "#007AFF", "target": 10, "current": min(tasks_completed, 10)},
-        {"id": "task_50", "title": "Produtivo", "description": "Complete 50 tarefas", "icon": "list-checks", "category": "tasks", "color": "#007AFF", "target": 50, "current": min(tasks_completed, 50)},
-        {"id": "task_200", "title": "Imparável", "description": "Complete 200 tarefas", "icon": "rocket", "category": "tasks", "color": "#007AFF", "target": 200, "current": min(tasks_completed, 200)},
-        
-        # Habits
-        {"id": "habit_create", "title": "Novo Hábito", "description": "Crie seu primeiro hábito", "icon": "trending-up", "category": "habits", "color": "#39FF14", "target": 1, "current": min(len(habits), 1)},
-        {"id": "habit_streak_7", "title": "Semana Perfeita", "description": "Mantenha um streak de 7 dias em um hábito", "icon": "flame", "category": "habits", "color": "#39FF14", "target": 7, "current": min(max_habit_streak, 7)},
-        {"id": "habit_streak_30", "title": "Mês de Ferro", "description": "Mantenha um streak de 30 dias", "icon": "flame", "category": "habits", "color": "#39FF14", "target": 30, "current": min(max_habit_streak, 30)},
-        {"id": "habit_streak_100", "title": "Disciplina Absoluta", "description": "100 dias de streak em um hábito", "icon": "crown", "category": "habits", "color": "#39FF14", "target": 100, "current": min(max_habit_streak, 100)},
-        
-        # Finance
-        {"id": "fin_first", "title": "Primeiro Registro", "description": "Registre sua primeira transação", "icon": "dollar", "category": "finance", "color": "#FF9500", "target": 1, "current": min(len(transactions), 1)},
-        {"id": "fin_50", "title": "Controlador", "description": "Registre 50 transações", "icon": "wallet", "category": "finance", "color": "#FF9500", "target": 50, "current": min(len(transactions), 50)},
-        {"id": "fin_200", "title": "Mestre das Finanças", "description": "Registre 200 transações", "icon": "bar-chart", "category": "finance", "color": "#FF9500", "target": 200, "current": min(len(transactions), 200)},
-        
-        # Study
-        {"id": "study_first", "title": "Primeira Sessão", "description": "Realize sua primeira sessão de estudo", "icon": "book", "category": "study", "color": "#A855F7", "target": 1, "current": min(len(study_sessions), 1)},
-        {"id": "study_hours_10", "title": "Estudioso", "description": "Acumule 10 horas de estudo", "icon": "clock", "category": "study", "color": "#A855F7", "target": 600, "current": min(total_study_minutes, 600)},
-        {"id": "study_hours_50", "title": "Acadêmico", "description": "Acumule 50 horas de estudo", "icon": "graduation-cap", "category": "study", "color": "#A855F7", "target": 3000, "current": min(total_study_minutes, 3000)},
-        {"id": "study_streak_14", "title": "Foco Total", "description": "14 dias consecutivos de estudo", "icon": "target", "category": "study", "color": "#A855F7", "target": 14, "current": min(longest_study_streak, 14)},
-        {"id": "flash_100", "title": "Memorização", "description": "Crie 100 flashcards", "icon": "brain", "category": "study", "color": "#A855F7", "target": 100, "current": min(len(flashcards), 100)},
-        
-        # Workouts
-        {"id": "gym_first", "title": "Primeiro Treino", "description": "Complete seu primeiro treino", "icon": "dumbbell", "category": "workouts", "color": "#EF4444", "target": 1, "current": min(len(workout_logs), 1)},
-        {"id": "gym_20", "title": "Atleta", "description": "Complete 20 treinos", "icon": "medal", "category": "workouts", "color": "#EF4444", "target": 20, "current": min(len(workout_logs), 20)},
-        {"id": "gym_hours_10", "title": "Forte", "description": "Acumule 10 horas de treino", "icon": "timer", "category": "workouts", "color": "#EF4444", "target": 600, "current": min(total_workout_minutes, 600)},
-        
-        # Nutrition
-        {"id": "meal_first", "title": "Primeira Refeição", "description": "Registre sua primeira refeição", "icon": "utensils", "category": "nutrition", "color": "#22C55E", "target": 1, "current": min(len(meals), 1)},
-        {"id": "meal_50", "title": "Alimentação Consciente", "description": "Registre 50 refeições", "icon": "apple", "category": "nutrition", "color": "#22C55E", "target": 50, "current": min(len(meals), 50)},
-        
-        # Goals
-        {"id": "goal_create", "title": "Visionário", "description": "Crie sua primeira meta", "icon": "target", "category": "goals", "color": "#F59E0B", "target": 1, "current": min(len(goals), 1)},
-        {"id": "goal_5", "title": "Ambicioso", "description": "Tenha 5 metas ativas", "icon": "trophy", "category": "goals", "color": "#F59E0B", "target": 5, "current": min(len(goals), 5)},
-        
-        # XP / Rank
-        {"id": "xp_100", "title": "Soldado", "description": "Alcance 100 XP", "icon": "zap", "category": "xp", "color": "#FFD700", "target": 100, "current": min(user.xp, 100)},
-        {"id": "xp_500", "title": "Veterano", "description": "Alcance 500 XP", "icon": "star", "category": "xp", "color": "#FFD700", "target": 500, "current": min(user.xp, 500)},
-        {"id": "xp_1000", "title": "Lenda", "description": "Alcance 1000 XP", "icon": "crown", "category": "xp", "color": "#FFD700", "target": 1000, "current": min(user.xp, 1000)},
-        {"id": "xp_3000", "title": "Supremo", "description": "Alcance 3000 XP", "icon": "shield", "category": "xp", "color": "#FFD700", "target": 3000, "current": min(user.xp, 3000)},
-    ]
-    
-    # Unlocked achievements from DB
-    unlocked = await db.achievements.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
-    unlocked_titles = set(a.get("title", "") for a in unlocked)
-    
-    # Mark unlocked and auto-unlock new ones
-    result = []
-    newly_unlocked = []
-    for ach in all_achievements:
-        ach["progress"] = round((ach["current"] / ach["target"]) * 100, 1) if ach["target"] > 0 else 0
-        ach["unlocked"] = ach["progress"] >= 100 or ach["title"] in unlocked_titles
-        
-        # Auto-unlock if progress is 100% but not yet in DB
-        if ach["progress"] >= 100 and ach["title"] not in unlocked_titles:
-            ach["unlocked"] = True
-            newly_unlocked.append(ach)
-            await db.achievements.insert_one({
-                "achievement_id": f"ach_{uuid.uuid4().hex[:12]}",
-                "user_id": user.user_id,
-                "title": ach["title"],
-                "description": ach["description"],
-                "icon": ach["icon"],
-                "category": ach["category"],
-                "unlocked_at": datetime.now(timezone.utc).isoformat()
-            })
-        
-        result.append(ach)
-    
-    total_unlocked = len([a for a in result if a["unlocked"]])
-    
-    return {
-        "achievements": result,
-        "total": len(result),
-        "unlocked": total_unlocked,
-        "locked": len(result) - total_unlocked,
-        "completion_pct": round((total_unlocked / len(result)) * 100, 1) if result else 0,
-        "newly_unlocked": [{"title": a["title"], "description": a["description"]} for a in newly_unlocked]
-    }
 
 @api_router.get("/chat/messages")
 async def get_chat_messages(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -1056,90 +879,7 @@ async def analyze_image_for_expenses(
 
 
 
-@api_router.get("/challenges/current")
-async def get_current_challenges(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    today = datetime.now(timezone.utc).date()
-    week_start = (today - timedelta(days=today.weekday())).isoformat()
-    
-    challenges = await db.challenges.find({"week_start": week_start}, {"_id": 0}).to_list(100)
-    
-    if len(challenges) == 0:
-        default_challenges = [
-            {
-                "challenge_id": f"chal_{uuid.uuid4().hex[:12]}",
-                "title": "Mestre das Tarefas",
-                "description": "Complete 10 tarefas esta semana",
-                "xp_reward": 50,
-                "week_start": week_start,
-                "week_end": (today + timedelta(days=7-today.weekday())).isoformat(),
-                "completed_by": [],
-                "created_at": datetime.now(timezone.utc).isoformat()
-            },
-            {
-                "challenge_id": f"chal_{uuid.uuid4().hex[:12]}",
-                "title": "Guardião dos Hábitos",
-                "description": "Mantenha 5 dias de streak em qualquer hábito",
-                "xp_reward": 75,
-                "week_start": week_start,
-                "week_end": (today + timedelta(days=7-today.weekday())).isoformat(),
-                "completed_by": [],
-                "created_at": datetime.now(timezone.utc).isoformat()
-            },
-            {
-                "challenge_id": f"chal_{uuid.uuid4().hex[:12]}",
-                "title": "Controlador Financeiro",
-                "description": "Registre todas as transações diárias por 5 dias",
-                "xp_reward": 100,
-                "week_start": week_start,
-                "week_end": (today + timedelta(days=7-today.weekday())).isoformat(),
-                "completed_by": [],
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-        ]
-        await db.challenges.insert_many(default_challenges)
-        challenges = default_challenges
-    
-    for challenge in challenges:
-        if isinstance(challenge['created_at'], str):
-            challenge['created_at'] = datetime.fromisoformat(challenge['created_at'])
-        challenge['completed'] = user.user_id in challenge.get('completed_by', [])
-    
-    return challenges
 
-@api_router.post("/challenges/{challenge_id}/complete")
-async def complete_challenge(request: Request, challenge_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    challenge = await db.challenges.find_one({"challenge_id": challenge_id}, {"_id": 0})
-    if not challenge:
-        raise HTTPException(status_code=404, detail="Challenge not found")
-    
-    if user.user_id in challenge.get('completed_by', []):
-        raise HTTPException(status_code=400, detail="Challenge already completed")
-    
-    await db.challenges.update_one(
-        {"challenge_id": challenge_id},
-        {"$push": {"completed_by": user.user_id}}
-    )
-    
-    new_xp, new_rank = await award_xp(user.user_id, challenge['xp_reward'])
-    
-    achievement_id = f"ach_{uuid.uuid4().hex[:12]}"
-    achievement_doc = {
-        "achievement_id": achievement_id,
-        "user_id": user.user_id,
-        "title": challenge['title'],
-        "description": challenge['description'],
-        "icon": "trophy",
-        "unlocked_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.achievements.insert_one(achievement_doc)
-    
-    return {"message": "Challenge completed", "xp_earned": challenge['xp_reward'], "new_xp": new_xp, "new_rank": new_rank}
 
 @api_router.get("/alerts")
 async def get_alerts(request: Request, session_token: Optional[str] = Cookie(None)):
@@ -1199,49 +939,6 @@ def calculate_rank(xp: int) -> str:
             return rank
     return "Recruta"
 
-async def award_xp(user_id: str, amount: int, session=None):
-    """Apply an XP delta using compare-and-set, keeping XP and rank together."""
-    # On replica sets, independent rewards use the same transactional conflict
-    # handling as task/habit writes. Mixing waiting standalone CAS writes with
-    # an open activity transaction can starve that transaction's second update.
-    # A standalone development database still supports the original atomic CAS.
-    mongo_client = getattr(db, 'client', None)
-    if session is None and mongo_client is not None:
-        from pymongo.errors import OperationFailure as XPStorageError
-        async def grant(transaction):
-            return await award_xp(user_id, amount, session=transaction)
-        try:
-            async with await mongo_client.start_session() as transaction:
-                return await transaction.with_transaction(grant)
-        except XPStorageError as exc:
-            if exc.code != 20: raise
-    session_options = {"session": session} if session is not None else {}
-    balances = getattr(session, '_sirius_xp_balances', {}) if session is not None else {}
-    if user_id in balances:
-        new_xp = max(0, balances[user_id] + amount)
-        new_rank = calculate_rank(new_xp)
-        result = await db.users.update_one({'user_id': user_id}, {'$set': {'xp': new_xp, 'rank': new_rank}}, session=session)
-        if not result.matched_count: raise HTTPException(404, 'User not found')
-        balances[user_id] = new_xp
-        return new_xp, new_rank
-    for _ in range(100):
-        user_doc = await db.users.find_one({"user_id": user_id}, {"xp": 1}, **session_options)
-        if user_doc is None:
-            raise HTTPException(status_code=404, detail="User not found")
-        current_xp = user_doc.get("xp", 0)
-        new_xp = max(0, current_xp + amount)
-        new_rank = calculate_rank(new_xp)
-        # A concurrent award invalidates this snapshot. Retry instead of
-        # overwriting it; matched_count also handles an unchanged XP balance.
-        expected_xp = current_xp if "xp" in user_doc else {"$exists": False}
-        result = await db.users.update_one(
-            {"user_id": user_id, "xp": expected_xp},
-            {"$set": {"xp": new_xp, "rank": new_rank}}, **session_options
-        )
-        if result.matched_count:
-            return new_xp, new_rank
-        await asyncio.sleep(0)
-    raise HTTPException(status_code=503, detail="XP update busy; try again")
 
 def calculate_streak(completions: List[str]) -> int:
     if not completions:
@@ -2477,57 +2174,6 @@ async def study_ai_chat(request: Request, data: dict, session_token: Optional[st
 
 
 
-async def update_study_streak(user_id: str, session=None):
-    """Update user's study streak"""
-    from zoneinfo import ZoneInfo
-    now = datetime.now(ZoneInfo("America/Sao_Paulo"))
-    today = now.strftime("%Y-%m-%d")
-    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-    
-    streak = await db.study_streaks.find_one({"user_id": user_id}, {"_id": 0}, session=session)
-    
-    if not streak:
-        streak_id = f"streak_{uuid.uuid4().hex[:12]}"
-        streak = {
-            "streak_id": streak_id,
-            "user_id": user_id,
-            "current_streak": 1,
-            "best_streak": 1,
-            "last_study_date": today,
-            "total_study_days": 1,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.study_streaks.insert_one(streak, session=session)
-        return
-    
-    last_date = streak.get("last_study_date")
-    
-    if last_date == today:
-        return  # Already studied today
-    
-    if last_date == yesterday:
-        # Continue streak
-        new_streak = streak.get("current_streak", 0) + 1
-        best_streak = max(streak.get("best_streak", 0), new_streak)
-        await db.study_streaks.update_one(
-            {"user_id": user_id},
-            {"$set": {
-                "current_streak": new_streak,
-                "best_streak": best_streak,
-                "last_study_date": today,
-                "total_study_days": streak.get("total_study_days", 0) + 1
-            }}, session=session
-        )
-    else:
-        # Streak broken, start new
-        await db.study_streaks.update_one(
-            {"user_id": user_id},
-            {"$set": {
-                "current_streak": 1,
-                "last_study_date": today,
-                "total_study_days": streak.get("total_study_days", 0) + 1
-            }}, session=session
-        )
 
 
 
@@ -4227,6 +3873,8 @@ async def ai_chat(request: Request, body: AiChatRequest, session_token: Optional
 from ai.routes import AgentRuntime
 agent_runtime = AgentRuntime(get_current_user)
 api_router.include_router(agent_runtime.api)
+from services.gamification import router as gamification_router
+api_router.include_router(gamification_router)
 from gemini_service import configure as configure_ai_compatibility
 configure_ai_compatibility(agent_runtime.router)
 

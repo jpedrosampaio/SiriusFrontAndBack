@@ -8,3 +8,4 @@ from db.models.health import WorkoutPlan, WorkoutDay, PlanExercise, WorkoutSessi
 from db.models.exams import Question, Exam, ExamQuestion, ExamAttempt
 
 from db.models.reports import Report
+from db.models.gamification import Achievement, WeeklyChallenge
