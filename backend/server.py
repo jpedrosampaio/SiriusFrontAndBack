@@ -2295,80 +2295,6 @@ class CardChargeRequest(BaseModel):
 
 
 
-@api_router.post("/workout-suggestions")
-async def get_ai_workout_suggestions(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get AI-powered workout suggestions based on user's history and goals"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Get recent workouts
-    today = datetime.now(timezone.utc)
-    start_date = (today - timedelta(days=30)).strftime("%Y-%m-%d")
-    
-    workouts = await db.workout_logs.find({
-        "user_id": user.user_id,
-        "date": {"$gte": start_date}
-    }, {"_id": 0}).to_list(100)
-    
-    # Get body measurements
-    measurements = await db.body_measurements.find(
-        {"user_id": user.user_id}, {"_id": 0}
-    ).sort("date", -1).limit(1).to_list(1)
-    
-    latest_measurement = measurements[0] if measurements else None
-    
-    # Build prompt
-    workout_summary = {}
-    for w in workouts:
-        t = w['activity_type']
-        workout_summary[t] = workout_summary.get(t, 0) + 1
-    
-    prompt = f"""Com base no histórico de treinos e dados do usuário, sugira um plano de treino personalizado.
-
-HISTÓRICO DE TREINOS (últimos 30 dias):
-- Total de treinos: {len(workouts)}
-- Por tipo: {json.dumps(workout_summary, indent=2)}
-
-"""
-    
-    if latest_measurement:
-        prompt += f"""MEDIDAS CORPORAIS:
-- Peso: {latest_measurement.get('weight_kg', 'N/A')} kg
-- Altura: {latest_measurement.get('height_cm', 'N/A')} cm
-- Gordura corporal: {latest_measurement.get('body_fat_percentage', 'N/A')}%
-- Massa muscular: {latest_measurement.get('muscle_mass_kg', 'N/A')} kg
-
-"""
-    
-    prompt += """Por favor, forneça:
-1. Análise do perfil de treino atual
-2. Sugestão de treino para a próxima semana (com exercícios específicos)
-3. Dicas de intensidade e progressão
-4. Recomendações de descanso e recuperação
-5. Sugestões de nutrição pré e pós-treino
-
-Responda em português de forma prática e motivadora."""
-
-    try:
-        response = await call_llm(
-            prompt=prompt,
-            session_id=f"workout_suggestions_{user.user_id}",
-            system_message="Você é um personal trainer experiente e nutricionista esportivo. Forneça sugestões personalizadas e práticas.",
-            user_id=user.user_id
-        , task='workout_generation')
-        
-        return {
-            "suggestions": response,
-            "based_on": {
-                "total_workouts": len(workouts),
-                "workout_types": workout_summary,
-                "has_measurements": latest_measurement is not None
-            }
-        }
-        
-    except Exception as e:
-        logging.error(f"Workout suggestions failed: {e}")
-        raise HTTPException(status_code=500, detail="Não foi possível gerar sugestões. Tente novamente.")
 
 # ========== AI WORKOUT GENERATION ==========
 
@@ -2646,256 +2572,14 @@ async def get_notification_templates():
     return templates
 
 # ========== BODY MEASUREMENTS ENDPOINTS ==========
-@api_router.get("/body-measurements")
-async def get_body_measurements(request: Request, limit: int = 30, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    measurements = await db.body_measurements.find(
-        {"user_id": user.user_id}, {"_id": 0}
-    ).sort("date", -1).limit(limit).to_list(limit)
-    
-    return measurements
 
-@api_router.get("/body-measurements/latest")
-async def get_latest_measurement(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    measurement = await db.body_measurements.find_one(
-        {"user_id": user.user_id}, {"_id": 0}, sort=[("date", -1)]
-    )
-    
-    return measurement
 
-@api_router.post("/body-measurements")
-async def create_body_measurement(request: Request, data: BodyMeasurementCreate, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    measurement_id = f"measure_{uuid.uuid4().hex[:12]}"
-    
-    # Calcular IMC se altura e peso foram fornecidos
-    bmi = None
-    if data.weight_kg and data.height_cm:
-        height_m = data.height_cm / 100
-        bmi = round(data.weight_kg / (height_m ** 2), 1)
-    
-    measurement_doc = {
-        "measurement_id": measurement_id,
-        "user_id": user.user_id,
-        "date": data.date,
-        "weight_kg": data.weight_kg,
-        "body_fat_percentage": data.body_fat_percentage,
-        "muscle_mass_kg": data.muscle_mass_kg,
-        "bone_mass_kg": data.bone_mass_kg,
-        "water_percentage": data.water_percentage,
-        "visceral_fat": data.visceral_fat,
-        "metabolic_age": data.metabolic_age,
-        "bmr_kcal": data.bmr_kcal,
-        "height_cm": data.height_cm,
-        "neck_cm": data.neck_cm,
-        "shoulders_cm": data.shoulders_cm,
-        "chest_cm": data.chest_cm,
-        "waist_cm": data.waist_cm,
-        "abdomen_cm": data.abdomen_cm,
-        "hips_cm": data.hips_cm,
-        "left_arm_cm": data.left_arm_cm,
-        "right_arm_cm": data.right_arm_cm,
-        "left_forearm_cm": data.left_forearm_cm,
-        "right_forearm_cm": data.right_forearm_cm,
-        "left_thigh_cm": data.left_thigh_cm,
-        "right_thigh_cm": data.right_thigh_cm,
-        "left_calf_cm": data.left_calf_cm,
-        "right_calf_cm": data.right_calf_cm,
-        "bmi": bmi,
-        "notes": data.notes,
-        "source": data.source,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.body_measurements.insert_one(measurement_doc)
-    measurement_doc.pop('_id', None)
-    
-    return measurement_doc
 
-@api_router.delete("/body-measurements/{measurement_id}")
-async def delete_body_measurement(request: Request, measurement_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    result = await db.body_measurements.delete_one({"measurement_id": measurement_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Measurement not found")
-    
-    return {"message": "Measurement deleted"}
 
-@api_router.get("/body-measurements/evolution")
-async def get_body_evolution(request: Request, months: int = 6, session_token: Optional[str] = Cookie(None)):
-    """Get body measurement evolution over time"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    start_date = (datetime.now() - timedelta(days=months * 30)).strftime("%Y-%m-%d")
-    
-    measurements = await db.body_measurements.find(
-        {"user_id": user.user_id, "date": {"$gte": start_date}}, {"_id": 0}
-    ).sort("date", 1).to_list(1000)
-    
-    # Calculate changes
-    if len(measurements) >= 2:
-        first = measurements[0]
-        last = measurements[-1]
-        
-        changes = {}
-        for field in ["weight_kg", "body_fat_percentage", "muscle_mass_kg", "waist_cm", "bmi"]:
-            if first.get(field) and last.get(field):
-                changes[field] = round(last[field] - first[field], 2)
-    else:
-        changes = {}
-    
-    return {
-        "measurements": measurements,
-        "changes": changes,
-        "total_records": len(measurements)
-    }
 
 # ========== PDF ANALYSIS ENDPOINT ==========
-@api_router.post("/body-measurements/analyze-pdf")
-async def analyze_pdf_measurement(
-    request: Request,
-    file: UploadFile = File(...),
-    session_token: Optional[str] = Cookie(None)
-):
-    """Analyze a PDF file containing body measurement data using AI"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
-    
-    # Read file content
-    content = await file.read()
-    file_base64 = base64.b64encode(content).decode('utf-8')
-    
-    # Use Gemini to analyze the PDF
-    try:
-        system_message = """Você é um especialista em análise de avaliações físicas e bioimpedância.
-            Analise o documento e extraia TODOS os dados disponíveis.
-            Responda APENAS em formato JSON válido com os campos encontrados.
-            Use os seguintes nomes de campos (deixe null se não encontrado):
-            - weight_kg, height_cm, body_fat_percentage, muscle_mass_kg
-            - bone_mass_kg, water_percentage, visceral_fat, metabolic_age, bmr_kcal
-            - neck_cm, shoulders_cm, chest_cm, waist_cm, abdomen_cm, hips_cm
-            - left_arm_cm, right_arm_cm, left_forearm_cm, right_forearm_cm
-            - left_thigh_cm, right_thigh_cm, left_calf_cm, right_calf_cm
-            - date (formato YYYY-MM-DD), notes (observações relevantes)
-            - recommendations (array de recomendações baseadas nos dados)"""
-        
-        # Upload file for Gemini using new SDK
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
-            tmp_file.write(content)
-            tmp_path = tmp_file.name
-        
-        uploaded_file = await upload_gemini_path(tmp_path, user.user_id)
-        
-        response = await request_gemini(task='assistant_chat', contents=[gemini_file_part(file_uri=uploaded_file.uri, mime_type='application/pdf'), 'Analise este documento de avaliação física/bioimpedância e extraia todos os dados em JSON:'], config=dict(system_instruction=system_message), user_id=user.user_id)
-        
-        # Clean up temp file
-        os.unlink(tmp_path)
-        
-        # Try to parse JSON from response
-        try:
-            # Remove markdown code blocks if present
-            json_str = response.text.strip()
-            if json_str.startswith("```json"):
-                json_str = json_str[7:]
-            if json_str.startswith("```"):
-                json_str = json_str[3:]
-            if json_str.endswith("```"):
-                json_str = json_str[:-3]
-            
-            extracted_data = json.loads(json_str.strip())
-        except json.JSONDecodeError:
-            # If JSON parsing fails, return raw analysis
-            extracted_data = {"raw_analysis": response.text, "parse_error": True}
-        
-        return {
-            "success": True,
-            "extracted_data": extracted_data,
-            "filename": file.filename
-        }
-        
-    except Exception as e:
-        logging.error(f"PDF analysis failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to analyze PDF: {str(e)}")
 
 # ========== AI RECOMMENDATIONS ==========
-@api_router.get("/body-measurements/recommendations")
-async def get_workout_recommendations(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get AI-powered workout and health recommendations based on body measurements"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Get latest measurements
-    measurements = await db.body_measurements.find(
-        {"user_id": user.user_id}, {"_id": 0}
-    ).sort("date", -1).limit(5).to_list(5)
-    
-    # Get recent workouts
-    workouts = await db.workout_logs.find(
-        {"user_id": user.user_id}, {"_id": 0}
-    ).sort("date", -1).limit(10).to_list(10)
-    
-    if not measurements:
-        return {
-            "recommendations": ["Registre suas medidas corporais para receber recomendações personalizadas."],
-            "based_on": "no_data"
-        }
-    
-    latest = measurements[0]
-    
-    prompt = f"""Com base nos seguintes dados corporais do usuário, forneça recomendações personalizadas de treino e saúde:
-
-MEDIDAS ATUAIS:
-- Peso: {latest.get('weight_kg', 'N/A')} kg
-- Altura: {latest.get('height_cm', 'N/A')} cm
-- IMC: {latest.get('bmi', 'N/A')}
-- Gordura corporal: {latest.get('body_fat_percentage', 'N/A')}%
-- Massa muscular: {latest.get('muscle_mass_kg', 'N/A')} kg
-- Cintura: {latest.get('waist_cm', 'N/A')} cm
-- Gordura visceral: {latest.get('visceral_fat', 'N/A')}
-
-HISTÓRICO DE TREINOS (últimos 10):
-{json.dumps([{"name": w.get("name"), "type": w.get("activity_type"), "duration": w.get("duration_minutes")} for w in workouts], indent=2)}
-
-Forneça:
-1. 3-5 recomendações específicas de treino
-2. Dicas de nutrição
-3. Áreas de foco prioritárias
-4. Metas sugeridas para os próximos 30 dias
-
-Responda em português de forma direta e motivadora."""
-
-    try:
-        response = await call_llm(
-            prompt=prompt,
-            session_id=f"recommendations_{user.user_id}",
-            system_message="Você é um personal trainer e nutricionista experiente. Forneça recomendações práticas e motivadoras.",
-            user_id=user.user_id
-        , task='workout_generation')
-        return {
-            "recommendations": response,
-            "based_on": latest,
-            "workouts_analyzed": len(workouts)
-        }
-    except Exception as e:
-        logging.error(f"Recommendations generation failed: {e}")
-        return {
-            "recommendations": "Não foi possível gerar recomendações no momento. Tente novamente mais tarde.",
-            "error": str(e)
-        }
 
 # ========== MOTIVATIONAL QUOTES ==========
 @api_router.get("/motivational-quote")
@@ -5275,41 +4959,10 @@ async def get_general_archive(request: Request, before: Optional[str] = None, se
 
 # ========== SAVED WORKOUT INSIGHTS ==========
 
-@api_router.post("/workout-suggestions/save")
-async def save_workout_suggestion(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-
-    insight_id = f"wi_{uuid.uuid4().hex[:12]}"
-    doc = {
-        "insight_id": insight_id,
-        "user_id": user.user_id,
-        "title": data.get("title", "Sugestão de Treino"),
-        "content": data.get("content", ""),
-        "based_on": data.get("based_on", {}),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.workout_insights.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
 
 
-@api_router.get("/workout-suggestions/saved")
-async def get_saved_insights(request: Request, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    insights = await db.workout_insights.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
-    return insights
 
 
-@api_router.delete("/workout-suggestions/saved/{insight_id}")
-async def delete_saved_insight(request: Request, insight_id: str, session_token: Optional[str] = Cookie(None)):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    result = await db.workout_insights.delete_one({"insight_id": insight_id, "user_id": user.user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Insight não encontrado")
-    return {"message": "Insight removido"}
 
 
 # ========== AI MEAL PLAN GENERATION ==========
@@ -7107,6 +6760,10 @@ from services import workout_logs
 api_router.include_router(workout_logs.router)
 from services import workout_daily_routes
 api_router.include_router(workout_daily_routes.router)
+from services import body_measurements,health_ai_routes
+api_router.include_router(body_measurements.router)
+health_ai_routes.configure(get_current_user,call_llm,request_gemini)
+api_router.include_router(health_ai_routes.api_router)
 from services import workout_history_routes
 api_router.include_router(workout_history_routes.router)
 from services import workout_generation_routes

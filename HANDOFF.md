@@ -2,6 +2,8 @@
 
 ## PostgreSQL / Neon — em implementação, NÃO concluído
 
+Medidas corporais, contexto de sugestões/recomendações e insights salvos usam PostgreSQL. PDF de medidas permanece prévia, com limpeza temporária garantida. Migration 32afa15613bd aplicada, 71 tabelas, alembic check limpo. 109 testes SQL passaram (64,192 s); 113 regressões passaram (12 Mongo-only locais). Mongo 279 diretas/56 collections/8 dinâmicos/GridFS 0. Próximo: Nutrição, demais leitores/domínios e remoção final do startup Mongo. Não merge/cutover.
+
 Checklist diário de treino SQL conectado (workout_daily_routes.py); 8 conclusões simultâneas sem chave geram um log/XP. Reset desfaz log/XP daquela conclusão antes de permitir recomeçar, e exclusão do log limpa referência diária. Status/checks normalizados com data civil e FKs de dono. Migration 6460b39c74a1, 69 tabelas, alembic check limpo. 106 testes SQL passaram (60,927 s), 113 regressões passaram (12 Mongo-only locais). Mongo 291 diretas/58 collections/8 dinâmicos/GridFS 0. Próximo: medidas, sugestões/insights, nutrição e demais leitores/domínios. Ainda não startup SQL-only/merge/cutover.
 
 Histórico/evolução/cargas SQL conectados em workout_history_routes.py. Histórico usa nome exato e literal com ownership; evolução não duplica sessão/log; cargas usam séries numéricas do plano selecionado, sem falha com peso string/séries incompletas. 17 testes HTTP SQL de treino passaram (9,159 s), 113 regressões passaram (12 Mongo-only locais); última suíte SQL geral 100 testes antes das 3 novas verificações de histórico. Mongo 301 diretas, 59 collections, 8 dinâmicos, GridFS 0. Head schema 99b09cc30936, 67 tabelas. Próximo: daily-workout-status; sugestões/insights/medidas/nutrição/outros domínios. Não merge/cutover.

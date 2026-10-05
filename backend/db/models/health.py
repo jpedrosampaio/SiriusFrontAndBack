@@ -207,3 +207,44 @@ class NutritionGoal(Identity, Owned, Timestamps, Base):
     daily_fat: Mapped[float] = mapped_column(default=65)
     water_goal_ml: Mapped[int] = mapped_column(default=2000)
     __table_args__ = (UniqueConstraint('user_id'),CheckConstraint('daily_calories > 0 AND water_goal_ml > 0',name='targets'))
+
+
+class BodyMeasurement(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'body_measurements'
+    date: Mapped[date] = mapped_column(Date)
+    weight_kg: Mapped[float | None]
+    body_fat_percentage: Mapped[float | None]
+    muscle_mass_kg: Mapped[float | None]
+    bone_mass_kg: Mapped[float | None]
+    water_percentage: Mapped[float | None]
+    visceral_fat: Mapped[int | None]
+    metabolic_age: Mapped[int | None]
+    bmr_kcal: Mapped[int | None]
+    height_cm: Mapped[float | None]
+    neck_cm: Mapped[float | None]
+    shoulders_cm: Mapped[float | None]
+    chest_cm: Mapped[float | None]
+    waist_cm: Mapped[float | None]
+    abdomen_cm: Mapped[float | None]
+    hips_cm: Mapped[float | None]
+    left_arm_cm: Mapped[float | None]
+    right_arm_cm: Mapped[float | None]
+    left_forearm_cm: Mapped[float | None]
+    right_forearm_cm: Mapped[float | None]
+    left_thigh_cm: Mapped[float | None]
+    right_thigh_cm: Mapped[float | None]
+    left_calf_cm: Mapped[float | None]
+    right_calf_cm: Mapped[float | None]
+    notes: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(default='manual')
+    __table_args__ = (Index('ix_measurements_owner_date','user_id','date'),CheckConstraint('height_cm IS NULL OR height_cm > 0',name='height'))
+
+
+class WorkoutInsight(Identity, Owned, Timestamps, Base):
+    __tablename__ = 'workout_insights'
+    title: Mapped[str]
+    content: Mapped[str] = mapped_column(Text)
+    total_workouts: Mapped[int] = mapped_column(default=0)
+    has_measurements: Mapped[bool] = mapped_column(default=False)
+    workout_types: Mapped[dict] = mapped_column(JSONB,default=dict)
+    __table_args__ = (Index('ix_workout_insights_owner_created','user_id','created_at'),)

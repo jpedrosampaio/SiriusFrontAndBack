@@ -1,7 +1,7 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 291,
-  "remaining_collections": 58,
+  "remaining_direct_calls": 279,
+  "remaining_collections": 56,
   "remaining_dynamic_accesses": 8,
   "remaining_gridfs_constructors": 0,
   "domains": {
@@ -10,7 +10,7 @@
     "files_rag": 19,
     "finance": 22,
     "goals": 3,
-    "health": 63,
+    "health": 51,
     "identity": 9,
     "notifications": 24,
     "other": 17,
