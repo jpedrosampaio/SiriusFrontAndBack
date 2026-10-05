@@ -2293,87 +2293,6 @@ class CardChargeRequest(BaseModel):
 
 
 
-@api_router.get("/workout-stats/exercise-evolution")
-async def get_exercise_evolution(request: Request, exercise_name: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Get weight/reps evolution history per exercise"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Aggregate from completed workout sessions
-    sessions = await db.workout_sessions.find({
-        "user_id": user.user_id,
-        "status": "completed"
-    }, {"_id": 0, "exercises": 1, "completed_at": 1, "plan_name": 1}).sort("completed_at", 1).to_list(500)
-    
-    # Aggregate from workout logs as well
-    logs = await db.workout_logs.find({
-        "user_id": user.user_id,
-        "completed": True
-    }, {"_id": 0, "exercises_completed": 1, "date": 1, "name": 1}).sort("date", 1).to_list(500)
-    
-    # Collect per-exercise data
-    evolution = {}
-    
-    for s in sessions:
-        date = s.get("completed_at", "")[:10]
-        for ex in s.get("exercises", []):
-            name = ex.get("name", "").strip()
-            if not name:
-                continue
-            if exercise_name and exercise_name.lower() not in name.lower():
-                continue
-            if name not in evolution:
-                evolution[name] = []
-            
-            # Get per-set data or use top-level values
-            sets_data = ex.get("sets_data")
-            if sets_data and isinstance(sets_data, list):
-                for sd in sets_data:
-                    if sd.get("completed"):
-                        evolution[name].append({
-                            "date": date,
-                            "weight": sd.get("weight", ""),
-                            "reps": sd.get("reps", 0),
-                            "source": "session",
-                            "plan_name": s.get("plan_name", "")
-                        })
-            else:
-                evolution[name].append({
-                    "date": date,
-                    "weight": ex.get("weight", ""),
-                    "reps": ex.get("reps", 0),
-                    "sets": ex.get("sets_completed", 0),
-                    "source": "session",
-                    "plan_name": s.get("plan_name", "")
-                })
-    
-    for w in logs:
-        date = w.get("date", "")
-        for ex in w.get("exercises_completed", []):
-            name = ex.get("name", "").strip()
-            if not name:
-                continue
-            if exercise_name and exercise_name.lower() not in name.lower():
-                continue
-            if name not in evolution:
-                evolution[name] = []
-            evolution[name].append({
-                "date": date,
-                "weight": ex.get("weight", ""),
-                "reps": ex.get("reps", 0),
-                "sets": ex.get("sets_completed", 0),
-                "source": "log",
-                "plan_name": w.get("name", "")
-            })
-    
-    # Sort each exercise's data by date
-    for name in evolution:
-        evolution[name].sort(key=lambda x: x["date"])
-    
-    return {
-        "exercises": evolution,
-        "exercise_names": sorted(evolution.keys()) if not exercise_name else [exercise_name]
-    }
 
 
 @api_router.post("/workout-suggestions")
@@ -2468,110 +2387,8 @@ Responda em português de forma prática e motivadora."""
 
 
 
-@api_router.get("/workouts/next-loads")
-async def get_next_workout_loads(request: Request, plan_id: Optional[str] = None, session_token: Optional[str] = Cookie(None)):
-    """Calculate suggested next weights for each exercise based on last session performance."""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    # Find the plan
-    query = {"user_id": user.user_id}
-    if plan_id:
-        query["plan_id"] = plan_id
-    plan = await db.workout_plans.find_one(query, {"_id": 0})
-    if not plan:
-        return {"suggestions": []}
-    
-    # Get all exercises from all days
-    all_exercises = []
-    days = plan.get("days", [])
-    if days:
-        for day in days:
-            for ex in day.get("exercises", []):
-                all_exercises.append({"name": ex.get("name", ""), "day_label": day.get("day_label", ""), "sets": ex.get("sets", 0), "reps": ex.get("reps", ""), "current_weight": ex.get("weight", "")})
-    else:
-        for ex in plan.get("exercises", []):
-            all_exercises.append({"name": ex.get("name", ""), "day_label": "", "sets": ex.get("sets", 0), "reps": ex.get("reps", ""), "current_weight": ex.get("weight", "")})
-    
-    # Get the most recent workout log
-    latest_log = await db.workout_logs.find_one(
-        {"user_id": user.user_id, "completed": True},
-        sort=[("created_at", -1)]
-    )
-    
-    suggestions = []
-    for ex in all_exercises:
-        name = ex.get("name", "")
-        if not name:
-            continue
-        
-        suggested = {**ex, "next_weight": None, "reason": "", "progress_possible": True}
-        
-        if latest_log:
-            # Find this exercise in the latest log
-            for logged_ex in latest_log.get("exercises_completed", []):
-                if logged_ex.get("name", "").strip().lower() == name.strip().lower():
-                    sets_data = logged_ex.get("sets_data", [])
-                    if sets_data:
-                        all_completed = all(s.get("completed", False) for s in sets_data)
-                        if all_completed and len(sets_data) >= int(ex.get("sets", 1)):
-                            current_weight = logged_ex.get("weight", "")
-                            if isinstance(current_weight, (int, float)):
-                                increment = 2.5 if current_weight > 20 else 1.0
-                                suggested["next_weight"] = round(current_weight + increment, 1)
-                                suggested["reason"] = f"Aumento de {increment}kg (completou {len(sets_data)}/{ex.get('sets', 0)} séries)"
-                            else:
-                                # Try parsing from sets_data
-                                weights_with_reps = [(s.get("weight", 0), s.get("reps", 0)) for s in sets_data if s.get("completed")]
-                                if weights_with_reps:
-                                    avg_weight = sum(w for w, r in weights_with_reps) / len(weights_with_reps)
-                                    increment = 2.5 if avg_weight > 20 else 1.0
-                                    suggested["next_weight"] = round(avg_weight + increment, 1)
-                                    suggested["reason"] = f"Completou todas as séries. Sugerido +{increment}kg"
-                        else:
-                            suggested["reason"] = "Mantenha o peso atual - ainda não completou todas as séries"
-                            suggested["progress_possible"] = False
-                            suggested["next_weight"] = current_weight if isinstance(current_weight, (int, float)) else None
-                    break
-        
-        suggestions.append(suggested)
-    
-    return {"suggestions": suggestions, "plan_id": plan.get("plan_id"), "plan_name": plan.get("name", "")}
 
 
-@api_router.get("/workouts/exercise-history")
-async def get_exercise_history(request: Request, exercise_name: str, session_token: Optional[str] = Cookie(None)):
-    """Get the last 5 workout logs containing a specific exercise."""
-    import re
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    if not exercise_name:
-        return {"history": []}
-    
-    # Search in workout_logs
-    logs = await db.workout_logs.find({
-        "user_id": user.user_id,
-        "completed": True,
-        "exercises_completed": {"$elemMatch": {"name": {"$regex": "^" + re.escape(exercise_name.strip()) + "$", "$options": "i"}}}
-    }, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
-    
-    history = []
-    for log in logs:
-        for ex in log.get("exercises_completed", []):
-            if exercise_name.strip().casefold() == ex.get("name", "").strip().casefold():
-                history.append({
-                    "date": log.get("date", ""),
-                    "log_name": log.get("name", ""),
-                    "exercise_name": ex.get("name", ""),
-                    "sets_data": ex.get("sets_data", []),
-                    "weight": ex.get("weight", ""),
-                    "reps": ex.get("reps", ""),
-                    "sets_completed": ex.get("sets_completed", 0)
-                })
-                break
-    
-    return {"history": history}
 
 
 @api_router.post("/workouts/calculate-warmup")
@@ -7456,6 +7273,8 @@ from services import workout_plan_routes
 api_router.include_router(workout_plan_routes.router)
 from services import workout_logs
 api_router.include_router(workout_logs.router)
+from services import workout_history_routes
+api_router.include_router(workout_history_routes.router)
 from services import workout_generation_routes
 workout_generation_routes.configure(get_current_user,call_llm,get_user_api_key,request_gemini)
 api_router.include_router(workout_generation_routes.api_router)
