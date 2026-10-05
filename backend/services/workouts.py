@@ -1,10 +1,26 @@
 from datetime import datetime, timezone
 from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 from db.activity import run_activity
 from db.models.health import SessionExercise
 from db.repositories.health import HealthRepository
 from services.planning import apply_xp
 from services.time import local_today
+
+
+def exercise_json(ex):
+    data={key:getattr(ex,key) for key in ('name','sets','reps','weight','rest_seconds','muscle_group','tutorial','video_url','notes',
+        'completed','sets_completed','time_spent_seconds')}
+    data['sets_data']=[{'reps':s.reps,'weight':str(s.weight) if s.weight is not None else '',
+        'rpe':s.rpe if s.rpe is not None else '', 'completed':s.completed} for s in ex.actual_sets]
+    return data
+
+
+def session_json(row):
+    return jsonable_encoder({'session_id':row.id,'user_id':row.user_id,'plan_id':row.plan_id,'plan_name':row.plan_name,
+        'status':row.status,'started_at':row.started_at,'completed_at':row.completed_at,'total_duration_seconds':row.total_duration_seconds,
+        'current_exercise_idx':row.current_exercise_idx,'rest_timer_seconds':row.rest_timer_seconds,'revision':row.revision,
+        'feedback':row.feedback,'day_index':row.day_index,'exercises':[exercise_json(ex) for ex in row.exercises]})
 
 
 async def start_session(user_id, plan_id, day_index=0, rest_timer_seconds=60, request_key=None):
@@ -26,8 +42,7 @@ async def start_session(user_id, plan_id, day_index=0, rest_timer_seconds=60, re
                 name=ex.name,sets=ex.sets,reps=ex.reps,weight=ex.weight,rest_seconds=ex.rest_seconds,
                 muscle_group=ex.muscle_group,tutorial=ex.tutorial,video_url=ex.video_url,notes=ex.notes))
         await session.flush()
-        return {'session_id':str(row.id),'plan_id':str(plan.id),'plan_name':row.plan_name,'status':row.status,
-            'day_index':day_index,'started_at':row.started_at.isoformat()}
+        return session_json(await repo.workout_session(user.id,row.id))
     return await run_activity(user_id,request_key,['start_session',str(plan_id),day_index,rest_timer_seconds],apply)
 
 

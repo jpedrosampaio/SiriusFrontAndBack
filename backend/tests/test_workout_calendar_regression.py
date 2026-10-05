@@ -108,16 +108,6 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ns['call_llm'].call_args.kwargs['user_id'], 'user1')
         self.assertEqual(ns['call_llm'].await_count, 2)
 
-    async def test_invalid_start_day_never_falls_back_to_whole_plan(self):
-        for index in (-1, 20, '2', True):
-            ns = route_context()
-            ns['db'].workout_sessions = SimpleNamespace(find_one=AsyncMock(return_value=None), insert_one=AsyncMock())
-            ns['db'].workout_plans.find_one = AsyncMock(return_value=period())
-            request = SimpleNamespace(headers={}, json=AsyncMock(return_value={'plan_id': 'plan', 'day_index': index}))
-            with self.assertRaises(HTTPException) as error:
-                await ns['start_workout_session'](request, None)
-            self.assertEqual(error.exception.status_code, 422)
-            ns['db'].workout_sessions.insert_one.assert_not_awaited()
 
 
 if __name__ == '__main__':

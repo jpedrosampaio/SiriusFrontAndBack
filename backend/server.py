@@ -3537,60 +3537,12 @@ REGRAS:
 
 
 # ========== WORKOUT SESSION ENDPOINTS ==========
-@api_router.post("/workout-sessions/start")
-async def start_workout_session(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Start an active workout session from a plan"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    body = await request.json()
-    from workout_session_service import start_session
-    async def apply(mongo_session, balance):
-        return await start_session(db, user, body, mongo_session)
-    return await run_activity_mutation(user.user_id, request.headers.get("Idempotency-Key"), ["start_session", body], apply)
 
 
-@api_router.get("/workout-sessions/active")
-async def get_active_session(request: Request, session_token: Optional[str] = Cookie(None)):
-    """Get current active workout session"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    session = await db.workout_sessions.find_one({
-        "user_id": user.user_id,
-        "status": "active"
-    }, {"_id": 0})
-    
-    if not session:
-        return {"active": False, "session": None}
-    
-    return {"active": True, "session": session}
 
 
-@api_router.patch("/workout-sessions/{session_id}/exercise/{exercise_idx}")
-async def update_session_exercise(request: Request, session_id: str, exercise_idx: int, session_token: Optional[str] = Cookie(None)):
-    """Update exercise progress in active session"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    body = await request.json()
-    from workout_session_service import update_exercise
-    async def apply(mongo_session, balance):
-        return await update_exercise(db, user, body, mongo_session, session_id, exercise_idx)
-    return await run_activity_mutation(user.user_id, request.headers.get("Idempotency-Key"), ["update_exercise", session_id, exercise_idx, body], apply)
 
 
-@api_router.post("/workout-sessions/{session_id}/complete")
-async def complete_workout_session(request: Request, session_id: str, session_token: Optional[str] = Cookie(None)):
-    """Complete a workout session with feedback"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    body = await request.json()
-    from workout_session_service import complete_session
-    async def apply(mongo_session, balance):
-        return await complete_session(db, user, body, mongo_session, session_id, award_xp)
-    return await run_activity_mutation(user.user_id, request.headers.get("Idempotency-Key") or f"workout-complete-{session_id}", ["complete_session", session_id, body], apply)
 
 
 @api_router.get("/workouts/next-loads")
@@ -3736,31 +3688,8 @@ async def calculate_warmup(request: Request, session_token: Optional[str] = Cook
     return {"warmup_sets": warmup_sets}
 
 
-@api_router.post("/workout-sessions/{session_id}/abandon")
-async def abandon_workout_session(request: Request, session_id: str, session_token: Optional[str] = Cookie(None)):
-    """Abandon an active workout session"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    body = {}
-    from workout_session_service import abandon_session
-    async def apply(mongo_session, balance):
-        return await abandon_session(db, user, body, mongo_session, session_id)
-    return await run_activity_mutation(user.user_id, request.headers.get("Idempotency-Key"), ["abandon_session", session_id, body], apply)
 
 
-@api_router.get("/workout-sessions")
-async def get_workout_sessions(request: Request, limit: int = 20, session_token: Optional[str] = Cookie(None)):
-    """Get workout session history"""
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    
-    sessions = await db.workout_sessions.find(
-        {"user_id": user.user_id, "status": {"$in": ["completed", "abandoned"]}},
-        {"_id": 0}
-    ).sort("started_at", -1).to_list(limit)
-    
-    return sessions
 
 
 # ========== NOTIFICATION ENDPOINTS ==========
@@ -8674,6 +8603,8 @@ study_material_routes.configure(get_user_api_key,request_gemini,upload_gemini_pa
 api_router.include_router(study_material_routes.router)
 from services import study_pdf_materials
 api_router.include_router(study_pdf_materials.router)
+from services import workout_session_routes
+api_router.include_router(workout_session_routes.router)
 from services.edital_routes import router as edital_sql_router
 api_router.include_router(edital_sql_router)
 from services.studies_v2_routes import router as studies_v2_router
