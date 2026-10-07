@@ -15,6 +15,8 @@ from services.study_evidence import attempts,latest_reviews,attempt_json
 from services.time import local_today
 from study_mastery import mastery,adaptive_review,topic_priority
 from studies_v2 import TargetInput,AttemptInput,ErrorUpdate,BlueprintInput
+from db.models.identity import User
+from services.preparation_state import preparation_state
 
 router=APIRouter(prefix='/study/v2')
 
@@ -35,12 +37,32 @@ def target_json(row,program):
 async def targets(request: Request):
     user=await account(request); uid=UUID(user['user_id'])
     async with unit_of_work() as session:
+        owner=await session.get(User,uid)
+        primary=(owner.preferences or {}).get('primary_preparation_id')
         rows=(await session.execute(select(StudyProgram,StudyTarget).outerjoin(StudyTarget,
             (StudyTarget.program_id==StudyProgram.id)&(StudyTarget.user_id==StudyProgram.user_id)).where(
             StudyProgram.user_id==uid,StudyProgram.archived_at.is_(None)).order_by(StudyProgram.created_at.desc()))).all()
-        return [target_json(target,program) if target else {'target_id':'program:'+str(program.id),'program_id':str(program.id),
+        return [{**(target_json(target,program) if target else {'target_id':'program:'+str(program.id),'program_id':str(program.id),
             'name':program.name,'kind':'custom','exam_date':program.target_date.isoformat() if program.target_date else None,
-            'legacy':True,'provenance':'user_provided'} for program,target in rows]
+            'legacy':True,'provenance':'user_provided'}), 'is_primary':str(program.id)==primary} for program,target in rows]
+
+
+@router.put('/programs/{program_id}/primary')
+async def primary_preparation(request: Request,program_id: UUID):
+    if not request.headers.get('Idempotency-Key'): raise HTTPException(422,'Idempotency-Key obrigatório.')
+    async def apply(session,user):
+        await owned(session,StudyProgram,user.id,program_id)
+        user.preferences={**(user.preferences or {}),'primary_preparation_id':str(program_id)}
+        return {'preparation_id':str(program_id),'is_primary':True}
+    return await mutate(request,['primary-preparation',str(program_id)],apply)
+
+
+@router.get('/programs/{program_id}/state')
+async def preparation_view(request: Request,program_id: UUID):
+    user=await account(request); uid=UUID(user['user_id'])
+    async with unit_of_work() as session:
+        program=await owned(session,StudyProgram,uid,program_id)
+        return await preparation_state(session,uid,program,user['timezone'],local_today(user['timezone']))
 
 
 @router.post('/targets')

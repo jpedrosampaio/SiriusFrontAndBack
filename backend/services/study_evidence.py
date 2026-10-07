@@ -15,10 +15,12 @@ def attempt_json(row,notebook,topic,question,zone):
         'question_id':metadata.get('external_question_id'),'answer':row.answer or '', 'correct':bool(row.correct),
         'seconds':row.duration_seconds or 0,'source':row.source,'board':metadata.get('board',''),'exam':metadata.get('exam',''),
         'position':metadata.get('position',''),'error_reason':row.error_cause,'difficulty':metadata.get('difficulty'),
-        'date':row.answered_at.astimezone(ZoneInfo(zone)).date().isoformat(),'created_at':row.created_at.isoformat()}
+        'date':row.answered_at.astimezone(ZoneInfo(zone)).date().isoformat(),'created_at':row.created_at.isoformat(),
+        'answered_at':row.answered_at.isoformat(),'internal_question_id':str(row.question_id) if row.question_id else None,
+        'exam_attempt_id':str(row.exam_attempt_id) if row.exam_attempt_id else None}
 
 
-async def attempts(session,uid,zone,*,program_id=None,notebook_id=None,topic_id=None,limit=5000):
+async def attempts(session,uid,zone,*,program_id=None,notebook_id=None,topic_id=None,limit=5000,active_topics=False):
     query=select(QuestionAttempt,Notebook,StudyTopic,Question).join(Notebook,
         (Notebook.id==QuestionAttempt.notebook_id)&(Notebook.user_id==QuestionAttempt.user_id))
     query=query.outerjoin(StudyTopic,(StudyTopic.id==QuestionAttempt.topic_id)&(StudyTopic.user_id==QuestionAttempt.user_id))
@@ -28,6 +30,7 @@ async def attempts(session,uid,zone,*,program_id=None,notebook_id=None,topic_id=
     if program_id: query=query.where(Notebook.program_id==program_id)
     if notebook_id: query=query.where(QuestionAttempt.notebook_id==notebook_id)
     if topic_id: query=query.where(QuestionAttempt.topic_id==topic_id)
+    if active_topics: query=query.where(or_(QuestionAttempt.topic_id.is_(None),StudyTopic.archived_at.is_(None)))
     rows=(await session.execute(query.order_by(QuestionAttempt.answered_at.desc(),QuestionAttempt.id.desc()).limit(limit))).all()
     return [attempt_json(*row,zone) for row in rows]
 

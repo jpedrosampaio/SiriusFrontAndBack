@@ -1,6 +1,14 @@
 # Sirius — handoff
 
-## 2026-10-07 ? Studies / Edital Reliability + Import UX 2.1
+## 2026-10-07 — Sirius POS 3.0 / Phase 2 Preparation Core
+
+Current branch `feat/preparation-core-3` from main a0c0e35b82fa4bdb3cfedfb378cb3da4c6463724. Phase 1 is complete: PR26 merged as that SHA, all three main workflows successful; Vercel Production and Northflank siriusfrontandback deployed that merge, public live/ready/frontend/CORS HTTP200. Authenticated production import remains a manual user check. No migration in phase 1 or phase 2; Alembic head 84d2a71ef309.
+
+Phase 2 audit reuses StudyProgram/StudyTarget, Notebook/StudyTopic, progress, plan, sessions, questions/reviews/cards/exams. Primary selection uses existing owner preferences under activity lock/receipt; no copied Preparation/Evidence tables. Deterministic PreparationState, stable hierarchy, coverage/mastery separation, derived stages, operational profile, debt, pace, health with explicit reasons and owner-scoped evidence IDs. One state request replaces the old overview request; old API retained for compatibility. Unknown hours-to-finish, preferred study time and official freshness remain unknown. Essay corrections lack a preparation reference and are not falsely assigned.
+
+Docs: SIRIUS_CORE_3.md and PREPARATION_ENGINE.md. Current checks: full PostgreSQL190, focused5 (including archived notebook blocks and blank exam answers), regressions111, security5, frontend51/lint/build and complete browser suite at all5 widths passed locally. PR27 is open; Codex P2 findings on archived plan entries and unanswered accuracy were fixed and regression-tested. Final review/CI/merge/deployment remain pending. Performance fixture:17 SELECTs for 2/100 topics without a plan,100-topic payload about68.7KB. Next phase is Edital Intelligence & Radar. Any production migration must be reported and applied by the owner before merge, per the program prompt.
+
+## 2026-10-07 — Studies / Edital Reliability + Import UX 2.1
 
 Branch `fix/studies-edital-resilience` from main `f4452c7`. Direct endpoint and queued worker share `process_edital_analysis`; the prior UI always submitted to the queue despite `upload_available=false`. Import now caches capability for 60 seconds, uses direct analysis without storage and falls back only for `detail.code=durable_storage_unavailable` emitted before job creation. Background jobs remain optional. PDF validation, private failure messages, hash cache and force semantics preserved; no migration/storage/infrastructure change.
 

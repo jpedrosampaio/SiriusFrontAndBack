@@ -135,8 +135,8 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
           {view === 'edital' && <div className="space-y-6"><PreparationOverview programId={programId} onStudy={t => navigate('estudar', { notebookId: t.notebook_id, key: t.topic_key || '0', minutes: t.minutes, entryId: t.entry_id })} />
             {!disciplines.length && <section className={box}><h2 className="text-lg font-medium">Comece pelas matérias</h2><p className={`${muted} my-3`}>Esta preparação ainda não tem conteúdo. Adicione uma matéria para organizar materiais e sessões.</p><Button onClick={() => onAddNotebook(program)}>Adicionar matéria</Button></section>}
             <Button variant="ghost" onClick={() => openSirius({ surface: 'edital', program_id: programId, analysis_id: edital.analysis_id, draft: 'Ajude-me a entender este plano e o edital associado.' })}>Perguntar ao Sirius sobre esta preparação</Button>
-            <EditalOverview concurso={edital.concurso} cargo={edital.cargo_selecionado} filename={edital.pdf_filename} targetDate={program.target_date} />
-            <div className="flex flex-wrap gap-3"><Button onClick={() => navigate('verticalizado')} className="bg-purple-600 hover:bg-purple-700"><Layers className="h-4 w-4 mr-2" />Explorar edital verticalizado</Button><Button variant="outline" onClick={() => navigate('cronograma')}><Calendar className="h-4 w-4 mr-2" />Ver cronograma</Button></div>
+            {(edital.concurso || edital.cargo_selecionado || edital.pdf_filename) && <EditalOverview concurso={edital.concurso} cargo={edital.cargo_selecionado} filename={edital.pdf_filename} targetDate={program.target_date} />}
+            <div className="flex flex-wrap gap-3"><Button onClick={() => navigate('verticalizado')} className="bg-purple-600 hover:bg-purple-700"><Layers className="h-4 w-4 mr-2" />{program.source_type === 'edital_import' ? 'Explorar edital verticalizado' : 'Explorar conteúdo'}</Button><Button variant="outline" onClick={() => navigate('cronograma')}><Calendar className="h-4 w-4 mr-2" />Ver cronograma</Button></div>
           </div>}
 
           {view === 'verticalizado' && <div className="space-y-5">
