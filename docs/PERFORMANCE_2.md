@@ -6,7 +6,7 @@ Audit performed before application changes. Runtime confirmed: React/Vercel → 
 
 Reproduce: build frontend, then `VISUAL_CASES=dashboard,workouts,chat,tasks,habits,calendar,finance,nutrition,reports,agent node tests/smoke.cjs` (PowerShell: set `$env:VISUAL_CASES`). Browser APIs are intercepted with synthetic owned data; these measurements are not production latency.
 
-Dashboard initial requests at each of 1440/1024/768/390/320 px: 5 (`auth/me`, `stats/dashboard`, `dashboard/panels`, `ai/actions`, `ai/insights`). Heading timings: 848/244/309/255/287 ms respectively; cold chunk startup and local machine noise prevent attributing differences to code. The 390 timing must be verified against saved output before comparison; no latency gain claimed.
+Dashboard initial requests at each of 1440/1024/768/390/320 px: 5 (`auth/me`, `stats/dashboard`, `dashboard/panels`, `ai/actions`, `ai/insights`). Heading timings: 848/244/309/(not retained)/287 ms respectively; cold chunk startup and local machine noise prevent attributing differences to code. no latency gain claimed.
 
 ### Flow audit
 
@@ -30,4 +30,31 @@ Expanded baseline smoke: 50 page/viewport combinations; 10 overflow failures (ha
 
 ## Changes and after measurements
 
-Pending implementation and verification. Only measured results will be recorded. Server-Timing already exists in production; preserve it. No persistent offline cache, no YouTube calls from CI, no production mutations.
+DailyWorkspace now loads a deterministic preview automatically, showing free time, task blocks and fixed appointments. No capacity field, hidden 240 limit, redundant weekly button, or silent calendar write. Available time is the sum of real gaps in the **documented estimated 08–18 window**, not a claim that we know the user's working hours. Tasks have no persisted duration field: estimate remains 30min, visibly marked. Explicit API capacity remains supported for existing callers; default has no hard budget. No migration.
+
+Chat keeps failed user messages with associated retry; distinct 401/409/429/503/504/network/timeout wording. Retry retains request_id **and the whole original payload**, preventing changed context from invalidating receipts. Replayed IDs replace pending messages once. Owned stored user-message context includes request_id so explicit refresh can reconcile a reply committed before network loss. Successful sends update conversation/list cache locally and notify other open instances with data. Initial history/list fetch in parallel; manual reload invalidates them. Degraded replies get a discreet data-based label. Existing provider/router and confirmed Agent writes retained.
+
+Incremental TanStack Query: dashboard snapshot and planner use observers; workout plans/status and chat use targeted cache fetch/update; videos queried only in mounted tutorials. Memory only, session epoch namespaces, cancelled/cleared on auth/storage session changes; page state remounts on account transitions. No polling, aggressive focus refetch or automatic mutation retry. Desktop hover/focus on Workout navigation prefetches only plans. Chat transport no longer invalidates unrelated domain summaries. Legacy domain writes conservatively invalidate mutable queries. Optimistic daily exercise toggle guarded against double-click, with idempotency key and rollback.
+
+| Assertion | Before | After / evidence |
+| --- | --- | --- |
+| Dashboard initial HTTP requests | 5 measured at all five widths | 4 measured (`auth/me`, `stats/dashboard`, `ai/daily`, `dashboard/panels`); core identity/summary still 2 |
+| Closed suggestions | 2 measured requests | 0 asserted in browser; fetch enabled only when opened |
+| Workout daily status | Per-plan requests confirmed by source audit; original baseline fixtures had no plans | 3-plan browser fixture: 1 batch request, 0 per-plan calls, 9 total initial requests including optional panels/session |
+| Batch daily status SQL | Previous individual route loaded each plan graph and checks | 2 SELECT statements asserted with SQLAlchemy cursor instrumentation for multiple owned plans; excludes authentication query |
+| Chat successful retry | Failure removed pending message in source; no before request-count measurement | Across all five widths: 409/429/503/504/network each recovers, identical retry payload, single user message, zero post-success conversation GETs |
+| YouTube | No workout integration | 0 initial requests, 1 on open, 0 additional on reopen while cache valid; 0 initial iframe, iframe only after click |
+| Expanded page smoke overflow | 10 failed page/width combinations | 0 after fixing page flex minimum widths, wrapping habit/export toolbars |
+
+After broad local synthetic run heading times 1440/1024/768/390/320: 262/181/183/156/186ms. Unlike baseline, this run includes preceding signup/login/reload flows and warmed assets. These are **not directly comparable latency improvements**. Gzip main bundle grows approximately 8.5kB from adding query caching; no claim of reduced bundle size. No production SQL benchmarks collected. Server-Timing already exists and was preserved; observed ready request had app timing without SQL details.
+
+## Validation
+
+- All 180 PostgreSQL tests passed; final receipt-context change separately revalidated by all 6 conversation integration tests. Batch tests include ownership, concurrency, transactions and two-query assertion.
+- 96 backend regressions passed; mocked YouTube tests cover key absence, malformed input, normalization, timeout/status failures, projection, auth, cache/coalescing/bounds.
+- Frontend lint, 41 unit tests and production build passed. Broad synthetic smoke covers auth, dashboard/modal, full chat, workouts, studies/preparation/analysis/syllabus/study session, tasks, habits, finance, nutrition, reports, calendar, settings at 1440/1024/768/390/320. Additional workout smoke covers active session, drafts/reload, series, tutorial text/videos/cache/embed at the same widths.
+- Read-only production smoke before merge: frontend/health/live/health/ready/OpenAPI HTTP200; 250 existing routes; expected auth/chat/workout paths; CORS accepts exact Vercel origin. No production users or records created.
+
+## Limits
+
+Browser APIs/providers are mocked and mobile keyboard is simulated by viewport height; physical-device keyboard and YouTube result quality remain manual checks. No YouTube live test or production key verification. Cache is process/browser memory and disappears on restart/reload; optional offline persistence deferred. Finance/nutrition maintain their existing domain loading architecture; no broad refactor of all modules. 08–18 is transparent estimated planning window, not inferred personal availability. No schema changes, Mongo imports, startup DDL, paid providers, or later Studies67+ features introduced.

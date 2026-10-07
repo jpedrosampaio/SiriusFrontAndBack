@@ -1,6 +1,12 @@
 # Sirius — handoff
 
-## PostgreSQL / Neon — em implementação, NÃO concluído
+## 2026-10-07 — Stability / UX operacional / Performance 2 / Workout tutorials
+
+Production infrastructure confirmed React/Vercel → FastAPI/Northflank → PostgreSQL/Neon. PR21 merged a3db032; Northflank runtime-file fix PR22 merged 59b054c. User corrected DATABASE_URL; live/ready/frontend HTTP200, OpenAPI/CORS read-only smoke passed. Migration head remains126b856daebb; no schema changes in this phase. Older no-merge/Render entries below are historical.
+
+Branch feat/sirius-stability-performance-youtube based on59b054c: pre-code audit docs/PERFORMANCE_2.md; daily preview derived from calendar gaps, recoverable chat with stable request payload and receipt reconciliation, bounded on-demand official YouTube tutorials, batch daily workout status(2 SELECTs), targeted memory-only TanStack caching/session clearing/prefetch, optimistic checklist rollback and measured overflow fixes. No Agent/router rewrite, paid providers, production writes or Studies67+ scope. FullSQL180, regression96, conversation6, YouTube6, frontend41/lint/build passed. Broad five-viewport smoke passed; final targeted chat/tutorial checks and remote CI/PR still pending. YOUTUBE_API_KEY Northflank runtime configuration not accessed/verified; no live Google calls made. See docs/WORKOUT_YOUTUBE.md.
+
+## Histórico PostgreSQL / Neon — entradas anteriores ao merge
 
 CODE CUTOVER COMPLETE, production NOT changed. Runtime Mongo0 direct/0 dynamic/0 imports, GridFS0; Motor/PyMongo removed. Native sync uses typed SQL/UUID client and atomic XP/receipt. Startup read-only Alembic readiness, no DDL; health routes wired; shutdown disposes SQL engine. Legacy server_partial and Mongo CI/tests retired only after SQL equivalents. Alembic126b856daebb,96 tables. FullSQL179 passed93.184s; final expanded emptyDB/startup/health/no-Mongo smoke + foundation emptyDB + boundary checks4 passed10.828s. Regression93 passed1.257s before +2 Mongo-free tests; webhook security5 passed; browser39 passed; production frontend build passed (existing Browserslist/Node warnings). AI providers stubbed in smoke. Docs updated. Final commit/CI/ready-for-review pending. No Neon/Render production configuration verified and no deploy safety strategy established: do not merge to auto-deploy without verified env/migrations; only external request remains configure DATABASE_URL and DATABASE_URL_DIRECT in Render. No Atlas deletion. Historical entries below are superseded.
 
