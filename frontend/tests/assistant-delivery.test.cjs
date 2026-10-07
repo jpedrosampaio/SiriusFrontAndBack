@@ -19,4 +19,7 @@ test('replay after lost response merges saved IDs exactly once', async () => {
   const first = mergeReply([{ message_id: 'before' }, { message_id: 'pending-id' }], reply, 'pending-id');
   const replay = mergeReply([...first, { message_id: 'pending-id' }], reply, 'pending-id');
   assert.deepEqual(replay, first);
+  const long = mergeReply(Array.from({length: 250}, (_, i) => ({message_id: String(i)})), reply, 'pending-id');
+  assert.equal(long.length, 200);
+  assert.deepEqual(long.slice(-2), [reply.user_message, reply.ai_message]);
 });

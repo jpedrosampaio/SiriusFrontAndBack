@@ -99,7 +99,8 @@ export function useAssistant(page, enabled = true, context = {}) {
       const updated = mergeReply(known?.messages || messages, data, id);
       setMessages(updated);
       queryClient.setQueryData(cacheKey(`/ai/conversation?conversation_id=${encodeURIComponent(conversationId)}`), { messages: updated });
-      const recent = [{ conversation_id: conversationId, title: text.slice(0, 80) }, ...conversations.filter(c => c.conversation_id !== conversationId)];
+      const existing = conversations.find(c => c.conversation_id === conversationId);
+      const recent = [{ ...existing, conversation_id: conversationId, title: existing?.title || text.slice(0, 80) }, ...conversations.filter(c => c.conversation_id !== conversationId)].slice(0, 30);
       setConversations(recent); queryClient.setQueryData(cacheKey('/ai/conversations'), recent);
       pending.current = null;
       window.dispatchEvent(new CustomEvent('sirius-conversation-updated', { detail: { conversationId, messages: updated, conversations: recent } }));

@@ -14,5 +14,5 @@ export function deliveryError(error) {
 }
 export function mergeReply(messages, reply, pendingId) {
   const ids = new Set([pendingId, reply.user_message.message_id, reply.ai_message.message_id]);
-  return [...messages.filter(m => !ids.has(m.message_id)), reply.user_message, reply.ai_message];
+  return [...messages.filter(m => !ids.has(m.message_id)), reply.user_message, reply.ai_message].slice(-200);
 }
