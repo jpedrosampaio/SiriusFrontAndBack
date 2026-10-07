@@ -2,9 +2,10 @@ import { createDailyWorkoutQueue } from '@/lib/daily-workout-queue';
 import WorkoutTutorial from '@/components/WorkoutTutorial';
 import { cachedGet, queryClient, cacheKey, sessionVersion } from '@/lib/query-cache';
 import { openSirius } from '@/lib/sirius-context';
-import WorkoutComparison from '@/components/WorkoutComparison';
+import WorkoutSession from '@/components/WorkoutSession';
+import { workoutSummary } from '@/lib/workout-session';
 import { lazy, Suspense } from 'react';
-import { readSaved, writeSaved } from "@/lib/session-storage";
+import { writeSaved } from "@/lib/session-storage";
 import { createActivityRequests } from "@/lib/activity-requests";
 import { getCurrentUser } from "@/lib/api";
 import { getWorkoutCalendar } from "@/lib/workout-calendar";
@@ -23,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { Dumbbell, Plus, Trash2, Play, Check, X, Timer, Flame, TrendingUp, Calendar, FileText, Activity, Edit2, ChevronDown, ChevronUp, Scale, Upload, Sparkles, BarChart3, RefreshCw, Loader2, BookOpen, XCircle, Zap, BookOpenCheck, Star, Square, Clock, Trophy, Heart, ShieldCheck } from "lucide-react";
+import { Dumbbell, Plus, Trash2, Play, Check, X, Timer, Flame, TrendingUp, Calendar, FileText, Activity, Edit2, ChevronDown, ChevronUp, Scale, Upload, Sparkles, BarChart3, RefreshCw, Loader2, BookOpen, XCircle, Zap, BookOpenCheck, Star, Clock, Trophy, Heart, ShieldCheck } from "lucide-react";
 
 import axios from "@/lib/module-requests";
 import { toast } from "sonner";
@@ -48,9 +49,9 @@ export default function Workouts() {
   const workoutRequests = useRef(createActivityRequests());
   const [sessionSaving, setSessionSaving] = useState(false);
   const workoutBusy = useRef(false);
-  const restDeadline = useRef(null);
-  const workoutWrite = async (method, url, body) => {
-    const key = workoutRequests.current.begin('workout-session', JSON.stringify({ method, url, body }));
+  const workoutWrite = async (method, url, body, replayKey) => {
+    if (workoutBusy.current) throw new Error('Aguarde o registro em andamento');
+    const key = replayKey || workoutRequests.current.begin('workout-session', JSON.stringify({ method, url, body }));
     if (!key) throw new Error('Aguarde o registro em andamento');
     workoutBusy.current = true; setSessionSaving(true);
     let succeeded = false;
@@ -215,9 +216,8 @@ export default function Workouts() {
   // Workout Session
   const [activeSession, setActiveSession] = useState(null);
   const [sessionElapsed, setSessionElapsed] = useState(0);
-  const [restTimer, setRestTimer] = useState(0);
-  const [isResting, setIsResting] = useState(false);
-  const [restDuration, setRestDuration] = useState(60);
+  const [completionSummary, setCompletionSummary] = useState(null);
+  const restDuration = 60;
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
   const [feedbackData, setFeedbackData] = useState({ difficulty: 3, feeling: "bom", notes: "" });
   const [expandedTutorials, setExpandedTutorials] = useState({});
@@ -816,22 +816,6 @@ export default function Workouts() {
     tick(); const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [activeSession?.session_id, activeSession?.started_at, activeSession?.status]);
-  useEffect(() => {
-    if (!activeSession || !user) return;
-    const deadline = readSaved(`sirius-rest:${user.user_id}:${activeSession.session_id}`);
-    if (Number.isFinite(deadline) && deadline > Date.now()) { restDeadline.current = deadline; setRestTimer(Math.ceil((deadline - Date.now()) / 1000)); setIsResting(true); }
-  }, [activeSession?.session_id, user?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!isResting) return;
-    const tick = () => {
-      const left = Math.max(0, Math.ceil((restDeadline.current - Date.now()) / 1000));
-      setRestTimer(left);
-      if (!left) { setIsResting(false); toast.success('Descanso finalizado. Próxima série!'); }
-    };
-    tick(); const interval = setInterval(tick, 500);
-    return () => clearInterval(interval);
-  }, [isResting]);
-
   const handleStartWorkout = async (plan, dayIdx = 0) => {
     if (workoutBusy.current) return;
     try {
@@ -843,139 +827,43 @@ export default function Workouts() {
       setActiveSession(res.data);
       setSessionElapsed(0);
       setActiveTab("session");
-      setExerciseHistory({});
-      fetchNextLoads(plan.plan_id);
+      setNextLoads(null);
+
       toast.success("Treino iniciado! Bora! 💪");
     } catch (error) {
       toast.error(getApiErrorMessage(error, "Erro ao iniciar treino"));
     }
   };
 
-  const handleToggleSessionExercise = async (idx) => {
-    if (workoutBusy.current) return;
-    if (!activeSession) return;
-    const ex = activeSession.exercises[idx];
-    const newCompleted = !ex.completed;
-    const newSetsCompleted = newCompleted ? ex.sets : 0;
-    
-    try {
-      const res = await workoutWrite("patch",
-        `${API}/workout-sessions/${activeSession.session_id}/exercise/${idx}`,
-        { completed: newCompleted, sets_completed: newSetsCompleted, current_exercise_idx: idx, revision: activeSession.revision || 0 }
-      );
-      setActiveSession(res.data);
-      
-      if (newCompleted) {
-        toast.success(`${ex.name} concluído! ✅`);
-        // Auto-start rest timer for next exercise
-        const nextIdx = activeSession.exercises.findIndex((e, i) => i > idx && !e.completed);
-        if (nextIdx >= 0) {
-          startRestManual(ex.rest_seconds || restDuration);
-        }
-      }
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, "Erro ao atualizar exercício"));
-      if (error.response?.status === 409) checkActiveSession();
-    }
-  };
-
-  const [setInputIdx, setSetInputIdx] = useState(null); // index of exercise awaiting set weight input
-  const [setInputWeight, setSetInputWeight] = useState("");
-  const [setInputReps, setSetInputReps] = useState("");
-  const [setInputRpe, setSetInputRpe] = useState(""); // RPE for current set
-  const setDraftKey = user && activeSession ? `sirius-workout-draft:${user.user_id}:${activeSession.session_id}` : null;
-  const restoredDraftKey = useRef(null);
-  useEffect(() => {
-    if (!setDraftKey || restoredDraftKey.current === setDraftKey) return;
-    const draft = readSaved(setDraftKey);
-    if (draft) { setSetInputIdx(draft.index); setSetInputWeight(draft.weight || ''); setSetInputRpe(draft.rpe || ''); setSetInputReps(draft.reps || ''); }
-    restoredDraftKey.current = setDraftKey;
-  }, [setDraftKey]);
-  useEffect(() => {
-    if (!setDraftKey || restoredDraftKey.current !== setDraftKey) return;
-    if (setInputIdx !== null) writeSaved(setDraftKey, { index: setInputIdx, weight: setInputWeight, rpe: setInputRpe, reps: setInputReps });
-  }, [setDraftKey, setInputIdx, setInputWeight, setInputRpe, setInputReps]);
-  const [nextLoads, setNextLoads] = useState(null); // suggested next weights
-  const [exerciseHistory, setExerciseHistory] = useState({}); // {exerciseIdx: history}
-
-  const handleIncrementSets = async (idx) => {
-    if (!activeSession) return;
-    const ex = activeSession.exercises[idx];
-    // Show weight input before completing the set
-    setSetInputIdx(idx);
-    setSetInputReps(String(ex.reps || 12).match(/\d+/)?.[0] || '12');
-    setSetInputWeight(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.weight || ex.weight || "" : ex.weight || "");
-    setSetInputRpe(ex.sets_data?.length > 0 ? ex.sets_data[ex.sets_data.length-1]?.rpe || "" : "");
-  };
-
-  const confirmSet = async (idx) => {
-    if (workoutBusy.current) return;
-    if (!activeSession) return;
-    const ex = activeSession.exercises[idx];
-    const reps = Number(setInputReps);
-    if (!Number.isInteger(reps) || reps < 1 || reps > 999) { toast.error('Informe de 1 a 999 repetições.'); return; }
-    if (setInputRpe && (!Number.isFinite(Number(setInputRpe)) || Number(setInputRpe) < 1 || Number(setInputRpe) > 10)) { toast.error('O esforço percebido deve estar entre 1 e 10.'); return; }
-    const setsData = [...(ex.sets_data || [])];
-    const newSet = {
-      weight: setInputWeight,
-      reps,
-      completed: true,
-      rpe: setInputRpe || ""
-    };
-    setsData.push(newSet);
-    const newSetsCompleted = setsData.length;
-    const allSetsCompleted = newSetsCompleted >= (ex.sets || 1);
-    
-    try {
-      const res = await workoutWrite("patch",
-        `${API}/workout-sessions/${activeSession.session_id}/exercise/${idx}`,
-        { sets_data: setsData, completed: allSetsCompleted, revision: activeSession.revision || 0 }
-      );
-      setActiveSession(res.data);
-      if (setDraftKey) writeSaved(setDraftKey, null);
-      setSetInputIdx(null);
-      setSetInputWeight("");
-      setSetInputRpe("");
-      
-      if (allSetsCompleted) {
-        toast.success(`${ex.name} - Todas as séries concluídas! ✅`);
-      } else {
-        startRestManual(ex.rest_seconds || restDuration);
-        toast.info(`Série ${newSetsCompleted}/${ex.sets} concluída. Descanse!`);
-      }
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, "Não foi possível salvar a série. Seus campos foram preservados."));
-      if (error.response?.status === 409) checkActiveSession();
-    }
-  };
-
-  const fetchNextLoads = async (planId) => {
+  const [nextLoads, setNextLoads] = useState(null);
+  const [loadError, setLoadError] = useState(false);
+  const fetchNextLoads = useCallback(async (planId) => {
+    setLoadError(false);
     try {
       const res = await axios.get(`${API}/workouts/next-loads`, { params: { plan_id: planId }, withCredentials: true });
       setNextLoads(res.data);
-    } catch { /* Optional operation failed; preserve the current view. */ }
-  };
-
-  const fetchExerciseHistory = async (exerciseName, idx) => {
-    if (!exerciseName) return;
+    } catch { setLoadError(true); }
+  }, []);
+  useEffect(() => { if (activeSession?.plan_id) fetchNextLoads(activeSession.plan_id); }, [activeSession?.plan_id, fetchNextLoads]);
+  const saveSessionSet = async operation => {
     try {
-      const res = await axios.get(`${API}/workouts/exercise-history`, { params: { exercise_name: exerciseName }, withCredentials: true });
-      setExerciseHistory(prev => ({ ...prev, [idx]: res.data.history }));
-    } catch { /* Optional operation failed; preserve the current view. */ }
+      const res = await workoutWrite('patch', `${API}/workout-sessions/${activeSession.session_id}/exercise/${operation.index}`, operation.body, operation.key);
+      setActiveSession(res.data);
+      return res.data;
+    } catch (failure) {
+      if (failure.response?.status === 409) await checkActiveSession();
+      throw failure;
+    }
+  };
+  const fetchSessionHistory = async exerciseName => {
+    const data = await cachedGet(`/workouts/exercise-history?exercise_name=${encodeURIComponent(exerciseName)}`);
+    return data.history || [];
   };
 
-  const startRestManual = (seconds) => {
-    const duration = Math.max(1, Number(seconds || restDuration));
-    restDeadline.current = Date.now() + duration * 1000;
-    if (activeSession && user) writeSaved(`sirius-rest:${user.user_id}:${activeSession.session_id}`, restDeadline.current);
-    setRestTimer(duration); setIsResting(true);
-  };
-
-  const stopRest = () => {
-    restDeadline.current = null;
-    if (activeSession && user) writeSaved(`sirius-rest:${user.user_id}:${activeSession.session_id}`, null);
-    setRestTimer(0);
-    setIsResting(false);
+  const clearSessionStorage = () => {
+    if (!user || !activeSession) return;
+    writeSaved(`sirius-rest:${user.user_id}:${activeSession.session_id}`, null);
+    writeSaved(`sirius-workout-ux2:${user.user_id}:${activeSession.session_id}`, null);
   };
 
   const handleCompleteSession = async () => {
@@ -987,8 +875,9 @@ export default function Workouts() {
         feedbackData
       );
       toast.success(`Treino concluído! +${res.data.xp_earned} XP 🏆`);
+      setCompletionSummary({ ...workoutSummary(activeSession), duration: res.data.total_duration_seconds, xp: res.data.xp_earned });
       setShowFeedbackDialog(false);
-      stopRest();
+      clearSessionStorage();
       setActiveSession(null);
       setSessionElapsed(0);
       setFeedbackData({ difficulty: 3, feeling: "bom", notes: "" });
@@ -1005,7 +894,7 @@ export default function Workouts() {
     try {
       await workoutWrite("post", `${API}/workout-sessions/${activeSession.session_id}/abandon`, {});
       toast.info("Sessão abandonada");
-      stopRest();
+      clearSessionStorage();
       setActiveSession(null);
       setSessionElapsed(0);
       setActiveTab("plans");
@@ -2563,278 +2452,11 @@ export default function Workouts() {
 
             {/* ACTIVE SESSION TAB */}
             <TabsContent value="session">
-              {activeSession ? (
-                <div className="space-y-4">
-                  {/* Session Header */}
-                  <Card className="bg-gradient-to-r from-[#0A0A0A] to-[#0a1a0a] border-green-900 p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h2 className="font-heading text-2xl text-green-400">{activeSession.plan_name}</h2>
-                        <p className="text-sm text-[#A1A1AA]">Sessão ativa</p>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-data text-4xl text-[#00F0FF]">{formatTime(sessionElapsed)}</div>
-                        <p className="text-xs text-[#A1A1AA]">Tempo total</p>
-                      </div>
-                    </div>
-                    
-                    {/* Progress Bar */}
-                    {(() => {
-                      const { completed, total, percent } = getSessionProgress();
-                      return (
-                        <div>
-                          <div className="flex justify-between text-xs text-[#A1A1AA] mb-1">
-                            <span>{completed}/{total} exercícios</span>
-                            <span>{percent}%</span>
-                          </div>
-                          <div className="h-3 bg-[#121212] rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-green-500 to-[#00F0FF] transition-all duration-500"
-                              style={{ width: `${percent}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </Card>
-                  
-                  {/* Next Load Suggestions */}
-                  {nextLoads && nextLoads.suggestions && nextLoads.suggestions.some(s => s.next_weight) && (
-                    <Card className="bg-[#0A0A0A] border-[#A855F7]/30 p-4">
-                      <p className="text-xs text-[#A855F7] uppercase flex items-center gap-1 mb-2">
-                        <TrendingUp className="w-3 h-3" /> Próximas cargas sugeridas
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {nextLoads.suggestions.filter(s => s.next_weight).map((s, i) => (
-                          <Badge key={i} className="bg-[#A855F7]/10 text-[#A855F7] border-[#A855F7]/30 text-[10px]">
-                            {s.name}: {s.next_weight}kg
-                          </Badge>
-                        ))}
-                      </div>
-                    </Card>
-                  )}
-
-                  {/* Rest Timer */}
-                  {isResting && (
-                    <Card className="bg-[#0A0A0A] border-[#F59E0B] p-6 text-center animate-pulse">
-                      <Clock className="w-8 h-8 text-[#F59E0B] mx-auto mb-2" />
-                      <p className="text-xs text-[#F59E0B] uppercase font-medium mb-2">Tempo de Descanso</p>
-                      <div className="font-data text-6xl text-[#F59E0B]">{formatTime(restTimer)}</div>
-                      <div className="flex gap-2 justify-center mt-4">
-                        <Button variant="outline" size="sm" onClick={() => startRestManual(restTimer + 15)} className="border-[#F59E0B] text-[#F59E0B]">+15s</Button>
-                        <Button variant="outline" size="sm" onClick={stopRest} className="border-red-500 text-red-400">
-                          <Square className="w-3 h-3 mr-1" /> Pular
-                        </Button>
-                      </div>
-                    </Card>
-                  )}
-
-                  {/* Rest Timer Presets */}
-                  <Card className="bg-[#0A0A0A] border-[#27272A] p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <Label className="text-xs uppercase tracking-wider text-[#A1A1AA]">Timer de Descanso</Label>
-                      <div className="flex gap-1">
-                        {[30, 60, 90, 120].map(sec => (
-                          <button
-                            key={sec}
-                            onClick={() => { setRestDuration(sec); startRestManual(sec); }}
-                            className={`px-3 py-1 text-xs rounded ${
-                              restDuration === sec && !isResting
-                                ? 'bg-[#F59E0B] text-black'
-                                : 'bg-[#121212] border border-[#27272A] text-[#A1A1AA] hover:border-[#F59E0B]'
-                            }`}
-                          >
-                            {sec}s
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </Card>
-
-                  {/* Exercise List */}
-                  <div className="space-y-2">
-                    {(activeSession.exercises || []).map((ex, idx) => {
-                      const tutorialKey = `session_${idx}`;
-                      const hasTutorial = !!ex.name;
-                      const setsProgress = ex.sets_completed || 0;
-                      
-                      return (
-                        <Card key={idx} className={`border-[#27272A] p-0 overflow-hidden ${
-                          ex.completed ? 'bg-[#0a1a0a] border-green-900' : 'bg-[#0A0A0A]'
-                        }`}>
-                          <div className="p-4">
-                            <div className="flex flex-wrap items-center gap-3">
-                              <button type="button" disabled={sessionSaving} aria-label={`Alternar conclusão de ${ex.name}`} aria-pressed={!!ex.completed}
-                                onClick={() => handleToggleSessionExercise(idx)}
-                                className={`w-8 h-8 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all ${
-                                  ex.completed 
-                                    ? 'bg-green-500 border-green-500' 
-                                    : 'border-[#52525B] hover:border-[#00F0FF]'
-                                }`}
-                              >
-                                {ex.completed ? <Check className="w-4 h-4 text-white" /> : <span className="text-xs text-[#52525B]">{idx + 1}</span>}
-                              </button>
-                              
-                              <div className="flex-1">
-                                <p className={`font-medium text-sm ${ex.completed ? 'text-green-400 line-through' : 'text-white'}`}>{ex.name}</p>
-                                <p className="text-xs text-[#A1A1AA]">
-                                  {ex.sets}x{ex.reps} {ex.weight && `@ ${ex.weight}`}
-                                  {ex.muscle_group && <span className="ml-2 text-[#52525B]">· {ex.muscle_group}</span>}
-                                </p>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                {/* Sets progress */}
-                                {!ex.completed && (
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-xs text-[#A1A1AA]">{setsProgress}/{ex.sets}</span>
-                                    {setInputIdx === idx ? (
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <input
-                                          type="text"
-                                          aria-label="Carga da série" inputMode="decimal" value={setInputWeight}
-                                          onChange={(e) => setSetInputWeight(e.target.value)}
-                                          placeholder="carga"
-                                          className="w-20 h-11 px-2 text-sm bg-[#18181B] border border-[#00F0FF] rounded text-white text-center"
-                                          autoFocus
-                                          onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
-                                        />
-                                        <input type="number" min={1} max={999} inputMode="numeric" aria-label="Repetições da série" value={setInputReps} onChange={e => setSetInputReps(e.target.value)} placeholder="reps" className="w-16 h-11 px-2 text-sm bg-[#18181B] border border-slate-600 rounded text-white text-center" />
-                                        <input
-                                          type="text"
-                                          aria-label="Esforço percebido da série (RPE)" inputMode="decimal" value={setInputRpe}
-                                          onChange={(e) => setSetInputRpe(e.target.value)}
-                                          placeholder="RPE 1–10"
-                                          className="w-16 h-11 px-2 text-sm bg-[#18181B] border border-[#A855F7] rounded text-white text-center"
-                                          onKeyDown={(e) => { if (e.key === 'Enter') confirmSet(idx); if (e.key === 'Escape') setSetInputIdx(null); }}
-                                        />
-                                        <Button 
-                                          variant="outline" size="sm"
-                                          aria-label="Salvar série" disabled={sessionSaving} onClick={() => confirmSet(idx)}
-                                          className="h-7 px-2 text-xs border-green-500 text-green-400 hover:bg-green-500 hover:text-black"
-                                        >
-                                          <Check className="w-3 h-3" />
-                                        </Button>
-                                      </div>
-                                    ) : (
-                                      <Button 
-                                        variant="outline" size="sm"
-                                        aria-label={`Registrar série de ${ex.name}`} disabled={sessionSaving} onClick={() => handleIncrementSets(idx)}
-                                        className="h-7 px-2 text-xs border-[#00F0FF] text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black"
-                                      >
-                                        +1 série
-                                      </Button>
-                                    )}
-                                  </div>
-                                )}
-                                
-                                {exerciseHistory[idx]?.length > 0 && <WorkoutComparison current={ex} previous={exerciseHistory[idx][0]} />}
-                            {/* Previous workout comparison */}
-                                {!ex.completed && (
-                                  <Button 
-                                    variant="ghost" size="sm" 
-                                    onClick={() => fetchExerciseHistory(ex.name, idx)}
-                                    className={`h-7 px-2 text-xs ${exerciseHistory[idx]?.length > 0 ? 'text-[#00F0FF]' : 'text-[#52525B]'}`}
-                                  >
-                                    <TrendingUp className="w-3 h-3" /> Anterior
-                                  </Button>
-                                )}
-                                
-                                {hasTutorial && (
-                                  <Button 
-                                    variant="ghost" size="sm" 
-                                    onClick={() => toggleTutorial(tutorialKey)}
-                                    aria-label={`Ver tutorial de ${ex.name}`} aria-expanded={!!expandedTutorials[tutorialKey]}
-                                    className={`h-7 w-7 p-0 ${expandedTutorials[tutorialKey] ? 'text-[#A855F7]' : 'text-[#52525B]'}`}
-                                  >
-                                    <BookOpenCheck className="w-4 h-4" />
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Sets indicator dots with weight and RPE */}
-                            {!ex.completed && ex.sets > 1 && (
-                              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 ml-11">
-                                {Array.from({ length: ex.sets }).map((_, sIdx) => {
-                                  const setData = ex.sets_data?.[sIdx];
-                                  const isDone = sIdx < setsProgress;
-                                  return (
-                                    <div key={sIdx} className="flex items-center gap-1">
-                                      <div className={`w-2.5 h-2.5 rounded-full transition-all ${
-                                        isDone ? 'bg-[#00F0FF]' : 'bg-[#27272A]'
-                                      }`} />
-                                      {isDone && setData?.weight && (
-                                        <span className="text-[10px] text-[#A1A1AA]">{setData.weight}</span>
-                                      )}
-                                      {isDone && setData?.rpe && (
-                                        <span className="text-[9px] text-[#A855F7]">RPE {setData.rpe}</span>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {exerciseHistory[idx]?.length > 0 && <WorkoutComparison current={ex} previous={exerciseHistory[idx][0]} />}
-                            {/* Previous workout comparison */}
-                            {exerciseHistory[idx] && exerciseHistory[idx].length > 0 && (
-                              <div className="mt-2 ml-11 bg-[#00F0FF]/5 border border-[#00F0FF]/20 rounded p-2">
-                                <p className="text-[10px] text-[#00F0FF] uppercase flex items-center gap-1 mb-1">
-                                  <TrendingUp className="w-3 h-3" /> Último treino
-                                </p>
-                                {exerciseHistory[idx].slice(0, 3).map((h, hi) => (
-                                  <div key={hi} className="text-[10px] text-[#A1A1AA] flex flex-wrap items-center gap-2">
-                                    <span>{h.date?.slice(5)}</span>
-                                    {h.sets_data?.length > 0 ? (
-                                      h.sets_data.map((sd, si) => (
-                                        <span key={si} className="text-[#71717A]">
-                                          {sd.weight}kg × {sd.reps || "—"} rep{sd.rpe ? ` @${sd.rpe}` : ""}
-                                        </span>
-                                      ))
-                                    ) : (
-                                      <span>{h.weight}kg x {h.reps}</span>
-                                    )}
-                                  </div>
-                                ))}
-                                <div 
-                                  className="text-[10px] text-[#00F0FF] mt-1 cursor-pointer"
-                                  onClick={() => setActiveTab("evolution")}
-                                >
-                                  Ver evolução completa →
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Tutorial */}
-                          {hasTutorial && expandedTutorials[tutorialKey] && (
-                            <div className="bg-[#0a0a1a] border-t border-[#27272A] p-4 space-y-2">
-                              <WorkoutTutorial exercise={ex} />
-                            </div>
-                          )}
-                        </Card>
-                      );
-                    })}
-                  </div>
-
-                  {/* Session Actions */}
-                  <div className="flex gap-3">
-                    <Button 
-                      onClick={handleAbandonSession} 
-                      variant="outline" 
-                      className="flex-1 border-red-900 text-red-400 hover:bg-red-900/20"
-                    >
-                      <X className="w-4 h-4 mr-2" /> Abandonar
-                    </Button>
-                    <Button 
-                      onClick={() => setShowFeedbackDialog(true)} 
-                      className="flex-1 bg-gradient-to-r from-green-600 to-[#00F0FF] text-white hover:opacity-90"
-                    >
-                      <Trophy className="w-4 h-4 mr-2" /> Finalizar Treino
-                    </Button>
-                  </div>
-                </div>
+              {activeSession && user ? (
+                <WorkoutSession key={`${user.user_id}:${activeSession.session_id}`} session={activeSession} userId={user.user_id}
+                  elapsed={sessionElapsed} saving={sessionSaving} onSave={saveSessionSet}
+                  onFinish={() => setShowFeedbackDialog(true)} onAbandon={handleAbandonSession}
+                  onHistory={fetchSessionHistory} nextLoads={nextLoads} loadError={loadError} />
               ) : (
                 <Card className="bg-[#0A0A0A] border-[#27272A] p-8 text-center">
                   <Dumbbell className="w-12 h-12 text-[#52525B] mx-auto mb-4" />
@@ -2850,6 +2472,7 @@ export default function Workouts() {
           <Dialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog}>
             <DialogContent className="bg-[#0A0A0A] border-[#27272A] text-white max-w-md">
               <DialogHeader>
+                <DialogDescription>Confira os registros e conte como foi seu treino antes de concluir.</DialogDescription>
                 <DialogTitle className="font-heading text-xl flex items-center gap-2">
                   <Trophy className="w-5 h-5 text-[#F59E0B]" /> TREINO CONCLUÍDO!
                 </DialogTitle>
@@ -2869,9 +2492,9 @@ export default function Workouts() {
                       <p className="text-[10px] text-[#52525B] uppercase">Exercícios</p>
                     </div>
                     <div className="bg-[#121212] rounded-lg p-3">
-                      <Flame className="w-5 h-5 text-[#EF4444] mx-auto mb-1" />
-                      <p className="font-data text-xl text-[#EF4444]">{Math.round((sessionElapsed / 60) * 6)}</p>
-                      <p className="text-[10px] text-[#52525B] uppercase">Cal (est.)</p>
+                      <Dumbbell className="w-5 h-5 text-purple-300 mx-auto mb-1" />
+                      <p className="font-data text-xl text-purple-300">{workoutSummary(activeSession).sets}</p>
+                      <p className="text-[10px] text-slate-400 uppercase">Séries registradas</p>
                     </div>
                   </div>
                 )}
@@ -2883,6 +2506,7 @@ export default function Workouts() {
                     {[1, 2, 3, 4, 5].map(level => (
                       <button
                         key={level}
+                        aria-label={`Dificuldade ${level} de 5`} aria-pressed={feedbackData.difficulty === level}
                         onClick={() => setFeedbackData({...feedbackData, difficulty: level})}
                         className={`w-12 h-12 rounded-lg flex items-center justify-center transition-all ${
                           feedbackData.difficulty >= level 
@@ -2945,11 +2569,25 @@ export default function Workouts() {
                   <Button onClick={() => setShowFeedbackDialog(false)} variant="outline" className="flex-1 border-[#27272A]">
                     Voltar
                   </Button>
-                  <Button onClick={handleCompleteSession} className="flex-1 bg-gradient-to-r from-green-600 to-[#00F0FF] text-white">
+                  <Button disabled={sessionSaving} onClick={handleCompleteSession} className="flex-1 bg-gradient-to-r from-green-600 to-[#00F0FF] text-white">
                     <Trophy className="w-4 h-4 mr-2" /> Concluir
                   </Button>
                 </div>
               </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={!!completionSummary} onOpenChange={open => { if (!open) setCompletionSummary(null); }}>
+            <DialogContent className="ws-dialog">
+              <DialogHeader><DialogTitle>Treino concluído!</DialogTitle><DialogDescription>Resumo dos dados registrados nesta sessão.</DialogDescription></DialogHeader>
+              {completionSummary && <dl className="grid grid-cols-2 gap-5 text-sm">
+                <div><dt className="text-slate-400">Duração</dt><dd className="text-2xl">{formatTime(completionSummary.duration)}</dd></div>
+                <div><dt className="text-slate-400">Exercícios concluídos</dt><dd className="text-2xl">{completionSummary.exercises}/{completionSummary.total}</dd></div>
+                <div><dt className="text-slate-400">Séries registradas</dt><dd className="text-2xl">{completionSummary.sets}</dd></div>
+                <div><dt className="text-slate-400">XP recebido</dt><dd className="text-2xl text-green-300">+{completionSummary.xp}</dd></div>
+                {completionSummary.volume != null && <div className="col-span-2"><dt className="text-slate-400">Volume total (carga × repetições)</dt><dd className="text-2xl">{completionSummary.volume.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} kg</dd></div>}
+              </dl>}
+              <Button onClick={() => setCompletionSummary(null)}>Continuar</Button>
             </DialogContent>
           </Dialog>
 

@@ -1,0 +1,86 @@
+.workout-session { color: #f1f5f9; min-width: 0; --ws-accent: #63dcff; }
+.workout-session button, .workout-session summary { min-height: 44px; }
+.ws-header { position: sticky; top: 60px; z-index: 15; background: #10151ef5; backdrop-filter: blur(14px); padding: 16px 20px 12px; border-radius: 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }
+.ws-eyebrow { font-size: 12px; color: #9aaec7; margin-bottom: 6px; }
+.ws-plan-name { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.ws-header > div:first-child { min-width: 0; flex: 1; }
+.ws-header-metrics { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #cbd5e1; }
+.ws-header-metrics > span:first-child { display: flex; align-items: center; gap: 6px; color: var(--ws-accent); font-size: 20px; font-variant-numeric: tabular-nums; }
+.ws-progress { width: 100%; height: 3px; background: #253042; overflow: hidden; border-radius: 8px; }
+.ws-progress span { display: block; height: 100%; background: #5ee0bd; transition: width .2s; }
+.ws-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; margin-top: 24px; align-items: start; }
+.ws-panel { min-width: 0; background: linear-gradient(150deg, #131d2c, #10131c); border-radius: 20px; padding: 28px; }
+.ws-exercise-name { font-size: clamp(24px, 2.6vw, 34px); line-height: 1.2; font-weight: 700; letter-spacing: -.025em; overflow-wrap: anywhere; scroll-margin-top: 180px; }
+.ws-prescription { color: #bccadd; font-size: 14px; margin: 12px 0; overflow-wrap: anywhere; }
+.ws-muted { font-size: 13px; color: #a6b8cf; line-height: 1.6; overflow-wrap: anywhere; }
+.ws-set-track { display: flex; gap: 8px; flex-wrap: wrap; margin: 20px 0; }
+.ws-set-track span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: #263246; color: #bdcce1; font-size: 12px; }
+.ws-set-track .done, .ws-queue-marker.done { background: #193d37; color: #6de5b5; }
+.ws-load { color: #c0b5f8; font-size: 13px; margin: 14px 0; }
+.ws-rest { background: #132e39; border-radius: 14px; padding: 18px; margin: 18px 0; }
+.ws-rest-time { color: #91e7ff; font-size: 32px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.ws-rest-actions { display: flex; gap: 8px; margin: 12px 0; }
+.ws-rest-actions button { flex: 1; min-width: 0; padding: 8px; }
+.ws-announcement:empty { display: none; }
+.ws-announcement { font-size: 12px; color: #82eac5; margin-bottom: 12px; }
+.ws-set-form h3 { font-size: 18px; font-weight: 600; margin-bottom: 14px; }
+.ws-inputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 540px; }
+.ws-inputs label { display: flex; flex-direction: column; justify-content: flex-end; font-size: 13px; gap: 6px; min-width: 0; }
+.ws-inputs label span { font-size: 11px; color: #a2b1c8; }
+.ws-inputs input { width: 100%; min-width: 0; height: 60px; padding: 12px; font-size: 24px; font-variant-numeric: tabular-nums; border: 1px solid #354760; border-radius: 12px; background: #0b1220; color: #fff; }
+.ws-inputs input:focus-visible { outline: 2px solid #6adfff; outline-offset: 2px; }
+.ws-inputs input:disabled { opacity: .7; }
+.ws-primary-action { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; max-width: 540px; }
+.ws-primary-action p { font-size: 12px; color: #bdcce1; overflow-wrap: anywhere; }
+.ws-complete-set { min-height: 54px !important; gap: 10px; font-size: 16px; background: #65ddff; color: #07131e; font-weight: 700; }
+.ws-complete-set:hover { background: #a2ecff; }
+.ws-error { color: #fecaca; background: #48232e; padding: 12px; border-radius: 10px; font-size: 13px; margin: 12px 0; overflow-wrap: anywhere; }
+.ws-secondary-actions { display: flex; gap: 10px; margin: 24px 0 14px; flex-wrap: wrap; }
+.ws-secondary-actions button { flex: 1; }
+.ws-history ul, .ws-recorded ol { font-size: 13px; color: #c8d6e6; line-height: 1.8; }
+.ws-history details, .ws-recorded, .ws-rest-settings { margin-top: 12px; }
+.workout-session summary { display: flex; align-items: center; cursor: pointer; font-size: 13px; color: #b8cff0; padding: 8px 0; }
+.workout-session summary::before { content: '+'; margin-right: 10px; }
+.workout-session details[open] > summary::before { content: '−'; }
+.ws-history-entry { margin: 14px 0; font-size: 13px; }
+.ws-rest-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+.ws-rest-presets button { flex: 1; }
+.ws-queue { padding: 22px 16px; position: sticky; top: 184px; }
+.ws-queue h3 { display: flex; align-items: center; gap: 10px; font-size: 16px; margin: 0 8px 14px; }
+.ws-queue ol { display: flex; flex-direction: column; gap: 4px; max-height: 65vh; overflow-y: auto; }
+.ws-queue button { display: flex; align-items: center; width: 100%; text-align: left; gap: 12px; padding: 12px 10px; border-radius: 12px; }
+.ws-queue button:hover { background: #1b293c; }
+.ws-queue button[aria-current] { background: #1b3544; outline: 1px solid #3e7488; }
+.ws-queue button:disabled { opacity: .7; cursor: wait; }
+.ws-queue-marker { flex-shrink: 0; width: 30px; height: 30px; display: grid; place-items: center; background: #273247; color: #bfcee0; border-radius: 50%; font-size: 12px; }
+.ws-queue-name { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; min-width: 0; }
+.ws-queue-name small { display: block; color: #a6b8cf; font-size: 11px; }
+.ws-completed { padding: 16px 0; color: #6de5b5; }
+.ws-completed h3 { font-size: 20px; font-weight: 600; margin: 8px 0 18px; }
+.ws-next { background: #265146; color: #c5ffe8; gap: 10px; }
+.ws-footer { display: flex; gap: 16px; padding: 24px 0; flex-wrap: wrap; }
+.ws-finish { min-height: 48px !important; background: #1e5b49; color: #c8ffe9; min-width: 200px; }
+.ws-dialog { background: #101723; color: #f1f5f9; border-color: #2a3850; }
+.ws-dialog-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.ws-dialog-actions button { min-height: 44px; flex: 1; }
+.ws-tutorial { overflow-wrap: anywhere; min-width: 0; }
+@media (max-width: 1100px) { .ws-layout { grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; } .ws-panel { padding: 20px; } .ws-queue { padding: 18px 10px; } }
+@media (max-width: 850px) { .ws-layout { grid-template-columns: minmax(0, 1fr); } .ws-queue { position: static; } .ws-queue ol { max-height: none; } }
+@media (max-width: 767px) {
+  .workout-session { padding-bottom: 98px; }
+  .ws-header { top: 60px; padding: 12px; border-radius: 12px; gap: 10px; }
+  .ws-plan-name { font-size: 14px; }
+  .ws-header-metrics { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; }
+  .ws-header-metrics > span:first-child { font-size: 18px; }
+  .ws-layout { margin-top: 14px; }
+  .ws-panel { padding: 18px 14px; border-radius: 16px; }
+  .ws-inputs { gap: 8px; }
+  .ws-inputs input { height: 56px; font-size: 20px; padding: 10px 8px; }
+  .ws-inputs label { font-size: 12px; }
+  .ws-inputs label span { font-size: 10px; }
+  .ws-primary-action { position: fixed; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0; z-index: 30; max-width: none; margin: 0; padding: 10px 16px 12px; background: #0c1522f7; backdrop-filter: blur(12px); border-top: 1px solid #2c4057; }
+  .ws-primary-action p { text-align: center; }
+  .ws-footer { padding-bottom: 16px; gap: 8px; }
+  .ws-footer button { width: 100%; }
+  .ws-rest-time { font-size: 28px; }
+}
