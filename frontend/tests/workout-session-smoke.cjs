@@ -199,6 +199,10 @@ const clone = value => JSON.parse(JSON.stringify(value));
       if (width < 500) {
         await page.setViewportSize({ width, height: 430 });
         await page.getByLabel('Repetições da série', { exact: true }).focus();
+        await page.waitForFunction(() => {
+          const label = document.querySelector('#ws-reps').closest('label').getBoundingClientRect();
+          return label.top >= document.querySelector('.ws-header').getBoundingClientRect().bottom && label.bottom <= document.querySelector('.ws-primary-action').getBoundingClientRect().top;
+        });
         const button = await register().boundingBox(); assert.ok(button.y >= 0 && button.y + button.height < 430);
         assert.equal(await page.locator('.ws-primary-action').evaluate(el => getComputedStyle(el).position), 'fixed');
         assert.ok(Number.parseFloat(await page.locator('.ws-primary-action').evaluate(el => getComputedStyle(el).bottom)) >= 68);

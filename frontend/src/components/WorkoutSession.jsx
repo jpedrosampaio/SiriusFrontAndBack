@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import WorkoutTutorial from '@/components/WorkoutTutorial';
@@ -73,6 +73,7 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
   const [now, setNow] = useState(Date.now());
   const [restDone, setRestDone] = useState(false);
   const busy = useRef(false);
+  const container = useRef(null);
   const exerciseHeading = useRef(null);
   const rest = Math.max(0, Math.ceil(((deadline || 0) - now) / 1000));
   const exercise = session.exercises[index];
@@ -83,6 +84,24 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
   const suggestion = nextLoads?.suggestions?.find?.(item => item.name === exercise?.name);
   const pending = saving || !!attempt;
   useWorkoutWakeLock(session.status === 'active');
+  const revealKeyboardEntry = useCallback(() => {
+    const input = document.activeElement;
+    if (window.innerWidth >= 768 || (window.visualViewport?.height ?? window.innerHeight) >= 550 || !container.current?.contains(input) || input.tagName !== 'INPUT') return;
+    const label = input.closest('label');
+    const header = container.current.querySelector('.ws-header');
+    const action = container.current.querySelector('.ws-primary-action');
+    if (!label || !header || !action) return;
+    const top = header.getBoundingClientRect().bottom + 12;
+    const bottom = action.getBoundingClientRect().top - 12;
+    const box = label.getBoundingClientRect();
+    if (box.top < top || box.bottom > bottom) window.scrollBy({ top: box.top - top, behavior: 'auto' });
+  }, []);
+  useEffect(() => {
+    const resize = () => requestAnimationFrame(revealKeyboardEntry);
+    window.visualViewport?.addEventListener('resize', resize);
+    window.addEventListener('resize', resize);
+    return () => { window.visualViewport?.removeEventListener('resize', resize); window.removeEventListener('resize', resize); };
+  }, [revealKeyboardEntry]);
 
   useEffect(() => { writeSaved(namespace, { index, drafts, attempt }); }, [namespace, index, drafts, attempt]);
   useEffect(() => {
@@ -157,7 +176,7 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
   const adjustRest = seconds => { setNow(Date.now()); setDeadline(Math.max(Date.now(), (deadline || Date.now()) + seconds * 1000)); };
 
   if (!exercise) return <div className="ws-panel"><p>Nenhum exercício disponível nesta sessão.</p><Button onClick={onFinish}>Finalizar treino</Button></div>;
-  return <section className="workout-session" aria-label="Modo treino">
+  return <section ref={container} className="workout-session" aria-label="Modo treino">
     <header className="ws-header">
       <div><p className="ws-eyebrow">Modo treino</p><p className="ws-plan-name">{session.plan_name}</p></div>
       <div className="ws-header-metrics"><span aria-label="Tempo de treino"><Timer size={16} /> {sessionTime(elapsed)}</span><span>{progress.exercises}/{progress.total} exercícios · {progress.total - progress.exercises} restantes</span></div>
@@ -178,7 +197,7 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
           <p className="ws-muted">{exercise.completed ? 'Exercício concluído. Continue quando estiver pronto.' : `Próxima: série ${(exercise.sets_completed || 0) + 1} de ${exercise.sets} · ${values.weight ? `${values.weight} kg · ` : ''}${exercise.reps} reps`}</p>
         </div>}
         <p className="ws-announcement" role="status">{restDone ? 'Descanso finalizado.' : ''}</p>
-        {!exercise.completed || attempt ? <form onSubmit={save} className="ws-set-form">
+        {!exercise.completed || attempt ? <form onSubmit={save} onFocus={() => requestAnimationFrame(revealKeyboardEntry)} className="ws-set-form">
           <h3>Série {Math.min((exercise.sets_completed || 0) + 1, exercise.sets || 1)} de {exercise.sets}</h3>
           <div className="ws-inputs">
             <label htmlFor="ws-weight">Carga <span>kg · opcional</span><input id="ws-weight" aria-label="Carga da série" inputMode="decimal" type="text" maxLength={14} value={values.weight} disabled={pending} onChange={e => change('weight', e.target.value)} placeholder="—" /></label>
