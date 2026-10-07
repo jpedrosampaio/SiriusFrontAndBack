@@ -1,6 +1,8 @@
 import unittest
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from edital_intelligence import impact, official_dates
 from contest_sources import validate_url, SourceUnavailable, GenericOfficialConnector
@@ -40,3 +42,13 @@ class EdictIntelligenceTests(unittest.TestCase):
         self.assertEqual(first.text,second.text)
         self.assertNotEqual(first.content_hash,second.content_hash)
         self.assertEqual(first.hash_basis,'page_text_and_links')
+
+    def test_pdf_join_separator_truncation_has_consistent_partial_flags(self):
+        pages=[SimpleNamespace(extract_text=lambda size=size:'a'*size) for size in (50000,50000,50000,49999)]
+        reader=SimpleNamespace(is_encrypted=False,pages=pages)
+        with patch('contest_sources.fetch_public',side_effect=[(404,{},b''),(200,{'content-type':'application/pdf'},b'%PDF-fixture')]), \
+             patch('pypdf.PdfReader',return_value=reader):
+            page=GenericOfficialConnector().poll('https://orgao.gov.br/edital.pdf')
+        self.assertEqual(len(page.text),200000)
+        self.assertTrue(page.partial)
+        self.assertTrue(page.documents[0]['text_partial'])

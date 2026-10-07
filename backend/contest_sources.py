@@ -200,17 +200,19 @@ class ContestSourceProvider:
                     parts.append(part)
                     remaining -= len(part)
                     if remaining <= 0: break
-                text = '\n'.join(parts)[:200000]
+                joined = '\n'.join(parts)
+                partial = remaining <= 0 or len(joined) > 200000
+                text = joined[:200000]
             except SourceUnavailable: raise
             except Exception: raise SourceUnavailable('Não foi possível ler o PDF público.') from None
             digest = hashlib.sha256(body).hexdigest()
             page = SourcePage(text, [{'title': urlsplit(url).path.rsplit('/', 1)[-1] or 'PDF acompanhado', 'url': url, 'document_url': url,
                 'document_type': document_type('', url) or 'document', 'hash': digest, 'hash_basis': 'document_bytes',
                 'source_type': trust(url), 'official': trust(url) == 'OFFICIAL', 'published_at': None,
-                'text_extraction': 'available' if text.strip() else 'unavailable', 'text_partial': remaining <= 0}], digest)
+                'text_extraction': 'available' if text.strip() else 'unavailable', 'text_partial': partial}], digest)
             page.etag, page.modified = response_headers.get('etag'), response_headers.get('last-modified')
             page.hash_basis = 'document_bytes'
-            page.partial = remaining <= 0 or sum(map(len, parts)) + max(0, len(parts)-1) > 200000
+            page.partial = partial
             return page
         if not any(t in mime for t in ('text/html', 'text/plain', 'application/xhtml')): raise SourceUnavailable('Cadastre uma página pública ou PDF.')
         text = body.decode('utf-8', 'replace')

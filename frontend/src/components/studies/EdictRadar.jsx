@@ -31,7 +31,7 @@ export default function EdictRadar({ programId, refresh }) {
     {error && <div role="alert"><p className="text-amber-300 text-sm">{error}</p><Button variant="ghost" onClick={() => setRetry(n => n + 1)}>Tentar novamente</Button></div>}
     {data && <><p className="text-xs text-slate-400">Mudanças classificadas por regras, com confirmação necessária. Seu plano permanece sob seu controle.</p>
       <div className="grid sm:grid-cols-2 gap-3">{data.latest_versions.map(v => <article key={v.version_id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 min-w-0">
-        <p className="font-medium break-words">{v.details.title}</p><p className="text-xs text-slate-400 mt-1">Observada em {new Date(v.detected_at).toLocaleString('pt-BR')}</p>
+        <p className="font-medium break-words">{v.details.title}</p><p className="text-xs text-slate-400 mt-1">{v.details.legacy ? 'Data do registro legado; observação não confirmada:' : 'Observada em'} {new Date(v.detected_at).toLocaleString('pt-BR')}</p>
         <p className="text-sm mt-2">{v.impact.baseline ? 'Primeira versão registrada' : v.details.legacy ? 'Versão anterior recuperada' : 'Nova versão detectada'}</p>
         <p className="text-xs text-slate-400 mt-2">{v.impact.categories?.map(c => categories[c]).join(' · ') || 'Sem classificação de impacto confirmada'}</p>
         {v.impact.syllabus_impact?.status === 'review_required' && <p className="text-xs text-amber-300 mt-2">Confira se o edital verticalizado precisa de atualização.</p>}
@@ -49,7 +49,7 @@ export default function EdictRadar({ programId, refresh }) {
         </li>)}</ol>{data.dates.length === 0 && <p className="text-sm text-slate-400 mt-3">Nenhuma data completa vinculada a um evento foi identificada nas fontes oficiais consultadas.</p>}
       </div></>}
     {history && <div className="border border-purple-400/30 rounded-xl p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-medium break-words">Histórico: {history.source.title}</h4><Button variant="ghost" onClick={() => setHistory(null)}>Fechar histórico</Button></div>
-      <ol className="space-y-4 mt-3">{history.items.map(v => <li key={v.version_id} className="text-sm"><p>{new Date(v.detected_at).toLocaleString('pt-BR')} · {v.hash_basis === 'document_bytes' ? 'Hash do PDF' : v.hash_basis === 'page_text_and_links' ? 'Hash do texto e dos links' : 'Hash do texto extraído'}</p>
+      <ol className="space-y-4 mt-3">{history.items.map(v => <li key={v.version_id} className="text-sm"><p>{v.details?.legacy && 'Registro legado, data de observação não confirmada: '}{new Date(v.detected_at).toLocaleString('pt-BR')} · {v.hash_basis === 'document_bytes' ? 'Hash do PDF' : v.hash_basis === 'page_text_and_links' ? 'Hash do texto e dos links' : 'Hash do texto extraído'}</p>
         <details className="mt-2"><summary className="cursor-pointer">Mudanças textuais</summary><p className="text-xs text-slate-400 my-2">Classificação inferida; não representa uma interpretação jurídica.{v.impact.partial && ' Comparação parcial.'}</p>
           {v.impact.added?.map((line, i) => <p key={`a${i}`} className="text-xs text-green-300 break-words my-2">+ {line}</p>)}
           {v.impact.removed?.map((line, i) => <p key={`r${i}`} className="text-xs text-rose-300 break-words my-2">− {line}</p>)}
