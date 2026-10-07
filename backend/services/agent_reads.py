@@ -76,12 +76,14 @@ async def read(name, user_id):
         start = day.replace(day=1)
         if name in ('get_today_tasks', 'get_tasks'):
             pairs = await PlanningRepository(session).tasks_on_date(uid, day)
+            # Display limits must never drop temporal constraints from the planner.
+            selected = pairs[:60] + [(task, instance) for task, instance in pairs[60:] if task.scheduled_time is not None]
             return {'date': day.isoformat(), 'timezone': user.timezone, 'total': len(pairs),
                 'completed': sum(bool(instance and instance.completed) for task, instance in pairs),
                 'items': [{'task_id': str(task.id), 'title': task.title, 'priority': task.priority,
                     'date': task.date.isoformat(), 'recurrence': task.recurrence, 'duration_minutes': task.duration_minutes,
                     'scheduled_time': task.scheduled_time.strftime('%H:%M') if task.scheduled_time else None,
-                    'completed': bool(instance and instance.completed)} for task, instance in pairs[:60]], 'truncated': len(pairs) > 60}
+                    'completed': bool(instance and instance.completed)} for task, instance in selected], 'truncated': len(selected) < len(pairs)}
         if name == 'get_habits':
             rows = (await session.execute(select(Habit, HabitCheck.id).outerjoin(HabitCheck,
                 (HabitCheck.habit_id == Habit.id) & (HabitCheck.user_id == Habit.user_id) & (HabitCheck.date == day))

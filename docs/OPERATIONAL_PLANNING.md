@@ -41,6 +41,8 @@ A migration é compatível com o runtime anterior (campos nullable). Em rollback
 
 ## Validação
 
-Testes locais: 183 PostgreSQL; banco vazio + primeiro usuário; upgrade desde a revisão anterior; Alembic check; 105 regressões backend, cinco testes de rotas de segurança; 45 unit frontend; lint e build. A primeira execução concorrente com o build teve uma falha do subprocesso Alembic no Windows sem stderr; a repetição isolada e a suíte completa seguinte passaram.
+Testes locais: 183 PostgreSQL na suíte completa, mais regressão específica de restrições fixas após o limite de 60 (184 casos após a adição); banco vazio + primeiro usuário; upgrade desde a revisão anterior; Alembic check; 105 regressões backend, cinco testes de rotas de segurança; 45 unit frontend; lint e build. A primeira execução concorrente com o build teve uma falha do subprocesso Alembic no Windows sem stderr; a repetição isolada e a suíte completa seguinte passaram.
+
+Review P2 corrigido: o limite de exibição de 60 tarefas agora restringe somente as tarefas flexíveis adicionais. Todas as tarefas com horário entram na projeção/planner, sem consulta extra, incluindo conflitos e intervalos ocupados após o corte. Teste com 65 flexíveis e uma fixa posterior comprova disponibilidade zero e conflito preservado.
 
 Browser smoke adicional controla GET/POST para hidratação tardia, cliques rápidos e falha intermediária; criação/edição/limpeza de horário/duração, briefing parcial/vazio/zero real, planner após meio-dia, horários fixos vencidos e conflitos. Viewports 1440/1024/768/390/320. Fixtures sintéticas: não comprovam latência real de Neon, qualidade de respostas de LLM nem teclado físico de celular. Kanban usa uma coluna antes de 1280 para não comprimir os campos.
