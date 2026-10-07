@@ -36,7 +36,7 @@ export function EditalOverview({ concurso = {}, cargo = {}, filename, targetDate
       <h2 className="text-lg font-semibold mb-4">Resumo do edital</h2>
       {concurso.visao_geral && <p className={`${muted} mb-5`}>{concurso.visao_geral}</p>}
       <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{fields.map(([label, value]) => <div key={label}><dt className="text-xs uppercase tracking-wide text-[#71717A]">{label}</dt><dd className="mt-1 text-sm leading-relaxed break-words">{value || 'Não informado na análise'}</dd></div>)}</dl>
-      {filename && <p className="mt-5 border-t border-[#27272A] pt-4 text-xs text-[#71717A]">Arquivo analisado: {filename}</p>}
+      {filename && <p className="mt-5 border-t border-[#27272A] pt-4 text-xs text-[#71717A] [overflow-wrap:anywhere]">Arquivo analisado: {filename}</p>}
     </section>
     <section className={box}>
       <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Calendar className="h-4 w-4 text-purple-400" />Prazos e datas</h2>

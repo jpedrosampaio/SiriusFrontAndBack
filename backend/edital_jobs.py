@@ -31,7 +31,8 @@ class EditalJobs:
         uid=UUID(user.user_id)
         try: stored=await self.storage.put(uid,content)
         except StorageUnavailable:
-            raise HTTPException(503,'Envio em segundo plano indisponível: armazenamento durável de arquivos não configurado.')
+            # This code is only emitted BEFORE any job can exist: direct fallback is safe.
+            raise HTTPException(503,{'code':'durable_storage_unavailable','message':'Análise em segundo plano indisponível.'})
         try:
             async with unit_of_work() as session:
                 owner=await session.scalar(select(User).where(User.id==uid).with_for_update())

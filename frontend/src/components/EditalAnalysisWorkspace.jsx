@@ -9,7 +9,7 @@ import { EditalOverview } from '@/components/StudyProgramWorkspace';
 import { getApiErrorMessage } from '@/lib/api-errors';
 import { topicRows } from '@/lib/study-workspace';
 
-const field = 'w-full h-10 rounded-lg border border-[#27272A] bg-[#101014] px-3 text-sm';
+const field = 'w-full min-w-0 h-10 rounded-lg border border-[#27272A] bg-[#101014] px-3 text-sm';
 
 export default function EditalAnalysisWorkspace({ user, api, analysisId, initialAnalysis, areas, defaultAreaId, form, onFormChange, creating, onCreate, onBack, onReanalyze }) {
   const [analysis, setAnalysis] = useState(initialAnalysis?.analysis_id === analysisId ? initialAnalysis : null);
@@ -19,15 +19,18 @@ export default function EditalAnalysisWorkspace({ user, api, analysisId, initial
   const [reload, setReload] = useState(0);
   const [reviewing, setReviewing] = useState(false);
   useEffect(() => {
+    if (reload === 0 && initialAnalysis?.analysis_id === analysisId) {
+      setAnalysis(initialAnalysis); setError(''); return;
+    }
     const controller = new AbortController();
     setError(''); setSelected(0); setAnalysis(null);
     axios.get(`${api}/study/programs/editais/${analysisId}`, { withCredentials: true, signal: controller.signal })
       .then(r => { if (!controller.signal.aborted) setAnalysis(r.data); })
       .catch(e => { if (!controller.signal.aborted) setError(getApiErrorMessage(e, 'Não foi possível abrir a análise.')); });
     return () => controller.abort();
-  }, [api, analysisId, reload]);
+  }, [api, analysisId, reload, initialAnalysis]);
   const cargo = analysis?.cargos?.[selected];
-  const incomplete = !cargo?.disciplinas?.length || cargo.disciplinas_status === 'incompleto';
+  const incomplete = !cargo?.disciplinas?.length || cargo.disciplinas_status === 'incompleto' || !!cargo?.conferencia?.missing?.length;
   return <div className="min-h-screen bg-[#050505] text-white flex"><main className="flex-1 min-w-0  px-4 md:px-8 pt-6 md:pt-8 pb-24"><div className="max-w-6xl mx-auto space-y-6">
     <Button variant="ghost" className="-ml-3 text-[#A1A1AA]" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-2" />Meus estudos</Button>
     <header className="sirius-page-heading sirius-hero"><div className="sirius-eyebrow">Seu ponto de partida · edital analisado</div><h1 className="text-2xl md:text-3xl font-semibold mt-2">{analysis?.concurso?.nome || 'Análise do edital'}</h1><p className="text-sm text-[#A1A1AA] mt-3">Confira o resumo e o conteúdo do cargo antes de organizar seu plano.</p></header>
@@ -54,7 +57,7 @@ export default function EditalAnalysisWorkspace({ user, api, analysisId, initial
         <label className="text-sm space-y-2"><span className="block">Data da prova / meta</span><Input type="date" className={field} value={form.target_date} onChange={e => onFormChange({ ...form, target_date: e.target.value })} /></label>
         <label className="text-sm space-y-2"><span className="block">Horas por dia</span><select className={field} value={form.hours_per_day} onChange={e => onFormChange({ ...form, hours_per_day: Number(e.target.value) })}>{[1, 2, 3, 4, 5, 6, 8, 10, 12].map(h => <option key={h} value={h}>{h}h</option>)}</select></label>
         <label className="text-sm space-y-2"><span className="block">Dias por semana</span><select className={field} value={form.days_per_week} onChange={e => onFormChange({ ...form, days_per_week: Number(e.target.value) })}>{[1, 2, 3, 4, 5, 6, 7].map(d => <option key={d} value={d}>{d} dias</option>)}</select></label>
-      </div><Button disabled={creating || reviewing || incomplete || !areaId} onClick={() => onCreate(analysisId, selected, areaId)} className="bg-purple-600 hover:bg-purple-700">{creating ? <><Loader2 className="animate-spin h-4 w-4 mr-2" />Criando plano…</> : 'Criar programa e cronograma'}</Button><p className="text-xs text-[#71717A]">Será criado um programa para o cargo selecionado. Os programas existentes continuam disponíveis em Meus estudos.</p></section>
+      </div><Button disabled={creating || reviewing || incomplete || !areaId} onClick={() => onCreate(analysisId, selected, areaId)} className="bg-purple-600 hover:bg-purple-700">{creating ? <><Loader2 className="animate-spin h-4 w-4 mr-2" />Criando plano…</> : 'Gerar programa para este cargo'}</Button><p className="text-xs text-[#71717A]">Será criado um programa para o cargo selecionado. Os programas existentes continuam disponíveis em Meus estudos.</p></section>
     </>}
   </div></main></div>;
 }
