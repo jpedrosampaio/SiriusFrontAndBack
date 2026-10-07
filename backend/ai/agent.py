@@ -77,7 +77,7 @@ class SiriusAgent:
         self.core, self.router, self.credentials = core, router, credentials
         self.actions, self.memory, self.retrieval = actions, memory, retrieval
 
-    async def daily(self, user_id, start=480, end=1080, capacity=240):
+    async def daily(self, user_id, start=480, end=1080, capacity=None):
         tasks, commitments, study = await asyncio.gather(self.core.read('get_today_tasks', user_id), self.core.read('get_calendar', user_id), self.core.read('get_next_study_block', user_id))
         plan = plan_day(tasks['items'], commitments, tasks['date'], start, end, capacity)
         return {'tasks': tasks, 'commitments': commitments, 'next_study': study, 'plan': plan, 'next_action': next(iter(plan['blocks']), None), 'end_day': {'completed': tasks['completed'], 'pending': tasks['total']-tasks['completed'], 'replan_requires_confirmation': True}}

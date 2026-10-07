@@ -73,6 +73,16 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result['unscheduled']), 1)
         self.assertEqual(result['remaining_minutes'], 30)
 
+    def test_planner_derives_available_time_without_hidden_budget(self):
+        result = plan_day([{'task_id':'a','title':'Estimate'}, {'task_id':'b','completed':True},
+            {'task_id':'c','duration_minutes':200}], [{'date':'2026-09-26','start_minute':510,'end_minute':600}],
+            '2026-09-26',480,720)
+        self.assertEqual(result['available_minutes'],150)
+        self.assertEqual(result['budget_minutes'],150)
+        self.assertEqual(result['blocks'][0]['duration_minutes'],30)
+        self.assertTrue(result['blocks'][0]['duration_estimated'])
+        self.assertEqual(len(result['unscheduled']),1)
+
     async def test_memory_fingerprint_normalizes_case_and_spacing(self):
         self.assertEqual(fingerprint(' No reminders '), fingerprint('no REMINDERS'))
 
