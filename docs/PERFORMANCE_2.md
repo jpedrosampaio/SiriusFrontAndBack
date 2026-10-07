@@ -63,3 +63,20 @@ Browser APIs/providers are mocked and mobile keyboard is simulated by viewport h
 Base: merge PR #23 (`c10b907`). O escopo mantém o orçamento HTTP do dashboard e do batch de treino; nenhuma busca de YouTube foi antecipada. Chat em hidratação usa os dois GETs iniciais e o POST, sem refetch de sucesso; o teste controla a resposta tardia e verifica exatamente uma resposta/mensagem. Três cliques rápidos geram três POSTs serializados por plano (sem fanout de leitura), cada um com receipt próprio. Timeout/5xx interrompe o envio posterior até retry seguro; 409/4xx definitivo desfaz só a operação rejeitada.
 
 O briefing com texto em cache agora consulta novamente tarefas e hábitos para calcular progresso atual: há custo SQL adicional deliberado para evitar score congelado, sem invocar LLM nem recarregar refeições/estudos/treinos nessa leitura. Nenhum ganho de latência de produção foi medido nesta fase. Bundle principal local: aproximadamente 184,29 kB gzip, contra 184,26 kB no PR #23; sem novas dependências. Detalhes de contratos/migration: [OPERATIONAL_PLANNING.md](OPERATIONAL_PLANNING.md).
+
+## Workout Session UX2 — Fase B
+
+Base auditada antes das alterações: main `c5c3f2c`, PR #24. O smoke de sessão ativa com três planos registrou 9 GETs iniciais, um batch de status e nenhum GET individual de status/histórico/evolução/YouTube. Na fonte anterior, iniciar já usava um POST e um GET de próximas cargas para o plano inteiro; a navegação visual nova não introduz fan-out.
+
+| Fluxo | Antes | UX2 / evidência sintética |
+| --- | --- | --- |
+| Página de treinos com sessão existente | 9 GETs medidos, 1 batch/0 individuais | Mesmos 9 GETs no fixture legado sem `plan_id`; sessão com `plan_id` também busca uma sugestão para o plano, inclusive ao retomar |
+| Iniciar sessão de 12 exercícios | POST + próximas cargas por plano (auditoria da fonte), refresh de identidade pelo evento de escrita | 12 chamadas totais desde a página: 9 GETs iniciais + 1 POST start + 1 GET auth/me existente + 1 GET next-loads, nos cinco viewports |
+| Trocar exercício visualmente | Todos os cards eram renderizados juntos | 0 chamadas; rascunho local por exercício |
+| Tutorial fechado | 0 chamadas de vídeo | 0; uma chamada ao abrir, cache existente e iframe só ao clicar |
+| Histórico fechado | Sob demanda | 0; uma chamada por exercício não cacheado; falha/retry explícitos |
+| Séries/descanso | PATCH por série + timer local | PATCH por série; retry preserva chave/payload; nenhum polling; desfazer usa um PATCH extra somente quando acionado |
+
+Build local: principal aproximadamente 184,67 kB gzip (base Fase A 184,29 kB); chunk lazy de Workouts aproximadamente 31,84 kB e CSS UX2 2,15 kB. Sem nova dependência. Não se atribui ganho de latência ou SQL de produção a medidas de browser interceptado. A retomada agora apresenta sugestão de carga quando há plano, custo adicional de uma chamada por plano/sessão, não por exercício. Histórico, evolução completa e vídeos continuam sem preload.
+
+Verificação: suite frontend unitária e quatro smokes de browser, incluindo fluxo UX2 em 1440/1024/768/390/320, carga decimal/vazia, 3/8 séries, 12 exercícios, retry depois de commit/reload, 409, desfazer persistido, timer, tutorial, histórico, resumo e abandono. Veja [WORKOUT_SESSION_UX2.md](WORKOUT_SESSION_UX2.md) para contratos e limites de teclado/Wake Lock simulados.
