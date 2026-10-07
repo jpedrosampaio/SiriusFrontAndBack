@@ -2550,6 +2550,8 @@ from services import workout_logs
 api_router.include_router(workout_logs.router)
 from services import workout_daily_routes
 api_router.include_router(workout_daily_routes.router)
+from services import youtube_workouts
+api_router.include_router(youtube_workouts.router)
 from services import body_measurements,health_ai_routes
 api_router.include_router(body_measurements.router)
 from services import nutrition
