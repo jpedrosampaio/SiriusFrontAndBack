@@ -19,6 +19,12 @@ as escritas viram propostas que o usuário deve confirmar na interface. Não exe
 Valores financeiros são despesas positivas ou receitas, nunca saldo inventado. Não invente IDs.
 Peça esclarecimento quando faltar valor, data ou caderno. Use a data local informada para hoje.
 Proponha alterações somente quando pedidas na mensagem atual. No máximo quatro consultas/propostas.
+Ao criar tarefa, separe horário e duração explicitamente informados do título: scheduled_time HH:MM,
+duration_minutes 5–720. “Crie tarefa diária para acordar às 06:30”: título Acordar,
+scheduled_time 06:30, recurrence daily. “Estudar Constitucional hoje por 1 hora”:
+título Estudar Constitucional, duration_minutes 60, scheduled_time null.
+“Estudar Constitucional às 19h por 45 minutos”: scheduled_time 19:00, duration_minutes 45.
+Nunca invente horário ou duração ausente; use null. A proposta sempre exige confirmação.
 '''
 
 
@@ -79,8 +85,8 @@ class SiriusAgent:
 
     async def daily(self, user_id, start=480, end=1080, capacity=None):
         tasks, commitments, study = await asyncio.gather(self.core.read('get_today_tasks', user_id), self.core.read('get_calendar', user_id), self.core.read('get_next_study_block', user_id))
-        plan = plan_day(tasks['items'], commitments, tasks['date'], start, end, capacity)
-        return {'tasks': tasks, 'commitments': commitments, 'next_study': study, 'plan': plan, 'next_action': next(iter(plan['blocks']), None), 'end_day': {'completed': tasks['completed'], 'pending': tasks['total']-tasks['completed'], 'replan_requires_confirmation': True}}
+        plan = plan_day(tasks['items'], commitments, tasks['date'], start, end, capacity, timezone_name=tasks.get('timezone', 'America/Sao_Paulo'))
+        return {'tasks': tasks, 'commitments': commitments, 'next_study': study, 'plan': plan, 'next_action': next((b for b in plan['blocks'] if not b.get('past_due')), None), 'end_day': {'completed': tasks['completed'], 'pending': tasks['total']-tasks['completed'], 'replan_requires_confirmation': True}}
 
     async def respond(self, user_id, body, prompt):
         history = json.loads(prompt)

@@ -26,7 +26,7 @@ class Core:
         if name == 'get_daily_plan':
             from ai.planning import plan_day
             tasks, commitments = await asyncio.gather(self.read('get_today_tasks', user_id), self.read('get_calendar', user_id))
-            return plan_day(tasks['items'], commitments, tasks['date'])
+            return plan_day(tasks['items'], commitments, tasks['date'], timezone_name=tasks.get('timezone', 'America/Sao_Paulo'))
         if name == 'get_weekly_review': return await self.weekly(user_id)
         return await read(name, user_id)
 

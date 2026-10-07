@@ -47,6 +47,24 @@ class PostgresAgent(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(amounts,[Decimal('48.00')])
             self.assertEqual(await session.scalar(select(func.count()).select_from(ActionAudit).where(ActionAudit.user_id == self.uid)),1)
 
+    async def test_scheduled_task_agent_proposal_waits_for_confirmation(self):
+        from ai.registry import validate_call
+        from db.models.planning import Task
+        actions=Actions()
+        args=validate_call('create_task',{'title':'Acordar','date':'2026-10-07','recurrence':'daily','scheduled_time':'06:30','duration_minutes':30})
+        proposal=await actions.propose(self.uid,'scheduled-request',0,'create_task',args,'Explicit schedule')
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(Task).where(Task.user_id==self.uid)),0)
+        action_id=UUID(proposal['action_id'])
+        result=await actions.confirm(self.uid,action_id)
+        self.assertEqual(result['result']['scheduled_time'],'06:30')
+        await actions.confirm(self.uid,action_id)
+        async with unit_of_work() as session:
+            tasks=(await session.scalars(select(Task).where(Task.user_id==self.uid))).all()
+            self.assertEqual(len(tasks),1)
+            self.assertEqual(tasks[0].scheduled_time.strftime('%H:%M'),'06:30')
+            self.assertEqual(tasks[0].duration_minutes,30)
+
     async def test_failure_after_expense_rolls_back_proposal(self):
         class FailingWriter(CoreWrites):
             async def execute(self,*args):

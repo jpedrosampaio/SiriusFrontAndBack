@@ -16,3 +16,15 @@ export function mergeReply(messages, reply, pendingId) {
   const ids = new Set([pendingId, reply.user_message.message_id, reply.ai_message.message_id]);
   return [...messages.filter(m => !ids.has(m.message_id)), reply.user_message, reply.ai_message].slice(-200);
 }
+
+export function mergeHistory(history, current = []) {
+  const ids = new Set(history.map(m => m.message_id));
+  const receipts = new Set(history.map(m => m.request_id).filter(Boolean));
+  return [...history, ...current.filter(m => !ids.has(m.message_id) && !(m.message_id?.startsWith('pending-') && receipts.has(m.request_id)))].slice(-200);
+}
+
+export function mergeConversations(current = [], hydration = []) {
+  const ids = new Set(current.map(c => c.conversation_id));
+  const known = new Map(hydration.map(c => [c.conversation_id, c]));
+  return [...current.map(c => ({ ...known.get(c.conversation_id), ...c, title: known.get(c.conversation_id)?.title || c.title })), ...hydration.filter(c => !ids.has(c.conversation_id))].slice(0, 30);
+}

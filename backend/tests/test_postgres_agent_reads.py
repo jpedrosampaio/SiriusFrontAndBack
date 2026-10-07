@@ -34,6 +34,26 @@ class AgentReads(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await core.read('unregistered', self.uid)
 
+    async def test_fixed_constraints_after_display_cap_are_never_omitted(self):
+        from datetime import time
+        from zoneinfo import ZoneInfo
+        from ai.planning import plan_day
+        async with unit_of_work() as session:
+            session.add_all([Task(user_id=self.uid,title=f'Flexible {i}',date=self.today) for i in range(65)])
+            session.add(Task(user_id=self.uid,title='Late fixed constraint',date=self.today,
+                scheduled_time=time(8),duration_minutes=600,created_at=datetime.now(timezone.utc)+timedelta(hours=1)))
+            session.add(Task(user_id=self.bob,title='Foreign fixed constraint',date=self.today,scheduled_time=time(8)))
+        data=await Core().read('get_today_tasks',self.uid)
+        self.assertEqual(data['total'],66);self.assertEqual(len(data['items']),61)
+        self.assertEqual(data['items'][-1]['scheduled_time'],'08:00')
+        self.assertTrue(data['truncated'])
+        result=plan_day(data['items'],[{'event_id':'event','date':self.today.isoformat(),'start_minute':900,'end_minute':960}],
+            self.today.isoformat(),now=datetime.combine(self.today,time(14,15),ZoneInfo(data['timezone'])),timezone_name=data['timezone'])
+        self.assertEqual(result['available_minutes'],0)
+        self.assertEqual(len(result['conflicts']),1)
+        self.assertEqual(len(result['blocks']),1)
+        self.assertEqual(result['blocks'][0]['title'],'Late fixed constraint')
+
     async def test_owned_counts_limits_money_habit_goal_and_full_calendar(self):
         day = self.today
         from zoneinfo import ZoneInfo

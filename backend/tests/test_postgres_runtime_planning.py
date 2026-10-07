@@ -34,6 +34,27 @@ class RuntimePlanning(unittest.IsolatedAsyncioTestCase):
             result=await self.http.get('/api/calendar/events',params={'start':value,'end':'2026-09-14'})
             self.assertEqual(result.status_code,422,result.text)
 
+    async def test_task_scheduling_create_edit_recurrence_ownership_and_null(self):
+        body={'title':'Acordar','date':'2026-09-01','recurrence':'daily','scheduled_time':'06:30','duration_minutes':45}
+        created=await self.http.post('/api/tasks',json=body,headers={'Idempotency-Key':'scheduled-task'})
+        self.assertEqual(created.status_code,200,created.text)
+        tid=created.json()['task_id']
+        replay=await self.http.post('/api/tasks',json=body,headers={'Idempotency-Key':'scheduled-task'})
+        self.assertEqual(replay.json()['task_id'],tid)
+        for day in ('2026-09-14','2026-09-15'):
+            task=next(t for t in await self.listing(day) if t['task_id']==tid)
+            self.assertEqual((task['scheduled_time'],task['duration_minutes']),('06:30',45))
+            self.assertEqual(task['template_date'],'2026-09-01')
+        denied=await self.http.put('/api/tasks/'+tid,json=body,headers={'Authorization':'Bearer bob'})
+        self.assertEqual(denied.status_code,404)
+        edit=await self.http.put('/api/tasks/'+tid,json=body|{'scheduled_time':None,'duration_minutes':None})
+        self.assertEqual(edit.status_code,200,edit.text)
+        task=next(t for t in await self.listing() if t['task_id']==tid)
+        self.assertIsNone(task['scheduled_time']);self.assertIsNone(task['duration_minutes'])
+        for update in ({'scheduled_time':'24:00'},{'duration_minutes':4},{'duration_minutes':721}):
+            invalid=await self.http.post('/api/tasks',json=body|update)
+            self.assertEqual(invalid.status_code,422)
+
     async def asyncSetUp(self):
         import server
         self.http = AsyncClient(transport=ASGITransport(server.app), base_url='https://sirius.test')

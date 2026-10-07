@@ -1,5 +1,6 @@
+import { createDailyWorkoutQueue } from '@/lib/daily-workout-queue';
 import WorkoutTutorial from '@/components/WorkoutTutorial';
-import { cachedGet, queryClient, cacheKey } from '@/lib/query-cache';
+import { cachedGet, queryClient, cacheKey, sessionVersion } from '@/lib/query-cache';
 import { openSirius } from '@/lib/sirius-context';
 import WorkoutComparison from '@/components/WorkoutComparison';
 import { lazy, Suspense } from 'react';
@@ -295,7 +296,7 @@ export default function Workouts() {
 
       const plansData = Array.isArray(plansRes.data) ? plansRes.data : [];
       if (plansData.length) {
-        try { setDailyStatus(await cachedGet('/daily-workout-status')); }
+        try { const states = await cachedGet('/daily-workout-status'); setDailyStatus(Object.fromEntries(Object.entries(states).map(([id, state]) => [id, dailyWrites.current?.reconcile(id, state) || state]))); }
         catch (error) { toast.error(getApiErrorMessage(error, 'Não foi possível atualizar os marcadores. Os dados anteriores foram mantidos.')); }
       } else setDailyStatus({});
       
@@ -340,25 +341,28 @@ export default function Workouts() {
     }
   };
 
-  const dailyWrites = useRef(new Set());
-  const toggleDailyExercise = async (planId, exerciseIdx) => {
-    if (dailyWrites.current.has(planId)) return;
-    dailyWrites.current.add(planId);
-    const previous = dailyStatus[planId] || { exercises_status: {}, completed: false };
-    const checks = { ...previous.exercises_status };
-    if (checks[exerciseIdx]) delete checks[exerciseIdx]; else checks[exerciseIdx] = true;
-    setDailyStatus(prev => ({ ...prev, [planId]: { ...previous, exercises_status: checks } }));
-    try {
-      const res = await axios.post(`${API}/daily-workout-status/${planId}/toggle/${exerciseIdx}`, {}, { withCredentials: true, headers: { 'Idempotency-Key': crypto.randomUUID() }, timeout: 20000 });
-      setDailyStatus(prev => ({ ...prev, [planId]: res.data }));
-    } catch (error) {
-      setDailyStatus(prev => ({ ...prev, [planId]: previous }));
-      toast.error(getApiErrorMessage(error, "Erro ao atualizar exercício"));
-      if (error.response?.status === 409) checkActiveSession();
-    } finally { dailyWrites.current.delete(planId); }
+  const dailyWrites = useRef(null);
+  if (!dailyWrites.current) {
+    const owner = sessionVersion();
+    dailyWrites.current = createDailyWorkoutQueue({
+      write: async (planId, exerciseIdx, key) => {
+        if (owner !== sessionVersion()) throw Object.assign(new Error('Session changed'), { response: { status: 401 } });
+        return (await axios.post(`${API}/daily-workout-status/${planId}/toggle/${exerciseIdx}`, {}, { withCredentials: true, headers: { 'Idempotency-Key': key }, timeout: 20000 })).data;
+      },
+      publish: (planId, state) => { if (owner === sessionVersion()) setDailyStatus(prev => ({ ...prev, [planId]: state })); },
+      failed: (error, retry) => {
+        if (owner !== sessionVersion()) return;
+        toast.error(getApiErrorMessage(error, "Erro ao atualizar exercício"), retry ? { duration: Infinity, action: { label: 'Tentar novamente', onClick: retry } } : undefined);
+        if (error.response?.status === 409) checkActiveSession();
+      },
+    });
+  }
+  const toggleDailyExercise = (planId, exerciseIdx) => {
+    dailyWrites.current.enqueue(planId, exerciseIdx, dailyStatus[planId]);
   };
 
   const resetDailyWorkout = async (planId) => {
+    if (dailyWrites.current.busy(planId)) { toast.error("Aguarde o envio das marcações pendentes."); return; }
     try {
       await axios.post(`${API}/daily-workout-status/${planId}/reset`, {}, { withCredentials: true });
       setDailyStatus(prev => ({ ...prev, [planId]: { exercises_status: {}, completed: false } }));
@@ -385,6 +389,7 @@ export default function Workouts() {
 
   const handleCompleteWorkout = async () => {
     if (!completingPlan) return;
+    if (dailyWrites.current.busy(completingPlan.plan_id)) { toast.error('Aguarde o envio das marcações pendentes.'); return; }
     
     try {
       const res = await axios.post(
@@ -2425,6 +2430,8 @@ export default function Workouts() {
                                         <div onClick={() => !isCompleted && toggleDailyExercise(plan.plan_id, idx)} className="flex items-center gap-3 flex-1">
                                           <Checkbox 
                                             checked={isChecked}
+                                            onClick={event => event.stopPropagation()}
+                                            aria-label={`Marcar ${ex.name}`}
                                             disabled={isCompleted}
                                             onCheckedChange={() => !isCompleted && toggleDailyExercise(plan.plan_id, idx)}
                                             className="border-[#52525B] data-[state=checked]:bg-[#00F0FF] data-[state=checked]:border-[#00F0FF]"
