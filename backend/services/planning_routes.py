@@ -1,5 +1,5 @@
 """Planning HTTP contracts backed by SQL transactions and owner-scoped repositories."""
-from datetime import datetime, timezone, timedelta
+from datetime import date as CivilDate, datetime, timezone, timedelta
 from services.time import CalendarDate as Date
 from uuid import UUID
 from fastapi import APIRouter, Request, HTTPException
@@ -61,7 +61,10 @@ async def get_tasks(request: Request, date: Date | None = None, recurrence: str 
         pairs = await PlanningRepository(session).tasks_on_date(UUID(user['user_id']), day, recurrence)
         return [{'task_id': str(task.id), 'user_id': str(task.user_id), 'title': task.title,
             'description': task.description, 'date': day.isoformat(), 'priority': task.priority,
+            'template_date': task.date.isoformat(),
             'recurrence': task.recurrence, 'xp_reward': task.xp_reward, 'is_template': True,
+            'scheduled_time': task.scheduled_time.strftime('%H:%M') if task.scheduled_time else None,
+            'duration_minutes': task.duration_minutes,
             'created_at': task.created_at.isoformat(), 'completed': bool(instance and instance.completed),
             'status': instance.status if instance else 'todo', 'instance_id': str(instance.id) if instance else None}
             for task, instance in pairs]
@@ -81,6 +84,23 @@ async def update_task(request: Request, task_id: UUID, completed: bool, date: Da
     user = await account(request)
     return await set_task_completion(UUID(user['user_id']), task_id, date, 'done' if completed else 'todo',
         request.headers.get('Idempotency-Key'))
+
+
+@router.put('/tasks/{task_id}')
+async def edit_task(request: Request, task_id: UUID, body: TaskBody):
+    from datetime import time
+    user = await account(request)
+    args = body.model_dump(mode='json')
+    async def apply(session, owner):
+        row = await PlanningRepository(session).get_task(owner.id, task_id)
+        if row is None:
+            raise HTTPException(404, 'Task not found')
+        for key, value in args.items():
+            if key == 'scheduled_time': value = time.fromisoformat(value) if value else None
+            if key == 'date': value = CivilDate.fromisoformat(value)
+            setattr(row, key, value)
+        return {**args, 'task_id': str(row.id)}
+    return await run_activity(UUID(user['user_id']), request.headers.get('Idempotency-Key'), ['edit_task', str(task_id), args], apply)
 
 
 @router.patch('/tasks/{task_id}/status')

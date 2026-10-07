@@ -1,6 +1,6 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from uuid import UUID
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Date, DateTime, Time, ForeignKey, ForeignKeyConstraint, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from db.base import Base, Identity, Timestamps
@@ -18,11 +18,14 @@ class Task(Identity, Owned, Timestamps, Base):
     date: Mapped[date] = mapped_column(Date)
     priority: Mapped[str] = mapped_column(default='medium')
     recurrence: Mapped[str] = mapped_column(default='once')
+    scheduled_time: Mapped[time | None] = mapped_column(Time(timezone=False))
+    duration_minutes: Mapped[int | None]
     completed: Mapped[bool] = mapped_column(default=False)
     xp_reward: Mapped[int] = mapped_column(default=10)
     __table_args__ = (UniqueConstraint('user_id', 'id'), Index('ix_tasks_owner_date', 'user_id', 'date'),
         CheckConstraint("priority IN ('low','medium','high')", name='priority'),
-        CheckConstraint("recurrence IN ('once','daily','weekly','monthly')", name='recurrence'))
+        CheckConstraint("recurrence IN ('once','daily','weekly','monthly')", name='recurrence'),
+        CheckConstraint('duration_minutes BETWEEN 5 AND 720', name='duration_minutes'))
 
 
 class TaskInstance(Identity, Owned, Base):

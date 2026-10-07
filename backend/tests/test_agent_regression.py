@@ -68,7 +68,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
 
     def test_planner_respects_capacity_fixed_intervals_and_completed_tasks(self):
         tasks = [{'task_id': 'a', 'title': 'A', 'priority': 'high', 'duration_minutes': 60}, {'task_id': 'b', 'title': 'B', 'duration_minutes': 90}, {'task_id': 'c', 'completed': True}]
-        result = plan_day(tasks, [{'date': '2026-09-26', 'start_minute': 510, 'end_minute': 600}], '2026-09-26', 480, 720, 90)
+        result = plan_day(tasks, [{'date': '2026-09-26', 'start_minute': 510, 'end_minute': 600}], '2026-09-26', 480, 720, 90, now=datetime.fromisoformat('2026-09-26T08:00:00-03:00'))
         self.assertEqual([(b['start_minute'], b['end_minute']) for b in result['blocks']], [(600, 660)])
         self.assertEqual(len(result['unscheduled']), 1)
         self.assertEqual(result['remaining_minutes'], 30)
@@ -76,7 +76,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
     def test_planner_derives_available_time_without_hidden_budget(self):
         result = plan_day([{'task_id':'a','title':'Estimate'}, {'task_id':'b','completed':True},
             {'task_id':'c','duration_minutes':200}], [{'date':'2026-09-26','start_minute':510,'end_minute':600}],
-            '2026-09-26',480,720)
+            '2026-09-26',480,720, now=datetime.fromisoformat('2026-09-26T08:00:00-03:00'))
         self.assertEqual(result['available_minutes'],150)
         self.assertEqual(result['budget_minutes'],150)
         self.assertEqual(result['blocks'][0]['duration_minutes'],30)

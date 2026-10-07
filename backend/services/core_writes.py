@@ -17,7 +17,9 @@ class CoreWrites:
         day = date.fromisoformat(args['date'])
         if name == 'create_task':
             row = await PlanningRepository(session).create_task(user.id,title=args['title'],description=args.get('description'),
-                date=day,priority=args['priority'],recurrence=args['recurrence'],xp_reward={'low':5,'medium':10,'high':15}[args['priority']])
+                date=day,priority=args['priority'],recurrence=args['recurrence'],
+                scheduled_time=time.fromisoformat(args['scheduled_time']) if args.get('scheduled_time') else None,
+                duration_minutes=args.get('duration_minutes'),xp_reward={'low':5,'medium':10,'high':15}[args['priority']])
             result = {**args,'task_id':str(row.id),'user_id':str(user.id),'xp_reward':row.xp_reward,'is_template':True,'completed':False}
             event = 'task.created'
         elif name in ('record_expense','record_income'):

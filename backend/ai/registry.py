@@ -15,6 +15,8 @@ class TaskArgs(StrictModel):
     date: date
     priority: Literal['low', 'medium', 'high'] = 'medium'
     recurrence: Literal['once', 'daily', 'weekly', 'monthly'] = 'once'
+    scheduled_time: str | None = Field(default=None, pattern=r'^(?:[01][0-9]|2[0-3]):[0-5][0-9]$')
+    duration_minutes: int | None = Field(default=None, ge=5, le=720, strict=True)
 
 
 class ExpenseArgs(StrictModel):

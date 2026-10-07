@@ -1,34 +1,70 @@
-"""Deterministic planning: no model chooses capacity or moves appointments."""
-from datetime import date
+"""Read-only civil-time plan. Fixed items never move; flexible starts round up to 5 minutes."""
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 
-def plan_day(tasks, commitments, day, start=480, end=1080, capacity=None):
-    date.fromisoformat(day)
+def plan_day(tasks, commitments, day, start=480, end=1080, capacity=None,
+             *, timezone_name='America/Sao_Paulo', now=None):
+    planned_date = date.fromisoformat(day)
     if not 0 <= start < end <= 1440 or (capacity is not None and not 0 <= capacity <= 1440):
         raise ValueError('Invalid planning window')
-    occupied = sorted((max(start, int(c['start_minute'])), min(end, int(c['end_minute']))) for c in commitments if c.get('date') == day and int(c['start_minute']) < end and int(c['end_minute']) > start)
-    gaps, conflicts, cursor = [], [], start
-    for a, b in occupied:
-        if a < cursor: conflicts.append({'start_minute': a, 'end_minute': min(cursor, b)})
-        if a > cursor: gaps.append([cursor, a])
+    instant = now or datetime.now(timezone.utc)
+    if instant.tzinfo is None:
+        raise ValueError('Current instant must include timezone')
+    local = instant.astimezone(ZoneInfo(timezone_name))
+    current = (local.hour * 60 + local.minute + (1 if local.second or local.microsecond else 0)) if planned_date == local.date() else (1440 if planned_date < local.date() else 0)
+    flex_start = min(end, max(start, ((current + 4) // 5) * 5))
+    pending = [t for t in tasks if not t.get('completed')]
+    fixed = [{**c, 'kind': 'commitment'} for c in commitments if c.get('date') == day]
+    blocks, unscheduled, conflicts = [], [], []
+    for task in pending:
+        if task.get('scheduled_time') is None:
+            continue
+        h, m = map(int, task['scheduled_time'].split(':'))
+        duration = task.get('duration_minutes') or 30
+        block = {'task_id': task.get('task_id'), 'title': task.get('title'),
+                 'start_minute': h * 60 + m, 'end_minute': h * 60 + m + duration,
+                 'duration_minutes': duration, 'duration_estimated': task.get('duration_minutes') is None,
+                 'kind': 'fixed_task', 'past_due': h * 60 + m < current}
+        blocks.append(block)
+        fixed.append(block)
+    fixed.sort(key=lambda b: b['start_minute'])
+    for i, item in enumerate(fixed):
+        for other in fixed[i + 1:]:
+            if other['start_minute'] >= item['end_minute']:
+                break
+            conflicts.append({'start_minute': other['start_minute'],
+                'end_minute': min(item['end_minute'], other['end_minute']),
+                'items': [item.get('task_id') or item.get('event_id'), other.get('task_id') or other.get('event_id')]})
+    gaps, cursor = [], flex_start
+    for item in fixed:
+        a, b = max(flex_start, item['start_minute']), min(end, item['end_minute'])
+        if a >= b:
+            continue
+        if a > cursor:
+            gaps.append([cursor, a])
         cursor = max(cursor, b)
-    if cursor < end: gaps.append([cursor, end])
-    available = sum(b-a for a, b in gaps)
+    if cursor < end:
+        gaps.append([cursor, end])
+    available = sum(b - a for a, b in gaps)
     capacity = available if capacity is None else min(capacity, available)
     budget = capacity
-    def priority(t):
-        deadline = t.get('deadline') or t.get('date') or day
-        overdue = deadline < day
-        return (-int(overdue), -{'high': 3, 'medium': 2, 'low': 1}.get(t.get('priority'), 2), deadline, str(t.get('task_id', '')))
-    blocks, unscheduled = [], []
-    for task in sorted((t for t in tasks if not t.get('completed')), key=priority):
+    def priority(task):
+        deadline = task.get('deadline') or task.get('date') or day
+        return (-int(deadline < day), -{'high': 3, 'medium': 2, 'low': 1}.get(task.get('priority'), 2), deadline, str(task.get('task_id', '')))
+    for task in sorted((t for t in pending if t.get('scheduled_time') is None), key=priority):
         duration = task.get('duration_minutes') or 30
-        duration = max(5, min(480, int(duration)))
-        gap = next((g for g in gaps if g[1]-g[0] >= duration), None)
-        if duration > capacity or not gap:
+        gap = next((g for g in gaps if g[1] - g[0] >= duration), None)
+        if duration > capacity or gap is None:
             unscheduled.append({'task_id': task.get('task_id'), 'title': task.get('title'), 'reason': 'Sem capacidade livre suficiente.'})
             continue
-        blocks.append({'task_id': task.get('task_id'), 'title': task.get('title'), 'start_minute': gap[0], 'end_minute': gap[0]+duration, 'duration_minutes': duration, 'duration_estimated': not bool(task.get('duration_minutes')), 'reason': 'Prazo, prioridade e disponibilidade; compromissos fixos preservados.'})
+        blocks.append({'task_id': task.get('task_id'), 'title': task.get('title'), 'kind': 'flexible_task',
+            'start_minute': gap[0], 'end_minute': gap[0] + duration, 'duration_minutes': duration,
+            'duration_estimated': task.get('duration_minutes') is None, 'reason': 'Sugestão nos horários livres restantes.'})
         gap[0] += duration
         capacity -= duration
-    return {'date': day, 'blocks': blocks, 'unscheduled': unscheduled, 'conflicts': conflicts, 'available_minutes': available, 'budget_minutes': budget, 'remaining_minutes': capacity, 'window': {'start_minute': start, 'end_minute': end}, 'preview': True}
+    blocks.sort(key=lambda b: b['start_minute'])
+    return {'date': day, 'timezone': timezone_name, 'blocks': blocks, 'unscheduled': unscheduled,
+        'conflicts': conflicts, 'available_minutes': available, 'budget_minutes': budget,
+        'remaining_minutes': capacity, 'window': {'start_minute': start, 'end_minute': end,
+        'remaining_start_minute': flex_start}, 'preview': True}

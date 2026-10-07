@@ -41,9 +41,21 @@ class RuntimePanels(unittest.IsolatedAsyncioTestCase):
         self.llm.side_effect=None;self.llm.return_value=json.dumps({'greeting':'Hello','progress_summary':'Empty','pending_items':[],'motivation':'Go','priority_action':'Study','score':20})
         values=[self.ok(r) for r in await asyncio.gather(*(self.http.get('/api/dashboard/daily-summary') for _ in range(5)))]
         self.assertTrue(all(v['summary']['greeting']=='Hello' for v in values))
+        self.assertTrue(all(v['summary']['score']==0 for v in values)) # LLM's 20 is ignored.
         async with unit_of_work() as session:self.assertEqual(await session.scalar(select(func.count()).select_from(DailySummary).where(DailySummary.user_id==self.uid)),1)
         foreign=self.ok(await self.http.get('/api/dashboard/daily-summary',headers={'Authorization':'Bearer bob'}))
         self.assertEqual(foreign['user_id'],str(self.bob))
+
+    async def test_cached_text_does_not_freeze_progress(self):
+        self.ok(await self.http.get('/api/dashboard/daily-summary'))
+        async with unit_of_work() as session:
+            task=Task(user_id=self.uid,title='Today',date=self.today,recurrence='once')
+            session.add(task);await session.flush()
+            session.add(TaskInstance(user_id=self.uid,task_id=task.id,date=self.today,status='done',completed=True))
+        result=self.ok(await self.http.get('/api/dashboard/daily-summary'))
+        self.assertEqual(result['summary']['score'],100)
+        self.assertEqual(result['raw_data']['tasks_done'],1)
+        self.assertEqual(self.llm.await_count,1)
 
     async def test_weekly_reminders_streaks_and_daily_read_current_sql_facts(self):
         now=datetime.combine(self.today,time(15),timezone.utc)
