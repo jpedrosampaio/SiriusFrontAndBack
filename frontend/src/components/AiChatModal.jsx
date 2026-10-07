@@ -1,3 +1,4 @@
+import AssistantDelivery from '@/components/AssistantDelivery';
 import { AgentToolbar, AgentMessageDetails, VoiceInput, AgentAttachment } from '@/components/AgentControls';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, User, Loader2, X, AppWindow } from 'lucide-react';
@@ -179,7 +180,7 @@ export default function AiChatModal({ open, onClose, context = {} }) {
                       <span className="text-[#52525B] text-xs">Gerando resposta...</span>
                     </div>
                   ) : (
-                    <><p className="whitespace-pre-wrap break-words">{msg.content}</p><AgentMessageDetails message={msg} /></>
+                    <><p className="whitespace-pre-wrap break-words">{msg.content}</p><AssistantDelivery message={msg} assistant={assistant} onRetrySuccess={() => setInput(value => value.trim() === msg.content ? '' : value)} /><AgentMessageDetails message={msg} /></>
                   )}
                 </div>
                 {msg.role === 'user' && <MessageAvatar role="user" />}

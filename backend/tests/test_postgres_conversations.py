@@ -27,6 +27,8 @@ class SQLConversations(unittest.IsolatedAsyncioTestCase):
         llm = AsyncMock(return_value='Response'); service=Conversations(llm)
         body=self.body()
         first=await service.send(self.uid, body, 'system')
+        self.assertEqual(first['user_message']['request_id'],body.request_id)
+        self.assertEqual((await service.read(self.uid))['messages'][0]['request_id'],body.request_id)
         self.assertEqual(first, await service.send(self.uid, body, 'system'))
         self.assertEqual(llm.await_count, 1)
         with self.assertRaises(HTTPException) as error: await service.send(self.uid, self.body(message='changed'), 'system')

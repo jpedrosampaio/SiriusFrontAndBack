@@ -146,3 +146,7 @@ button, a, input, select, textarea, summary { -webkit-tap-highlight-color: trans
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Flex pages must shrink within the shell, without masking overflow. */
+#page-content .flex-1 { min-width: 0; }
+#page-content { min-width: 0; }

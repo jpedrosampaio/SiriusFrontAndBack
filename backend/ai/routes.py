@@ -111,7 +111,7 @@ class AgentRuntime:
             return await self.actions.cancel(account.user_id, action_id)
 
         @self.api.get('/daily')
-        async def daily(start: int = Query(480, ge=0, le=1439), end: int = Query(1080, gt=0, le=1440), capacity: int = Query(240, ge=0, le=1440), account=Depends(user)):
+        async def daily(start: int = Query(480, ge=0, le=1439), end: int = Query(1080, gt=0, le=1440), capacity: int | None = Query(None, ge=0, le=1440), account=Depends(user)):
             if start >= end: raise HTTPException(422, 'Intervalo inválido.')
             return await self.agent.daily(account.user_id, start, end, capacity)
 

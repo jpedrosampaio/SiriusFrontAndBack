@@ -121,7 +121,7 @@ class Conversations:
             if reply.startswith('⚠️'): raise HTTPException(503, reply)
             stamp = datetime.now(timezone.utc)
             user_message = Message(id=uuid4(), user_id=uid, conversation_id=conversation_id, sequence=sequence+1,
-                role='user', content=body.message, created_at=stamp, context={})
+                role='user', content=body.message, created_at=stamp, context={'request_id': body.request_id})
             ai_message = Message(id=uuid4(), user_id=uid, conversation_id=conversation_id, sequence=sequence+2,
                 role='assistant', content=reply[:16000], created_at=stamp+timedelta(microseconds=1), context=metadata)
             user_public, ai_public = public_message(user_message), public_message(ai_message)

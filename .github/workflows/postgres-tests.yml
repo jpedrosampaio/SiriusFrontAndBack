@@ -38,3 +38,5 @@ jobs:
         run: python -m alembic check
       - name: Real persistence, ownership, money and transactions
         run: python -m unittest discover -s tests -p 'test_postgres_*.py' -v
+      - name: Workout YouTube tests (mocked only)
+        run: python -m unittest discover -s tests -p 'test_youtube_workouts.py' -v

@@ -224,7 +224,7 @@ export default function Habits() {
               <h1 className="font-heading text-3xl md:text-4xl mb-1 md:mb-2" data-testid="habits-title">Hábitos e constância</h1>
               <p className="text-[#A1A1AA] text-sm">Construa sequências inquebráveis</p>
             </div>
-            <div className="flex items-center space-x-2 sm:space-x-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <Button
                 variant="outline"
                 onClick={() => setShowStats(!showStats)}

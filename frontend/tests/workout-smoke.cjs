@@ -50,15 +50,21 @@ const server = http.createServer((req, res) => {
   const browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}), headless: true });
   const errors = [];
   try {
-    for (const width of [1440, 390, 320]) {
+    for (const width of [1440, 1024, 768, 390, 320]) {
       const context = await browser.newContext({ viewport: { width, height: width > 500 ? 1000 : 844 }, serviceWorkers: 'block' });
-      await context.addInitScript(() => localStorage.setItem('sirius_onboarding_complete', 'true'));
+      await context.addInitScript(() => { if (location.hostname === '127.0.0.1') localStorage.setItem('sirius_onboarding_complete', 'true'); });
       const drafts = new Map();
-      let activeWorkout = { session_id: 'active-test', plan_name: 'Treino A · Semana 1', status: 'active', started_at: new Date(Date.now() - 60000).toISOString(), revision: 0, exercises: [{ name: 'Agachamento com halteres', sets: 3, reps: 12, weight: '20', rest_seconds: 60, sets_completed: 0, sets_data: [], completed: false }] };
+      const requests = [];
+      const workoutPlans = Array.from({ length: 3 }, (_, i) => ({ plan_id: `plan${i}`, name: `Plano ${i}`, exercises: [{ name: 'Supino reto', sets: 3, reps: 12, tutorial: 'Controle o movimento.', muscle_group: 'Peito' }] }));
+      let activeWorkout = { session_id: 'active-test', plan_name: 'Treino A · Semana 1', status: 'active', started_at: new Date(Date.now() - 60000).toISOString(), revision: 0, exercises: [{ name: 'Agachamento com halteres', sets: 3, reps: 12, weight: '20', rest_seconds: 60, sets_completed: 0, sets_data: [], completed: false, tutorial: 'Controle o movimento.' }] };
       await context.route('**/*', async route => {
         const url = new URL(route.request().url());
         if (url.pathname.startsWith('/api/')) {
+          requests.push(url.pathname);
           let body = Object.hasOwn(fixtures, url.pathname) ? fixtures[url.pathname] : [];
+          if (url.pathname === '/api/workout-plans') body = workoutPlans;
+          if (url.pathname === '/api/daily-workout-status') body = Object.fromEntries(workoutPlans.map(p => [p.plan_id, { exercises_status: {}, completed: false }]));
+          if (url.pathname === '/api/workouts/tutorial-videos') body = { status: 'ok', videos: [{ video_id: 'abcdefghijk', title: 'Supino demonstrado', channel: 'Canal de teste', thumbnail: 'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg', url: 'https://www.youtube.com/watch?v=abcdefghijk' }] };
           if (url.pathname === '/api/dashboard/panels') body = {panels: {}, errors: []};
           if (url.pathname === '/api/ai/conversation') body = {messages: []};
           if (url.pathname === '/api/workout-sessions/active') body = { active: true, session: activeWorkout };
@@ -98,7 +104,26 @@ const server = http.createServer((req, res) => {
         if (overflow) console.log(await page.evaluate(() => Array.from(document.querySelectorAll('body *')).filter(e => e.getBoundingClientRect().right > innerWidth + 2).slice(0, 10).map(e => ({ tag: e.tagName, cls: e.className }))));
         if (overflow) errors.push({ name, width, error: 'Horizontal overflow' });
         if (name === 'active-workout') {
+          assert.equal(requests.filter(p => p === '/api/daily-workout-status').length, 1);
+          assert.equal(requests.filter(p => p.startsWith('/api/daily-workout-status/')).length, 0);
+          assert.equal(requests.filter(p => p.includes('tutorial-videos')).length, 0);
+          console.log('WORKOUT_REQUESTS ' + JSON.stringify({ width, plans: 3, batch: 1, perPlan: 0, initialYouTube: 0, requests }));
           await page.getByRole('button', { name: '2. Retomar treino', exact: true }).click();
+          const tutorial = page.getByRole('button', { name: 'Ver tutorial de Agachamento com halteres', exact: true });
+          await tutorial.click();
+          await page.getByText('Supino demonstrado', { exact: true }).waitFor();
+          await page.getByText('Controle o movimento.', { exact: true }).waitFor();
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
+          await page.screenshot({ path: path.join(output, `tutorial-videos-${width}.png`), fullPage: true });
+          assert.equal(requests.filter(p => p.includes('tutorial-videos')).length, 1);
+          assert.equal(await page.locator('iframe').count(), 0);
+          await page.getByRole('button', { name: 'Assistir aqui', exact: true }).click();
+          assert.equal(await page.locator('iframe').count(), 1);
+          await page.getByRole('button', { name: 'Fechar vídeo', exact: true }).click();
+          await tutorial.click(); await tutorial.click();
+          await page.getByText('Supino demonstrado', { exact: true }).waitFor();
+          assert.equal(requests.filter(p => p.includes('tutorial-videos')).length, 1);
+          await tutorial.click();
           await page.getByRole('button', { name: 'Registrar série de Agachamento com halteres', exact: true }).click();
           await page.getByLabel('Carga da série', { exact: true }).fill('25');
           await page.getByLabel('Repetições da série', { exact: true }).fill('10');

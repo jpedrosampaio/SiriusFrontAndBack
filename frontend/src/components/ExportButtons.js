@@ -42,7 +42,7 @@ export default function ExportButtons({ module, className }) {
   };
 
   return (
-    <div className={"flex items-center gap-2 " + (className || "")}>
+    <div className={"flex flex-wrap items-center gap-2 " + (className || "")}>
       <Button
         variant="outline"
         size="sm"

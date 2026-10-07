@@ -2,9 +2,9 @@
 from datetime import date
 
 
-def plan_day(tasks, commitments, day, start=480, end=1080, capacity=240):
+def plan_day(tasks, commitments, day, start=480, end=1080, capacity=None):
     date.fromisoformat(day)
-    if not 0 <= start < end <= 1440 or not 0 <= capacity <= 1440:
+    if not 0 <= start < end <= 1440 or (capacity is not None and not 0 <= capacity <= 1440):
         raise ValueError('Invalid planning window')
     occupied = sorted((max(start, int(c['start_minute'])), min(end, int(c['end_minute']))) for c in commitments if c.get('date') == day and int(c['start_minute']) < end and int(c['end_minute']) > start)
     gaps, conflicts, cursor = [], [], start
@@ -13,6 +13,9 @@ def plan_day(tasks, commitments, day, start=480, end=1080, capacity=240):
         if a > cursor: gaps.append([cursor, a])
         cursor = max(cursor, b)
     if cursor < end: gaps.append([cursor, end])
+    available = sum(b-a for a, b in gaps)
+    capacity = available if capacity is None else min(capacity, available)
+    budget = capacity
     def priority(t):
         deadline = t.get('deadline') or t.get('date') or day
         overdue = deadline < day
@@ -28,4 +31,4 @@ def plan_day(tasks, commitments, day, start=480, end=1080, capacity=240):
         blocks.append({'task_id': task.get('task_id'), 'title': task.get('title'), 'start_minute': gap[0], 'end_minute': gap[0]+duration, 'duration_minutes': duration, 'duration_estimated': not bool(task.get('duration_minutes')), 'reason': 'Prazo, prioridade e disponibilidade; compromissos fixos preservados.'})
         gap[0] += duration
         capacity -= duration
-    return {'date': day, 'blocks': blocks, 'unscheduled': unscheduled, 'conflicts': conflicts, 'remaining_minutes': capacity, 'preview': True}
+    return {'date': day, 'blocks': blocks, 'unscheduled': unscheduled, 'conflicts': conflicts, 'available_minutes': available, 'budget_minutes': budget, 'remaining_minutes': capacity, 'window': {'start_minute': start, 'end_minute': end}, 'preview': True}

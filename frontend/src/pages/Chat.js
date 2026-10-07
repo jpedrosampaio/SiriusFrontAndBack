@@ -1,3 +1,4 @@
+import AssistantDelivery from '@/components/AssistantDelivery';
 import { AgentToolbar, AgentMessageDetails, VoiceInput, AgentAttachment } from '@/components/AgentControls';
 import { useAssistant } from '@/hooks/useAssistant';
 import { getCurrentUser } from "@/lib/api";
@@ -117,7 +118,7 @@ export default function Chat() {
                     </div>
                     <div className={`p-3 md:p-4 rounded-sm ${msg.role === 'user' ? 'bg-[#007AFF]/20 border border-[#007AFF]/30' : 'bg-[#0A0A0A] border border-[#27272A]'}`}>
                       {msg.role === 'user' ? (
-                        <p className="text-xs md:text-sm whitespace-pre-wrap break-words">{msg.content}</p>
+                        <><p className="text-xs md:text-sm whitespace-pre-wrap break-words">{msg.content}</p><AssistantDelivery message={msg} assistant={assistant} onRetrySuccess={() => setContent(value => value.trim() === msg.content ? '' : value)} /></>
                       ) : (
                         <><MarkdownRenderer content={msg.content} className="text-xs md:text-sm break-words" /><AgentMessageDetails message={msg} /></>
                       )}
@@ -153,8 +154,8 @@ export default function Chat() {
         <div className="p-3 md:p-6 border-t border-[#27272A] bg-[#0A0A0A]/95 backdrop-blur-lg fixed bottom-[60px] md:bottom-0 left-0 right-0 md:left-64">
           <form onSubmit={handleSend} className="max-w-4xl mx-auto">
             <div className="flex items-center space-x-2 md:space-x-3">
-              <Input value={content} onChange={(e) => setContent(e.target.value)} placeholder="Peça uma receita, treino, dica financeira ou qualquer coisa..." className="flex-1 bg-[#121212] border-[#27272A] text-white font-mono text-sm" disabled={loading} />
-              <Button type="submit" disabled={loading || !content.trim()} className="bg-[#007AFF] hover:bg-[#0062CC] px-3 md:px-4">
+              <Input aria-label="Mensagem para o assistente" value={content} onChange={(e) => setContent(e.target.value)} placeholder="Peça uma receita, treino, dica financeira ou qualquer coisa..." className="flex-1 bg-[#121212] border-[#27272A] text-white font-mono text-sm" disabled={loading} />
+              <Button aria-label="Enviar mensagem" type="submit" disabled={loading || !content.trim()} className="bg-[#007AFF] hover:bg-[#0062CC] px-3 md:px-4">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </Button>
             </div>

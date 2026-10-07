@@ -1,3 +1,5 @@
+import WorkoutTutorial from '@/components/WorkoutTutorial';
+import { cachedGet, queryClient, cacheKey } from '@/lib/query-cache';
 import { openSirius } from '@/lib/sirius-context';
 import WorkoutComparison from '@/components/WorkoutComparison';
 import { lazy, Suspense } from 'react';
@@ -55,7 +57,7 @@ export default function Workouts() {
     finally { workoutRequests.current.finish('workout-session', succeeded); workoutBusy.current = false; setSessionSaving(false); }
   };
   const [workouts, setWorkouts] = useState([]);
-  const [plans, setPlans] = useState([]);
+  const [plans, setPlans] = useState(() => queryClient.getQueryData(cacheKey('/workout-plans')) || []);
   const [stats, setStats] = useState(null);
   const [detailedStats, setDetailedStats] = useState(null);
   const [openLog, setOpenLog] = useState(false);
@@ -272,7 +274,7 @@ export default function Workouts() {
   const loadData = useCallback(async () => {
     try {
       const [userRes, workoutsRes, plansRes] = await Promise.all([
-        getCurrentUser(), axios.get(`${API}/workouts`), axios.get(`${API}/workout-plans`),
+        getCurrentUser(), axios.get(`${API}/workouts`), cachedGet('/workout-plans').then(data => ({ data })),
       ]);
       setUser(userRes.data);
       if (userRes.data.health_condition) setAiGenForm(prev => ({ ...prev, health_condition: userRes.data.health_condition }));
@@ -292,18 +294,13 @@ export default function Workouts() {
       } catch { /* Optional operation failed; preserve the current view. */ }
 
       const plansData = Array.isArray(plansRes.data) ? plansRes.data : [];
-      const statusPromises = plansData.map(plan => 
-        axios.get(`${API}/daily-workout-status/${plan.plan_id}`, { withCredentials: true })
-          .then(res => ({ planId: plan.plan_id, status: res.data }))
-          .catch(() => ({ planId: plan.plan_id, status: { exercises_status: {}, completed: false } }))
-      );
-      const statuses = await Promise.all(statusPromises);
-      const statusMap = {};
-      statuses.forEach(s => { statusMap[s.planId] = s.status; });
-      setDailyStatus(statusMap);
+      if (plansData.length) {
+        try { setDailyStatus(await cachedGet('/daily-workout-status')); }
+        catch (error) { toast.error(getApiErrorMessage(error, 'Não foi possível atualizar os marcadores. Os dados anteriores foram mantidos.')); }
+      } else setDailyStatus({});
       
     } catch (error) {
-      console.error("Erro ao carregar dados");
+      toast.error(getApiErrorMessage(error, 'Não foi possível carregar os treinos. Tente atualizar a página.'));
     }
   }, []);
 
@@ -343,14 +340,22 @@ export default function Workouts() {
     }
   };
 
+  const dailyWrites = useRef(new Set());
   const toggleDailyExercise = async (planId, exerciseIdx) => {
+    if (dailyWrites.current.has(planId)) return;
+    dailyWrites.current.add(planId);
+    const previous = dailyStatus[planId] || { exercises_status: {}, completed: false };
+    const checks = { ...previous.exercises_status };
+    if (checks[exerciseIdx]) delete checks[exerciseIdx]; else checks[exerciseIdx] = true;
+    setDailyStatus(prev => ({ ...prev, [planId]: { ...previous, exercises_status: checks } }));
     try {
-      const res = await axios.post(`${API}/daily-workout-status/${planId}/toggle/${exerciseIdx}`, {}, { withCredentials: true });
+      const res = await axios.post(`${API}/daily-workout-status/${planId}/toggle/${exerciseIdx}`, {}, { withCredentials: true, headers: { 'Idempotency-Key': crypto.randomUUID() }, timeout: 20000 });
       setDailyStatus(prev => ({ ...prev, [planId]: res.data }));
     } catch (error) {
+      setDailyStatus(prev => ({ ...prev, [planId]: previous }));
       toast.error(getApiErrorMessage(error, "Erro ao atualizar exercício"));
       if (error.response?.status === 409) checkActiveSession();
-    }
+    } finally { dailyWrites.current.delete(planId); }
   };
 
   const resetDailyWorkout = async (planId) => {
@@ -2407,7 +2412,7 @@ export default function Workouts() {
                                 return dayExercises.map((ex, idx) => {
                                   const isChecked = status.exercises_status?.[idx] || false;
                                   const tutorialKey = `${plan.plan_id}_${selectedDayIndex}_${idx}`;
-                                  const hasTutorial = !!ex.tutorial;
+                                  const hasTutorial = !!ex.name;
                                   return (
                                     <div key={idx} className="space-y-0">
                                       <div 
@@ -2443,6 +2448,7 @@ export default function Workouts() {
                                             onClick={(e) => { e.stopPropagation(); toggleTutorial(tutorialKey); }}
                                             className={`h-7 w-7 p-0 ${expandedTutorials[tutorialKey] ? 'text-[#A855F7]' : 'text-[#52525B]'}`}
                                             title="Ver tutorial"
+                                            aria-label={`Ver tutorial de ${ex.name}`} aria-expanded={!!expandedTutorials[tutorialKey]}
                                           >
                                             <BookOpenCheck className="w-4 h-4" />
                                           </Button>
@@ -2453,14 +2459,7 @@ export default function Workouts() {
                                       {/* Tutorial Expandable */}
                                       {hasTutorial && expandedTutorials[tutorialKey] && (
                                         <div className="bg-[#0a0a1a] border border-[#27272A] border-t-0 rounded-b p-3 space-y-2">
-                                          {ex.tutorial && (
-                                            <div>
-                                              <p className="text-xs text-[#A855F7] uppercase font-medium mb-1 flex items-center gap-1">
-                                                <BookOpenCheck className="w-3 h-3" /> Como executar
-                                              </p>
-                                              <p className="text-xs text-[#A1A1AA] leading-relaxed">{ex.tutorial}</p>
-                                            </div>
-                                          )}
+                                          <WorkoutTutorial exercise={ex} />
                                         </div>
                                       )}
                                     </div>
@@ -2649,7 +2648,7 @@ export default function Workouts() {
                   <div className="space-y-2">
                     {(activeSession.exercises || []).map((ex, idx) => {
                       const tutorialKey = `session_${idx}`;
-                      const hasTutorial = !!ex.tutorial;
+                      const hasTutorial = !!ex.name;
                       const setsProgress = ex.sets_completed || 0;
                       
                       return (
@@ -2738,6 +2737,7 @@ export default function Workouts() {
                                   <Button 
                                     variant="ghost" size="sm" 
                                     onClick={() => toggleTutorial(tutorialKey)}
+                                    aria-label={`Ver tutorial de ${ex.name}`} aria-expanded={!!expandedTutorials[tutorialKey]}
                                     className={`h-7 w-7 p-0 ${expandedTutorials[tutorialKey] ? 'text-[#A855F7]' : 'text-[#52525B]'}`}
                                   >
                                     <BookOpenCheck className="w-4 h-4" />
@@ -2803,14 +2803,7 @@ export default function Workouts() {
                           {/* Tutorial */}
                           {hasTutorial && expandedTutorials[tutorialKey] && (
                             <div className="bg-[#0a0a1a] border-t border-[#27272A] p-4 space-y-2">
-                              {ex.tutorial && (
-                                <div>
-                                  <p className="text-xs text-[#A855F7] uppercase font-medium mb-1 flex items-center gap-1">
-                                    <BookOpenCheck className="w-3 h-3" /> Como executar
-                                  </p>
-                                  <p className="text-xs text-[#A1A1AA] leading-relaxed">{ex.tutorial}</p>
-                                </div>
-                              )}
+                              <WorkoutTutorial exercise={ex} />
                             </div>
                           )}
                         </Card>
