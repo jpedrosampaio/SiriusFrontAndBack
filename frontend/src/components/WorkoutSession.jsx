@@ -52,12 +52,12 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
   const [drafts, setDrafts] = useState(saved.drafts || {});
   const [attempt, setAttempt] = useState(saved.attempt || null);
   const [error, setError] = useState('');
+  const [undo, setUndo] = useState(null);
   const [tutorial, setTutorial] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [histories, setHistories] = useState({});
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState(false);
-  const historyBusy = useRef(false);
+  const [historyStates, setHistoryStates] = useState({});
+  const historyBusy = useRef(new Set());
   const [abandon, setAbandon] = useState(false);
   const [abandonError, setAbandonError] = useState('');
   const [deadline, setDeadline] = useState(() => readSaved(`sirius-rest:${userId}:${session.session_id}`, null));
@@ -76,6 +76,11 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
   useWorkoutWakeLock(session.status === 'active');
 
   useEffect(() => { writeSaved(namespace, { index, drafts, attempt }); }, [namespace, index, drafts, attempt]);
+  useEffect(() => {
+    if (!undo) return;
+    const timeout = setTimeout(() => setUndo(null), Math.max(0, undo.expires - Date.now()));
+    return () => clearTimeout(timeout);
+  }, [undo]);
   useEffect(() => { writeSaved(`sirius-rest:${userId}:${session.session_id}`, deadline); }, [userId, session.session_id, deadline]);
   useEffect(() => {
     if (!deadline) return;
@@ -94,32 +99,34 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
     if (pending || busy.current) return;
     // Persist synchronously before navigation/unmount; inputs belong to each exercise.
     writeSaved(namespace, { index: idx, drafts, attempt });
-    setIndex(idx); setTutorial(false); setHistoryOpen(false); setHistoryError(false); setError('');
+    setIndex(idx); setTutorial(false); setHistoryOpen(false); setError(''); setUndo(null);
     requestAnimationFrame(() => exerciseHeading.current?.focus({ preventScroll: true }));
   };
   const change = (field, value) => {
     const updated = { ...drafts, [index]: { ...values, [field]: value } };
     writeSaved(namespace, { index, drafts: updated, attempt }); setDrafts(updated);
   };
-  const save = async event => {
+  const save = async (event, undoOperation) => {
     event?.preventDefault();
     if (busy.current || saving) return;
-    let operation = attempt;
+    let operation = attempt || undoOperation;
     try {
       if (!operation) {
         const set = validateSet(values);
         const sets = [...(exercise.sets_data || []), set];
         operation = { index, key: crypto.randomUUID(), body: { sets_data: sets, completed: sets.length >= (exercise.sets || 1), current_exercise_idx: index, revision: session.revision || 0 } };
         // Save the exact request before sending: an uncertain retry replays its receipt.
-        writeSaved(namespace, { index, drafts, attempt: operation }); setAttempt(operation);
       }
+      writeSaved(namespace, { index, drafts, attempt: operation }); setAttempt(operation);
       busy.current = true; setError('');
-      await onSave(operation);
+      const result = await onSave(operation);
+      if (operation.kind === 'undo') setUndo(null);
+      else setUndo({ index: operation.index, expires: Date.now() + 20000, body: { sets_data: operation.body.sets_data.slice(0, -1), completed: false, current_exercise_idx: operation.index, revision: result.revision } });
       const updated = { ...drafts }; delete updated[operation.index];
       writeSaved(namespace, { index, drafts: updated, attempt: null });
       setAttempt(null); setDrafts(updated);
       const duration = Number(session.exercises[operation.index].rest_seconds ?? session.rest_timer_seconds ?? 60);
-      setRestDone(false); setNow(Date.now()); setDeadline(duration > 0 ? Date.now() + duration * 1000 : null);
+      setRestDone(false); setNow(Date.now()); setDeadline(operation.kind !== 'undo' && duration > 0 ? Date.now() + duration * 1000 : null);
     } catch (failure) {
       const status = failure.response?.status;
       // Definitive rejections did not commit. Allow editing after reconciliation.
@@ -130,11 +137,12 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
     } finally { busy.current = false; }
   };
   const loadHistory = async () => {
-    if (historyBusy.current) return;
-    historyBusy.current = true; setHistoryLoading(true); setHistoryError(false);
-    try { const result = await onHistory(exercise.name); setHistories(prev => ({ ...prev, [exercise.name]: result })); }
-    catch { setHistoryError(true); }
-    finally { historyBusy.current = false; setHistoryLoading(false); }
+    const name = exercise.name;
+    if (historyBusy.current.has(name)) return;
+    historyBusy.current.add(name); setHistoryStates(prev => ({ ...prev, [name]: 'loading' }));
+    try { const result = await onHistory(name); setHistories(prev => ({ ...prev, [name]: result })); setHistoryStates(prev => ({ ...prev, [name]: 'ready' })); }
+    catch { setHistoryStates(prev => ({ ...prev, [name]: 'error' })); }
+    finally { historyBusy.current.delete(name); }
   };
   const openHistory = () => { setHistoryOpen(!historyOpen); if (!historyOpen && !Object.hasOwn(histories, exercise.name)) loadHistory(); };
   const adjustRest = seconds => { setNow(Date.now()); setDeadline(Math.max(Date.now(), (deadline || Date.now()) + seconds * 1000)); };
@@ -173,9 +181,10 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
           <div className="ws-primary-action"><p>{values.weight ? `${values.weight} kg · ` : ''}{values.reps || '—'} reps{values.rpe ? ` · RPE ${values.rpe}` : ''}</p><Button type="submit" disabled={saving} className="ws-complete-set">{saving ? <Loader2 className="animate-spin" size={20} /> : <Check size={20} />}{attempt && !saving ? 'Tentar salvar novamente' : saving ? 'Salvando série…' : 'Concluir série'}</Button></div>
         </form> : <div className="ws-completed" role="status"><Check size={24} /><h3>Exercício concluído</h3>{nextPending >= 0 ? <Button className="ws-next" onClick={() => selectExercise(nextPending)}>Ir para próximo <ArrowRight size={18} /></Button> : <Button className="ws-next" disabled={saving} onClick={onFinish}>Finalizar treino</Button>}</div>}
         {!!exercise.sets_data?.length && <details className="ws-recorded"><summary>Séries registradas ({exercise.sets_data.length})</summary><ol>{exercise.sets_data.map((set, idx) => <li key={idx}>Série {idx + 1}: {set.weight !== '' && set.weight != null ? `${set.weight} kg` : 'Carga não registrada'} × {set.reps} reps{set.rpe !== '' && set.rpe != null ? ` · RPE ${set.rpe}` : ''}</li>)}</ol></details>}
+        {undo && !pending && <div className="ws-undo"><span role="status">Série registrada.</span><Button variant="ghost" onClick={() => { if (Date.now() < undo.expires) save(null, { index: undo.index, body: undo.body, key: crypto.randomUUID(), kind: 'undo' }); else setUndo(null); }}>Desfazer última série</Button></div>}
         <div className="ws-secondary-actions"><Button variant="outline" aria-label={`Ver tutorial de ${exercise.name}`} aria-expanded={tutorial} onClick={() => setTutorial(!tutorial)}>Como executar</Button><Button variant="outline" aria-expanded={historyOpen} onClick={openHistory}>Histórico</Button></div>
         {tutorial && <div className="ws-tutorial"><WorkoutTutorial key={exercise.name} exercise={exercise} /></div>}
-        {historyOpen && <HistoryPreview exercise={exercise} history={histories[exercise.name]} loading={historyLoading} error={historyError} onRetry={loadHistory} />}
+        {historyOpen && <HistoryPreview exercise={exercise} history={histories[exercise.name]} loading={historyStates[exercise.name] === 'loading'} error={historyStates[exercise.name] === 'error'} onRetry={loadHistory} />}
         <details className="ws-rest-settings"><summary>Configurar descanso</summary><div className="ws-rest-presets">{[30, 60, 90, 120].map(seconds => <Button key={seconds} variant="outline" onClick={() => { setRestDone(false); setNow(Date.now()); setDeadline(Date.now() + seconds * 1000); }}>{seconds}s</Button>)}</div></details>
       </div>
       <aside className="ws-queue ws-panel" aria-label="Fila de exercícios"><h3><Dumbbell size={18} /> Treino de hoje</h3><ol>{session.exercises.map((ex, idx) => <li key={idx}><button type="button" aria-current={idx === index ? 'step' : undefined} aria-label={`Selecionar exercício ${idx + 1}: ${ex.name}`} disabled={pending} onClick={() => selectExercise(idx)}><span className={`ws-queue-marker ${ex.completed ? 'done' : ''}`}>{ex.completed ? <Check size={16} /> : idx + 1}</span><span className="ws-queue-name">{ex.name}<small>{ex.completed ? 'Concluído' : idx === index ? 'Atual' : 'Pendente'} · {ex.sets_completed || 0}/{ex.sets} séries</small></span></button></li>)}</ol></aside>

@@ -848,7 +848,7 @@ export default function Workouts() {
   const saveSessionSet = async operation => {
     try {
       const res = await workoutWrite('patch', `${API}/workout-sessions/${activeSession.session_id}/exercise/${operation.index}`, operation.body, operation.key);
-      setActiveSession(res.data);
+      setActiveSession(current => current?.session_id === res.data.session_id && current.revision > res.data.revision ? current : res.data);
       return res.data;
     } catch (failure) {
       if (failure.response?.status === 409) await checkActiveSession();

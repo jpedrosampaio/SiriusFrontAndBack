@@ -1,4 +1,7 @@
 .workout-session { color: #f1f5f9; min-width: 0; --ws-accent: #63dcff; }
+[data-workout-executing=true] .sirius-hero, [data-workout-executing=true] .sirius-workout-stats { display: none; }
+[data-workout-executing=true] .sirius-workout-flow { padding: 0; border: 0; background: transparent; margin-bottom: 12px; }
+[data-workout-executing=true] .sirius-workout-flow > div > p { display: none; }
 .workout-session button, .workout-session summary { min-height: 44px; }
 .ws-header { position: sticky; top: 60px; z-index: 15; background: #10151ef5; backdrop-filter: blur(14px); padding: 16px 20px 12px; border-radius: 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }
 .ws-eyebrow { font-size: 12px; color: #9aaec7; margin-bottom: 6px; }
@@ -35,6 +38,7 @@
 .ws-complete-set { min-height: 54px !important; gap: 10px; font-size: 16px; background: #65ddff; color: #07131e; font-weight: 700; }
 .ws-complete-set:hover { background: #a2ecff; }
 .ws-error { color: #fecaca; background: #48232e; padding: 12px; border-radius: 10px; font-size: 13px; margin: 12px 0; overflow-wrap: anywhere; }
+.ws-undo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: #8beac7; margin-top: 12px; }
 .ws-secondary-actions { display: flex; gap: 10px; margin: 24px 0 14px; flex-wrap: wrap; }
 .ws-secondary-actions button { flex: 1; }
 .ws-history ul, .ws-recorded ol { font-size: 13px; color: #c8d6e6; line-height: 1.8; }
