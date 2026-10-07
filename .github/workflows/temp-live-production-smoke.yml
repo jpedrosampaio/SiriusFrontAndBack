@@ -45,10 +45,17 @@ jobs:
           PY
 
           echo "== CORS preflight =="
-          curl -sS -o /tmp/cors.body -D /tmp/cors.headers -X OPTIONS "$BACKEND/api/ai/status"             -H "Origin: $FRONTEND"             -H "Access-Control-Request-Method: GET"             -H "Access-Control-Request-Headers: authorization,content-type"
+          curl -sS -o /tmp/cors.body -D /tmp/cors.headers -X OPTIONS "$BACKEND/api/ai/status" \
+            -H "Origin: $FRONTEND" \
+            -H "Access-Control-Request-Method: GET" \
+            -H "Access-Control-Request-Headers: authorization,content-type"
           cat /tmp/cors.headers
-          grep -Eqi '^access-control-allow-origin: https://siriusassistant\.vercel\.app/?\r?$' /tmp/cors.headers
-          grep -Eqi '^access-control-allow-credentials: true\r?$' /tmp/cors.headers
+          python - <<'PY'
+          h=open('/tmp/cors.headers',encoding='utf-8').read().lower().replace('\r','')
+          assert 'access-control-allow-origin: https://siriusassistant.vercel.app' in h
+          assert 'access-control-allow-credentials: true' in h
+          print('cors_ok=True')
+          PY
 
           echo "== Anonymous protected endpoint =="
           code=$(curl -sS -o /tmp/status.body -w '%{http_code}' -H "Origin: $FRONTEND" "$BACKEND/api/ai/status")
@@ -67,13 +74,9 @@ jobs:
           joined=''
           for src in scripts:
               url=urllib.parse.urljoin(origin,src)
-              try:
-                  joined += urllib.request.urlopen(url,timeout=30).read().decode('utf-8','ignore')
-              except Exception as exc:
-                  print('script_fetch_error',url,type(exc).__name__)
+              joined += urllib.request.urlopen(url,timeout=30).read().decode('utf-8','ignore')
           target='back--siriusfrontandback--vbfgpbhc7tz8.code.run'
-          old='onrender.com'
           print('northflank_target_present=',target in joined)
-          print('render_reference_present=',old in joined)
+          print('render_reference_present=', 'onrender.com' in joined)
           assert target in joined, 'Frontend bundle does not reference the expected Northflank backend'
           PY
