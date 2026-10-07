@@ -10,6 +10,7 @@ from study_mastery import mastery, topic_priority
 from db.models.exams import Exam, ExamAttempt
 from services.study_plan_views import entry_json
 from preparation_core import VERSION, learning_stage
+from services.contest_tracking import official_freshness
 
 LIMIT = 2000
 
@@ -196,7 +197,7 @@ async def preparation_state(session, uid, program, zone, today):
         'evidence_ledger': sorted(ledger, key=lambda r: (r['at'] or '', r['id']), reverse=True)[:100],
         'source_freshness': {'computed_at': today.isoformat(), 'program_updated_at': program.updated_at.isoformat(),
             'latest_question_at': individual[0]['answered_at'] if individual else None,
-            'official_source_checked_at': None},
+            'official_source_checked_at': await official_freshness(session, uid, program.id)},
         'truncated': truncated, 'limits': {'topics': LIMIT, 'questions': 5000, 'ledger': 100},
         'unlinked_evidence': ['essay_corrections_have_no_preparation_reference'],
         'requires_confirmation': True}

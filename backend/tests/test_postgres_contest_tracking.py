@@ -11,9 +11,9 @@ from httpx import AsyncClient,ASGITransport
 from sqlalchemy import select,func
 from db.session import unit_of_work
 from db.models.studies import StudyArea,StudyProgram
-from db.models.contests import ContestSource,ContestUpdate,ContestHostLimit
+from db.models.contests import ContestSource,ContestUpdate,ContestHostLimit,ContestSourceVersion
 from contest_watch import ContestWatcher
-from contest_sources import GenericOfficialConnector,SourceUnavailable
+from contest_sources import GenericOfficialConnector,SourceUnavailable,SourcePage
 from services import contest_tracking as tracking
 import test_postgres_agent as setup
 
@@ -42,6 +42,52 @@ class ContestTracking(unittest.IsolatedAsyncioTestCase):
 
     def page(self,text='First'):
         return GenericOfficialConnector().normalize(text+'<a href="/prova.pdf">Prova</a>',self.url)
+
+    async def test_version_observations_unchanged_reversion_owner_and_pagination(self):
+        source=await self.add();sid=source['source_id']
+        for text in ('First','First','Second','First'):
+            await self.reset_due(sid)
+            claimed=await tracking.claim(str(self.uid),str(self.pid),sid)
+            self.assertTrue(await tracking.finish(claimed,self.page(text)))
+        response=self.ok(await self.http.get(self.base+'/sources/'+sid+'/versions?limit=2'))
+        self.assertEqual(len(response['items']),2);self.assertEqual(response['next_offset'],2)
+        self.assertNotIn('text',response['items'][0])
+        older=self.ok(await self.http.get(self.base+'/sources/'+sid+'/versions?offset=2'))
+        self.assertEqual(len(older['items']),1)
+        self.assertEqual(response['items'][0]['hash'],older['items'][0]['hash'])
+        vid=response['items'][0]['version_id']
+        detail=self.ok(await self.http.get(self.base+'/sources/'+sid+'/versions/'+vid))
+        self.assertIn('First',detail['text'])
+        self.assertEqual((await self.http.get(self.base+'/sources/'+sid+'/versions/'+vid,headers={'Authorization':'Bearer bob'})).status_code,404)
+        self.assertEqual((await self.http.get(self.base+'/radar',headers={'Authorization':'Bearer bob'})).status_code,404)
+        self.assertEqual((await self.http.get(self.base+'/sources/'+sid+'/versions?limit=51')).status_code,422)
+        radar=self.ok(await self.http.get(self.base+'/radar'))
+        self.assertEqual(len(radar['latest_versions']),1);self.assertEqual(radar['dates'],[])
+        self.assertFalse(radar['plan_changed'])
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(ContestSourceVersion).where(ContestSourceVersion.source_id==UUID(sid))),3)
+
+    async def test_official_dates_pdf_changes_keep_document_type_and_provenance(self):
+        source=self.ok(await self.http.post(self.base+'/sources',json={'url':self.url+'/prova.pdf','title':'Official PDF',
+            'terms_allow_monitoring':True,'source_kind':'official_pdf'}));sid=source['source_id']
+        self.assertEqual(source['trust'],'USER_PROVIDED')
+        async with unit_of_work() as session:
+            # Trusted domain classification fixture; no external service is used.
+            row=await session.get(ContestSource,UUID(sid));row.trust='OFFICIAL'
+        provider=SimpleNamespace(poll=Mock())
+        with patch('contest_watch.provider_for',return_value=provider):
+            for digest,text in [('hash1','Prova objetiva: 01/02/2027'),('hash2','Prova objetiva: 02/02/2027')]:
+                provider.poll.return_value=SourcePage(text,[{'title':'Prova','url':source['url'],'document_url':source['url'],
+                    'document_type':'exam','hash':digest,'hash_basis':'document_bytes','source_type':'OFFICIAL','official':True}],
+                    digest,hash_basis='document_bytes')
+                await self.reset_due(sid)
+                self.ok(await self.http.post(self.base+'/sources/'+sid+'/poll'))
+        exams=self.ok(await self.http.get(self.base+'/exams'))
+        self.assertEqual(len(exams),2);self.assertTrue(all(row['document_type']=='exam' for row in exams))
+        radar=self.ok(await self.http.get(self.base+'/radar'))
+        self.assertEqual([d['date'] for d in radar['dates']],['2027-02-02'])
+        self.assertEqual(radar['dates'][0]['hash'],'hash2');self.assertEqual(radar['dates'][0]['url'],source['url'])
+        self.assertEqual(radar['latest_versions'][0]['hash_basis'],'document_bytes')
 
     async def reset_due(self,sid):
         async with unit_of_work() as session:

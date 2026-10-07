@@ -1,5 +1,11 @@
 # Sirius — handoff
 
+## 2026-10-07 — Sirius POS 3.0 / Phase 3 audit
+
+Phase 2 PR27 completed: branch feat/preparation-core-3, final head82f48fb4b84c069da111bdedf2df3cf07e73498f, mergecfaa4bfacadda22311c4adefe60fcda54226dacc. PR all3 CI workflows green; final Codex review completed21:55:01UTC with no new findings and all4 P2 threads resolved. Local SQL192/regression111/security5/frontend51/lint/build/full5-width browser smoke pass. Vercel Production deployed merge22:04:15UTC; Northflank siriusfrontandback22:02:40UTC. Frontend200 and published state UI; backendlive/ready200, OpenAPI state/primary routes present, CORS200, anonymous state401. No migration/manual setup in phase2; authenticated production interactions not exercised.
+
+Current branch feat/edital-intelligence-radar from that merge. Pre-edit audit is docs/EDITAL_INTELLIGENCE.md. Existing ContestSource/ContestUpdate/provider guards and leases will be reused. Durable complete text versions and source kinds need an additive migration; do not merge this phase until owner confirms application on Neon. No production migration/write has been performed. Next phase after this gate is Questions Intelligence.
+
 ## 2026-10-07 — Sirius POS 3.0 / Phase 2 Preparation Core
 
 Current branch `feat/preparation-core-3` from main a0c0e35b82fa4bdb3cfedfb378cb3da4c6463724. Phase 1 is complete: PR26 merged as that SHA, all three main workflows successful; Vercel Production and Northflank siriusfrontandback deployed that merge, public live/ready/frontend/CORS HTTP200. Authenticated production import remains a manual user check. No migration in phase 1 or phase 2; Alembic head 84d2a71ef309.
