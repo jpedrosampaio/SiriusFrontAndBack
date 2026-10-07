@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Button } from '@/components/ui/button';
 const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api/study/v2/programs`;
-const events = { registration: 'Inscrições', exemption: 'Isenção', payment: 'Pagamento', exam: 'Prova', location: 'Local de prova', appeal: 'Recurso', result: 'Resultado' };
+const events = { registration: 'Inscrições', exemption: 'Isenção', payment: 'Pagamento', exam: 'Prova', location: 'Local de prova', appeal: 'Recurso', result: 'Resultado', appointment: 'Nomeação', taking_office: 'Posse', documents: 'Entrega de documentos' };
 const categories = { roles: 'Cargos e vagas', syllabus: 'Conteúdo programático', weights: 'Pesos e questões', rules: 'Regras', calendar: 'Calendário' };
 export default function EdictRadar({ programId, refresh }) {
   const [data, setData] = useState(null), [error, setError] = useState(''), [retry, setRetry] = useState(0);
@@ -11,7 +11,7 @@ export default function EdictRadar({ programId, refresh }) {
   useEffect(() => {
     const controller = new AbortController(); generation.current += 1; inFlight.current = false;
     setData(null); setHistory(null); setLoading(false); setError('');
-    axios.get(`${API}/${programId}/radar`, { signal: controller.signal }).then(r => setData(r.data)).catch(e => {
+    axios.get(`${API}/${programId}/radar`, { signal: controller.signal }).then(r => { if (!controller.signal.aborted) setData(r.data); }).catch(e => {
       if (!controller.signal.aborted) setError('Não foi possível carregar o radar.');
     });
     return () => { controller.abort(); generation.current += 1; };
@@ -27,12 +27,15 @@ export default function EdictRadar({ programId, refresh }) {
   };
   return <section className="space-y-4 min-w-0" aria-label="Radar de editais">
     <h3 className="font-semibold">Radar de editais</h3>
+    {!data && !error && <p role="status" className="text-sm text-slate-400">Carregando versões e datas…</p>}
     {error && <div role="alert"><p className="text-amber-300 text-sm">{error}</p><Button variant="ghost" onClick={() => setRetry(n => n + 1)}>Tentar novamente</Button></div>}
     {data && <><p className="text-xs text-slate-400">Mudanças classificadas por regras, com confirmação necessária. Seu plano permanece sob seu controle.</p>
       <div className="grid sm:grid-cols-2 gap-3">{data.latest_versions.map(v => <article key={v.version_id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 min-w-0">
         <p className="font-medium break-words">{v.details.title}</p><p className="text-xs text-slate-400 mt-1">Observada em {new Date(v.detected_at).toLocaleString('pt-BR')}</p>
         <p className="text-sm mt-2">{v.impact.baseline ? 'Primeira versão registrada' : v.details.legacy ? 'Versão anterior recuperada' : 'Nova versão detectada'}</p>
         <p className="text-xs text-slate-400 mt-2">{v.impact.categories?.map(c => categories[c]).join(' · ') || 'Sem classificação de impacto confirmada'}</p>
+        {v.impact.syllabus_impact?.status === 'review_required' && <p className="text-xs text-amber-300 mt-2">Confira se o edital verticalizado precisa de atualização.</p>}
+        {v.impact.plan_impact?.status === 'review_required' && <p className="text-xs text-slate-400 mt-2">Revise o efeito no plano; o cronograma não foi recalculado.</p>}
         {v.partial && <p className="text-amber-300 text-xs mt-2">Extração parcial; confira o documento completo.</p>}
         <Button variant="ghost" disabled={loading} onClick={() => showHistory(data.sources.find(s => s.source_id === v.source_id))}>Ver histórico</Button>
       </article>)}</div>

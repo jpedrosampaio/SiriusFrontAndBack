@@ -8,7 +8,7 @@ RULE_VERSION = 'edital-radar-1'
 CATEGORIES = {
     'roles': ('cargo', 'vaga', 'remuneracao', 'salario'),
     'syllabus': ('disciplina', 'conteudo programatico', 'topico'),
-    'weights': ('peso', 'pontuacao', 'numero de questoes'),
+    'weights': ('peso', 'pontuacao', 'questao', 'questoes'),
     'rules': ('eliminatorio', 'classificatorio', 'criterio', 'recurso'),
     'calendar': ('inscricao', 'isencao', 'pagamento', 'prova', 'resultado'),
 }
@@ -18,6 +18,8 @@ EVENTS = (
     ('exam', ('aplicacao da prova', 'aplicacao das provas', 'prova objetiva', 'prova discursiva')),
     ('location', ('local de prova', 'locais de prova')),
     ('appeal', ('recurso', 'recursos')), ('result', ('resultado',)),
+    ('appointment', ('nomeacao',)), ('taking_office', ('posse',)),
+    ('documents', ('entrega de documentos',)),
 )
 MONTHS = {name: index for index, name in enumerate(('janeiro','fevereiro','marco','abril','maio','junho',
     'julho','agosto','setembro','outubro','novembro','dezembro'), 1)}
