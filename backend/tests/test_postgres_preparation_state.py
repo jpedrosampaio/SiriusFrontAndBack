@@ -143,3 +143,26 @@ class PreparationStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({r['kind'] for r in state['evidence_ledger']},{'flashcard','exam'})
         self.assertTrue(all(not r['affects_mastery'] for r in state['evidence_ledger']))
         self.assertEqual({m['kind'] for m in state['syllabus_graph']['disciplines'][0]['materials']},{'note','flashcard'})
+
+    async def test_truncated_hierarchy_keeps_every_selected_child_parent(self):
+        self.ok(await self.http.patch('/api/study/notebooks/'+self.nid,json={
+            'conteudo_programatico':[{'assunto':'A','subtopicos':['A child']},{'assunto':'B','subtopicos':['B child']}]}))
+        with patch('services.preparation_state.LIMIT',3):
+            state=self.ok(await self.http.get(self.base+'/state'))
+        topics=state['syllabus_graph']['topics']; selected={t['id'] for t in topics}
+        self.assertTrue(state['truncated'])
+        self.assertEqual({t['topic_key'] for t in topics if t['parent_id']==self.nid},{'0','1'})
+        self.assertTrue(all(t['parent_id']==self.nid or t['parent_id'] in selected for t in topics))
+
+    async def test_todays_pending_blocks_do_not_lower_past_consistency(self):
+        today=date(2026,10,7)
+        async with unit_of_work() as session:
+            plan=StudyPlan(user_id=self.uid,program_id=UUID(self.pid),start_date=today-timedelta(days=1),end_date=today+timedelta(days=7),availability=[30]*7,block_minutes=30)
+            session.add(plan); await session.flush()
+            for day,completed in ((today-timedelta(days=1),True),(today,False)):
+                session.add(StudyPlanEntry(user_id=self.uid,plan_id=plan.id,notebook_id=UUID(self.nid),date=day,name='Block',minutes=30,kind='study',completed=completed))
+        with patch('services.studies_v2_routes.local_today',return_value=today):
+            state=self.ok(await self.http.get(self.base+'/state'))
+        self.assertEqual(state['candidate_model']['consistency'],100)
+        self.assertEqual(state['study_debt']['overdue_blocks'],0)
+        self.assertEqual(state['next_session']['date'],today.isoformat())

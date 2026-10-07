@@ -27,7 +27,7 @@ async def preparation_state(session, uid, program, zone, today):
         .outerjoin(TopicProgress, (TopicProgress.topic_id == StudyTopic.id) &
             (TopicProgress.user_id == StudyTopic.user_id))
         .where(StudyTopic.user_id == uid, StudyTopic.notebook_id.in_(ids),
-            StudyTopic.archived_at.is_(None)).order_by(StudyTopic.notebook_id,
+            StudyTopic.archived_at.is_(None)).order_by(StudyTopic.notebook_id, StudyTopic.parent_id.is_not(None),
             StudyTopic.position, StudyTopic.id).limit(LIMIT+1))).all()
     truncated |= len(topic_rows) > LIMIT; topic_rows = topic_rows[:LIMIT]
     individual = await attempts(session, uid, zone, program_id=program.id, limit=5000, active_topics=True)
@@ -110,7 +110,7 @@ async def preparation_state(session, uid, program, zone, today):
     current = sum(s.duration_minutes for s in recent)
     planned = sum(e.minutes for e in entries if today-timedelta(days=6) <= e.date <= today)
     debt_entries = [e for e in entries if e.date < today and not e.completed]
-    past_entries = [e for e in entries if e.date <= today]
+    past_entries = [e for e in entries if e.date < today]
     consistency = round(100*sum(e.completed for e in past_entries)/len(past_entries), 1) if past_entries else None
     total_topics = len(graph)
     coverage = {'studied': covered_count, 'total': total_topics,
