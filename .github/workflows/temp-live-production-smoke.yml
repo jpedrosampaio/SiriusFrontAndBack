@@ -1,0 +1,79 @@
+name: Temporary live production smoke
+on:
+  push:
+    branches: [fix/northflank-python-version]
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check live frontend, backend, CORS and deployed API target
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRONTEND="https://siriusassistant.vercel.app"
+          BACKEND="https://back--siriusfrontandback--vbfgpbhc7tz8.code.run"
+
+          echo "== Frontend =="
+          curl -fsS -o /tmp/front.html -D /tmp/front.headers "$FRONTEND/"
+          head -n 1 /tmp/front.headers
+          grep -qi 'content-type: text/html' /tmp/front.headers
+
+          echo "== Backend liveness =="
+          curl -fsS -D /tmp/live.headers "$BACKEND/health/live" | tee /tmp/live.body
+          echo
+          head -n 1 /tmp/live.headers
+
+          echo "== Backend readiness =="
+          curl -fsS -D /tmp/ready.headers "$BACKEND/health/ready" | tee /tmp/ready.body
+          echo
+          head -n 1 /tmp/ready.headers
+
+          echo "== OpenAPI =="
+          curl -fsS "$BACKEND/openapi.json" -o /tmp/openapi.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/openapi.json'))
+          paths=data.get('paths',{})
+          print('openapi_paths=',len(paths))
+          for p in ['/api/ai/chat','/api/ai/status','/api/ai/daily','/api/ai/weekly']:
+              print(p, 'present=' + str(p in paths))
+              assert p in paths
+          PY
+
+          echo "== CORS preflight =="
+          curl -sS -o /tmp/cors.body -D /tmp/cors.headers -X OPTIONS "$BACKEND/api/ai/status"             -H "Origin: $FRONTEND"             -H "Access-Control-Request-Method: GET"             -H "Access-Control-Request-Headers: authorization,content-type"
+          cat /tmp/cors.headers
+          grep -Eqi '^access-control-allow-origin: https://siriusassistant\.vercel\.app/?\r?$' /tmp/cors.headers
+          grep -Eqi '^access-control-allow-credentials: true\r?$' /tmp/cors.headers
+
+          echo "== Anonymous protected endpoint =="
+          code=$(curl -sS -o /tmp/status.body -w '%{http_code}' -H "Origin: $FRONTEND" "$BACKEND/api/ai/status")
+          echo "status_code=$code"
+          cat /tmp/status.body
+          echo
+          test "$code" = "401"
+
+          echo "== Frontend compiled backend target =="
+          python - <<'PY'
+          import re, urllib.parse, urllib.request
+          origin='https://siriusassistant.vercel.app/'
+          html=open('/tmp/front.html',encoding='utf-8').read()
+          scripts=re.findall(r'<script[^>]+src="([^"]+)"',html)
+          print('scripts=',scripts)
+          joined=''
+          for src in scripts:
+              url=urllib.parse.urljoin(origin,src)
+              try:
+                  joined += urllib.request.urlopen(url,timeout=30).read().decode('utf-8','ignore')
+              except Exception as exc:
+                  print('script_fetch_error',url,type(exc).__name__)
+          target='back--siriusfrontandback--vbfgpbhc7tz8.code.run'
+          old='onrender.com'
+          print('northflank_target_present=',target in joined)
+          print('render_reference_present=',old in joined)
+          assert target in joined, 'Frontend bundle does not reference the expected Northflank backend'
+          PY
