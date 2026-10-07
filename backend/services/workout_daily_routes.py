@@ -4,7 +4,7 @@ from fastapi import APIRouter,Request,HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel,Field
 from sqlalchemy import select,delete
-from db.models.health import DailyWorkoutStatus,DailyWorkoutCheck,WorkoutLog
+from db.models.health import DailyWorkoutStatus,DailyWorkoutCheck,WorkoutLog,WorkoutPlan
 from db.repositories.health import HealthRepository
 from db.session import unit_of_work
 from db.activity import run_activity
@@ -39,6 +39,27 @@ async def public(session,row,checks):
     return jsonable_encoder({'status_id':row.id,'user_id':row.user_id,'plan_id':row.plan_id,'date':row.date,
         'exercises_status':{str(check.exercise_index):True for check in checks},'completed':bool(completed),
         'created_at':row.created_at,'updated_at':row.updated_at})
+
+
+@router.get('')
+async def batch(request: Request):
+    user=await account(request)
+    uid=UUID(user['user_id']);today=local_today(user['timezone'])
+    async with unit_of_work() as session:
+        # A projection, not a plan graph load. Two queries independent of plan count.
+        rows=(await session.execute(select(WorkoutPlan.id,DailyWorkoutStatus.id,DailyWorkoutStatus.created_at,
+            DailyWorkoutStatus.updated_at,WorkoutLog.completed).outerjoin(DailyWorkoutStatus,
+            (DailyWorkoutStatus.plan_id==WorkoutPlan.id)&(DailyWorkoutStatus.user_id==uid)&(DailyWorkoutStatus.date==today))
+            .outerjoin(WorkoutLog,(WorkoutLog.id==DailyWorkoutStatus.log_id)&(WorkoutLog.user_id==uid))
+            .where(WorkoutPlan.user_id==uid,WorkoutPlan.archived_at.is_(None)))).all()
+        checks=(await session.execute(select(DailyWorkoutCheck.status_id,DailyWorkoutCheck.exercise_index)
+            .join(DailyWorkoutStatus,(DailyWorkoutStatus.id==DailyWorkoutCheck.status_id)&(DailyWorkoutStatus.user_id==uid))
+            .where(DailyWorkoutCheck.user_id==uid,DailyWorkoutStatus.date==today))).all()
+        grouped={}
+        for sid,index in checks:grouped.setdefault(sid,{})[str(index)]=True
+        return jsonable_encoder({str(pid):{'exercises_status':grouped.get(sid,{}),'completed':bool(done),
+            'date':today,'status_id':sid,'created_at':created,'updated_at':updated}
+            for pid,sid,created,updated,done in rows})
 
 
 @router.get('/{plan_id}')

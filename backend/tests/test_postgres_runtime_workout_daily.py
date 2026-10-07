@@ -3,6 +3,8 @@ import asyncio
 import unittest
 from unittest.mock import patch
 from sqlalchemy import select,func
+from sqlalchemy import event
+from db.engine import get_engine
 from db.models.health import WorkoutLog
 from db.models.identity import User
 from db.session import unit_of_work
@@ -35,6 +37,22 @@ class RuntimeWorkoutDaily(unittest.IsolatedAsyncioTestCase):
         status=self.ok(await self.http.get(self.url));self.assertFalse(status['completed']);self.assertEqual(status['exercises_status'],{})
         self.assertEqual(self.ok(await self.http.get('/api/workouts')),[])
         async with unit_of_work() as session:self.assertEqual((await session.get(User,self.uid)).xp,0)
+
+    async def test_batch_multiple_plans_isolated_and_matches_single(self):
+        other=self.ok(await self.http.post('/api/workout-plans',json={'name':'Segundo','exercises':[{'name':'Remada'}]}))
+        self.ok(await self.http.post(self.url+'/toggle/0'))
+        queries=[]
+        def record(conn,cursor,statement,parameters,context,many):
+            if statement.lstrip().upper().startswith('SELECT'):queries.append(statement)
+        engine=get_engine().sync_engine
+        event.listen(engine,'before_cursor_execute',record)
+        try:values=self.ok(await self.http.get('/api/daily-workout-status'))
+        finally:event.remove(engine,'before_cursor_execute',record)
+        self.assertEqual(len(queries),2)
+        self.assertEqual(set(values),{self.plan['plan_id'],other['plan_id']})
+        self.assertEqual(values[self.plan['plan_id']]['exercises_status'],{'0':True})
+        self.assertFalse(values[other['plan_id']]['completed'])
+        self.assertEqual(self.ok(await self.http.get('/api/daily-workout-status',headers={'Authorization':'Bearer bob'})),{})
 
     async def test_owner_invalid_index_and_transaction_rollback(self):
         for method,suffix,kwargs in [('get','',{}),('post','/toggle/0',{}),('post','/complete',{'json':{}}),('post','/reset',{})]:
