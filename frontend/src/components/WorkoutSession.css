@@ -88,3 +88,13 @@
   .ws-footer button { width: 100%; }
   .ws-rest-time { font-size: 28px; }
 }
+@media (max-width: 767px) and (max-height: 550px) {
+  .ws-header { padding: 8px 12px; gap: 4px; }
+  .ws-header .ws-eyebrow { display: none; }
+  .ws-plan-name { font-size: 12px; }
+  .ws-header-metrics > span:first-child { font-size: 14px; }
+  .ws-header-metrics { font-size: 10px; }
+  .ws-primary-action { padding: 8px 16px; }
+  .ws-primary-action p { display: none; }
+  .ws-complete-set { min-height: 44px !important; }
+}
