@@ -1,5 +1,19 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from typing import Annotated
+from pydantic import BeforeValidator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+def calendar_date(value):
+    if isinstance(value,str):
+        parsed=date.fromisoformat(value)
+        if parsed.isoformat()!=value:raise ValueError('Use YYYY-MM-DD')
+        return parsed
+    if type(value) is not date:raise ValueError('Use a calendar date')
+    return value
+
+
+CalendarDate=Annotated[date,BeforeValidator(calendar_date)]
 
 
 def local_today(timezone_name, *, now=None):

@@ -1,5 +1,6 @@
 """Planning HTTP contracts backed by SQL transactions and owner-scoped repositories."""
-from datetime import date as Date, datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta
+from services.time import CalendarDate as Date
 from uuid import UUID
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, field_validator

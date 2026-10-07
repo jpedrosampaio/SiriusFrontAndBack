@@ -27,9 +27,15 @@ if sys.platform == 'win32':
 
 @unittest.skipUnless(os.getenv('RUN_POSTGRES_TESTS') == 'true', 'Disposable PostgreSQL required')
 class RuntimePlanning(unittest.IsolatedAsyncioTestCase):
+    async def test_calendar_date_contract(self):
+        good=await self.http.get('/api/calendar/events',params={'start':'2024-02-29','end':'2024-02-29'})
+        self.assertEqual(good.status_code,200,good.text)
+        for value in ('2026-02-29','2026-9-14','2026-09-14T00:00:00','123'):
+            result=await self.http.get('/api/calendar/events',params={'start':value,'end':'2026-09-14'})
+            self.assertEqual(result.status_code,422,result.text)
+
     async def asyncSetUp(self):
-        with patch.dict(os.environ, {'MONGO_URL':'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=10', 'DB_NAME':'unavailable'}):
-            import server
+        import server
         self.http = AsyncClient(transport=ASGITransport(server.app), base_url='https://sirius.test')
         async with unit_of_work() as session:
             repo = IdentityRepository(session)

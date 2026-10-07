@@ -18,8 +18,7 @@ if sys.platform=='win32': asyncio.set_event_loop_policy(asyncio.WindowsSelectorE
 @unittest.skipUnless(os.getenv('RUN_POSTGRES_TESTS')=='true','Disposable PostgreSQL required')
 class RuntimeCatalog(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        with patch.dict(os.environ,{'MONGO_URL':'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=10','DB_NAME':'unavailable'}):
-            import server
+        import server
         self.http=AsyncClient(transport=ASGITransport(server.app),base_url='https://sirius.test')
         async with unit_of_work() as session:
             repo=IdentityRepository(session)

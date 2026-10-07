@@ -1,6 +1,7 @@
 """Deterministic suggestion worker: opt-in, cooldown, quiet hours, no business writes."""
 import asyncio
 import logging
+import os
 from decimal import Decimal
 
 EVENTS = frozenset(('task.created', 'task.completed', 'task.overdue', 'study.session.completed', 'study.review.overdue', 'study.performance.changed', 'workout.completed', 'workout.skipped', 'budget.threshold_reached', 'goal.progress_changed', 'calendar.event_created', 'edital.updated', 'finance.expense.created'))
@@ -39,6 +40,7 @@ class Automations:
             await self.suggest(user_id, 'daily_plan', 'Revise a capacidade do seu dia', {'tasks': await self.core.read('get_today_tasks', user_id)}, '/assistant/settings', now)
 
     async def run(self):
+        interval=max(900,int(os.getenv('AUTOMATION_POLL_INTERVAL_SECONDS','900')))
         while True:
             try:
                 from services.agent_automations import claim, finish
@@ -46,11 +48,11 @@ class Automations:
                 if event:
                     await self.process(event)
                     await finish(event)
-                else: await asyncio.sleep(20)
+                else: await asyncio.sleep(interval)
             except asyncio.CancelledError: raise
             except Exception:
                 logging.warning('automation worker failed; retry deferred')
-                await asyncio.sleep(30)
+                await asyncio.sleep(interval)
 
     async def start(self):
         if self.settings.automations and self.worker is None:

@@ -1,19 +1,10 @@
 {
   "initial_direct_calls": 669,
-  "remaining_direct_calls": 4,
-  "remaining_collections": 3,
-  "remaining_dynamic_accesses": 2,
+  "remaining_direct_calls": 0,
+  "remaining_collections": 0,
+  "remaining_dynamic_accesses": 0,
   "remaining_gridfs_constructors": 0,
-  "domains": {
-    "identity": 1,
-    "studies": 3
-  },
-  "mongo_imports": [
-    "operations.py:5: pymongo.errors",
-    "server.py:4: motor.motor_asyncio",
-    "server.py:5: pymongo.errors"
-  ],
-  "mongo_identifiers": {
-    "AsyncIOMotorClient": 1
-  }
+  "domains": {},
+  "mongo_imports": [],
+  "mongo_identifiers": {}
 }

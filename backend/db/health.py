@@ -1,7 +1,6 @@
 import asyncio
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import text
-from db.engine import get_engine
+from db.readiness import verify_database
 
 router = APIRouter()
 
@@ -15,8 +14,7 @@ async def liveness():
 async def readiness():
     try:
         async with asyncio.timeout(5):
-            async with get_engine().connect() as connection:
-                await connection.execute(text('SELECT 1'))
+            await verify_database()
     except Exception:
         raise HTTPException(503,'Database unavailable') from None
     return {'status':'ready'}

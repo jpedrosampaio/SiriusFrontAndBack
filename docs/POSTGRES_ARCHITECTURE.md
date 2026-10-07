@@ -1,65 +1,50 @@
-# PostgreSQL — implementação em andamento
+# PostgreSQL — runtime da branch feat/postgres-neon
 
-Branch `feat/postgres-neon`, base `e2b1bfd60c225d22329b9a28ac0daf3b4e8ee702`.
-Este documento não declara o cutover concluído: o servidor existente ainda usa Mongo enquanto os domínios são substituídos e testados na branch.
+PR #21, base `e2b1bfd60c225d22329b9a28ac0daf3b4e8ee702`. O runtime agora funciona exclusivamente com PostgreSQL. O inventário passou de 669 chamadas Mongo diretas para zero, incluindo os acessos dinâmicos de sincronização móvel. Motor, PyMongo, GridFS, criação de collections/índices no startup e o snapshot legado server_partial.py foram removidos. Não há dual-write, emulação de collections ou importação de dados antigos.
 
-## Fundação
+Isso descreve o código da branch, não uma troca já realizada em produção. O merge e a publicação dependem da configuração e das migrations no Neon/Render. Sem essa verificação, a versão publicada permanece intacta.
 
-Dashboard, relatórios, busca global e leitores do Agent agora usam SQL. Também estão conectadas as propostas/execuções confirmadas, preferências, memórias e conversas com mensagens/recibos normalizados. As notas históricas de leitores pendentes abaixo não se aplicam mais a esses fluxos; RAG, automações, notificações e outros consumidores ainda aguardam migração.
+## Persistência e transações
 
-O alias `/chat/send` usa o mesmo Agent e histórico SQL. `/chat/analyze-image`, rota antiga sem consumidor no frontend atual que gravava despesas automaticamente, retorna 410 apontando para `/ai/attachments` e `/ai/chat`, onde propostas exigem confirmação. O startup SQL-only permanece pendente.
+- SQLAlchemy 2 Async, psycopg, Alembic; 96 tabelas de domínio, head `126b856daebb`.
+- Alembic é a autoridade do schema. Startup consulta a revisão existente e falha claramente se o banco estiver ausente ou desatualizado; nunca executa DDL ou migrations.
+- Engine lazy por processo, pool 2 + overflow 1, timeout 15 s, reciclagem 240 s, pre-ping e prepare_threshold=None. URLs Neon exigem TLS. SQL e parâmetros não são impressos.
+- Serviços controlam unit_of_work; repositories recebem a sessão e fazem flush, nunca commit. Uma sessão não é compartilhada entre tarefas concorrentes.
+- Escritas de atividade bloqueiam o usuário com FOR UPDATE. Dados, delta efetivo de XP, eventos e recibo pertencem à mesma transação. Replay não repete a alteração. IA e chamadas externas ficam fora da transação.
+- UUID nativo, FKs compostas por proprietário, timestamptz, dias civis date, dinheiro NUMERIC/Decimal. Exclusões lógicas preservam evidências quando necessário.
+- JSONB guarda apenas estruturas variáveis: preferências, evidências, análises, parâmetros/resultados de IA. Mensagens, revisões, tentativas, itens e métricas são relacionais; não há tabela genérica de documentos.
+- Senhas bcrypt, tokens de sessão SHA-256, credenciais de IA cifradas e códigos temporários do Telegram armazenados como hash. Ownership é conferido na leitura, na escrita e nas FKs.
 
-Saúde conectada: planos/sessões/séries/logs/checklist de treino, histórico/cargas, medidas e insights; refeições, água, metas, receitas, dietas, planos alimentares e compras. Importar plano grava plano normalizado, refeições, metas, XP e recibo em uma transação. Resposta incompleta de geração semanal é rejeitada antes de gravar. Arquivos temporários de IA têm limpeza garantida. Relatórios, Dashboard e Agent ainda contêm leitores Mongo desses dados; startup SQL-only permanece pendente.
+## Domínios conectados
 
-Catálogo de estudos conectado: áreas, programas, cadernos e notas. Sessões e
-tentativas são agregadas por caderno/programa para os totais; não existem novos
-contadores cumulativos duplicados. Archive oculta áreas/programas/cadernos e
-preserva as evidências. Upload de notas autentica/verifica dono e retorna 503
-enquanto storage durável não estiver disponível. Metas também usam transações SQL.
+Autenticação/perfil, tarefas/hábitos/calendário, finanças, metas, estudos, treinos, nutrição, relatórios, dashboard/analytics, busca, Agent, notificações, concursos e Telegram usam SQL. Os testes exercitam as rotas reais, além dos serviços de domínio.
 
-Também conectadas: rotas financeiras de transações/categorias/orçamentos,
-cartões/faturas/parcelas, projeções, contas mensais, estatísticas/tendência,
-insights e exportações. Cálculos e persistência usam Decimal/NUMERIC; JSON de
-entrada é decodificado com Decimal. A conversão para números JSON ocorre apenas
-na serialização HTTP/recibo, preservando o contrato numérico do frontend.
-Agregados por mês/categoria são SQL, sem limites silenciosos de 500/1000 registros.
-Dashboard, relatórios gerais e Agent ainda possuem leitores financeiros Mongo.
+Estudos preservam áreas/programas/cadernos/tópicos, notas, sessões, tentativas, revisões, simulados/quizzes/flashcards, planos, verticalização, análises de edital e materiais. Importações e correções gravam evidências, XP e recibo atomicamente. Archive oculta o recurso sem apagar fatos históricos.
 
-Rotas reais já conectadas: autenticação/perfil/credenciais; tarefas e hábitos (incluindo XP transacional, replay e Kanban); calendário com consultas por período. Templates excluídos são arquivados para preservar evidências. Demais consumidores de tarefas/hábitos, como Dashboard e Agent, ainda aguardam migração. O startup ainda depende de Mongo. Testes SQL agora incluem `server.app`, sem servidor Mongo disponível, mas ainda sem executar o lifespan legado.
+Treinos preservam plano/dias/exercícios e snapshots relacionais de sessões/séries. Logs manuais e sessões são origens mutuamente exclusivas para séries executadas. Conclusões e resets não duplicam XP. Nutrição normaliza refeições/itens, planos e compras; totais declarados em importações ficam separados dos totais calculados dos alimentos.
 
-- SQLAlchemy 2.0.54, typed mappings e AsyncSession.
-- Psycopg 3.3.6: driver async em runtime e sync no CLI Alembic. Ambos usam o mesmo dialeto `postgresql+psycopg`. Asyncpg também é suportado pelo SQLAlchemy; psycopg simplifica TLS e o CLI síncrono. [Dialeto oficial](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#module-sqlalchemy.dialects.postgresql.psycopg).
-- Alembic 1.20.0 é a autoridade do schema. Nenhum `create_all`, DDL ou migration no startup.
-- Engine lazy único por processo; pool 2 + overflow 1, timeout 15 segundos, reciclagem 240 segundos. `prepare_threshold=None` evita dependência de prepared statements do pooler. [Psycopg/PgBouncer](https://www.psycopg.org/psycopg3/docs/advanced/prepare.html).
-- Serviços abrem `unit_of_work`; repositories recebem AsyncSession e fazem flush, nunca commit. Exceções desfazem todas as escritas. Uma sessão nunca é compartilhada entre tarefas concorrentes.
-- `run_activity` bloqueia a linha do usuário com `FOR UPDATE`; dados, XP e recibo de idempotência pertencem à mesma transação. Sem retry automático de chamadas externas/IA dentro da transação.
-- UUID nativo, instantes `timestamptz`, dias civis `date`, dinheiro `NUMERIC(18,2)`. Entrada monetária rejeita float na fronteira do repository.
-- FKs compostas `(user_id, entity_id)` impedem cruzar proprietários também no banco. Histórico usa RESTRICT; projeções descartáveis usam CASCADE. Exclusão de conta ainda precisa de serviço explícito de limpeza do histórico.
-- JSONB restrito a preferências, metadados, argumentos/resultados variáveis, evidências e análise estruturada. Mensagens, tentativas e revisões são linhas individuais.
-- Senhas permanecem bcrypt; tokens de sessão serão armazenados somente como hash SHA-256. URLs e parâmetros SQL não são registrados.
+Dashboard e relatórios agregam fatos SQL, sem depender de limites de listagens. Snapshots de relatórios têm métricas tipadas. Não foi inferido ganho de latência a partir do tempo de execução dos testes.
 
-## Execução local
+Agent usa conversas/mensagens ordenadas, recibos, lease contra escritores atrasados, memórias, ações/auditoria, preferências, cotas, eventos e sugestões. Propostas confirmadas revalidam dono/política/versão antes de executar. O alias /chat/send compartilha esse fluxo. A antiga rota /chat/analyze-image, sem consumidor atual e que gravava despesas automaticamente, responde 410 indicando attachments/chat com confirmação.
 
-`docker compose -f compose.postgres.yml up -d` inicia apenas PostgreSQL local. Em `backend`, definir DATABASE_URL para a conexão local e executar `python -m alembic upgrade head` e `python -m alembic check`. CI usa banco descartável próprio, nunca Neon.
+Notificações reivindicam a ocorrência por data local dentro da transação; abas concorrentes não duplicam o aviso. Lembretes de cronograma são únicos por bloco/tipo. Telegram aceita mensagens privadas autenticadas pelo segredo do webhook, usa códigos descartáveis, leases e recibos; transações financeiras e resposta são concluídas juntas, com validação Decimal do lote inteiro. Reenvios não duplicam dinheiro e desvinculação durante a IA revoga a escrita.
 
-No Windows, psycopg async precisa de SelectorEventLoop; testes configuram a política antes de criar o loop. A configuração do entrypoint de produção Windows deve preservar isso. Render/Linux não precisa desse ajuste.
+Sincronização nativa tem contratos explícitos para tarefas, hábitos, metas e transações. O cliente gera UUID e envia todas as operações ao endpoint POST. Arrays SQLite são convertidos na fronteira; registros antigos com IDs prefixados não são migrados para o banco novo.
 
-## Trabalho ainda necessário
+## Arquivos e RAG
 
-Concluir modelos e repositories de todos os domínios do mapa; conectar rotas/serviços ao SQL; concluir os demais workers; RAG vetorial opcional; cleanup explícito; migrar testes de integração existentes; validar auth e smoke de todos os módulos; remover Motor/PyMongo somente quando não houver consumidores. Não publicar esta fundação isolada como se fosse a substituição completa.
+Arquivos binários não ficam no PostgreSQL nem em disco efêmero de produção. A fila de editais e os uploads que exigem retenção devolvem 503 se não existir storage durável. LOCAL_DEVELOPMENT_STORAGE_DIR é opt-in local e recusado no Render/produção. Exportações e arquivos temporários de IA têm limpeza garantida.
 
-## Editais: análises e fila conectadas
+Attachments do Agent retêm somente texto extraído e metadata (original_available=false, retention=extracted_text_only). Isso permite consulta sem prometer download do original. RAG usa chunks SQL, índice lexical GIN e filtro de dono/recurso ativo. pgvector/embeddings e busca semântica não estão ativos; não são exigidos para inicializar.
 
-Salvar, abrir, listar, comparar, revisar cargos/páginas, cache e exclusão usam PostgreSQL. Revisões são protegidas por versão e lock. Fila usa `edital_jobs`, claim com SKIP LOCKED e lease; não repete IA após interrupção. Sem object storage, upload em segundo plano retorna 503 e o worker não inicia. O adaptador local exige opt-in e recusa Render/produção. Worker configurado acorda no envio e consulta em intervalos de 60 s quando ocioso, não a cada 3 s. GridFS saiu do runtime. Importação de programas/cronogramas agora é SQL; RAG e eventos do Agent ainda têm persistência Mongo.
+## Operação e validação
 
-Importação direta de PDF e por cargo salvo utilizam o mesmo writer SQL: programa, preparação, cadernos, tópicos, horários, XP e recibo são atômicos. Área é validada antes da IA e novamente na gravação. Cronograma/verticalização/indicadores, ajustes de disciplinas e blocos semanais usam SQL; indicadores não duplicam minutos cumulativos. Simulados/quizzes/flashcards e demais leitores ainda precisam de integração.
+/health/live não consulta o banco; /health/ready verifica conectividade e revisão Alembic. Use liveness para sondagens frequentes do host. Readiness manual e startup identificam configuração/schema incompleto sem expor URLs ou senhas.
 
-Simulados agora usam Exam/Question/ExamQuestion/ExamAttempt nas rotas de geração, PDF, listagem, detalhe, correção, resultados e exclusão lógica. Estatísticas são agregados SQL; exclusão preserva fatos de estudo e oculta a prova/histórico da biblioteca. Correção grava respostas inclusive brancos, mas brancos não entram como tentativas individuais de domínio/revisão. IA mantém os prompts existentes e executa fora da transação.
+Automações ociosas consultam a fila a cada 900 s ou mais, acompanhando o intervalo de concursos; sugestões podem levar até 15 minutos. A fila de PDFs não inicia sem storage. Workers opcionais e tráfego real ainda podem consumir compute; não há garantia de consumo gratuito nem benchmark de produção.
 
-Flashcards/revisões SM-2 e quizzes (manuais e IA) usam SQL, incluindo XP/recibo na mesma transação. Quizzes reaproveitam Exam/Question/ExamAttempt com kind quiz. Cartões excluídos são arquivados para preservar revisões, e biblioteca/fila/indicadores filtram o archive. Tags de cartões são ARRAY.
+Validação local: 179 testes PostgreSQL passaram; smoke adicional usa banco vazio e processo novo, remove MONGO_URL/DB_NAME, bloqueia imports Mongo e proíbe DDL no startup. Exercita signup/login, dashboard vazio, tarefas, dinheiro, estudos, treino, nutrição, chat, confirmação de ação e relatório. Provedores de IA são substituídos no smoke; não é uma validação de qualidade ou disponibilidade do provedor. Regressões de backend/navegador e build de produção do frontend também foram executados. Resultados finais do CI constam no PR.
 
-Tarefas de estudo, estatísticas gerais, gráficos de foco/questões e sugestões usam SQL. Conclusões têm unicidade por dono/tarefa/data, com XP e recibo atômicos. Alterar recorrência com histórico retorna conflito para preservar as evidências.
+Execução local: iniciar compose.postgres.yml, configurar DATABASE_URL, rodar python -m alembic upgrade head e python -m alembic check em backend. No Windows, psycopg async requer SelectorEventLoop; os testes configuram essa política. O runtime de destino é Render/Linux.
 
-Mapas mentais e redações persistem em SQL; IA fora da transação, resultado/XP/recibo atômicos. Listagens por dono têm limite 50. Arquivos dessas gerações são temporários, sempre removidos em finally, sem promessa de retenção do binário.
-
-PDF para materiais valida caderno antes da IA e novamente no writer. Notas/cartões/quiz/XP/recibo são atômicos, com quantidades de geração validadas. Caderno obrigatório evita materiais órfãos; a interface já envia o caderno selecionado. IA continua fora da transação; replay evita duplicar dados/XP, mas uma repetição ainda pode chamar a IA antes de consultar o recibo.
+Produção: seguir [NEON_SETUP.md](NEON_SETUP.md). Nenhum dado/sessão Mongo será importado, e o Atlas não foi excluído.

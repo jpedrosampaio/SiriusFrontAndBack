@@ -2,7 +2,7 @@
 
 Documentação oficial consultada em 2026-09-30/2026-10-01. Não foi criado projeto, habilitado billing ou contratado recurso.
 
-Estado de implementação em 05/10: schema local até `1d41972a807e`, 80 tabelas. Saúde/Nutrição possuem rotas SQL, mas ainda existem leitores e inicialização Mongo. Não executar cutover com base apenas nessa etapa; produção continua inalterada.
+Estado do código: schema até `126b856daebb`, 96 tabelas, runtime PostgreSQL e zero chamadas/imports Mongo. Inicialização em banco novo, migrations e smoke sem Mongo passaram. A configuração do Neon/Render de produção não foi verificada; produção continua inalterada e não deve receber merge/deploy antes dessa verificação.
 
 ## Limites consultados
 
@@ -21,7 +21,7 @@ O [plano Free atual](https://neon.com/docs/introduction/plans) informa 100 proje
 5. Validar readiness, cadastro novo, login, criação de registros e Agent. Não importar dados Mongo. Sessões antigas são inválidas.
 6. Remover variáveis Mongo quando o runtime PostgreSQL estiver ativo. O usuário excluirá manualmente o Atlas após confirmar Neon.
 
-Workers que consultam o banco continuamente podem impedir scale-to-zero e esgotar compute gratuito. A substituição deve remover polling frequente incondicional; não considerar a configuração operacional concluída sem validar esse comportamento.
+Workers podem impedir scale-to-zero. Automações agora aguardam pelo menos 900 s quando ociosas; concursos consultam a cada 900 s; a fila de PDF não inicia sem storage. Configurar a sondagem frequente do host em `/health/live`, que não acessa SQL. `/health/ready` e startup verificam a revisão Alembic. Consumo real no Neon ainda precisa ser observado após o cutover.
 
 ## Arquivos
 

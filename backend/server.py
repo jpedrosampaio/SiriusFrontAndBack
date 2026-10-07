@@ -1,8 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, File, UploadFile, Form, Cookie, Response, Request, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo.errors import OperationFailure, CollectionInvalid
 import hashlib
 import os
 import logging
@@ -29,9 +27,6 @@ import secrets
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
 
 GOOGLE_GEMINI_API_KEY = os.environ.get('GOOGLE_GEMINI_API_KEY', '')
 
@@ -652,107 +647,6 @@ async def root():
 
 # Only the four collections currently used by the mobile data service are syncable.
 # Account/session/configuration collections must never be exposed through this API.
-SYNC_TABLES = {
-    "tasks": ("task_id", Task),
-    "habits": ("habit_id", Habit),
-    "transactions": ("transaction_id", Transaction),
-    "goals": ("goal_id", Goal),
-}
-
-class SyncPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    record_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
-    operation: Literal["INSERT", "UPDATE", "DELETE"]
-    data: Dict[str, Any]
-    timestamp: str
-
-
-def get_sync_config(table_name: str):
-    config = SYNC_TABLES.get(table_name)
-    if config is None:
-        raise HTTPException(status_code=403, detail="Collection is not available for sync")
-    return config
-
-
-@api_router.post("/sync/{table_name}")
-async def sync_table(
-    table_name: str,
-    payload: SyncPayload,
-    request: Request,
-    session_token: Optional[str] = Cookie(None)
-):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    id_field, record_model = get_sync_config(table_name)
-    data = dict(payload.data)
-    if data.get("user_id", user.user_id) != user.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if data.get(id_field, payload.record_id) != payload.record_id:
-        raise HTTPException(status_code=422, detail="Record identifier does not match")
-    allowed_fields = set(record_model.model_fields) | {"updated_at", "synced_at"}
-    if set(data) - allowed_fields:
-        raise HTTPException(status_code=422, detail="Unsupported sync fields")
-
-    collection = db[table_name]
-    selector = {id_field: payload.record_id, "user_id": user.user_id}
-    if payload.operation == "DELETE":
-        await collection.delete_one(selector)
-        return {"success": True}
-
-    existing = await collection.find_one(selector, {"_id": 0})
-    if existing is None:
-        if payload.operation == "UPDATE":
-            raise HTTPException(status_code=404, detail="Record not found")
-        # Avoid reusing another account's identifier, even though all writes are scoped.
-        if await collection.find_one({id_field: payload.record_id}, {"_id": 0, id_field: 1}):
-            raise HTTPException(status_code=409, detail="Record identifier is unavailable")
-
-    now = datetime.now(timezone.utc).isoformat()
-    merged = {**(existing or {}), **data, id_field: payload.record_id, "user_id": user.user_id}
-    merged["created_at"] = (existing or {}).get("created_at", data.get("created_at") or now)
-    # SQLite stores these values as JSON text; MongoDB consumers expect arrays.
-    for field in ("completions", "daily_checks", "sprints"):
-        if isinstance(merged.get(field), str):
-            try:
-                merged[field] = json.loads(merged[field])
-            except (ValueError, TypeError):
-                raise HTTPException(status_code=422, detail="Invalid sync list")
-    if table_name == "tasks":
-        merged["xp_reward"] = (existing or {}).get("xp_reward", 10)
-    try:
-        validated = record_model.model_validate(merged).model_dump(mode="json")
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Invalid sync record")
-    validated["updated_at"] = now
-    validated["synced_at"] = now
-    await collection.update_one(selector, {"$set": validated}, upsert=payload.operation == "INSERT")
-    return {"success": True}
-
-
-@api_router.get("/sync/{table_name}/{user_id}")
-async def get_sync_data(
-    table_name: str,
-    user_id: str,
-    request: Request,
-    session_token: Optional[str] = Cookie(None)
-):
-    auth_header = request.headers.get("Authorization")
-    user = await get_current_user(authorization=auth_header, session_token=session_token)
-    _, record_model = get_sync_config(table_name)
-    if user.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    # Positive projection also keeps unexpected legacy/private fields out of responses.
-    projection = {field: 1 for field in record_model.model_fields}
-    projection.update({"updated_at": 1, "synced_at": 1, "_id": 0})
-    return await db[table_name].find({"user_id": user.user_id}, projection).to_list(1000)
-
-
-
-
-
-
-
-
 
 
 @api_router.post("/auth/test-gemini-key")
@@ -786,68 +680,6 @@ async def test_gemini_key(request: Request, data: Optional[dict] = None, session
         return {'valid': False, 'status': error.kind, 'message': 'Não foi possível validar a chave agora.'}
 
 
-
-
-async def setup_activity_collections():
-    # All activity/XP writers locate the locked user by user_id. A collection
-    # scan under mixed transactional/non-transactional contention is avoidable.
-    try:
-        await db.users.create_index('user_id')
-    except OperationFailure as exc:
-        if exc.code not in (85, 86): raise  # Keep an existing equivalent unique index.
-    # Creating namespaces inside concurrent transactions can conflict or block.
-    # Prepare them before serving requests; multiple workers may start together.
-    for name in ("ai_events", "task_instances", "activity_requests", "focus_sessions", "study_streaks", "study_dated_plans", "study_topic_reviews", "question_logs", "edital_jobs", "workout_sessions", "workout_logs", "study_targets", "study_attempts", "study_areas", "study_programs", "simulados", "simulado_attempts"):
-        try:
-            await db.create_collection(name)
-        except CollectionInvalid:
-            pass
-        except OperationFailure as exc:
-            if exc.code != 48:  # NamespaceExists from another starting worker.
-                raise
-
-
-def validate_activity_date(value: str) -> str:
-    try:
-        if not isinstance(value, str) or len(value) != 10:
-            raise ValueError
-        parsed = datetime.strptime(value, "%Y-%m-%d")
-        if parsed.strftime("%Y-%m-%d") != value:
-            raise ValueError
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Date must be a valid YYYY-MM-DD")
-    return value
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 @api_router.get("/chat/messages")
 async def get_chat_messages(request: Request, session_token: Optional[str] = Cookie(None)):
     user = await get_current_user(authorization=request.headers.get('Authorization'), session_token=session_token)
@@ -873,93 +705,8 @@ async def analyze_image_for_expenses(
     raise HTTPException(410, 'Use /api/ai/attachments e /api/ai/chat para analisar a imagem e confirmar cada despesa antes de registrar.')
 
 
-
-
-
-
-
-
-
-
-
-def calculate_rank(xp: int) -> str:
-    ranks = [
-        (0, "Recruta"),
-        (200, "Soldado"),
-        (500, "Cabo"),
-        (1000, "Sargento"),
-        (1800, "Subtenente"),
-        (3000, "Tenente"),
-        (4500, "Capitão"),
-        (6500, "Major"),
-        (9000, "Tenente-Coronel"),
-        (12000, "Coronel"),
-        (16000, "General de Brigada"),
-        (21000, "General de Divisão"),
-        (27000, "General de Exército"),
-        (35000, "Marechal")
-    ]
-    for threshold, rank in reversed(ranks):
-        if xp >= threshold:
-            return rank
-    return "Recruta"
-
-
-def calculate_streak(completions: List[str]) -> int:
-    if not completions:
-        return 0
-    
-    today = datetime.now(timezone.utc).date()
-    completions_dates = [datetime.fromisoformat(d).date() for d in completions]
-    completions_dates.sort(reverse=True)
-    
-    if completions_dates[0] != today and completions_dates[0] != today - timedelta(days=1):
-        return 0
-    
-    streak = 1
-    for i in range(len(completions_dates) - 1):
-        if completions_dates[i] - completions_dates[i+1] == timedelta(days=1):
-            streak += 1
-        else:
-            break
-    return streak
-
-def calculate_best_streak(completions: List[str]) -> int:
-    """Calculate the longest streak ever from all completions"""
-    if not completions:
-        return 0
-    
-    completions_dates = sorted([datetime.fromisoformat(d).date() for d in completions])
-    
-    if len(completions_dates) == 1:
-        return 1
-    
-    best_streak = 1
-    current_streak = 1
-    
-    for i in range(1, len(completions_dates)):
-        if completions_dates[i] - completions_dates[i-1] == timedelta(days=1):
-            current_streak += 1
-            best_streak = max(best_streak, current_streak)
-        else:
-            current_streak = 1
-    
-    return best_streak
-
 # ========== FINANCE CATEGORIES ==========
 DEFAULT_FINANCE_CATEGORIES = ["alimentação", "transporte", "moradia", "saúde", "educação", "lazer", "investimentos", "salário", "freelance", "outros"]
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class CreditCard(BaseModel):
@@ -1023,53 +770,19 @@ class CardChargeRequest(BaseModel):
     start_month: str = "current"  # "current" ou "next" - quando começa a primeira parcela
 
 
-
-
-
-
 # ========== PROJECTION ENDPOINTS ==========
-
-
-
-
-
 
 
 # ========== WORKOUT ENDPOINTS ==========
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ========== AI WORKOUT GENERATION ==========
-
 
 
 # ========== IMPROVE WORKOUT (MELHORAR TREINO) ==========
 
 
-
 # ========== WORKOUT SESSION ENDPOINTS ==========
-
-
-
-
-
-
-
-
-
-
 
 
 @api_router.post("/workouts/calculate-warmup")
@@ -1109,16 +822,7 @@ async def calculate_warmup(request: Request, session_token: Optional[str] = Cook
     return {"warmup_sets": warmup_sets}
 
 
-
-
-
-
 # ========== NOTIFICATION ENDPOINTS ==========
-
-
-
-
-
 
 
 # ========== NOTIFICATION TEMPLATES ==========
@@ -1188,9 +892,6 @@ async def get_notification_templates():
 # ========== BODY MEASUREMENTS ENDPOINTS ==========
 
 
-
-
-
 # ========== PDF ANALYSIS ENDPOINT ==========
 
 # ========== AI RECOMMENDATIONS ==========
@@ -1198,8 +899,6 @@ async def get_notification_templates():
 # ========== MOTIVATIONAL QUOTES ==========
 
 # ========== DAILY WORKOUT STATUS ==========
-
-
 
 
 # ========== NUTRITION MODELS ==========
@@ -1535,9 +1234,6 @@ class QuizAttempt(BaseModel):
 # ========== SIMULADO MODELS ==========
 
 
-
-
-
 class StudyStreak(BaseModel):
     model_config = ConfigDict(extra="ignore")
     streak_id: str
@@ -1561,8 +1257,6 @@ class StudyStats(BaseModel):
     tasks_completed: int = 0
 
 # ========== NUTRITION ENDPOINTS ==========
-
-
 
 
 @api_router.post("/nutrition/estimate-food")
@@ -1766,53 +1460,22 @@ Retorne SOMENTE o JSON, nada mais."""
         }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ========== IMPORT MEAL PLAN ==========
 
 
 # ========== STUDY ENDPOINTS ==========
 
 
-
-
 # ========== STUDY PROGRAMS ==========
-
-
-
 
 
 # ========== IMPORT EDITAL - AI STUDY PROGRAM GENERATOR ==========
 
 
-
-
-
-
-
-
-
-
-
-
-
 # ========== QUESTION TRACKING ==========
 
 
-
 # ========== FOCUS/POMODORO ==========
-
 
 
 # ========== AI STUDY ASSISTANT ==========
@@ -1828,60 +1491,10 @@ async def study_ai_chat(request: Request, data: dict, session_token: Optional[st
     return {**result, 'response': result['ai_message']['content']}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ========== PDF CONTENT ANALYSIS ENDPOINT ==========
 
 
-
 # ========== SIMULADOS ENDPOINTS ==========
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # ========== ANALYZE EDITAL (MULTI-CARGO) ==========
@@ -1968,7 +1581,6 @@ def _fill_cp_from_topicos(cargos_list: List[dict]) -> List[dict]:
             if not d.get("conteudo_programatico") and d.get("topicos"):
                 d["conteudo_programatico"] = [{"assunto": t, "subtopicos": []} for t in d["topicos"] if t]
     return cargos_list
-
 
 
 def _merge_hydrated_disciplinas(cargos_list: List[dict], parsed: dict) -> int:
@@ -2543,14 +2155,6 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
 # (itens 4 e 6 do backlog)
 
 
-
-
-
-
-
-
-
-
 @api_router.post("/study/programs/edital-chat")
 async def edital_chat(request: Request, data: dict, session_token: Optional[str] = Cookie(None)):
     """Compatibility alias for the shared conversation and owner-checked RAG."""
@@ -2562,8 +2166,6 @@ async def edital_chat(request: Request, data: dict, session_token: Optional[str]
                          page_context=json.dumps({'analysis_id': aid}))
     result = await agent_runtime.chat(user.user_id, body)
     return {**result, 'answer': result['ai_message']['content']}
-
-
 
 
 # ========== STUDY AI CHAT WITH FILE UPLOAD ==========
@@ -2585,27 +2187,16 @@ async def study_ai_chat_with_file(
 # ========== MIND MAP GENERATION ==========
 
 
-
-
-
-
-
 # ========== PROGRESS HISTORY / COMPARATOR ==========
-
 
 
 # ========== SCHEDULE-BASED NOTIFICATIONS ==========
 
 
-
 # ========== FIX: PENDING NOTIFICATIONS WITH TIMEZONE ==========
 
 
-
 # ========== REDAÇÃO (ESSAY) SECTION ==========
-
-
-
 
 
 @api_router.post("/study/redacao/random-theme")
@@ -2679,30 +2270,13 @@ async def get_general_archive(request: Request, before: Optional[str] = None, se
 # ========== MONTHLY BILLS (CONTAS DO MÊS) ==========
 
 
-
-
-
-
-
-
-
 # ========== WORKOUT IMPORT FROM FILE ==========
-
 
 
 # ========== SAVED WORKOUT INSIGHTS ==========
 
 
-
-
-
-
-
 # ========== AI MEAL PLAN GENERATION ==========
-
-
-
-
 
 
 # ========== HEALTH CALCULATOR ==========
@@ -2808,12 +2382,10 @@ async def calculate_health_metrics(request: Request, session_token: Optional[str
 # ========== DASHBOARD WEEKLY SUMMARY ==========
 
 
-
 # ========== UNIFIED STREAKS ==========
 
 
 # ========== DAILY SUMMARY (AI) ==========
-
 
 
 # ========== GLOBAL SEARCH ==========
@@ -2825,28 +2397,15 @@ async def calculate_health_metrics(request: Request, session_token: Optional[str
 # ========== SHOPPING LIST FROM RECIPES ==========
 
 
-
-
-
-
 # ========== UNIFIED CALENDAR ==========
-
 
 
 # ========== CROSS-MODULE SUGGESTIONS ==========
 
 
-
-
 # ===== EXPORT ENDPOINTS =====
 from io import BytesIO
 from fastapi.responses import StreamingResponse
-
-
-
-
-
-
 
 
 # ========== TELEGRAM BOT INTEGRATION ==========
@@ -2871,9 +2430,6 @@ async def setup_telegram_webhook(request: Request, session_token: Optional[str] 
         authorization=request.headers.get("Authorization"), session_token=session_token
     )
     raise HTTPException(status_code=403, detail="Webhook configuration is managed by the server")
-
-
-
 
 
 async def send_telegram_message(chat_id: int, text: str, parse_mode: str = None):
@@ -3046,7 +2602,7 @@ async def process_queued_edital(user_id, file, force):
 edital_jobs = EditalJobs(get_current_user, process_queued_edital)
 api_router.include_router(edital_jobs.router)
 
-from operations import install_request_metrics, ensure_query_indexes
+from operations import install_request_metrics
 install_request_metrics(app)
 
 # Authentication is served by PostgreSQL repositories.
@@ -3071,7 +2627,11 @@ from services.notifications import router as notifications_router
 api_router.include_router(notifications_router)
 from services.telegram import router as telegram_router
 api_router.include_router(telegram_router)
+from services.mobile_sync import router as mobile_sync_router
+api_router.include_router(mobile_sync_router)
 app.include_router(api_router)
+from db.health import router as health_router
+app.include_router(health_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -3089,12 +2649,9 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_activity_storage():
-    await setup_activity_collections()
-    await ensure_query_indexes(db)
+    from db.readiness import verify_database
+    await verify_database()
     await agent_runtime.setup()
-    await db.study_targets.create_index([('user_id', 1), ('program_id', 1)], unique=True)
-    await db.study_attempts.create_index([('user_id', 1), ('program_id', 1), ('created_at', -1)])
-    await db.study_attempts.create_index([('user_id', 1), ('notebook_id', 1), ('topic_key', 1)])
     await contest_watcher.setup()
     await edital_jobs.start()
 
@@ -3144,4 +2701,5 @@ async def shutdown_db_client():
     from gemini_service import close
     await close()
     await edital_jobs.stop()
-    client.close()
+    from db.engine import dispose_engine
+    await dispose_engine()

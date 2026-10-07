@@ -19,8 +19,7 @@ class RuntimeGoals(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self): await dispose_engine()
 
     async def test_goal_lifecycle_replay_ownership_progress_and_archive(self):
-        with patch.dict(os.environ,{'MONGO_URL':'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=10','DB_NAME':'unavailable'}):
-            import server
+        import server
         async with AsyncClient(transport=ASGITransport(server.app),base_url='https://sirius.test') as client:
             registered=await client.post('/api/auth/register',json={'email':f'{uuid4()}@example.test','name':'Goal','password':'test-password'})
             self.assertEqual(registered.status_code,200,registered.text)

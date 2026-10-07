@@ -1,6 +1,8 @@
-# Modelo relacional — fundação em desenvolvimento
+# Modelo relacional — runtime PostgreSQL
 
-O schema atual da branch tem 96 tabelas (Alembic `126b856daebb`). Não é ainda o schema completo de todos os módulos; o mapa de trabalho está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O runtime de produção ainda não foi trocado.
+O schema da branch tem 96 tabelas de domínio (Alembic `126b856daebb`), usadas pelo runtime PostgreSQL completo. O inventário histórico está em [DATABASE_REDESIGN_MAP.md](DATABASE_REDESIGN_MAP.md). O backend publicado ainda não foi trocado nesta execução.
+
+Notificações possuem horário, repetição e última ocorrência civil tipados, com recibo único por ocorrência/canal. Cronogramas têm FKs por dono; remover um bloco elimina seus lembretes. Fontes/alterações de concursos têm leases, hashes e referências ao programa; limite por host coordena o polling. Telegram tem vínculo único por usuário/chat, códigos temporários em hash e recibos de atualização com lease/resposta.
 
 Conquistas têm chave única por dono. Desafios semanais têm dono e unicidade por semana/tipo; conclusão, XP e conquista são atômicos com recibo por desafio. O catálogo visual permanece igual; progresso deriva de fatos SQL, contando apenas estudos/treinos concluídos e streaks reais.
 

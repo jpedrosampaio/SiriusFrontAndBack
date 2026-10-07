@@ -1,4 +1,4 @@
-"""Exercise the real server routes with Mongo unreachable, not a substitute app."""
+"""Exercise the actual PostgreSQL server routes, not a substitute app."""
 import asyncio
 import os
 import sys
@@ -22,10 +22,7 @@ class RuntimeAuth(unittest.IsolatedAsyncioTestCase):
         await dispose_engine()
 
     async def test_actual_server_identity_profile_and_credentials(self):
-        # During the domain-by-domain cutover, importing unported domains still
-        # constructs Motor. No Mongo server is running and auth must never use it.
-        with patch.dict(os.environ,{'MONGO_URL':'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=10','DB_NAME':'unavailable',
-                'AI_KEY_ENCRYPTION_KEY':Fernet.generate_key().decode()}):
+        with patch.dict(os.environ,{'AI_KEY_ENCRYPTION_KEY':Fernet.generate_key().decode()}):
             import server
             async with AsyncClient(transport=ASGITransport(server.app),base_url='https://sirius.test') as client:
                 data={'email':f'{uuid4()}@example.test','name':'Runtime','password':'runtime-password'}

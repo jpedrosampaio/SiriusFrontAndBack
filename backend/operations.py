@@ -2,37 +2,18 @@
 import logging
 import time
 import uuid
-from pymongo.errors import OperationFailure
+import re
 
 
-async def ensure_query_indexes(db):
-    definitions = {
-        'transactions': [('user_id', 1), ('date', -1)],
-        'workout_logs': [('user_id', 1), ('date', -1)],
-        'workout_sessions': [('user_id', 1), ('status', 1)],
-        'focus_sessions': [('user_id', 1), ('date', -1)],
-        'study_sessions': [('user_id', 1), ('date', -1)],
-        'study_streaks': [('user_id', 1)],
-        'task_instances': [('user_id', 1), ('date', 1)],
-        'notebooks': [('user_id', 1), ('program_id', 1)],
-        'study_schedules': [('user_id', 1), ('program_id', 1)],
-        'study_dated_plans': [('user_id', 1)],
-        'edital_jobs': [('status', 1), ('created_at', 1)],
-        'edital_analyses': [('user_id', 1), ('pdf_hash', 1), ('analysis_version', 1)],
-        'flashcards': [('user_id', 1), ('next_review', 1)],
-        'question_logs': [('user_id', 1), ('notebook_id', 1)],
-        'meals': [('user_id', 1), ('date', 1)],
-        'water_logs': [('user_id', 1), ('date', 1)],
-    }
-    for name, keys in definitions.items():
-        try:
-            await db[name].create_index(keys)
-        except OperationFailure as error:
-            # Existing equivalent indexes may use different options/names. Never
-            # drop production indexes or make startup depend on index privileges.
-            logging.warning('index_check collection=%s code=%s', name, error.code)
+class RedactTelegramToken(logging.Filter):
+    def filter(self,record):
+        message=record.getMessage()
+        clean=re.sub(r'(api\.telegram\.org/bot)[^/\s]+',r'\1[redacted]',message)
+        if clean!=message:record.msg=clean;record.args=()
+        return True
 
 
+logging.getLogger('httpx').addFilter(RedactTelegramToken())
 def install_request_metrics(app):
     @app.middleware('http')
     async def request_metrics(request, call_next):

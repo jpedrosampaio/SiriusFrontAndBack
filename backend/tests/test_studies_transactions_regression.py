@@ -8,7 +8,6 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI
 import httpx
-from test_activity_regression import load_routes
 from simulado_scoring import grade
 from study_blueprint import blueprint, assemble
 

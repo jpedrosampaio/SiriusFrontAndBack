@@ -117,8 +117,7 @@ class SQLConversations(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await service.read(self.other))['messages'],[])
 
     async def test_legacy_chat_aliases_share_sql_conversation_and_image_requires_new_flow(self):
-        with patch.dict(os.environ, {'MONGO_URL':'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=10','DB_NAME':'unavailable'}):
-            import server
+        import server
         async def auth(**kwargs): return SimpleNamespace(user_id=str(self.uid))
         with patch.object(server,'get_current_user',auth), patch.object(server.agent_runtime.agent,'respond',AsyncMock(return_value={'reply':'Review before saving'})) as provider:
             async with AsyncClient(transport=ASGITransport(server.app),base_url='https://sirius.test') as http:

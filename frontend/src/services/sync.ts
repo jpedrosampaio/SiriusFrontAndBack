@@ -3,6 +3,21 @@ import { db } from './database';
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+const SYNC_FIELDS: Record<string, string[]> = {
+  tasks: ['task_id','user_id','title','description','completed','date','priority','xp_reward','recurrence','is_template','created_at','updated_at','synced_at'],
+  habits: ['habit_id','user_id','name','description','color','streak','best_streak','completions','created_at','updated_at','synced_at'],
+  transactions: ['transaction_id','user_id','type','amount','category','description','date','created_at','updated_at','synced_at'],
+  goals: ['goal_id','user_id','title','description','target_date','progress','sprint_duration','daily_checks','sprints','created_at','updated_at','synced_at'],
+};
+
+function sqliteRecord(tableName: string, record: any, syncedAt: string) {
+  const fields = SYNC_FIELDS[tableName];
+  if (!fields) throw new Error('Unsupported sync table');
+  return Object.fromEntries(fields.filter(key => key in record || key === 'synced_at').map(key => {
+    const value = key === 'synced_at' ? syncedAt : record[key];
+    return [key, Array.isArray(value) ? JSON.stringify(value) : typeof value === 'boolean' ? Number(value) : value];
+  }));
+}
 
 interface SyncRecord {
   id: number;
@@ -108,24 +123,14 @@ class SyncService {
       timestamp: change.created_at
     };
 
-    switch (change.operation) {
-      case 'DELETE':
-        await axios.delete(`${endpoint}/${change.record_id}`);
-        break;
-      case 'INSERT':
-        await axios.post(endpoint, payload);
-        break;
-      case 'UPDATE':
-        await axios.put(`${endpoint}/${change.record_id}`, payload);
-        break;
-    }
+    await axios.post(endpoint, payload, { withCredentials: true });
   }
 
   async pullLatestFromServer(tableName: string, userId: string) {
     if (!this.isOnline) return [];
 
     try {
-      const response = await axios.get(`${API_URL}/api/sync/${tableName}/${userId}`);
+      const response = await axios.get(`${API_URL}/api/sync/${tableName}/${userId}`, { withCredentials: true });
       const records = response.data;
       
       for (const record of records) {
@@ -140,9 +145,11 @@ class SyncService {
   }
 
   private async mergeRecord(tableName: string, serverRecord: any) {
+    const idField = SYNC_FIELDS[tableName]?.[0];
+    if (!idField) throw new Error('Unsupported sync table');
     const existing = await db.query(
-      `SELECT * FROM ${tableName} WHERE ${tableName}_id = ?`,
-      [serverRecord[`${tableName}_id`]]
+      `SELECT * FROM ${tableName} WHERE ${idField} = ? AND user_id = ?`,
+      [serverRecord[idField], serverRecord.user_id]
     );
 
     const now = new Date().toISOString();
@@ -160,7 +167,7 @@ class SyncService {
   }
 
   private async insertRecord(tableName: string, record: any, syncedAt: string) {
-    const data = { ...record, synced_at: syncedAt };
+    const data = sqliteRecord(tableName, record, syncedAt);
     const columns = Object.keys(data).join(', ');
     const placeholders = Object.keys(data).map(() => '?').join(', ');
     const values = Object.values(data);
@@ -172,15 +179,15 @@ class SyncService {
   }
 
   private async updateRecord(tableName: string, record: any, syncedAt: string) {
-    const idField = `${tableName}_id`;
-    const data = { ...record, synced_at: syncedAt };
+    const idField = SYNC_FIELDS[tableName][0];
+    const data = sqliteRecord(tableName, record, syncedAt);
     delete data[idField];
     
     const sets = Object.keys(data).map(k => `${k} = ?`).join(', ');
-    const values = [...Object.values(data), record[idField]];
+    const values = [...Object.values(data), record[idField], record.user_id];
     
     await db.execute(
-      `UPDATE ${tableName} SET ${sets} WHERE ${idField} = ?`,
+      `UPDATE ${tableName} SET ${sets} WHERE ${idField} = ? AND user_id = ?`,
       values
     );
   }
