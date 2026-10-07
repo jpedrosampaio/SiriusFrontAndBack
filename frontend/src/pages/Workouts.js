@@ -864,6 +864,7 @@ export default function Workouts() {
     if (!user || !activeSession) return;
     writeSaved(`sirius-rest:${user.user_id}:${activeSession.session_id}`, null);
     writeSaved(`sirius-workout-ux2:${user.user_id}:${activeSession.session_id}`, null);
+    writeSaved(`sirius-workout-draft:${user.user_id}:${activeSession.session_id}`, null);
   };
 
   const handleCompleteSession = async () => {

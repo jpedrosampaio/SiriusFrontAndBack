@@ -47,7 +47,16 @@ function HistoryPreview({ exercise, history, loading, error, onRetry }) {
 
 export default function WorkoutSession({ session, userId, elapsed, saving, onSave, onFinish, onAbandon, onHistory, nextLoads, loadError }) {
   const namespace = `sirius-workout-ux2:${userId}:${session.session_id}`;
-  const [saved] = useState(() => readSaved(namespace, {}));
+  const [saved] = useState(() => {
+    const current = readSaved(namespace);
+    if (current && typeof current === 'object') return current;
+    // Preserve unsaved input when a session created before UX2 is resumed.
+    const legacy = readSaved(`sirius-workout-draft:${userId}:${session.session_id}`);
+    if (legacy && Number.isInteger(legacy.index) && legacy.index >= 0 && legacy.index < session.exercises.length) return {
+      index: legacy.index, drafts: { [legacy.index]: { weight: String(legacy.weight ?? ''), reps: String(legacy.reps ?? ''), rpe: String(legacy.rpe ?? '') } },
+    };
+    return {};
+  });
   const [index, setIndex] = useState(() => Math.max(0, Math.min(session.exercises.length - 1, saved.index ?? session.current_exercise_idx ?? 0)));
   const [drafts, setDrafts] = useState(saved.drafts || {});
   const [attempt, setAttempt] = useState(saved.attempt || null);
