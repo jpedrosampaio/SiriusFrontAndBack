@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query';
+import { cacheKey, cachedGet } from '@/lib/query-cache';
 import DailyWorkspace from '@/components/DailyWorkspace';
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -9,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { CheckSquare, TrendingUp, DollarSign, Target, Award, Zap, Dumbbell, Utensils, BookOpen, Droplets, Flame, Clock, Brain, ClipboardList, BarChart3, ListChecks, Hash, ChevronRight, Sparkles, X, Activity, Play } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { toast } from "sonner";
 import Onboarding from "@/components/Onboarding";
 
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
@@ -18,9 +19,13 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function Dashboard() {
-  const [user, setUser] = useState(null);
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const summary = useQuery({ queryKey: cacheKey('dashboard-summary'), queryFn: async ({ signal }) => {
+    const [u, s] = await Promise.all([getCurrentUser(), axios.get(`${API}/stats/dashboard`, { signal, timeout: 20000 })]);
+    return { user: u.data, stats: s.data };
+  } });
+  const user = summary.data?.user;
+  const stats = summary.data?.stats;
+  const loading = summary.isPending;
   const [weeklySummary, setWeeklySummary] = useState(null);
   const [reminders, setReminders] = useState([]);
   const [crossSuggestions, setCrossSuggestions] = useState([]);
@@ -39,7 +44,7 @@ export default function Dashboard() {
   const analyticsMarker = useRef(null);
   const loadPanels = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API}/dashboard/panels`);
+      const data = await cachedGet('/dashboard/panels');
       const p = data.panels || {};
       if (p.weekly) setWeeklySummary(p.weekly);
       if (p.reminders) setReminders(p.reminders.reminders || []);
@@ -49,28 +54,12 @@ export default function Dashboard() {
       setPanelErrors(data.errors || []);
     } catch { setPanelErrors(['panels']); }
   }, []);
-  const fetchData = useCallback(async () => {
-    try {
-      const [userRes, statsRes] = await Promise.all([
-        getCurrentUser(),
-        axios.get(`${API}/stats/dashboard`, { withCredentials: true })
-      ]);
-      setUser(userRes.data);
-      setStats(statsRes.data);
-      
-      setLoading(false);
-      setCrossSuggestions(statsRes.data.suggestions || []);
-      void loadPanels();
-
-    } catch (error) {
-      toast.error("Erro ao carregar dados");
-    } finally {
-      setLoading(false);
-    }
-  }, [loadPanels]);
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-
+  const fetchData = async () => { await summary.refetch(); await loadPanels(); };
+  useEffect(() => {
+    if (!summary.data) return;
+    setCrossSuggestions(summary.data.stats.suggestions || []);
+    void loadPanels();
+  }, [summary.data, loadPanels]);
 
   const dismissReminder = (idx) => {
     setReminders(prev => prev.filter((_, i) => i !== idx));
@@ -161,6 +150,7 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {summary.isError && <p role="alert" className="mb-4 text-amber-300">Não foi possível atualizar o resumo. Os dados disponíveis continuam visíveis. <button onClick={() => summary.refetch()} className="underline">Tentar novamente</button></p>}
           <DailyWorkspace />
           <section className="mb-8" aria-labelledby="today-actions"><div className="flex items-center justify-between mb-4"><h2 id="today-actions" className="text-xl font-semibold">O que vamos fazer hoje?</h2><Button variant="ghost" onClick={() => navigate('/calendar')}>Ver agenda<ChevronRight className="w-4 h-4 ml-1" /></Button></div><div className="sirius-action-grid">
             <button className="sirius-action-card" onClick={() => navigate('/studies')}><BookOpen className="w-5 h-5 text-blue-300" /><strong>Continuar meus estudos</strong><span>{stats?.study_stats?.study_time_today_minutes || 0} min registrados hoje · abrir meu plano</span></button>

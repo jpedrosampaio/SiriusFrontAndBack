@@ -1,0 +1,18 @@
+export function deliveryError(error) {
+  const status = error?.response?.status;
+  const messages = {
+    401: 'Sua sessão expirou. Entre novamente para continuar.',
+    409: 'Esta conversa está ocupada. Aguarde um momento e tente novamente.',
+    429: 'O limite de uso foi atingido. Aguarde antes de tentar novamente.',
+    503: 'O assistente está temporariamente indisponível. Tente novamente em instantes.',
+    504: 'A resposta demorou mais que o esperado. Tente novamente; sua mensagem está preservada.',
+  };
+  if (messages[status]) return messages[status];
+  if (error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT') return messages[504];
+  if (!error?.response) return 'Não foi possível conectar ao assistente. Confira sua conexão e tente novamente.';
+  return 'Não foi possível responder. Sua mensagem foi preservada para tentar novamente.';
+}
+export function mergeReply(messages, reply, pendingId) {
+  const ids = new Set([pendingId, reply.user_message.message_id, reply.ai_message.message_id]);
+  return [...messages.filter(m => !ids.has(m.message_id)), reply.user_message, reply.ai_message];
+}

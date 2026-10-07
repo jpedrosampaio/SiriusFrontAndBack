@@ -31,8 +31,11 @@
     "@radix-ui/react-toggle": "^1.1.6",
     "@radix-ui/react-toggle-group": "^1.1.7",
     "@radix-ui/react-tooltip": "^1.2.4",
+    "@tanstack/react-query": "^5.104.1",
+    "@xenova/transformers": "^2.17.0",
     "ajv": "^8.20.0",
     "axios": "^1.8.4",
+    "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -45,6 +48,7 @@
     "jspdf": "^4.2.0",
     "lucide-react": "^0.468.0",
     "next-themes": "^0.4.6",
+    "path-browserify": "^1.0.1",
     "react": "^18.3.1",
     "react-beautiful-dnd": "^13.1.1",
     "react-day-picker": "9.5.0",
@@ -62,10 +66,7 @@
     "tailwind-merge": "^3.2.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
-    "zod": "^3.24.0",
-    "@xenova/transformers": "^2.17.0",
-    "path-browserify": "^1.0.1",
-    "buffer": "^6.0.3"
+    "zod": "^3.24.0"
   },
   "scripts": {
     "start": "craco start",
@@ -98,8 +99,8 @@
     "eslint-plugin-react": "7.37.4",
     "eslint-plugin-react-hooks": "5.2.0",
     "globals": "15.15.0",
+    "playwright": "1.63.0",
     "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.17",
-    "playwright": "1.63.0"
+    "tailwindcss": "^3.4.17"
   }
 }

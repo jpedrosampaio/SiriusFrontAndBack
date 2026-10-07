@@ -65,7 +65,8 @@ axios.interceptors.request.use(
 // Interceptor for 401 responses - clear token and redirect to login
 axios.interceptors.response.use(
   (response) => {
-    if (!['get', 'head', 'options'].includes(response.config?.method || 'get')) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
+    const isChatTransport = /\/ai\/(chat|cancel\/)/.test(response.config?.url || '');
+    if (!isChatTransport && !['get', 'head', 'options'].includes(response.config?.method || 'get')) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
     return response;
   },
   (error) => {

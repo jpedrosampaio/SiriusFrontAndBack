@@ -87,6 +87,7 @@ function ActionCard({ action }) {
 
 export function AgentMessageDetails({ message }) {
   return <>
+    {message.degraded && <p className="mt-2 text-xs text-slate-400">Resposta baseada nos dados do Sirius.</p>}
     {message.actions?.map(action => <ActionCard key={action.action_id} action={action} />)}
     {message.facts && Object.keys(message.facts).length > 0 && <details open={message.degraded} className="mt-3 text-xs"><summary className="cursor-pointer text-sky-300">Dados consultados nos módulos</summary><div className="mt-2 max-h-80 overflow-y-auto"><FactValue value={message.facts} /></div></details>}
     {message.citations?.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer text-sky-300">Fontes do documento</summary>{message.citations.map((source, i) => <blockquote key={i} className="my-2 border-l-2 border-sky-700 pl-2">Página {source.page}: {source.text}</blockquote>)}</details>}

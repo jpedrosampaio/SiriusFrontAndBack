@@ -1,4 +1,4 @@
-process.env.VISUAL_CASES ||= 'dashboard,workouts,studies,preparation,analysis,syllabus,session,agent';
+process.env.VISUAL_CASES ||= 'auth,dashboard,workouts,chat,tasks,habits,calendar,finance,nutrition,reports,studies,preparation,analysis,syllabus,session,agent';
 // Local visual QA with synthetic data; all API requests are intercepted.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -68,13 +68,29 @@ const server = http.createServer((req, res) => {
       const reviewRows = [];
       let actionStatus = 'pending';
       let actionConfirmations = 0;
+      let chatFailure = null;
+      const chatAttempts = [];
+      let activeUser = user;
       await context.route('**/*', async route => {
         const url = new URL(route.request().url());
         if (url.pathname.startsWith('/api/')) {
           requests.push(url.pathname);
+          if (url.pathname === '/api/ai/chat') {
+            const payload = route.request().postDataJSON(); chatAttempts.push(payload);
+            if (chatFailure) {
+              const failure = chatFailure; chatFailure = null;
+              if (failure === 'network') return route.abort('failed');
+              return route.fulfill({ status: failure, contentType: 'application/json', body: JSON.stringify({ detail: 'Synthetic failure' }) });
+            }
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user_message: { message_id: 'u-' + payload.request_id, role: 'user', content: payload.message }, ai_message: { message_id: 'a-' + payload.request_id, role: 'assistant', content: 'Resposta de teste ' + payload.message, degraded: true } }) });
+          }
           let body = Object.hasOwn(fixtures, url.pathname) ? fixtures[url.pathname] : [];
+          if (url.pathname === '/api/auth/me') body = activeUser;
+          if (url.pathname === '/api/auth/register' || url.pathname === '/api/auth/login') body = { session_token: 'synthetic-token', user };
           if (url.pathname === '/api/dashboard/panels') body = {panels: {}, errors: []};
+          if (url.pathname === '/api/ai/daily') body = { tasks: { completed: 0, total: 1 }, commitments: [{ event_id: 'fixed', date: '2026-10-07', title: 'Compromisso registrado', start_minute: 840, end_minute: 900 }], plan: { date: '2026-10-07', available_minutes: 540, blocks: [{ task_id: 'task', title: 'Estudar Direito Constitucional', start_minute: 480, end_minute: 540, duration_minutes: 60 }], unscheduled: [] } };
           if (url.pathname === '/api/ai/conversation') body = {messages: [{message_id: 'fixture-private', role: 'assistant', content: 'Conversa sintética desta conta', actions: [{ action_id: 'fixture-expense', summary: 'Registrar despesa', reason: 'Pedido explícito', arguments: { amount: 48, category: 'Alimentação', date: '2026-09-26' }, status: actionStatus, expires_at: new Date(Date.now() + 1200000).toISOString() }] }]};
+          if (url.pathname === '/api/ai/conversation' && activeUser.user_id !== user.user_id) body = { messages: [] };
           if (url.pathname === '/api/ai/actions/fixture-expense/confirm') { actionConfirmations++; actionStatus = 'executed'; body = { status: actionStatus }; }
           if (url.pathname === '/api/ai/attachments') body = { attachment_id: 'fixture-file', filename: 'material-teste.pdf', provenance: 'extracted', indexed: true };
           if (url.pathname.endsWith('/draft')) {
@@ -98,6 +114,7 @@ const server = http.createServer((req, res) => {
       const page = await context.newPage();
       page.on('pageerror', e => errors.push({ width, url: page.url(), error: e.message }));
       const cases = [
+        ['auth', '/register'],
         ['dashboard', '/dashboard'], ['workouts', '/workouts'], ['studies', '/studies'],
         ['preparation', '/studies?program=demo&view=edital'],
         ['analysis', '/studies?analysis=analysis1'],
@@ -126,6 +143,10 @@ const server = http.createServer((req, res) => {
         if (overflow) console.log(await page.evaluate(() => Array.from(document.querySelectorAll('body *')).filter(e => e.getBoundingClientRect().right > innerWidth + 2).slice(0, 10).map(e => ({ tag: e.tagName, cls: e.className }))));
         if (overflow) errors.push({ name, width, error: 'Horizontal overflow' });
         if (name === 'dashboard') {
+          assert.equal(requests.filter(p => p === '/api/ai/actions' || p === '/api/ai/insights').length, 0, 'closed suggestions must not fetch');
+          await page.getByText('Estudar Direito Constitucional', { exact: true }).waitFor();
+          assert.equal(await page.getByText('Capacidade em minutos', { exact: false }).count(), 0);
+          assert.equal(await page.getByText('Ver plano de hoje', { exact: true }).count(), 0);
           const launcher = page.getByRole('button', { name: 'Abrir assistente Sirius', exact: true }).filter({ visible: true });
           assert.equal(await launcher.count(), 1, 'one visible Sirius entry point');
           await page.keyboard.press('Control+k');
@@ -162,6 +183,51 @@ const server = http.createServer((req, res) => {
             await page.goto('http://127.0.0.1:4173/dashboard');
           }
           await page.reload(); await launcher.waitFor();
+        }
+        if (name === 'auth') {
+          await page.getByTestId('register-name-input').fill('Pessoa de teste');
+          await page.getByTestId('register-email-input').fill('synthetic@example.test');
+          await page.getByTestId('register-password-input').fill('synthetic-password-123');
+          await page.getByTestId('register-submit-btn').click();
+          await page.waitForURL('**/dashboard');
+          await page.getByTestId('dashboard-title').waitFor();
+          await page.reload(); await page.getByTestId('dashboard-title').waitFor();
+          await page.goto('http://127.0.0.1:4173/profile');
+          await page.getByTestId('profile-logout-btn').click();
+          await page.waitForURL('**/login');
+          assert.equal(await page.evaluate(() => localStorage.getItem('sirius_session_token')), null);
+          await page.getByTestId('login-email-input').fill('synthetic@example.test');
+          await page.getByTestId('login-password-input').fill('synthetic-password-123');
+          await page.getByTestId('login-submit-btn').click();
+          await page.waitForURL('**/dashboard');
+          await page.getByTestId('dashboard-title').waitFor();
+          console.log('AUTH_SMOKE ' + JSON.stringify({ width, signup: true, login: true, reload: true, logout: true }));
+        }
+        if (name === 'chat') {
+          for (const failure of [409, 429, 503, 504, 'network']) {
+            await page.getByRole('button', { name: 'Nova conversa', exact: true }).click();
+            await page.waitForTimeout(150);
+            chatFailure = failure;
+            const text = 'Pedido de teste ' + failure;
+            await page.getByLabel('Mensagem para o assistente', { exact: true }).fill(text);
+            await page.getByRole('button', { name: 'Enviar mensagem', exact: true }).click();
+            await page.getByRole('button', { name: 'Tentar novamente', exact: true }).waitFor();
+            assert.equal(await page.getByText(text, { exact: true }).count(), 1, 'failed user message preserved');
+            const historyBefore = requests.filter(p => p === '/api/ai/conversation').length;
+            await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
+            await page.getByText('Resposta de teste ' + text, { exact: true }).waitFor();
+            assert.equal(await page.getByText(text, { exact: true }).count(), 1, 'retry must not duplicate user message');
+            assert.deepEqual(chatAttempts.at(-1), chatAttempts.at(-2), 'retry preserves entire request');
+            assert.equal(requests.filter(p => p === '/api/ai/conversation').length, historyBefore, 'success must not refetch conversation');
+          }
+          await page.getByText('Resposta baseada nos dados do Sirius.', { exact: true }).waitFor();
+          console.log('CHAT_RETRY ' + JSON.stringify({ width, failures: 5, duplicateMessages: 0, successRefetches: 0 }));
+          activeUser = { ...user, user_id: 'another-fixture', name: 'Outra pessoa' };
+          await page.evaluate(() => { localStorage.setItem('sirius_session_token', 'other-fixture-token'); window.dispatchEvent(new StorageEvent('storage', { key: 'sirius_session_token' })); });
+          await page.getByText('Resposta de teste Pedido de teste network', { exact: true }).waitFor({ state: 'hidden' });
+          await page.waitForTimeout(200);
+          assert.equal(await page.getByText('Conversa sintética desta conta', { exact: true }).count(), 0);
+          activeUser = user;
         }
         if (name === 'studies') {
           const nav = page.getByRole('navigation', { name: 'Áreas de estudos' });
