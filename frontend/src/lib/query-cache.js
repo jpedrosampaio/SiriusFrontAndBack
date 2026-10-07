@@ -18,9 +18,10 @@ window.addEventListener('storage', e => { if (!e.key || e.key === 'sirius_sessio
 window.addEventListener('sirius-data-changed', () => { void queryClient.invalidateQueries({ predicate: q => !q.queryKey.includes('conversation') && !q.queryKey.includes('tutorial-videos'), refetchType: 'active' }); });
 export function cachedGet(path, options = {}) {
   const version = session;
-  return queryClient.fetchQuery({ queryKey: cacheKey(path), ...options, queryFn: async ({ signal }) => {
+  const { mergeResponse, ...queryOptions } = options;
+  return queryClient.fetchQuery({ queryKey: cacheKey(path), ...queryOptions, queryFn: async ({ signal }) => {
     const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api${path}`, { signal, timeout: 20000 });
     if (version !== session) throw new Error('Session changed');
-    return response.data;
+    return mergeResponse ? mergeResponse(response.data, queryClient.getQueryData(cacheKey(path))) : response.data;
   } });
 }

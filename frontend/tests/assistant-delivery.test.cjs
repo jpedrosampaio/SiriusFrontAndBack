@@ -23,3 +23,15 @@ test('replay after lost response merges saved IDs exactly once', async () => {
   assert.equal(long.length, 200);
   assert.deepEqual(long.slice(-2), [reply.user_message, reply.ai_message]);
 });
+test('late hydration preserves POST messages and known conversations without duplicates', async () => {
+  const { mergeHistory, mergeConversations } = await helpers;
+  const latest = [{ message_id: 'new-u', request_id: 'receipt' }, { message_id: 'new-a' }];
+  const merged = mergeHistory([{ message_id: 'old' }], latest);
+  assert.deepEqual(merged.map(m=>m.message_id), ['old','new-u','new-a']);
+  assert.deepEqual(mergeHistory(merged,latest),merged);
+  assert.deepEqual(mergeHistory(merged,[{message_id:'pending-receipt',request_id:'receipt'}]),merged);
+  const list = mergeConversations([{conversation_id:'primary',title:'fallback'}],[{conversation_id:'other',title:'Known'},{conversation_id:'primary',title:'Actual title'}]);
+  assert.deepEqual(list.map(c=>c.conversation_id),['primary','other']);
+  assert.equal(list[0].title,'Actual title');
+  assert.equal(mergeConversations(Array.from({length:35},(_,i)=>({conversation_id:String(i)})),[]).length,30);
+});

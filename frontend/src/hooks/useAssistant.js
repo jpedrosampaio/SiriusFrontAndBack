@@ -3,7 +3,7 @@ import axios from 'axios';
 import { getApiErrorMessage } from '@/lib/api-errors';
 import { getAssistantContext, setAssistantContext } from '@/lib/assistant-context';
 import { cachedGet, queryClient, cacheKey, sessionVersion } from '@/lib/query-cache';
-import { deliveryError, mergeReply } from '@/lib/assistant-delivery';
+import { deliveryError, mergeReply, mergeHistory, mergeConversations } from '@/lib/assistant-delivery';
 
 const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api`;
 
@@ -47,12 +47,13 @@ export function useAssistant(page, enabled = true, context = {}) {
       const snapshot = queryClient.getQueryData(cacheKey(`/ai/conversation?conversation_id=${encodeURIComponent(selected)}`));
       if (snapshot && !pending.current) setMessages(snapshot.messages || []);
       const [data, recent] = await Promise.all([
-        cachedGet(`/ai/conversation?conversation_id=${encodeURIComponent(selected)}`), cachedGet('/ai/conversations'),
+        cachedGet(`/ai/conversation?conversation_id=${encodeURIComponent(selected)}`, { mergeResponse: (data, latest) => ({ ...data, messages: mergeHistory(data.messages || [], latest?.messages || []) }) }),
+        cachedGet('/ai/conversations', { mergeResponse: (data, latest) => mergeConversations(latest || [], data) }),
       ]);
       if (version === generation.current && !busy.current) {
         const delivered = new Set((data.messages || []).map(m => m.request_id).filter(Boolean));
         if (pending.current && delivered.has(pending.current.request_id)) pending.current = null;
-        setMessages(previous => [...(data.messages || []), ...previous.filter(m => m.delivery_error && !delivered.has(m.request_id))]);
+        setMessages(previous => mergeHistory(data.messages || [], previous));
         setConversations(recent); setError('');
       }
     } catch (err) {
@@ -80,7 +81,7 @@ export function useAssistant(page, enabled = true, context = {}) {
     if (busy.current || !text.trim()) return false;
     if (pending.current && pending.current.message !== text) { setError('Tente enviar novamente a mensagem pendente ou abra uma nova conversa.'); return false; }
     busy.current = true;
-    const version = ++generation.current;
+    const version = generation.current;
     setSending(true); setError('');
     aborter.current = new AbortController();
     if (!pending.current) pending.current = {
@@ -99,8 +100,9 @@ export function useAssistant(page, enabled = true, context = {}) {
       const updated = mergeReply(known?.messages || messages, data, id);
       setMessages(updated);
       queryClient.setQueryData(cacheKey(`/ai/conversation?conversation_id=${encodeURIComponent(conversationId)}`), { messages: updated });
-      const existing = conversations.find(c => c.conversation_id === conversationId);
-      const recent = [{ ...existing, conversation_id: conversationId, title: existing?.title || text.slice(0, 80) }, ...conversations.filter(c => c.conversation_id !== conversationId)].slice(0, 30);
+      const latestConversations = queryClient.getQueryData(cacheKey('/ai/conversations')) ?? conversations;
+      const existing = latestConversations.find(c => c.conversation_id === conversationId);
+      const recent = [{ ...existing, conversation_id: conversationId, title: existing?.title || text.slice(0, 80) }, ...latestConversations.filter(c => c.conversation_id !== conversationId)].slice(0, 30);
       setConversations(recent); queryClient.setQueryData(cacheKey('/ai/conversations'), recent);
       pending.current = null;
       window.dispatchEvent(new CustomEvent('sirius-conversation-updated', { detail: { conversationId, messages: updated, conversations: recent } }));

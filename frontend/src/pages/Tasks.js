@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckSquare, Plus, Trash2, Circle, CheckCircle2, Calendar, Repeat, LayoutGrid, List, GripVertical, Clock } from "lucide-react";
+import { CheckSquare, Plus, Trash2, Circle, CheckCircle2, Calendar, Repeat, LayoutGrid, List, GripVertical, Clock, Pencil } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import axios from "axios";
@@ -34,7 +34,7 @@ const priorityColors = {
 const priorityLabels = { low: "Baixa", medium: "Média", high: "Alta" };
 const recurrenceLabels = { all: "Todas", once: "Única vez", daily: "Diárias", weekly: "Semanais", monthly: "Mensais" };
 
-function TaskCard({ task, index, onToggle, onDelete, viewMode, pending }) {
+function TaskCard({ task, index, onToggle, onDelete, onEdit, viewMode, pending }) {
   if (viewMode === "kanban") {
     return (
       <Draggable draggableId={task.task_id} index={index} isDragDisabled={pending}>
@@ -55,12 +55,14 @@ function TaskCard({ task, index, onToggle, onDelete, viewMode, pending }) {
                 <h4 className={"text-sm font-medium truncate " + (task.completed ? "line-through text-[#52525B]" : "text-white")}>
                   {task.title}
                 </h4>
+                <p className="text-xs text-sky-300 mt-1">{task.scheduled_time || 'Sem horário'} · {task.duration_minutes ? `${task.duration_minutes} min` : '30 min estimados'}</p>
                 {task.description && <p className="text-xs text-[#52525B] truncate mt-0.5">{task.description}</p>}
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="text-[10px] uppercase text-[#A1A1AA] tracking-wider">{priorityLabels[task.priority]}</span>
                   <span className="font-data text-[10px] text-[#007AFF]">+{task.xp_reward} XP</span>
                 </div>
               </div>
+              <button aria-label="Editar tarefa" onClick={() => onEdit(task)} className="p-1 text-sky-300"><Pencil className="w-4 h-4" /></button>
               <button onClick={() => onDelete(task.task_id)} className="text-[#FF3B30]/50 hover:text-[#FF3B30] transition-colors p-0.5">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -81,6 +83,7 @@ function TaskCard({ task, index, onToggle, onDelete, viewMode, pending }) {
           </button>
           <div className="flex-1">
             <h3 className={"font-medium mb-1 " + (task.completed ? "line-through text-[#52525B]" : "")}>{task.title}</h3>
+            <p className="text-xs text-sky-300">{task.scheduled_time || 'Sem horário'} · {task.duration_minutes ? `${task.duration_minutes} min` : '30 min estimados'}</p>
             {task.description && <p className="text-sm text-[#A1A1AA]">{task.description}</p>}
             <div className="flex items-center space-x-3 mt-2">
               <span className="text-xs uppercase text-[#A1A1AA] tracking-wider">{priorityLabels[task.priority]}</span>
@@ -94,6 +97,7 @@ function TaskCard({ task, index, onToggle, onDelete, viewMode, pending }) {
             </div>
           </div>
         </div>
+        <Button aria-label="Editar tarefa" variant="ghost" size="icon" onClick={() => onEdit(task)}><Pencil className="w-4 h-4" /></Button>
         <Button data-testid={"task-delete-" + task.task_id} variant="ghost" size="icon" onClick={() => onDelete(task.task_id)} className="text-[#FF3B30] hover:text-[#FF3B30] hover:bg-[#FF3B30]/10">
           <Trash2 className="w-4 h-4" />
         </Button>
@@ -119,7 +123,15 @@ export default function Tasks() {
   const [activeTab, setActiveTab] = useState("all");
   const [viewMode, setViewMode] = useState("kanban");
   const [open, setOpen] = useState(false);
-  const [newTask, setNewTask] = useState({ title: "", description: "", priority: "medium", recurrence: "once" });
+  const [newTask, setNewTask] = useState({ title: "", description: "", priority: "medium", recurrence: "once", scheduled_time: "", duration_minutes: "", date: selectedDate });
+
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const editTask = task => {
+    setEditing(task.task_id);
+    setNewTask({ title: task.title, description: task.description || '', priority: task.priority, recurrence: task.recurrence, scheduled_time: task.scheduled_time || '', duration_minutes: task.duration_minutes ?? '', date: task.template_date || task.date });
+    setOpen(true);
+  };
 
   const fetchUser = async () => {
     try {
@@ -152,16 +164,21 @@ export default function Tasks() {
       toast.error("Título é obrigatório");
       return;
     }
+    if (saving) return;
+    const duration = newTask.duration_minutes === '' ? null : Number(newTask.duration_minutes);
+    if (duration !== null && (!Number.isInteger(duration) || duration < 5 || duration > 720)) { toast.error('Duração deve ser entre 5 e 720 minutos.'); return; }
+    setSaving(true);
     try {
-      await axios.post(`${API}/tasks`, { ...newTask, date: selectedDate }, { withCredentials: true });
+      const body = { ...newTask, scheduled_time: newTask.scheduled_time || null, duration_minutes: duration };
+      await axios({ method: editing ? 'put' : 'post', url: editing ? `${API}/tasks/${editing}` : `${API}/tasks`, data: body, withCredentials: true, timeout: 20000 });
       toast.success("Tarefa criada!");
-      setNewTask({ title: "", description: "", priority: "medium", recurrence: "once" });
-      setOpen(false);
+      setNewTask({ title: "", description: "", priority: "medium", recurrence: "once", scheduled_time: "", duration_minutes: "", date: selectedDate });
+      setOpen(false); setEditing(null);
       fetchTasks();
       fetchUser();
     } catch (error) {
-      toast.error("Erro ao criar tarefa");
-    }
+      toast.error("Erro ao salvar tarefa. Os campos foram preservados.");
+    } finally { setSaving(false); }
   };
 
   const handleToggleTask = async (task) => {
@@ -274,24 +291,29 @@ export default function Tasks() {
                   <LayoutGrid className="w-4 h-4" />
                 </button>
               </div>
-              <Dialog open={open} onOpenChange={setOpen}>
+              <Dialog open={open} onOpenChange={value => { if (!saving) setOpen(value); }}>
                 <DialogTrigger asChild>
-                  <Button data-testid="tasks-create-btn" className="bg-[#007AFF] hover:bg-[#0062CC] uppercase text-xs tracking-widest shadow-[0_0_10px_rgba(0,122,255,0.3)] flex-1 md:flex-none">
+                  <Button onClick={() => { setEditing(null); setNewTask({ title: '', description: '', priority: 'medium', recurrence: 'once', scheduled_time: '', duration_minutes: '', date: selectedDate }); }} data-testid="tasks-create-btn" className="bg-[#007AFF] hover:bg-[#0062CC] uppercase text-xs tracking-widest shadow-[0_0_10px_rgba(0,122,255,0.3)] flex-1 md:flex-none">
                     <Plus className="w-4 h-4 mr-2" /> Nova Tarefa
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="bg-[#0A0A0A] border-[#27272A] text-white">
                   <DialogHeader>
-                    <DialogTitle className="font-heading text-2xl">CRIAR TAREFA</DialogTitle>
+                    <DialogTitle className="font-heading text-2xl">{editing ? 'EDITAR TAREFA' : 'CRIAR TAREFA'}</DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4 mt-4">
-                    <div>
-                      <Label className="text-[#A1A1AA] uppercase text-xs tracking-wider mb-2 block">Título</Label>
-                      <Input data-testid="task-title-input" value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })} className="bg-[#121212] border-[#27272A] text-white" />
+                    <div><Label htmlFor="task-date">Data</Label><Input id="task-date" type="date" value={newTask.date} onChange={e => setNewTask({ ...newTask, date: e.target.value })} /></div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div><Label htmlFor="task-time">Horário (opcional)</Label><Input id="task-time" type="time" value={newTask.scheduled_time} onChange={e => setNewTask({ ...newTask, scheduled_time: e.target.value })} /><p className="text-xs text-slate-400 mt-1">{newTask.scheduled_time ? 'Sirius respeita este horário.' : 'Sem horário: Sirius pode organizar.'}</p></div>
+                      <div><Label htmlFor="task-duration">Duração em minutos (opcional)</Label><Input id="task-duration" type="number" min="5" max="720" step="1" value={newTask.duration_minutes} onChange={e => setNewTask({ ...newTask, duration_minutes: e.target.value })} /><p className="text-xs text-slate-400 mt-1">{newTask.duration_minutes ? 'Duração informada por você.' : 'Sirius estimará 30 min.'}</p></div>
                     </div>
                     <div>
-                      <Label className="text-[#A1A1AA] uppercase text-xs tracking-wider mb-2 block">Descrição</Label>
-                      <Textarea data-testid="task-description-input" value={newTask.description} onChange={(e) => setNewTask({ ...newTask, description: e.target.value })} className="bg-[#121212] border-[#27272A] text-white" />
+                      <Label htmlFor="task-title" className="text-[#A1A1AA] uppercase text-xs tracking-wider mb-2 block">Título</Label>
+                      <Input id="task-title" data-testid="task-title-input" value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })} className="bg-[#121212] border-[#27272A] text-white" />
+                    </div>
+                    <div>
+                      <Label htmlFor="task-description" className="text-[#A1A1AA] uppercase text-xs tracking-wider mb-2 block">Descrição</Label>
+                      <Textarea id="task-description" data-testid="task-description-input" value={newTask.description} onChange={(e) => setNewTask({ ...newTask, description: e.target.value })} className="bg-[#121212] border-[#27272A] text-white" />
                     </div>
                     <div>
                       <Label className="text-[#A1A1AA] uppercase text-xs tracking-wider mb-2 block">Recorrência</Label>
@@ -316,7 +338,7 @@ export default function Tasks() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <Button data-testid="task-submit-btn" onClick={handleCreateTask} className="w-full bg-[#007AFF] hover:bg-[#0062CC] uppercase text-xs tracking-widest">Criar</Button>
+                    <Button disabled={saving} data-testid="task-submit-btn" onClick={handleCreateTask} className="w-full bg-[#007AFF] hover:bg-[#0062CC] uppercase text-xs tracking-widest">{saving ? 'Salvando...' : editing ? 'Salvar' : 'Criar'}</Button>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -345,7 +367,7 @@ export default function Tasks() {
           {/* KANBAN VIEW */}
           {viewMode === "kanban" && (
             <DragDropContext onDragEnd={handleDragEnd}>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                 {Object.values(COLUMNS).map((col) => {
                   const ColIcon = col.icon;
                   const colTasks = kanbanTasks[col.id] || [];
@@ -375,6 +397,7 @@ export default function Tasks() {
                                 pending={!!pendingTasks[task.task_id]}
                                 onToggle={handleToggleTask}
                                 onDelete={handleDeleteTask}
+                                onEdit={editTask}
                                 viewMode="kanban"
                               />
                             ))}
@@ -413,6 +436,7 @@ export default function Tasks() {
                     pending={!!pendingTasks[task.task_id]}
                     onToggle={handleToggleTask}
                     onDelete={handleDeleteTask}
+                                onEdit={editTask}
                     viewMode="list"
                   />
                 ))

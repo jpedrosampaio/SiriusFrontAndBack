@@ -1,3 +1,4 @@
+import DailyProgress from '@/components/DailyProgress';
 import { useQuery } from '@tanstack/react-query';
 import { cacheKey, cachedGet } from '@/lib/query-cache';
 import DailyWorkspace from '@/components/DailyWorkspace';
@@ -216,13 +217,7 @@ export default function Dashboard() {
                           <h3 className="font-heading text-sm">BRIEFING DIÁRIO</h3>
                           <p className="text-[10px] text-[#52525B]">Gerado por IA</p>
                         </div>
-                        {dailySummary.summary.score !== undefined && (
-                          <div className="ml-auto flex items-center gap-1.5">
-                            <div className="w-10 h-10 rounded-full border-2 flex items-center justify-center" style={{ borderColor: dailySummary.summary.score >= 70 ? '#39FF14' : dailySummary.summary.score >= 40 ? '#FF9500' : '#FF3B30' }}>
-                              <span className="font-data text-xs" style={{ color: dailySummary.summary.score >= 70 ? '#39FF14' : dailySummary.summary.score >= 40 ? '#FF9500' : '#FF3B30' }}>{dailySummary.summary.score}</span>
-                            </div>
-                          </div>
-                        )}
+                        <DailyProgress summary={dailySummary.summary} raw={dailySummary.raw_data} />
                       </div>
                       <p className="text-sm text-[#D4D4D8] mb-2">{dailySummary.summary.greeting}</p>
                       <p className="text-xs text-[#A1A1AA] mb-3">{dailySummary.summary.progress_summary}</p>
