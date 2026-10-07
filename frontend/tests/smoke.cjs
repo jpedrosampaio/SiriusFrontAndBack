@@ -102,7 +102,7 @@ const server = http.createServer((req, res) => {
           if (url.pathname.endsWith('/practice')) { const data = route.request().postDataJSON(); body = { ...data, title: 'Compreensão e interpretação de textos', due_date: '2026-09-27', accuracy: data.correct / data.total * 100 }; reviewRows.splice(0, reviewRows.length, body); }
           if (url.pathname.endsWith('/learning-summary')) body = { answered: 40, correct: 30, accuracy: 75 };
           if (url.pathname.endsWith('/dated-plan')) body = { entries: [], settings: null };
-          if (url.pathname.endsWith('/edital-jobs')) body = { jobs: [{ job_id: 'job', filename: 'edital-demonstracao.pdf', status: 'completed', phase: 'Análise disponível para conferência', analysis_id: 'analysis1' }] };
+          if (url.pathname.endsWith('/edital-jobs')) body = { upload_available: false, jobs: [{ job_id: 'job', filename: 'edital-demonstracao.pdf', status: 'completed', phase: 'Análise disponível para conferência', analysis_id: 'analysis1' }] };
           if (url.pathname.endsWith('/lessons')) body = { status: 'not_configured', videos: [], message: 'Pesquise aulas relacionadas a este assunto.', search_url: 'https://www.youtube.com/results?search_query=direito' };
           if (url.pathname.endsWith('/topic-progress') && route.request().method() === 'POST') { const data = route.request().postDataJSON(); body = { topics: { [data.topic_key]: { [data.status]: data.checked } } }; }
           return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });

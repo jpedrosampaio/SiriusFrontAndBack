@@ -1,5 +1,12 @@
 # Sirius — handoff
 
+## 2026-10-07 ? Studies / Edital Reliability + Import UX 2.1
+
+Branch `fix/studies-edital-resilience` from main `f4452c7`. Direct endpoint and queued worker share `process_edital_analysis`; the prior UI always submitted to the queue despite `upload_available=false`. Import now caches capability for 60 seconds, uses direct analysis without storage and falls back only for `detail.code=durable_storage_unavailable` emitted before job creation. Background jobs remain optional. PDF validation, private failure messages, hash cache and force semantics preserved; no migration/storage/infrastructure change.
+
+Two stages: PDF analysis then cargo/evidence/date/hours/days and explicit program creation. Direct results reuse the workspace without an extra GET. File/force retained on error, synchronous submit guards, honest upload/analysis/elapsed states and interrupted-wait wording. Active-only jobs polling (5s visible/15s hidden), manual/event/stale visibility refresh. See `docs/EDITAL_ANALYSIS_MODES.md` and `docs/FILE_UPLOAD_AUDIT.md` for request contracts, other uploads and navigation/proxy limitations. Local verification: PostgreSQL 185 tests, backend regressions 110, security routes 5, frontend units 51, lint and production build passed. Browser fixtures cover all five widths. PR/review/CI/deploy status must be checked on GitHub; this is an implementation snapshot before merge. Real production PDF upload remains a manual user check.
+
+
 ## 2026-10-07 — Stability / UX operacional / Performance 2 / Workout tutorials
 
 Production infrastructure confirmed React/Vercel → FastAPI/Northflank → PostgreSQL/Neon. PR21 merged a3db032; Northflank runtime-file fix PR22 merged 59b054c. User corrected DATABASE_URL; live/ready/frontend HTTP200, OpenAPI/CORS read-only smoke passed. Migration head remains126b856daebb; no schema changes in this phase. Older no-merge/Render entries below are historical.

@@ -10,7 +10,7 @@ from sqlalchemy import delete,select
 from db.models.files import EditalJob
 from db.session import unit_of_work
 from edital_jobs import EditalJobs
-from storage.objects import LocalDevelopmentStorage,UnconfiguredStorage
+from storage.objects import LocalDevelopmentStorage,UnconfiguredStorage,StorageUnavailable
 from services import edital_analyses as analyses
 import test_postgres_runtime_catalog as catalog_tests
 import test_postgres_runtime_editais as edital_tests
@@ -75,6 +75,19 @@ class RuntimeEditalJobs(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(list(self.storage.root.rglob('*/*'))),2)
         self.assertEqual((await self.submit(headers={'Authorization':'Bearer bob'})).status_code,202)
         self.service.storage=UnconfiguredStorage()
-        self.assertEqual((await self.submit()).status_code,503)
+        before=(await self.client.get('/study/edital-jobs')).json()['jobs']
+        result=await self.submit()
+        self.assertEqual(result.status_code,503)
+        self.assertEqual(result.json()['detail']['code'],'durable_storage_unavailable')
+        self.assertEqual((await self.client.get('/study/edital-jobs')).json()['jobs'],before)
         await self.service.start(); self.assertIsNone(self.service.task)
         self.assertFalse((await self.client.get('/study/edital-jobs')).json()['upload_available'])
+
+    async def test_storage_failure_never_creates_job_or_runs_ai(self):
+        self.service.storage=SimpleNamespace(put=AsyncMock(side_effect=StorageUnavailable('private diagnostic')))
+        response=await self.submit()
+        self.assertEqual(response.status_code,503)
+        self.assertEqual(response.json()['detail']['code'],'durable_storage_unavailable')
+        self.assertNotIn('private',response.text)
+        self.assertEqual((await self.client.get('/study/edital-jobs')).json()['jobs'],[])
+        self.process.assert_not_awaited()

@@ -48,7 +48,7 @@ def extract_pdf_text(content: bytes) -> str:
                 text_parts.append(f"[PÁGINA {page_number}]\n{extracted}")
         return "\n".join(text_parts)
     except Exception as e:
-        logging.warning(f"Failed to extract PDF text: {e}")
+        logging.warning("Failed to extract PDF text (%s)", type(e).__name__)
         return ""
 
 
@@ -1816,16 +1816,19 @@ async def analyze_edital_cargos(
 async def process_edital_analysis(user, file, force=False):
     import hashlib
     import re as _re
-    if not file.filename.lower().endswith('.pdf'):
+    if not (file.filename or '').lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
 
     content = await file.read(20 * 1024 * 1024 + 1)
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Limite de 20MB.")
 
+    if not content.startswith(b'%PDF-'):
+        raise HTTPException(status_code=400, detail="Selecione um PDF válido.")
+
     user_api_key = await get_user_api_key(user.user_id)
     if not user_api_key:
-        raise HTTPException(status_code=400, detail="Configure sua chave Gemini no perfil para usar este recurso.")
+        raise HTTPException(status_code=400, detail="Configure sua chave Gemini nas configurações do Sirius.")
 
     # ---- Cache lookup by PDF hash ----
     pdf_hash = hashlib.sha256(content).hexdigest()
@@ -1850,6 +1853,7 @@ async def process_edital_analysis(user, file, force=False):
             "pdf_filename": file.filename,
             "pdf_text": cached.get("pdf_text", ""),
             "pdf_pages": cached.get("pdf_pages", []),
+            "independent_verification": cached.get("independent_verification", {}),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=90)).isoformat(),
             "from_cache": True,
@@ -1862,11 +1866,15 @@ async def process_edital_analysis(user, file, force=False):
             "multiple_cargos": cached_copy["multiple_cargos"],
             "cargos": cached_copy["cargos"],
             "cached": True,
+            "pdf_filename": file.filename,
+            "independent_verification": cached.get("independent_verification", {}),
             "message": f"Edital recuperado do cache. {len(cached_copy['cargos'])} cargo(s)/perfil(is).",
         }
 
     # ---- Pré-scan do PDF para dar dicas de cargos/perfis ao modelo ----
     pdf_text = (await asyncio.to_thread(extract_pdf_text, content)) or ""
+    if not pdf_text.strip():
+        raise HTTPException(422, "Não foi possível ler o PDF. Envie um documento com texto selecionável e sem senha.")
     hints: List[str] = []
     if pdf_text:
         # Captura linhas contendo palavras-chave de cargo/perfil
@@ -2053,8 +2061,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             logging.warning(f"analyze-edital: JSON inválido ({jerr}). Tentando reparo. Tamanho resposta: {len(json_str_clean)} chars.")
             parsed = _try_repair_json(json_str_clean)
             if parsed is None:
-                # Logar preview para diagnóstico
-                logging.error(f"analyze-edital: reparo JSON falhou. Head: {json_str_clean[:400]!r} ... Tail: {json_str_clean[-400:]!r}")
+                logging.error("analyze-edital: reparo JSON falhou")
                 raise HTTPException(
                     status_code=500,
                     detail="A IA devolveu JSON inválido/incompleto. Tente novamente — se persistir, envie um PDF menor ou apenas as páginas do conteúdo programático.",
@@ -2135,6 +2142,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             "multiple_cargos": parsed["multiple_cargos"],
             "cargos": cargos_list,
             "cached": False,
+            "pdf_filename": file.filename,
             "independent_verification": independent_verification,
             "message": (
                 f"Edital analisado! {len(cargos_list)} cargo(s)/perfil(is) identificado(s)."
@@ -2147,8 +2155,8 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"analyze-edital exceção inesperada: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erro ao analisar edital: {type(e).__name__}: {str(e)[:200]}")
+        logging.error("analyze-edital: falha inesperada (%s)", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Não foi possível concluir a análise do edital. Tente novamente.")
 
 
 # ========== EDITAIS: LIST / COMPARE / CHAT ==========
