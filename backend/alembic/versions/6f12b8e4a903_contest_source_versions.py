@@ -15,6 +15,8 @@ depends_on=None
 
 def upgrade():
     op.add_column('contest_sources',sa.Column('source_kind',sa.String(),nullable=False,server_default='unknown'))
+    op.add_column('contest_sources',sa.Column('last_successful_check',sa.DateTime(timezone=True),nullable=True))
+    op.execute("UPDATE contest_sources SET last_successful_check=last_checked WHERE status='ok'")
     op.create_check_constraint(op.f('ck_contest_sources_source_kind'),'contest_sources',
         "source_kind IN ('unknown','official_page','board','official_pdf','rectification','announcement','result','calendar')")
     op.create_table('contest_source_versions',
@@ -33,7 +35,7 @@ def upgrade():
         sa.ForeignKeyConstraint(['user_id','source_id'],['contest_sources.user_id','contest_sources.id'],name=op.f('fk_contest_source_versions_user_id_contest_sources'),ondelete='RESTRICT'),
         sa.ForeignKeyConstraint(['user_id','source_id','previous_id'],['contest_source_versions.user_id','contest_source_versions.source_id','contest_source_versions.id'],name=op.f('fk_contest_source_versions_user_id_contest_source_versions'),ondelete='RESTRICT'),
         sa.CheckConstraint('char_length(snapshot_text) <= 200000',name=op.f('ck_contest_source_versions_snapshot_bound')),
-        sa.CheckConstraint("hash_basis IN ('page_text','document_bytes','legacy_snapshot')",name=op.f('ck_contest_source_versions_hash_basis')))
+        sa.CheckConstraint("hash_basis IN ('page_text','page_text_and_links','document_bytes','legacy_snapshot')",name=op.f('ck_contest_source_versions_hash_basis')))
     op.create_index(op.f('ix_contest_source_versions_user_id'),'contest_source_versions',['user_id'])
     op.create_index('ix_contest_versions_owner_source_detected','contest_source_versions',['user_id','source_id','detected_at','id'])
     # Only the latest snapshot exists in legacy storage. Do not invent older versions.
@@ -57,3 +59,4 @@ def downgrade():
     op.drop_table('contest_source_versions')
     op.drop_constraint(op.f('ck_contest_sources_source_kind'),'contest_sources',type_='check')
     op.drop_column('contest_sources','source_kind')
+    op.drop_column('contest_sources','last_successful_check')

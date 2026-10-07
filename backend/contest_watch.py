@@ -7,7 +7,6 @@ from fastapi import APIRouter,Cookie,Request,Query
 from pydantic import BaseModel,ConfigDict,Field,StrictBool
 from contest_sources import provider_for,SourceUnavailable
 from services import contest_tracking as tracking
-from edital_intelligence import impact
 
 
 class SourceInput(BaseModel):
@@ -71,16 +70,6 @@ class ContestWatcher:
             documents=[]
             if page:
                 documents=list(page.documents)
-                previous=source.get('snapshot','')
-                if previous and page.content_hash!=source.get('content_hash'):
-                    changes=impact(previous,page.text,partial=page.partial)
-                    change={'title':'Alteração detectada na página acompanhada','url':source['url'],'document_type':'page_change',
-                        'hash':page.content_hash,'hash_basis':'page_text','published_at':None,'official':source['trust']=='OFFICIAL',
-                        'source_type':source['trust'],'changes':changes}
-                    if page.hash_basis == 'document_bytes':
-                        for document in documents:
-                            if document['hash'] == page.content_hash: document['changes'] = changes
-                    else: documents.insert(0,change)
             if not await tracking.finish(source,page,documents):return {'status':'removed'}
             return {'status':'ok','message':'Fonte consultada. Documentos e diferenças disponíveis na linha do tempo.'}
         except Exception as exc:

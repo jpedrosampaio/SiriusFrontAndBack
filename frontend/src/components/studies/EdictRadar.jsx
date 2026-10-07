@@ -49,10 +49,12 @@ export default function EdictRadar({ programId, refresh }) {
         </li>)}</ol>{data.dates.length === 0 && <p className="text-sm text-slate-400 mt-3">Nenhuma data completa vinculada a um evento foi identificada nas fontes oficiais consultadas.</p>}
       </div></>}
     {history && <div className="border border-purple-400/30 rounded-xl p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-medium break-words">Histórico: {history.source.title}</h4><Button variant="ghost" onClick={() => setHistory(null)}>Fechar histórico</Button></div>
-      <ol className="space-y-4 mt-3">{history.items.map(v => <li key={v.version_id} className="text-sm"><p>{new Date(v.detected_at).toLocaleString('pt-BR')} · {v.hash_basis === 'document_bytes' ? 'Hash do PDF' : 'Hash do texto extraído'}</p>
+      <ol className="space-y-4 mt-3">{history.items.map(v => <li key={v.version_id} className="text-sm"><p>{new Date(v.detected_at).toLocaleString('pt-BR')} · {v.hash_basis === 'document_bytes' ? 'Hash do PDF' : v.hash_basis === 'page_text_and_links' ? 'Hash do texto e dos links' : 'Hash do texto extraído'}</p>
         <details className="mt-2"><summary className="cursor-pointer">Mudanças textuais</summary><p className="text-xs text-slate-400 my-2">Classificação inferida; não representa uma interpretação jurídica.{v.impact.partial && ' Comparação parcial.'}</p>
           {v.impact.added?.map((line, i) => <p key={`a${i}`} className="text-xs text-green-300 break-words my-2">+ {line}</p>)}
           {v.impact.removed?.map((line, i) => <p key={`r${i}`} className="text-xs text-rose-300 break-words my-2">− {line}</p>)}
+          {v.impact.document_links_added?.map((d, i) => <p key={`da${i}`} className="text-xs text-green-300 break-words my-2">Link adicionado: <a href={d.url} target="_blank" rel="noopener noreferrer">{d.title || d.url} ↗</a></p>)}
+          {v.impact.document_links_removed?.map((d, i) => <p key={`dr${i}`} className="text-xs text-rose-300 break-words my-2">Link removido: {d.title || d.url}</p>)}
           {v.impact.baseline && <p className="text-xs text-slate-400">Versão inicial, sem comparação anterior.</p>}
         </details></li>)}</ol>
       {history.next_offset !== null && <Button variant="ghost" disabled={loading} onClick={() => showHistory(history.source, history.next_offset)}>Versões anteriores</Button>}

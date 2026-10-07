@@ -1,5 +1,6 @@
 """Public-source adapters. No browser automation, authentication or access bypass."""
 import hashlib
+import json
 import http.client
 import ipaddress
 import re
@@ -159,8 +160,11 @@ class ContestSourceProvider:
             if len(documents) == 300: break
         full_text = '\n'.join(parser.text)
         text = full_text[:200000]
-        page = SourcePage(text, documents, hashlib.sha256(text.encode()).hexdigest())
-        page.partial = len(full_text) > 200000
+        # Link replacements can change the edital even when anchor text does not.
+        metadata=sorted((d['url'],d['title'],d['document_type']) for d in documents)
+        digest=hashlib.sha256((text+'\n'+json.dumps(metadata,ensure_ascii=False,separators=(',',':'))).encode()).hexdigest()
+        page = SourcePage(text, documents, digest,hash_basis='page_text_and_links')
+        page.partial = len(full_text) > 200000 or len(documents) >= 300
         return page
 
     def poll(self, url, etag=None, modified=None):

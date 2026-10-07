@@ -26,7 +26,9 @@ Tec/QConcursos and similar protected services are not radar providers. Only auth
 - Source creation accepts `source_kind` (default unknown for existing clients); classification never upgrades domain trust. Strict opt-in, maximum five active sources, existing leases/cooldowns/backoff/robots/SSRF guards remain.
 - Numeric dd/mm/yyyy or dd.mm.yyyy and complete Portuguese written dates are extracted only on a line with one recognized event category. Yearless, invalid or ambiguous dates are omitted. Legacy snapshots are preserved without pretending their dates were analyzed. PDF images require readable extracted text; no OCR service is introduced.
 - Comparisons retain 1,500 lines and 60 added/removed lines per side, with explicit partial flags. Categories/confidence are heuristic proposals; no confirmed topic delta, invented coverage time, silent recalculation or automatic notification is produced.
-- Preparation source freshness uses successful checks of active official sources, not presumed publication times.
+- HTML version hashes include extracted text and normalized document links, so replacing a PDF link with the same displayed title is observable. Link changes are separately displayed, without pretending the linked PDF content was fetched. Link metadata is not repeated in history list responses.
+- Impacts compare the preceding immutable text observation and retain its partial flag, including after stopping/reactivating a source. They do not compare against a cleared mutable snapshot.
+- Preparation source freshness uses the distinct last successful check of active official sources, retained across later failed attempts, and is displayed in the preparation view. It is not a presumed publication time. The additive migration backfills this timestamp only where the legacy latest attempt was successful; unknown prior successes are not invented.
 
 MIGRATION REQUIRED: revision `6f12b8e4a903`, down_revision `84d2a71ef309`; command `python -m alembic upgrade head`, working directory `backend`, database Neon via `DATABASE_URL_DIRECT`. No production migration has been run by the agent.
 

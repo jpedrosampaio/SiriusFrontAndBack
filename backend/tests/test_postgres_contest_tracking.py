@@ -89,6 +89,41 @@ class ContestTracking(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(radar['dates'][0]['hash'],'hash2');self.assertEqual(radar['dates'][0]['url'],source['url'])
         self.assertEqual(radar['latest_versions'][0]['hash_basis'],'document_bytes')
 
+    async def test_reactivated_source_uses_immutable_partial_prior_and_preserves_success(self):
+        source=await self.add();sid=source['source_id']
+        async with unit_of_work() as session:
+            row=await session.get(ContestSource,UUID(sid));row.trust='OFFICIAL'
+        page=self.page('First');page.partial=True
+        claimed=await tracking.claim(str(self.uid),str(self.pid),sid)
+        await tracking.finish(claimed,page,page.documents)
+        async with unit_of_work() as session:
+            successful=await tracking.official_freshness(session,self.uid,self.pid)
+        self.assertIsNotNone(successful)
+        await self.reset_due(sid)
+        claimed=await tracking.claim(str(self.uid),str(self.pid),sid)
+        await tracking.finish(claimed,error='Temporary failure')
+        async with unit_of_work() as session:
+            self.assertEqual(await tracking.official_freshness(session,self.uid,self.pid),successful)
+        await tracking.remove(str(self.uid),str(self.pid),sid)
+        await self.add();await self.reset_due(sid)
+        claimed=await tracking.claim(str(self.uid),str(self.pid),sid)
+        page=GenericOfficialConnector().normalize('Second<a href="/prova-v2.pdf">Prova</a>',self.url)
+        await tracking.finish(claimed,page,page.documents)
+        versions=self.ok(await self.http.get(self.base+'/sources/'+sid+'/versions'))['items']
+        latest=versions[0]
+        self.assertEqual(latest['impact']['removed'],['First'])
+        self.assertTrue(latest['impact']['partial'])
+        self.assertIn('/prova-v2.pdf',latest['impact']['document_links_added'][0]['url'])
+        self.assertIn('/prova.pdf',latest['impact']['document_links_removed'][0]['url'])
+        self.assertNotIn('documents',latest['details'])
+        self.assertEqual(latest['previous_id'],versions[1]['version_id'])
+        timeline=self.ok(await self.http.get(self.base+'/timeline'))
+        linked=[item for item in timeline if item['url'].endswith('/prova-v2.pdf')]
+        self.assertEqual(len(linked),1)
+        async with unit_of_work() as session:
+            row=await session.scalar(select(ContestUpdate).where(ContestUpdate.source_id==UUID(sid),ContestUpdate.url.endswith('/prova-v2.pdf')))
+            self.assertEqual(str(row.version_id),latest['version_id'])
+
     async def reset_due(self,sid):
         async with unit_of_work() as session:
             row=await session.get(ContestSource,UUID(sid));row.next_poll=datetime.now(timezone.utc)-timedelta(seconds=1)

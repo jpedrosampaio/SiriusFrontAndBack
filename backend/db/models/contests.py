@@ -22,6 +22,7 @@ class ContestSource(Identity,Owned,Timestamps,Base):
     next_poll: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     lease_token: Mapped[UUID | None]
     last_checked: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_successful_check: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(default='pending')
     failures: Mapped[int] = mapped_column(default=0)
     error: Mapped[str | None]
@@ -80,7 +81,7 @@ class ContestSourceVersion(Identity,Owned,Base):
         ForeignKeyConstraint(['user_id','source_id'],['contest_sources.user_id','contest_sources.id'],ondelete='RESTRICT'),
         ForeignKeyConstraint(['user_id','source_id','previous_id'],['contest_source_versions.user_id','contest_source_versions.source_id','contest_source_versions.id'],ondelete='RESTRICT'),
         CheckConstraint('char_length(snapshot_text) <= 200000',name='snapshot_bound'),
-        CheckConstraint("hash_basis IN ('page_text','document_bytes','legacy_snapshot')",name='hash_basis'),
+        CheckConstraint("hash_basis IN ('page_text','page_text_and_links','document_bytes','legacy_snapshot')",name='hash_basis'),
         Index('ix_contest_versions_owner_source_detected','user_id','source_id','detected_at','id'))
 
 

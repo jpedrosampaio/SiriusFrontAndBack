@@ -14,7 +14,7 @@ for(const width of [1440,1024,768,390,320]){
   if(p==='/api/study/v2/targets')return respond(r,[{target_id:'t1',program_id:'demo',name:'Preparation',kind:'custom',is_primary:false}]);
   if(p.endsWith('/state'))return respond(r,state);
   if(p.endsWith('/radar')){radarReads++;return respond(r,{sources:[{source_id:'s1',title:'Official source'}],latest_versions:[{version_id:'v1',source_id:'s1',hash_basis:'page_text',detected_at:'2026-10-07T12:00:00Z',details:{title:'Official source'},impact:{categories:['syllabus'],baseline:false},partial:false}],dates:[{version_id:'v1',event:'exam',date:'2027-02-01',quote:'Prova objetiva: 01/02/2027',url:'https://orgao.gov.br',conflicting_candidates:true}],date_notice:'Confirm extracted dates'});}
-  if(p.endsWith('/versions'))return respond(r,{items:[{version_id:'v1',detected_at:'2026-10-07T12:00:00Z',hash_basis:'page_text',impact:{added:['Disciplina nova'],removed:['Peso anterior'],partial:true}}],next_offset:null});
+  if(p.endsWith('/versions'))return respond(r,{items:[{version_id:'v1',detected_at:'2026-10-07T12:00:00Z',hash_basis:'page_text',impact:{added:['Disciplina nova'],removed:['Peso anterior'],partial:true,document_links_added:[{url:'https://orgao.gov.br/retificacao.pdf',title:'Retificacao'}]}}],next_offset:null});
   if(p.endsWith('/overview'))return respond(r,{});
   if(p.endsWith('/cronograma'))return respond(r,{program,notebooks:[discipline],cronograma:[]});
   if(p.endsWith('/edital-verticalizado'))return respond(r,{disciplinas:[discipline]});
@@ -32,6 +32,7 @@ for(const width of [1440,1024,768,390,320]){
  await radar.locator('summary').filter({hasText:'Mudan\u00e7as textuais'}).click();
  await radar.getByText('+ Disciplina nova',{exact:true}).waitFor();
  await radar.getByText('\u2212 Peso anterior',{exact:true}).waitFor();
+ await radar.getByRole('link',{name:'Retificacao \u2197',exact:true}).waitFor();
  await radar.getByText(/mais de uma data candidata/).waitFor();
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
  await radar.getByRole('button',{name:'Fechar hist\u00f3rico',exact:true}).click();

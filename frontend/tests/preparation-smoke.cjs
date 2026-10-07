@@ -1,5 +1,6 @@
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
 const {chromium}=require('playwright'),state=require('./preparation-fixture.cjs');
+state.source_freshness.official_source_checked_at='2026-10-07T12:00:00Z';
 const root=path.join(process.cwd(),'build');
 const server=http.createServer((req,res)=>{let file=path.join(root,new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}if(!fs.existsSync(file)||fs.statSync(file).isDirectory())file=path.join(root,'index.html');res.setHeader('Content-Type',({'.js':'application/javascript','.css':'text/css','.html':'text/html'})[path.extname(file)]||'application/octet-stream');fs.createReadStream(file).pipe(res);});
 (async()=>{await new Promise(r=>server.listen(4177,'127.0.0.1',r));const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{})});try{
@@ -33,6 +34,7 @@ for(const width of [1440,1024,768,390,320]){
  await page.goto('http://127.0.0.1:4177/studies?program=demo&view=edital');
  await page.getByText('Não foi possível carregar o estado da preparação.',{exact:true}).waitFor();await page.getByRole('button',{name:'Tentar novamente',exact:true}).click();
  const section=page.getByRole('region',{name:'Estado da preparação',exact:true});await section.waitFor();
+ await section.getByText(/\u00daltima consulta bem-sucedida/).waitFor();
  await section.locator('summary').filter({hasText:'Domínio estimado'}).click();await section.getByText('Sem questões individuais respondidas; exposição não comprova domínio.',{exact:true}).waitFor();
  await section.locator('summary').filter({hasText:'Por quê?'}).click();await section.getByText(/revisão vencida · sem amostra de domínio/).waitFor();
  await section.locator('summary').filter({hasText:'Evidências dos indicadores'}).click();await section.getByText('ID: session1',{exact:true}).waitFor();

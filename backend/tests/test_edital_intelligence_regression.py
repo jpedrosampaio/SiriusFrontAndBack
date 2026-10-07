@@ -32,3 +32,11 @@ class EdictIntelligenceTests(unittest.TestCase):
         for host in ['qconcursos.com', 'www.qconcursos.com', 'tecconcursos.com.br', 'www.tecconcursos.com.br']:
             with self.assertRaises(SourceUnavailable): validate_url('https://' + host + '/questoes')
         self.assertEqual(validate_url('https://qconcursos.com.example.org/'), 'https://qconcursos.com.example.org/')
+
+    def test_link_replacement_changes_version_hash_without_text_change(self):
+        provider=GenericOfficialConnector()
+        first=provider.normalize('<a href="/edital-v1.pdf">Edital</a>','https://orgao.gov.br')
+        second=provider.normalize('<a href="/edital-v2.pdf">Edital</a>','https://orgao.gov.br')
+        self.assertEqual(first.text,second.text)
+        self.assertNotEqual(first.content_hash,second.content_hash)
+        self.assertEqual(first.hash_basis,'page_text_and_links')

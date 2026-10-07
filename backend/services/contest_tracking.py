@@ -28,7 +28,7 @@ async def program(session,uid,pid):
 
 def source_json(row):
     return jsonable_encoder({'source_id':row.id,'user_id':row.user_id,'program_id':row.program_id,
-        **{key:getattr(row,key) for key in ('url','title','trust','provider','source_kind','terms_confirmed_at','created_at','next_poll','enabled','failures','status','last_checked','error')}})
+        **{key:getattr(row,key) for key in ('url','title','trust','provider','source_kind','terms_confirmed_at','created_at','next_poll','enabled','failures','status','last_checked','last_successful_check','error')}})
 
 
 def update_json(row):
@@ -95,7 +95,7 @@ async def timeline(user_id,program_id,exams=False):
 def version_json(row,detail=False):
     result=jsonable_encoder({'version_id':row.id,'source_id':row.source_id,'previous_id':row.previous_id,
         'hash':row.content_hash,'hash_basis':row.hash_basis,'partial':row.partial,'official':row.official,
-        'detected_at':row.detected_at,'details':row.details,'impact':row.impact,'dates':row.dates})
+        'detected_at':row.detected_at,'details':{k:v for k,v in row.details.items() if k!='documents'},'impact':row.impact,'dates':row.dates})
     if detail:result['text']=row.snapshot_text
     return result
 
@@ -143,9 +143,9 @@ async def radar(user_id,program_id):
 
 async def official_freshness(session,uid,program_id):
     """Public projection contract; successful checks are not publication dates."""
-    checked=await session.scalar(select(func.max(ContestSource.last_checked)).where(ContestSource.user_id==uid,
+    checked=await session.scalar(select(func.max(ContestSource.last_successful_check)).where(ContestSource.user_id==uid,
         ContestSource.program_id==program_id,ContestSource.deleted_at.is_(None),ContestSource.enabled.is_(True),
-        ContestSource.trust=='OFFICIAL',ContestSource.status=='ok'))
+        ContestSource.trust=='OFFICIAL'))
     return checked.isoformat() if checked else None
 
 
@@ -184,18 +184,36 @@ async def finish(source,page=None,documents=(),error=None):
             row.failures=min(8,row.failures+1);row.status='unavailable';row.error=error[:300]
             row.next_poll=now+timedelta(hours=min(72,6*2**row.failures))
             return True
-        row.status='ok';row.error=None;row.failures=0
+        row.status='ok';row.error=None;row.failures=0;row.last_successful_check=now
         if page is not None:
+            documents=[dict(item) for item in documents]
             version_id=None
             if page.content_hash != row.content_hash:
                 previous=await session.scalar(select(ContestSourceVersion).where(ContestSourceVersion.user_id==uid,
                     ContestSourceVersion.source_id==sid).order_by(ContestSourceVersion.detected_at.desc(),ContestSourceVersion.id.desc()).limit(1))
+                comparison=impact(previous.snapshot_text if previous else row.snapshot,page.text,
+                    baseline=not bool(previous or row.content_hash),partial=page.partial or bool(previous and previous.partial))
+                document_metadata=[{k:item.get(k) for k in ('url','title','document_type','hash')} for item in page.documents[:300]]
+                if previous and 'documents' in previous.details:
+                    old={d['hash']:d for d in previous.details['documents']};new={d['hash']:d for d in document_metadata}
+                    comparison['document_links_added']=[new[key] for key in sorted(new.keys()-old.keys())][:20]
+                    comparison['document_links_removed']=[old[key] for key in sorted(old.keys()-new.keys())][:20]
+                    comparison['partial']=comparison['partial'] or len(new.keys()-old.keys())>20 or len(old.keys()-new.keys())>20
+                else:comparison['document_comparison_available']=False
+                if previous or row.content_hash:
+                    if page.hash_basis=='document_bytes':
+                        for document in documents:
+                            if document['hash']==page.content_hash:document['changes']=comparison
+                    else:
+                        documents.insert(0,{'title':'Alteração detectada na página acompanhada','url':row.url,
+                            'document_type':'page_change','hash':page.content_hash,'hash_basis':page.hash_basis,
+                            'published_at':None,'official':row.trust=='OFFICIAL','source_type':row.trust,'changes':comparison})
                 version=ContestSourceVersion(user_id=uid,source_id=sid,previous_id=previous.id if previous else None,
                     claim_token=identity(source['lease']),content_hash=page.content_hash,hash_basis=page.hash_basis,
                     snapshot_text=page.text[:200000],partial=page.partial,official=row.trust=='OFFICIAL',detected_at=now,
                     details={'title':row.title,'url':row.url,'source_kind':row.source_kind,'etag':page.etag,
-                        'last_modified':page.modified,'original_available':False},
-                    impact=impact(row.snapshot,page.text,baseline=not bool(row.content_hash),partial=page.partial),
+                        'last_modified':page.modified,'original_available':False,'documents':document_metadata},
+                    impact=comparison,
                     dates=official_dates(page.text,official=row.trust=='OFFICIAL'))
                 session.add(version);await session.flush();version_id=version.id
             for item in documents:
