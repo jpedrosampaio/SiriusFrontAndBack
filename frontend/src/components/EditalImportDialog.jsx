@@ -57,8 +57,11 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
   };
   const choose = selected => {
     setError('');
-    if (selected && !selected.name.toLowerCase().endsWith('.pdf')) { setError('Selecione um PDF válido.'); return; }
-    if (selected?.size > 20 * 1024 * 1024) { setError('O PDF deve ter no máximo 20 MB.'); return; }
+    const rejection = selected && !selected.name.toLowerCase().endsWith('.pdf') ? 'Selecione um PDF válido.' : selected?.size > 20 * 1024 * 1024 ? 'O PDF deve ter no máximo 20 MB.' : '';
+    if (rejection) {
+      setFile(null); if (fileInput.current) fileInput.current.value = '';
+      setError(rejection); return;
+    }
     setFile(selected || null);
     if (!selected && fileInput.current) fileInput.current.value = '';
   };
