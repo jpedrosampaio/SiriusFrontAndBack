@@ -8,20 +8,10 @@ from db.models.studies import (Notebook, StudyTopic, TopicProgress, StudySession
 from services.study_evidence import attempts, latest_reviews
 from study_mastery import mastery, topic_priority
 from db.models.exams import Exam, ExamAttempt
-from services.study_workspace import entry_json
+from services.study_plan_views import entry_json
+from preparation_core import VERSION, learning_stage
 
-VERSION = 'preparation-state-3.0.1'
 LIMIT = 2000
-
-
-def learning_stage(covered, estimate, last_date, today):
-    if not estimate['samples']:
-        return 'exposed' if covered else 'not_started'
-    if estimate['samples'] < 10 or estimate['score'] < 60:
-        return 'practicing'
-    if estimate['confidence'] != 'high' or estimate['score'] < 80:
-        return 'consolidating'
-    return 'maintenance' if last_date and (today-last_date).days > 14 else 'mastered'
 
 
 async def preparation_state(session, uid, program, zone, today):

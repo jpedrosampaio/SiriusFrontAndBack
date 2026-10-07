@@ -16,6 +16,7 @@ from study_workspace_routes import DraftUpdate,PlanSettings,TopicPractice,PlanEn
 from study_planner import build_plan
 from study_adaptation import adapt_notebooks,next_review
 from study_mastery import mastery
+from services.study_plan_views import entry_json
 
 router=APIRouter(prefix='/study')
 
@@ -95,11 +96,6 @@ async def reviews(request: Request,notebook_id: UUID):
             'topic_key':key,'title':name,'due_date':due.isoformat() if due else None,
             'created_at':stamp.isoformat(),'total':total or 0,'correct':correct or 0,'incorrect':(total or 0)-(correct or 0),
             'accuracy':round(correct/total*100,1) if total else 0} for key,name,due,stamp,total,correct in rows]
-
-
-def entry_json(row):
-    return {'entry_id':str(row.id),'notebook_id':str(row.notebook_id),'date':row.date.isoformat(),'name':row.name,
-        'minutes':row.minutes,'kind':row.kind,'completed':row.completed,'manual':row.manual,'fixed':row.fixed,'reason':row.reason}
 
 
 async def plan_rows(session,uid,program_id):
