@@ -58,3 +58,8 @@ After broad local synthetic run heading times 1440/1024/768/390/320: 262/181/183
 ## Limits
 
 Browser APIs/providers are mocked and mobile keyboard is simulated by viewport height; physical-device keyboard and YouTube result quality remain manual checks. No YouTube live test or production key verification. Cache is process/browser memory and disappears on restart/reload; optional offline persistence deferred. Finance/nutrition maintain their existing domain loading architecture; no broad refactor of all modules. 08–18 is transparent estimated planning window, not inferred personal availability. No schema changes, Mongo imports, startup DDL, paid providers, or later Studies67+ features introduced.
+# Operational Corrections — atualização da Fase A
+
+Base: merge PR #23 (`c10b907`). O escopo mantém o orçamento HTTP do dashboard e do batch de treino; nenhuma busca de YouTube foi antecipada. Chat em hidratação usa os dois GETs iniciais e o POST, sem refetch de sucesso; o teste controla a resposta tardia e verifica exatamente uma resposta/mensagem. Três cliques rápidos geram três POSTs serializados por plano (sem fanout de leitura), cada um com receipt próprio. Timeout/5xx interrompe o envio posterior até retry seguro; 409/4xx definitivo desfaz só a operação rejeitada.
+
+O briefing com texto em cache agora consulta novamente tarefas e hábitos para calcular progresso atual: há custo SQL adicional deliberado para evitar score congelado, sem invocar LLM nem recarregar refeições/estudos/treinos nessa leitura. Nenhum ganho de latência de produção foi medido nesta fase. Bundle principal local: aproximadamente 184,29 kB gzip, contra 184,26 kB no PR #23; sem novas dependências. Detalhes de contratos/migration: [OPERATIONAL_PLANNING.md](OPERATIONAL_PLANNING.md).
