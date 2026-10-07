@@ -16,7 +16,7 @@ const waitFor=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise
  try {for(const width of [1440,1024,768,390,320]){
   const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'});
   await context.addInitScript(()=>localStorage.setItem('sirius_onboarding_complete','true'));
-  const pending={},counts={},posts=[],checks={};let task=null,empty=false,zero=false;
+  const pending={},counts={},posts=[],checks={},taskKeys=[];let task=null,empty=false,zero=false,taskFailure=true;
   const user={user_id:'operational-fixture',name:'User',rank:'Recruta',xp:0};
   const plan={plan_id:'p',name:'Rapid plan',exercises:[0,1,2].map(i=>({name:'Exercise '+i,sets:3,reps:12}))};
   const fulfill=(route,body,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(body)});
@@ -32,7 +32,12 @@ const waitFor=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise
    if(p==='/api/auth/me')return fulfill(route,user);
    if(p==='/api/dashboard/panels')return fulfill(route,{panels:{daily:{summary:{score:empty||zero?0:35,greeting:'Hello',progress_summary:'Summary'},raw_data:empty?{}:zero?{tasks_pending:20}:{tasks_done:7,tasks_pending:13}}},errors:[]});
    if(p==='/api/ai/daily')return fulfill(route,{commitments:[],plan:{date:'2026-10-07',available_minutes:180,conflicts:[{}],blocks:[{task_id:'wake',title:'Acordar',kind:'fixed_task',start_minute:390,end_minute:420,past_due:true,duration_minutes:30,duration_estimated:true},{task_id:'study',title:'Study after midday',kind:'flexible_task',start_minute:900,end_minute:945,duration_minutes:45}],unscheduled:[]}});
-   if(p==='/api/tasks'&&method==='POST'){task={...route.request().postDataJSON(),task_id:'task',xp_reward:10};return fulfill(route,task);}
+   if(p==='/api/tasks'&&method==='POST'){
+    taskKeys.push(route.request().headers()['idempotency-key']);
+    task={...route.request().postDataJSON(),task_id:'task',xp_reward:10};
+    if(taskFailure){taskFailure=false;return fulfill(route,{detail:'Synthetic lost response'},504);}
+    return fulfill(route,task);
+   }
    if(p==='/api/tasks/task'&&method==='PUT'){task={...task,...route.request().postDataJSON()};return fulfill(route,task);}
    if(p==='/api/tasks')return fulfill(route,task?[task]:[]);
    if(p==='/api/workout-plans')return fulfill(route,[plan]);
@@ -67,7 +72,10 @@ const waitFor=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise
   await page.getByLabel('Duração em minutos (opcional)',{exact:true}).fill('45');
   fs.mkdirSync('test-results',{recursive:true});await page.screenshot({path:`test-results/task-scheduling-${width}.png`});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+  await page.getByTestId('task-submit-btn').click();await page.getByText('Erro ao salvar tarefa. Os campos foram preservados.',{exact:true}).waitFor();
+  assert.equal(await page.getByLabel('Horário (opcional)',{exact:true}).inputValue(),'06:30');
   await page.getByTestId('task-submit-btn').click();await page.getByText('06:30 · 45 min',{exact:true}).waitFor();
+  assert.equal(taskKeys.length,2);assert.ok(taskKeys[0]);assert.equal(taskKeys[0],taskKeys[1]);
   assert.equal(task.scheduled_time,'06:30');assert.equal(task.duration_minutes,45);
   await page.getByRole('button',{name:'Editar tarefa',exact:true}).click();
   await page.getByLabel('Horário (opcional)',{exact:true}).fill('');await page.getByLabel('Duração em minutos (opcional)',{exact:true}).fill('');
