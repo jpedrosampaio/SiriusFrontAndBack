@@ -1,0 +1,10 @@
+{
+  "initial_direct_calls": 669,
+  "remaining_direct_calls": 0,
+  "remaining_collections": 0,
+  "remaining_dynamic_accesses": 0,
+  "remaining_gridfs_constructors": 0,
+  "domains": {},
+  "mongo_imports": [],
+  "mongo_identifiers": {}
+}

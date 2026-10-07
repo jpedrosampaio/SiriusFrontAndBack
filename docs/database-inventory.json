@@ -1,0 +1,2011 @@
+{
+  "collections": {
+    "achievements": {
+      "calls": [
+        {
+          "location": "server.py:1953",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:914",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:991",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:1005",
+          "operation": "insert_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "achievement_id",
+        "category",
+        "description",
+        "icon",
+        "title",
+        "unlocked_at",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "activity_requests": {
+      "calls": [
+        {
+          "location": "server.py:851",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:866",
+          "operation": "insert_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "created_at",
+        "fingerprint",
+        "result",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": [
+        "server.py:851",
+        "server.py:866"
+      ]
+    },
+    "ai_actions": {
+      "calls": [
+        {
+          "location": "ai/actions.py:48",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/actions.py:49",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/actions.py:52",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/actions.py:58",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/actions.py:63",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/actions.py:67",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/actions.py:76",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/actions.py:78",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/routes.py:111",
+          "operation": "update_many"
+        },
+        {
+          "location": "ai/routes.py:112",
+          "operation": "find"
+        },
+        {
+          "location": "assistant_service.py:78",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "action_id",
+        "confirmed_at",
+        "executed_at",
+        "expires_at",
+        "result",
+        "status",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": [
+        "ai/actions.py:67",
+        "ai/actions.py:76",
+        "ai/actions.py:78"
+      ]
+    },
+    "ai_attachments": {
+      "calls": [
+        {
+          "location": "ai/routes.py:266",
+          "operation": "create_index"
+        },
+        {
+          "location": "ai/routes.py:196",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/routes.py:226",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/routes.py:228",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/routes.py:233",
+          "operation": "delete_one"
+        },
+        {
+          "location": "ai/routes.py:198",
+          "operation": "count_documents"
+        }
+      ],
+      "fields": [
+        "_id",
+        "attachment_id",
+        "indexed",
+        "user_id"
+      ],
+      "indexes": [
+        "self.db.ai_attachments.create_index([('user_id', 1), ('attachment_id', 1)], unique=True)"
+      ],
+      "transactions": []
+    },
+    "ai_audit": {
+      "calls": [
+        {
+          "location": "ai/actions.py:79",
+          "operation": "insert_one"
+        }
+      ],
+      "fields": [
+        "action_id",
+        "created_at",
+        "status",
+        "tool",
+        "user_id",
+        "version"
+      ],
+      "indexes": [],
+      "transactions": [
+        "ai/actions.py:79"
+      ]
+    },
+    "ai_chunks": {
+      "calls": [
+        {
+          "location": "ai/rag.py:70",
+          "operation": "count_documents"
+        },
+        {
+          "location": "ai/rag.py:85",
+          "operation": "delete_many"
+        },
+        {
+          "location": "ai/rag.py:72",
+          "operation": "delete_many"
+        },
+        {
+          "location": "ai/rag.py:77",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/rag.py:63",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/rag.py:81",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/rag.py:100",
+          "operation": "aggregate"
+        },
+        {
+          "location": "ai/rag.py:104",
+          "operation": "find"
+        },
+        {
+          "location": "ai/rag.py:107",
+          "operation": "find"
+        },
+        {
+          "location": "ai/routes.py:264",
+          "operation": "create_index"
+        },
+        {
+          "location": "ai/routes.py:234",
+          "operation": "delete_many"
+        }
+      ],
+      "fields": [
+        "_id",
+        "generation",
+        "notebook_id",
+        "program_id",
+        "section",
+        "source_id",
+        "source_type",
+        "user_id",
+        "vector"
+      ],
+      "indexes": [
+        "self.db.ai_chunks.create_index([('user_id', 1), ('terms', 1)])"
+      ],
+      "transactions": []
+    },
+    "ai_conversations": {
+      "calls": [
+        {
+          "location": "ai/routes.py:265",
+          "operation": "create_index"
+        },
+        {
+          "location": "ai/routes.py:97",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/routes.py:92",
+          "operation": "find"
+        },
+        {
+          "location": "assistant_service.py:74",
+          "operation": "find_one"
+        },
+        {
+          "location": "assistant_service.py:89",
+          "operation": "find_one"
+        },
+        {
+          "location": "assistant_service.py:95",
+          "operation": "find_one_and_update"
+        },
+        {
+          "location": "assistant_service.py:92",
+          "operation": "update_one"
+        },
+        {
+          "location": "assistant_service.py:122",
+          "operation": "update_one"
+        },
+        {
+          "location": "assistant_service.py:130",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "archive",
+        "conversation_id",
+        "created_at",
+        "lease",
+        "lease_until",
+        "messages",
+        "receipts",
+        "summary",
+        "title",
+        "updated_at",
+        "user_id"
+      ],
+      "indexes": [
+        "self.db.ai_conversations.create_index([('user_id', 1), ('updated_at', -1)])"
+      ],
+      "transactions": []
+    },
+    "ai_embeddings": {
+      "calls": [
+        {
+          "location": "ai/rag.py:36",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/rag.py:41",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "dimensions",
+        "model",
+        "user_id",
+        "vector"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "ai_events": {
+      "calls": [
+        {
+          "location": "ai/automations.py:24",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/automations.py:65",
+          "operation": "create_index"
+        },
+        {
+          "location": "ai/automations.py:54",
+          "operation": "find_one_and_update"
+        },
+        {
+          "location": "ai/automations.py:57",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/core_writes.py:44",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:862",
+          "operation": "insert_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "created_at",
+        "event_id",
+        "lease_until",
+        "status",
+        "type",
+        "user_id"
+      ],
+      "indexes": [
+        "self.db.ai_events.create_index([('status', 1), ('lease_until', 1)])"
+      ],
+      "transactions": [
+        "ai/automations.py:24",
+        "ai/core_writes.py:44",
+        "server.py:862"
+      ]
+    },
+    "ai_insights": {
+      "calls": [
+        {
+          "location": "ai/automations.py:30",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/automations.py:35",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/automations.py:66",
+          "operation": "create_index"
+        },
+        {
+          "location": "ai/automations.py:33",
+          "operation": "count_documents"
+        },
+        {
+          "location": "ai/routes.py:71",
+          "operation": "update_many"
+        },
+        {
+          "location": "ai/routes.py:79",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/routes.py:72",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "created_at",
+        "date",
+        "dry_run",
+        "evidence",
+        "feedback",
+        "insight_id",
+        "link",
+        "rule",
+        "snoozed_until",
+        "title",
+        "user_id"
+      ],
+      "indexes": [
+        "self.db.ai_insights.create_index([('user_id', 1), ('date', -1)])"
+      ],
+      "transactions": []
+    },
+    "ai_memory": {
+      "calls": [
+        {
+          "location": "ai/memory.py:27",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/memory.py:32",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/memory.py:37",
+          "operation": "insert_one"
+        },
+        {
+          "location": "ai/memory.py:44",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/memory.py:35",
+          "operation": "count_documents"
+        },
+        {
+          "location": "ai/memory.py:47",
+          "operation": "delete_one"
+        },
+        {
+          "location": "ai/memory.py:23",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "blocked",
+        "category",
+        "content",
+        "created_at",
+        "hash",
+        "memory_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "ai_preferences": {
+      "calls": [
+        {
+          "location": "ai/actions.py:34",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/actions.py:73",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/automations.py:27",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/routes.py:263",
+          "operation": "create_index"
+        },
+        {
+          "location": "ai/routes.py:87",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "settings",
+        "user_id"
+      ],
+      "indexes": [
+        "self.db.ai_preferences.create_index('user_id', unique=True)"
+      ],
+      "transactions": [
+        "ai/actions.py:73"
+      ]
+    },
+    "ai_usage": {
+      "calls": [
+        {
+          "location": "ai/routes.py:242",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/routes.py:243",
+          "operation": "find_one_and_update"
+        },
+        {
+          "location": "ai/routes.py:53",
+          "operation": "find_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "count",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "body_measurements": {
+      "calls": [
+        {
+          "location": "server.py:2665",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:2717",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:2727",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:2741",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:2314",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:2654",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:2842",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "date",
+        "measurement_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "budgets": {
+      "calls": [
+        {
+          "location": "ai/core_writes.py:23",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:1966",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6093",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:1073",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:1478",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:1485",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:1505",
+          "operation": "insert_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "budget_id",
+        "category",
+        "limit",
+        "month",
+        "spent",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": [
+        "ai/core_writes.py:23"
+      ]
+    },
+    "calendar_commitments": {
+      "calls": [
+        {
+          "location": "ai/core_writes.py:36",
+          "operation": "find_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "date",
+        "end_minute",
+        "start_minute",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": [
+        "ai/core_writes.py:36"
+      ]
+    },
+    "challenges": {
+      "calls": [
+        {
+          "location": "server.py:1930",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:1937",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:1915",
+          "operation": "insert_many"
+        },
+        {
+          "location": "server.py:1880",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "challenge_id",
+        "completed_by",
+        "week_start"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "chat_messages": {
+      "calls": [
+        {
+          "location": "assistant_service.py:68",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:1058",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:1583",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:1654",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:1778",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:1033",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5258",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "chat_type",
+        "content",
+        "created_at",
+        "message_id",
+        "role",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "contest_host_limits": {
+      "calls": [
+        {
+          "location": "contest_watch.py:90",
+          "operation": "find_one_and_update"
+        },
+        {
+          "location": "contest_watch.py:88",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "next_poll"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "contest_sources": {
+      "calls": [
+        {
+          "location": "contest_watch.py:83",
+          "operation": "find_one_and_update"
+        },
+        {
+          "location": "contest_watch.py:124",
+          "operation": "create_index"
+        },
+        {
+          "location": "contest_watch.py:48",
+          "operation": "find_one"
+        },
+        {
+          "location": "contest_watch.py:54",
+          "operation": "update_one"
+        },
+        {
+          "location": "contest_watch.py:60",
+          "operation": "delete_one"
+        },
+        {
+          "location": "contest_watch.py:66",
+          "operation": "find_one"
+        },
+        {
+          "location": "contest_watch.py:93",
+          "operation": "update_one"
+        },
+        {
+          "location": "contest_watch.py:114",
+          "operation": "update_one"
+        },
+        {
+          "location": "contest_watch.py:50",
+          "operation": "count_documents"
+        },
+        {
+          "location": "contest_watch.py:98",
+          "operation": "find_one"
+        },
+        {
+          "location": "contest_watch.py:119",
+          "operation": "update_one"
+        },
+        {
+          "location": "contest_watch.py:38",
+          "operation": "find"
+        },
+        {
+          "location": "contest_watch.py:131",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "enabled",
+        "error",
+        "failures",
+        "last_checked",
+        "lease",
+        "next_poll",
+        "program_id",
+        "snapshot",
+        "source_id",
+        "status",
+        "user_id"
+      ],
+      "indexes": [
+        "self.db.contest_sources.create_index([('enabled', 1), ('next_poll', 1)])"
+      ],
+      "transactions": []
+    },
+    "contest_updates": {
+      "calls": [
+        {
+          "location": "contest_watch.py:125",
+          "operation": "create_index"
+        },
+        {
+          "location": "contest_watch.py:111",
+          "operation": "update_one"
+        },
+        {
+          "location": "contest_watch.py:73",
+          "operation": "find"
+        },
+        {
+          "location": "contest_watch.py:78",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "detected_at",
+        "document_type",
+        "program_id",
+        "source",
+        "source_id",
+        "summary",
+        "update_id",
+        "user_id"
+      ],
+      "indexes": [
+        "self.db.contest_updates.create_index([('user_id', 1), ('program_id', 1), ('detected_at', -1)])"
+      ],
+      "transactions": []
+    },
+    "daily_quotes": {
+      "calls": [
+        {
+          "location": "server.py:2916",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:3023",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:2924",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:3015",
+          "operation": "delete_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "context",
+        "created_at",
+        "habits_today",
+        "motivational_date",
+        "quote",
+        "time_of_day",
+        "user_id",
+        "workouts_this_week"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "daily_summaries": {
+      "calls": [
+        {
+          "location": "server.py:5804",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:5925",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "date",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "diets": {
+      "calls": [
+        {
+          "location": "server.py:3846",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:3856",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:3824",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "diet_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "flashcards": {
+      "calls": [
+        {
+          "location": "dashboard_service.py:33",
+          "operation": "count_documents"
+        },
+        {
+          "location": "dashboard_service.py:34",
+          "operation": "count_documents"
+        },
+        {
+          "location": "server.py:934",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6290",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "next_review",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "goals": {
+      "calls": [
+        {
+          "location": "server.py:936",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6029",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6805",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "title",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "habit_logs": {
+      "calls": [
+        {
+          "location": "server.py:2944",
+          "operation": "count_documents"
+        }
+      ],
+      "fields": [
+        "completed",
+        "date",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "habits": {
+      "calls": [
+        {
+          "location": "analytics_service.py:24",
+          "operation": "count_documents"
+        },
+        {
+          "location": "analytics_service.py:17",
+          "operation": "aggregate"
+        },
+        {
+          "location": "report_metrics.py:52",
+          "operation": "count_documents"
+        },
+        {
+          "location": "server.py:930",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:1979",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5588",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5674",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5828",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5981",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6128",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "completions",
+        "name",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "meal_plans": {
+      "calls": [
+        {
+          "location": "server.py:5441",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:4118",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:5414",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:6179",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:5433",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "plan_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "meals": {
+      "calls": [
+        {
+          "location": "server.py:3462",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:3472",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:935",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:3432",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:3781",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:4140",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:5700",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5837",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:2125",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6422",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "date",
+        "meal_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "notebooks": {
+      "calls": [
+        {
+          "location": "ai/core.py:48",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/core_writes.py:26",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/core_writes.py:29",
+          "operation": "update_one"
+        },
+        {
+          "location": "ai/rag.py:51",
+          "operation": "find_one"
+        },
+        {
+          "location": "ai/routes.py:163",
+          "operation": "find"
+        },
+        {
+          "location": "dashboard_service.py:35",
+          "operation": "count_documents"
+        },
+        {
+          "location": "server.py:5064",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6288",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "conteudo_programatico",
+        "name",
+        "notebook_id",
+        "program_id",
+        "title",
+        "topicos",
+        "total_study_time_minutes",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": [
+        "ai/core_writes.py:26",
+        "ai/core_writes.py:29"
+      ]
+    },
+    "notification_logs": {
+      "calls": [
+        {
+          "location": "server.py:2580",
+          "operation": "insert_one"
+        }
+      ],
+      "fields": [],
+      "indexes": [],
+      "transactions": []
+    },
+    "notifications": {
+      "calls": [
+        {
+          "location": "server.py:2468",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:2489",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:2502",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:2507",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:2518",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:2565",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:5115",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:2441",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:2533",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5151",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5177",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "enabled",
+        "last_sent",
+        "notification_id",
+        "scheduled_time",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "nutrition_goals": {
+      "calls": [
+        {
+          "location": "dashboard_service.py:29",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:2145",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:3685",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:3710",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:3734",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:3794",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:3877",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:3700",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:3713",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:3726",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:4145",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "calories",
+        "carbs",
+        "created_at",
+        "daily_calories",
+        "daily_carbs",
+        "daily_fat",
+        "daily_protein",
+        "fat",
+        "goal_id",
+        "protein",
+        "updated_at",
+        "user_id",
+        "water_goal_ml"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "nutrition_recipes": {
+      "calls": [
+        {
+          "location": "server.py:6195",
+          "operation": "find_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "recipe_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "recipes": {
+      "calls": [
+        {
+          "location": "server.py:3987",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:3998",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:3970",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:3867",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "recipe_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "reports": {
+      "calls": [
+        {
+          "location": "server.py:2175",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:1837",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:1802",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "report_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "shopping_lists": {
+      "calls": [
+        {
+          "location": "server.py:6217",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:6236",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:6243",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:6227",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "items",
+        "list_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "simulados": {
+      "calls": [
+        {
+          "location": "dashboard_service.py:35",
+          "operation": "count_documents"
+        }
+      ],
+      "fields": [],
+      "indexes": [],
+      "transactions": []
+    },
+    "study_attempts": {
+      "calls": [
+        {
+          "location": "server.py:7176",
+          "operation": "create_index"
+        },
+        {
+          "location": "server.py:7177",
+          "operation": "create_index"
+        }
+      ],
+      "fields": [],
+      "indexes": [
+        "db.study_attempts.create_index([('user_id', 1), ('program_id', 1), ('created_at', -1)])",
+        "db.study_attempts.create_index([('user_id', 1), ('notebook_id', 1), ('topic_key', 1)])"
+      ],
+      "transactions": []
+    },
+    "study_drafts": {
+      "calls": [
+        {
+          "location": "ai/rag.py:53",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "notebook_id",
+        "text",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "study_notes": {
+      "calls": [
+        {
+          "location": "ai/rag.py:54",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6012",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "content",
+        "notebook_id",
+        "title",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "study_programs": {
+      "calls": [
+        {
+          "location": "contest_watch.py:31",
+          "operation": "find_one"
+        },
+        {
+          "location": "contest_watch.py:133",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:5056",
+          "operation": "find_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "program_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "study_schedules": {
+      "calls": [
+        {
+          "location": "server.py:5060",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "program_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "study_sessions": {
+      "calls": [
+        {
+          "location": "server.py:932",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5606",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5682",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5832",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6289",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "date",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "study_streaks": {
+      "calls": [
+        {
+          "location": "dashboard_service.py:32",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:937",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:4248",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:4261",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:4273",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:4284",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "best_streak",
+        "current_streak",
+        "last_study_date",
+        "total_study_days",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": [
+        "server.py:4248",
+        "server.py:4261",
+        "server.py:4273",
+        "server.py:4284"
+      ]
+    },
+    "study_targets": {
+      "calls": [
+        {
+          "location": "server.py:7175",
+          "operation": "create_index"
+        }
+      ],
+      "fields": [],
+      "indexes": [
+        "db.study_targets.create_index([('user_id', 1), ('program_id', 1)], unique=True)"
+      ],
+      "transactions": []
+    },
+    "task_instances": {
+      "calls": [
+        {
+          "location": "ai/core.py:62",
+          "operation": "distinct"
+        },
+        {
+          "location": "server.py:929",
+          "operation": "count_documents"
+        },
+        {
+          "location": "server.py:5665",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5820",
+          "operation": "find"
+        },
+        {
+          "location": "task_recurrence.py:56",
+          "operation": "distinct"
+        }
+      ],
+      "fields": [
+        "_id",
+        "completed",
+        "date",
+        "task_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "tasks": {
+      "calls": [
+        {
+          "location": "report_metrics.py:52",
+          "operation": "count_documents"
+        },
+        {
+          "location": "server.py:5601",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5819",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5967",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6143",
+          "operation": "find"
+        },
+        {
+          "location": "task_recurrence.py:49",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "completed",
+        "is_template",
+        "title",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "telegram_link_codes": {
+      "calls": [
+        {
+          "location": "server.py:6555",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:6680",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:6715",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:6690",
+          "operation": "delete_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "code",
+        "created_at",
+        "expires_at",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "telegram_links": {
+      "calls": [
+        {
+          "location": "server.py:6544",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:6593",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:6606",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:6729",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:6696",
+          "operation": "update_many"
+        },
+        {
+          "location": "server.py:6700",
+          "operation": "update_many"
+        },
+        {
+          "location": "server.py:6706",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:7035",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "chat_id",
+        "linked_at",
+        "status",
+        "telegram_name",
+        "unlinked_at",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "transactions": {
+      "calls": [
+        {
+          "location": "ai/core.py:74",
+          "operation": "aggregate"
+        },
+        {
+          "location": "server.py:931",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5559",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5950",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6094",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6927",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:6980",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:1063",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6752",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6776",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6824",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:1741",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:1233",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:1316",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:1403",
+          "operation": "insert_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "category",
+        "date",
+        "description",
+        "type",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "users": {
+      "calls": [
+        {
+          "location": "assistant_service.py:39",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:6742",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:798",
+          "operation": "create_index"
+        },
+        {
+          "location": "server.py:840",
+          "operation": "find_one_and_update"
+        },
+        {
+          "location": "server.py:2036",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:2041",
+          "operation": "find_one"
+        },
+        {
+          "location": "server.py:2050",
+          "operation": "update_one"
+        },
+        {
+          "location": "server.py:6718",
+          "operation": "find_one"
+        },
+        {
+          "location": "services/workout_generation_routes.py:62",
+          "operation": "update_one"
+        }
+      ],
+      "fields": [
+        "_id",
+        "activity_revision",
+        "health_condition",
+        "name",
+        "rank",
+        "user_id",
+        "xp"
+      ],
+      "indexes": [
+        "db.users.create_index('user_id')"
+      ],
+      "transactions": [
+        "server.py:840",
+        "server.py:2036"
+      ]
+    },
+    "water_logs": {
+      "calls": [
+        {
+          "location": "server.py:3767",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:3746",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:3790",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:2126",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "date",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "workout_insights": {
+      "calls": [
+        {
+          "location": "server.py:5292",
+          "operation": "insert_one"
+        },
+        {
+          "location": "server.py:5309",
+          "operation": "delete_one"
+        },
+        {
+          "location": "server.py:5301",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "insight_id",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "workout_logs": {
+      "calls": [
+        {
+          "location": "assistant_service.py:44",
+          "operation": "count_documents"
+        },
+        {
+          "location": "server.py:2938",
+          "operation": "count_documents"
+        },
+        {
+          "location": "server.py:933",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:2308",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5568",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5691",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:5842",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:6069",
+          "operation": "find"
+        },
+        {
+          "location": "server.py:2847",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "completed",
+        "date",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "workout_plans": {
+      "calls": [
+        {
+          "location": "server.py:5995",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "description",
+        "name",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    },
+    "workout_sessions": {
+      "calls": [
+        {
+          "location": "server.py:5577",
+          "operation": "find"
+        }
+      ],
+      "fields": [
+        "_id",
+        "started_at",
+        "status",
+        "user_id"
+      ],
+      "indexes": [],
+      "transactions": []
+    }
+  },
+  "dynamic_calls_to_resolve": [
+    {
+      "location": "ai/core.py:18",
+      "expression": "self.db[collection].find({'user_id': user_id, **(query or {})}, {'_id': 0, **{k: 1 for k in fields}})"
+    },
+    {
+      "location": "ai/core.py:42",
+      "expression": "self.db[collection].find_one({'user_id': user_id, field: value}, {'_id': 0, field: 1, 'name': 1, 'title': 1})"
+    },
+    {
+      "location": "ai/core_writes.py:42",
+      "expression": "self.db[collection].insert_one(document, session=session)"
+    },
+    {
+      "location": "ai/rag.py:119",
+      "expression": "self.db[collection].find_one({'user_id': user_id, field: r['source_id']}, {'_id': 1})"
+    },
+    {
+      "location": "ai/routes.py:262",
+      "expression": "self.db[name].create_index('user_id')"
+    },
+    {
+      "location": "operations.py:29",
+      "expression": "db[name].create_index(keys)"
+    },
+    {
+      "location": "server.py:750",
+      "expression": "db[table_name].find({'user_id': user.user_id}, projection)"
+    },
+    {
+      "location": "server.py:6048",
+      "expression": "db[collection].find({'user_id': user.user_id, '$or': [{field: {'$regex': q, '$options': 'i'}} for field in fields]}, {'_id': 0})"
+    }
+  ],
+  "gridfs": "edital_inputs.files + edital_inputs.chunks (edital_jobs.py)",
+  "legacy_candidate": "server_partial.py (verify no imports before removal)"
+}

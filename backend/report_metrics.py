@@ -1,8 +1,15 @@
-"""Period bounds and Mongo-computed report metrics; no raw documents reach AI."""
-import asyncio
-from datetime import date, timedelta
-from calendar import monthrange
-from dashboard_service import aggregate_one
+"""SQL period metrics; no raw documents reach AI."""
+from datetime import date,datetime,time,timedelta,timezone
+from zoneinfo import ZoneInfo
+from uuid import UUID
+from sqlalchemy import select,func
+from db.models.identity import User
+from db.models.planning import Task,TaskInstance,Habit,HabitCheck,Goal,GoalCheck
+from db.models.finance import FinancialTransaction
+from db.models.studies import StudySession,QuestionAttempt
+from db.models.health import WorkoutLog
+from db.session import unit_of_work
+from services.nutrition_data import period
 
 
 def report_window(kind, today, start=None, end=None):
@@ -24,44 +31,39 @@ def report_window(kind, today, start=None, end=None):
     return first.isoformat(), last.isoformat()
 
 
-async def period_metrics(db, user_id, start, end):
-    own = {'user_id': user_id}
-    bounds = {'$gte': start, '$lte': end}
-    dated = {**own, 'date': bounds}
-    sum_fields = lambda *names: {n: {'$sum': '$' + n} for n in names}
-    async def embedded(collection, field):
-        rows = await collection.aggregate([
-            {'$match': own}, {'$project': {field: {'$setUnion': [{'$ifNull': ['$' + field, []]}, []]}}},
-            {'$unwind': '$' + field}, {'$match': {field: bounds}},
-            {'$group': {'_id': None, 'count': {'$sum': 1}}},
-        ]).to_list(1)
-        return rows[0].get('count', 0) if rows else 0
-    created = {**own, 'created_at': {'$gte': start, '$lt': (date.fromisoformat(end) + timedelta(days=1)).isoformat()}}
-    tasks, habits, finance, goals, checks, study, focus, questions, workouts, meals, water, task_created, habit_created = await asyncio.gather(
-        aggregate_one(db.task_instances, dated, {'done': {'$sum': {'$cond': ['$completed', 1, 0]}}}),
-        embedded(db.habits, 'completions'),
-        aggregate_one(db.transactions, dated, {k: {'$sum': {'$cond': [{'$eq': ['$type', k]}, '$amount', 0]}} for k in ('income', 'expense')}),
-        aggregate_one(db.goals, created, {'count': {'$sum': 1}, 'progress': {'$avg': '$progress'}}),
-        embedded(db.goals, 'daily_checks'),
-        aggregate_one(db.study_sessions, dated, sum_fields('duration_minutes')),
-        aggregate_one(db.focus_sessions, {**dated, 'completed': True}, sum_fields('focus_minutes')),
-        aggregate_one(db.question_logs, dated, sum_fields('total', 'correct')),
-        aggregate_one(db.workout_logs, {**dated, 'completed': True}, {'count': {'$sum': 1}, **sum_fields('duration_minutes', 'calories')}),
-        aggregate_one(db.meals, dated, {'count': {'$sum': 1}, **sum_fields('total_calories', 'total_protein')}),
-        aggregate_one(db.water_logs, dated, sum_fields('amount_ml')),
-        db.tasks.count_documents(created), db.habits.count_documents(created),
-    )
-    return {
-        'start_date': start, 'end_date': end,
-        'tasks': task_created, 'tasks_completed': tasks.get('done', 0),
-        'habits': habit_created, 'total_habits_completions': habits,
-        'income': finance.get('income', 0), 'expenses': finance.get('expense', 0),
-        'goals': goals.get('count', 0), 'goals_progress': goals.get('progress') or 0,
-        'goal_checks': checks,
-        'study_minutes': study.get('duration_minutes', 0) + focus.get('focus_minutes', 0),
-        'questions_answered': questions.get('total', 0), 'questions_correct': questions.get('correct', 0),
-        'workouts': workouts.get('count', 0), 'workout_minutes': workouts.get('duration_minutes', 0),
-        'meals': meals.get('count', 0), 'calories': meals.get('total_calories', 0),
-        'protein': meals.get('total_protein', 0), 'water_ml': water.get('amount_ml', 0),
-        'definitions': 'tasks/habits/goals: cadastros criados no intervalo; goals_progress: progresso atual dessas metas, não histórico; demais métricas: atividades no intervalo.',
-    }
+
+def utc_bounds(start,end,zone):
+    return (datetime.combine(start,time(),tzinfo=ZoneInfo(zone)).astimezone(timezone.utc),
+        datetime.combine(end+timedelta(days=1),time(),tzinfo=ZoneInfo(zone)).astimezone(timezone.utc))
+
+
+async def period_metrics(user_id,start,end):
+    uid=UUID(str(user_id));first=date.fromisoformat(start) if isinstance(start,str) else start;last=date.fromisoformat(end) if isinstance(end,str) else end
+    async with unit_of_work() as session:
+        user=await session.get(User,uid)
+        lower,upper=utc_bounds(first,last,user.timezone)
+        async def count(model,*filters):
+            return await session.scalar(select(func.count()).select_from(model).where(model.user_id==uid,*filters))
+        tasks=await count(Task,Task.created_at>=lower,Task.created_at<upper)
+        habits=await count(Habit,Habit.created_at>=lower,Habit.created_at<upper)
+        done=await count(TaskInstance,TaskInstance.date.between(first,last),TaskInstance.completed.is_(True))
+        checks=await count(HabitCheck,HabitCheck.date.between(first,last))
+        goal_checks=await count(GoalCheck,GoalCheck.date.between(first,last))
+        goals,progress=(await session.execute(select(func.count(),func.coalesce(func.avg(Goal.progress),0)).where(
+            Goal.user_id==uid,Goal.created_at>=lower,Goal.created_at<upper))).one()
+        money=dict((await session.execute(select(FinancialTransaction.type,func.sum(FinancialTransaction.amount)).where(
+            FinancialTransaction.user_id==uid,FinancialTransaction.date.between(first,last)).group_by(FinancialTransaction.type))).all())
+        minutes=await session.scalar(select(func.coalesce(func.sum(StudySession.duration_minutes),0)).where(
+            StudySession.user_id==uid,StudySession.date.between(first,last),StudySession.completed.is_(True)))
+        total,correct=(await session.execute(select(func.coalesce(func.sum(QuestionAttempt.total),0),func.coalesce(func.sum(QuestionAttempt.correct),0)).where(
+            QuestionAttempt.user_id==uid,QuestionAttempt.answered_at>=lower,QuestionAttempt.answered_at<upper,
+            func.coalesce(QuestionAttempt.evidence['answered'].as_boolean(),True)))).one()
+        workouts,duration=(await session.execute(select(func.count(),func.coalesce(func.sum(WorkoutLog.duration_minutes),0)).where(
+            WorkoutLog.user_id==uid,WorkoutLog.date.between(first,last),WorkoutLog.completed.is_(True)))).one()
+        meals,water,_=await period(session,uid,first,last)
+        return {'start_date':first.isoformat(),'end_date':last.isoformat(),'tasks':tasks,'tasks_completed':done,'habits':habits,
+            'total_habits_completions':checks,'income':money.get('income',0),'expenses':money.get('expense',0),'goals':goals,'goals_progress':progress,
+            'goal_checks':goal_checks,'study_minutes':minutes,'questions_answered':total,'questions_correct':correct,
+            'workouts':workouts,'workout_minutes':duration,'meals':sum(day['meals_count'] for day in meals.values()),
+            'calories':sum(day['calories'] for day in meals.values()),'protein':sum(day['protein'] for day in meals.values()),'water_ml':sum(water.values()),
+            'definitions':'tasks/habits/goals: cadastros criados no intervalo; goals_progress: progresso atual dessas metas, não histórico; demais métricas: atividades no intervalo.'}

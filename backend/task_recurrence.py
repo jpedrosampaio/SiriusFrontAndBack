@@ -40,18 +40,3 @@ def expand_task_dates(task, start, end):
             result.append(current.isoformat())
         current += timedelta(days=1)
     return result
-
-
-async def tasks_on_date(db, user_id, day, recurrence=None):
-    query = {'user_id': user_id, 'is_template': True}
-    if recurrence:
-        query['recurrence'] = recurrence
-    tasks = await db.tasks.find(query, {'_id': 0}).to_list(None)
-    return [task for task in tasks if expand_task_dates(task, day, day)]
-
-
-async def task_day_counts(db, user_id, day):
-    tasks = await tasks_on_date(db, user_id, day)
-    ids = [t['task_id'] for t in tasks]
-    completed = await db.task_instances.distinct('task_id', {'user_id': user_id, 'date': day, 'completed': True, 'task_id': {'$in': ids}})
-    return len(ids), len(completed)

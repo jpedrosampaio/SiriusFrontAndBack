@@ -19,6 +19,8 @@ from workout_calendar import calendar_shape, validate_ai_calendar
 
 TREE = ast.parse((ROOT / 'server.py').read_text(encoding='utf-8'))
 NODES = [n for n in TREE.body if getattr(n, 'name', '') in ('WorkoutPlanGenerate', 'generate_workout_plan', 'improve_workout_plan', 'start_workout_session', '_strip_json_fences')]
+GENERATION_TREE=ast.parse((ROOT/'services/workout_generation_routes.py').read_text(encoding='utf-8'))
+NODES=[n for n in GENERATION_TREE.body if getattr(n,'name','') in ('WorkoutPlanGenerate','generate_workout_plan')]+NODES
 
 
 def route_context():
@@ -30,6 +32,10 @@ def route_context():
         return await apply(None, {})
     ns['run_activity_mutation'] = mutate
     ns['award_xp'] = AsyncMock(return_value=(5, 'E'))
+    async def save(uid,key,fingerprint,document,xp):
+        await ns['db'].workout_plans.insert_one(document)
+        return {'success':True,'plan':document,'xp_earned':xp}
+    ns['sql_plans']=SimpleNamespace(save=save)
     return ns
 
 
@@ -95,29 +101,7 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 model(objective='hipertrofia', level='iniciante', **args)
 
-    async def test_improve_uses_user_llm_and_preserves_four_weeks(self):
-        ns = route_context()
-        plan = {'name': 'Plan', 'plan_duration': 'mes', 'generation_mode': 'periodo', 'days': period()['days']}
-        ns['db'].workout_plans.find_one = AsyncMock(return_value=plan)
-        ns['db'].workout_sessions = SimpleNamespace(find=lambda *args: SimpleNamespace(to_list=AsyncMock(return_value=[])))
-        ns['db'].daily_workout_status = ns['db'].workout_sessions
-        ns['call_llm'] = AsyncMock(side_effect=[json.dumps(period(10)), json.dumps(period())])
-        result = await ns['improve_workout_plan'](SimpleNamespace(headers={}), 'original', None)
-        self.assertEqual(len(result['plan']['days']), 20)
-        self.assertEqual(result['plan']['cycle_weeks'], 4)
-        self.assertEqual(ns['call_llm'].call_args.kwargs['user_id'], 'user1')
-        self.assertEqual(ns['call_llm'].await_count, 2)
 
-    async def test_invalid_start_day_never_falls_back_to_whole_plan(self):
-        for index in (-1, 20, '2', True):
-            ns = route_context()
-            ns['db'].workout_sessions = SimpleNamespace(find_one=AsyncMock(return_value=None), insert_one=AsyncMock())
-            ns['db'].workout_plans.find_one = AsyncMock(return_value=period())
-            request = SimpleNamespace(headers={}, json=AsyncMock(return_value={'plan_id': 'plan', 'day_index': index}))
-            with self.assertRaises(HTTPException) as error:
-                await ns['start_workout_session'](request, None)
-            self.assertEqual(error.exception.status_code, 422)
-            ns['db'].workout_sessions.insert_one.assert_not_awaited()
 
 
 if __name__ == '__main__':

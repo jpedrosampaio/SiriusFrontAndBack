@@ -40,15 +40,17 @@ def public_profile(document):
 
 
 class Credentials:
-    def __init__(self, db):
-        self.db = db
-
     async def get(self, user_id):
-        document = await self.db.users.find_one({'user_id': user_id}) or {}
+        from uuid import UUID
+        from db.session import unit_of_work
+        from db.repositories.identity import IdentityRepository
+        async with unit_of_work() as session:
+            user = await IdentityRepository(session).by_id(UUID(str(user_id)))
+            document = user.credentials if user else {}
         result = {}
         for provider in PROVIDERS:
             prefix = f'{provider}_api_key'
-            encrypted, legacy = document.get(prefix + '_encrypted'), document.get(prefix)
+            encrypted = document.get(prefix + '_encrypted')
             if encrypted:
                 encryption = cipher()
                 if encryption:
@@ -56,13 +58,17 @@ class Credentials:
                         result[provider] = encryption.decrypt(encrypted.encode()).decode()
                     except (InvalidToken, ValueError, UnicodeError):
                         pass  # Key rotation requires re-entry; never expose ciphertext/errors.
-            elif legacy:
-                result[provider] = legacy
-                if cipher():
-                    # Compare-and-set prevents migration from overwriting a concurrent edit.
-                    await self.db.users.update_one({'user_id': user_id, prefix: legacy}, {'$set': credential_fields(provider, legacy)})
         return result
 
     async def save(self, user_id, provider, value):
-        await self.db.users.update_one({'user_id': user_id}, {'$set': credential_fields(provider, value)})
-        return public_profile(await self.db.users.find_one({'user_id': user_id}) or {})
+        from uuid import UUID
+        from db.session import unit_of_work
+        from db.repositories.identity import IdentityRepository
+        from services.auth import public_user
+        values = credential_fields(provider,value)
+        async with unit_of_work() as session:
+            user = await IdentityRepository(session).by_id(UUID(str(user_id)),lock=True)
+            if user is None: raise HTTPException(404,'User not found')
+            user.credentials = {**user.credentials,**values}
+            await session.flush()
+            return public_user(user)
