@@ -195,7 +195,7 @@ async def finish(source,page=None,documents=(),error=None):
                     baseline=not bool(previous or row.content_hash),partial=page.partial or bool(previous and previous.partial))
                 document_metadata=[{k:item.get(k) for k in ('url','title','document_type','hash')} for item in page.documents[:300]]
                 if previous and 'documents' in previous.details:
-                    old={d['hash']:d for d in previous.details['documents']};new={d['hash']:d for d in document_metadata}
+                    old={d['url']:d for d in previous.details['documents']};new={d['url']:d for d in document_metadata}
                     comparison['document_links_added']=[new[key] for key in sorted(new.keys()-old.keys())][:20]
                     comparison['document_links_removed']=[old[key] for key in sorted(old.keys()-new.keys())][:20]
                     comparison['partial']=comparison['partial'] or len(new.keys()-old.keys())>20 or len(old.keys()-new.keys())>20
@@ -208,13 +208,15 @@ async def finish(source,page=None,documents=(),error=None):
                         documents.insert(0,{'title':'Alteração detectada na página acompanhada','url':row.url,
                             'document_type':'page_change','hash':page.content_hash,'hash_basis':page.hash_basis,
                             'published_at':None,'official':row.trust=='OFFICIAL','source_type':row.trust,'changes':comparison})
+                dates=official_dates(page.text,official=row.trust=='OFFICIAL')
                 version=ContestSourceVersion(user_id=uid,source_id=sid,previous_id=previous.id if previous else None,
                     claim_token=identity(source['lease']),content_hash=page.content_hash,hash_basis=page.hash_basis,
                     snapshot_text=page.text[:200000],partial=page.partial,official=row.trust=='OFFICIAL',detected_at=now,
                     details={'title':row.title,'url':row.url,'source_kind':row.source_kind,'etag':page.etag,
-                        'last_modified':page.modified,'original_available':False,'documents':document_metadata},
+                        'last_modified':page.modified,'original_available':False,'documents':document_metadata,
+                        'date_analysis':{'limit':100,'partial':page.partial or len(dates)>=100}},
                     impact=comparison,
-                    dates=official_dates(page.text,official=row.trust=='OFFICIAL'))
+                    dates=dates)
                 session.add(version);await session.flush();version_id=version.id
             for item in documents:
                 values={key:item.get(key) for key in ('title','url','document_url','document_type','hash_basis','source_type','official','published_at','changes','text_extraction','text_partial')}

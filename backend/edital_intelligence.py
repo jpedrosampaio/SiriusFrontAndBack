@@ -62,7 +62,7 @@ def official_dates(text, *, official):
     """
     if not official: return []
     results = []
-    for line in text.splitlines()[:3000]:
+    for line in text[:200000].splitlines():
         folded = normalized(line)
         labels = [kind for kind, terms in EVENTS if any(term in folded for term in terms)]
         if len(labels) != 1: continue

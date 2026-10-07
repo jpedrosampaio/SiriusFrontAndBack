@@ -12,6 +12,8 @@ PR28 initial/current review identified four P2s: HTML link replacement hash, imm
 
 CI on 693117d passed PostgreSQL196 plus6 mocked YouTube and regression/security/unit; targeted preparation/radar browsers pass all5 widths. Second review added P2 PDF separators causing text truncation without document partial flag; fixed using one shared joined-length flag, with a mocked four-page boundary fixture. Legacy timestamps are explicitly labeled unconfirmed observations in latest/history cards. A fresh complete CI/review is required for the new head; migration/merge/production deployment remain pending.
 
+Third review on65da482 added two P2s: PDF hash revisions falsely interpreted as link replacement, and silently omitting date lines beyond3000. Link identity now uses stable URLs; date scan covers all retained text, with an explicit 100-candidate cap/partial notice. PDF same-link and a valid date after3500 lines are regression-tested. All seven findings are addressed; new-head CI/review remains required. No production migration or merge.
+
 ## 2026-10-07 — Sirius POS 3.0 / Phase 2 Preparation Core
 
 Current branch `feat/preparation-core-3` from main a0c0e35b82fa4bdb3cfedfb378cb3da4c6463724. Phase 1 is complete: PR26 merged as that SHA, all three main workflows successful; Vercel Production and Northflank siriusfrontandback deployed that merge, public live/ready/frontend/CORS HTTP200. Authenticated production import remains a manual user check. No migration in phase 1 or phase 2; Alembic head 84d2a71ef309.

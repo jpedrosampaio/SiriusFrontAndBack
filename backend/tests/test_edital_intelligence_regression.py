@@ -16,6 +16,7 @@ class EdictIntelligenceTests(unittest.TestCase):
         self.assertEqual([r['date'] for r in rows], ['2027-02-01', '2027-02-28'])
         self.assertTrue(all(r['requires_confirmation'] and r['provenance'] == 'extracted' for r in rows))
         self.assertEqual(official_dates('Resultado: 3 de março de 2027',official=True)[0]['date'],'2027-03-03')
+        self.assertEqual(official_dates('Texto\n'*3500+'Resultado: 03/03/2027',official=True)[0]['date'],'2027-03-03')
 
     def test_diff_is_explicitly_inferred_without_plan_mutation_or_fake_minutes(self):
         result = impact('Peso 1\nDisciplina A', 'Peso 2\nDisciplina B')

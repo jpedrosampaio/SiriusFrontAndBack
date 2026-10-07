@@ -37,6 +37,7 @@ export default function EdictRadar({ programId, refresh }) {
         {v.impact.syllabus_impact?.status === 'review_required' && <p className="text-xs text-amber-300 mt-2">Confira se o edital verticalizado precisa de atualização.</p>}
         {v.impact.plan_impact?.status === 'review_required' && <p className="text-xs text-slate-400 mt-2">Revise o efeito no plano; o cronograma não foi recalculado.</p>}
         {v.partial && <p className="text-amber-300 text-xs mt-2">Extração parcial; confira o documento completo.</p>}
+        {v.details.date_analysis?.partial && <p className="text-amber-300 text-xs mt-2">Análise de datas parcial ou limitada a 100 candidatos; confira a fonte completa.</p>}
         <Button variant="ghost" disabled={loading} onClick={() => showHistory(data.sources.find(s => s.source_id === v.source_id))}>Ver histórico</Button>
       </article>)}</div>
       {data.latest_versions.length === 0 && <p className="text-sm text-slate-400">O histórico começa na primeira consulta concluída.</p>}

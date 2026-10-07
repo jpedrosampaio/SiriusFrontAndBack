@@ -88,6 +88,8 @@ class ContestTracking(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([d['date'] for d in radar['dates']],['2027-02-02'])
         self.assertEqual(radar['dates'][0]['hash'],'hash2');self.assertEqual(radar['dates'][0]['url'],source['url'])
         self.assertEqual(radar['latest_versions'][0]['hash_basis'],'document_bytes')
+        self.assertEqual(radar['latest_versions'][0]['impact']['document_links_added'],[])
+        self.assertEqual(radar['latest_versions'][0]['impact']['document_links_removed'],[])
 
     async def test_reactivated_source_uses_immutable_partial_prior_and_preserves_success(self):
         source=await self.add();sid=source['source_id']
