@@ -21,6 +21,7 @@ const concurso = { nome: 'Tribunal de Justiça · Concurso 2026', orgao: 'Tribun
 const cargo = { nome: 'Analista Judiciário — Área Judiciária', vagas: 'Cadastro reserva', remuneracao: 'R$ 8.829,24', escolaridade: 'Graduação em Direito', disciplinas: disciplines, disciplinas_status: 'completo' };
 const program = { program_id: 'demo', area_id: 'area1', name: 'TJ · Analista Judiciário', source_type: 'edital_import', target_date: '2026-11-08', edital_data: { concurso, cargo_selecionado: cargo, pdf_filename: 'edital-demonstracao.pdf' } };
 const fixtures = {
+  '/api/study/v2/programs/demo/state': require('./preparation-fixture.cjs'),
   '/api/auth/me': user,
   '/api/ai/status': { flags: { dry_run: true }, providers: { gemini: { has_key: false }, groq: { has_key: false } }, capabilities: { rag: 'lexical' }, internal_requests_today: 0, internal_daily_limit: 200 },
   '/api/ai/preferences': { profile: 'balanced', automations: false, quiet_start: 22, quiet_end: 8, daily_cap: 3, blocked_tools: [] },
