@@ -167,18 +167,23 @@ export default function Tasks() {
     if (saving) return;
     const duration = newTask.duration_minutes === '' ? null : Number(newTask.duration_minutes);
     if (duration !== null && (!Number.isInteger(duration) || duration < 5 || duration > 720)) { toast.error('Duração deve ser entre 5 e 720 minutos.'); return; }
+    const body = { ...newTask, scheduled_time: newTask.scheduled_time || null, duration_minutes: duration };
+    const resource = editing ? `edit-${editing}` : 'create-task';
+    const requestKey = activityRequests.current.begin(resource, JSON.stringify(body));
+    if (!requestKey) return;
+    let succeeded = false;
     setSaving(true);
     try {
-      const body = { ...newTask, scheduled_time: newTask.scheduled_time || null, duration_minutes: duration };
-      await axios({ method: editing ? 'put' : 'post', url: editing ? `${API}/tasks/${editing}` : `${API}/tasks`, data: body, withCredentials: true, timeout: 20000 });
-      toast.success("Tarefa criada!");
+      await axios({ method: editing ? 'put' : 'post', url: editing ? `${API}/tasks/${editing}` : `${API}/tasks`, data: body, withCredentials: true, timeout: 20000, headers: { 'Idempotency-Key': requestKey } });
+      succeeded = true;
+      toast.success(editing ? 'Tarefa atualizada!' : 'Tarefa criada!');
       setNewTask({ title: "", description: "", priority: "medium", recurrence: "once", scheduled_time: "", duration_minutes: "", date: selectedDate });
       setOpen(false); setEditing(null);
       fetchTasks();
       fetchUser();
     } catch (error) {
       toast.error("Erro ao salvar tarefa. Os campos foram preservados.");
-    } finally { setSaving(false); }
+    } finally { activityRequests.current.finish(resource, succeeded); setSaving(false); }
   };
 
   const handleToggleTask = async (task) => {
