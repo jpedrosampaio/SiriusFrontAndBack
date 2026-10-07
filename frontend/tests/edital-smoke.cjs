@@ -19,7 +19,8 @@ for(const width of [1440,1024,768,390,320])for(const mode of ['direct','backgrou
   if(p==='/api/study/programs/analyze-edital'){directPosts++;if(failDirect){failDirect=false;return r.abort('failed');}pendingDirect=r;return;}
   if(p==='/api/study/programs/editais/a1'){analysisGets++;return respond(r,analysis);}
   if(p==='/api/study/programs/import-edital-with-cargo'){created=r.request().postDataJSON();return respond(r,{success:true,program:{program_id:'p1',name:'Created program'},disciplinas:[],concurso:analysis.concurso,message:'Created'});}
-  if(p==='/api/study/programs/editais')return respond(r,{editais:[]});
+  if(p==='/api/study/programs/editais')return respond(r,{editais:[{analysis_id:'a1',concurso:analysis.concurso,pdf_filename:filename,num_cargos:3}]});
+  if(p==='/api/study/programs/editais/a1/cargos/0'&&m==='PUT'){const body=r.request().postDataJSON();assert.equal(body.revision,analysis.revision||0);analysis.revision=(analysis.revision||0)+1;analysis.cargos[0]={...analysis.cargos[0],disciplinas:body.disciplinas};return respond(r,{cargos:analysis.cargos,revision:analysis.revision});}
   if(p==='/api/study/v2/today')return respond(r,{});
   if(p.includes('stats')||p.includes('streak'))return respond(r,{});
   return respond(r,[]);
@@ -40,11 +41,12 @@ for(const width of [1440,1024,768,390,320])for(const mode of ['direct','backgrou
   page.once('dialog',d=>d.dismiss());await page.keyboard.press('Escape');assert.equal(await modal.isVisible(),true);
   await respond(pendingDirect,analysis);pendingDirect=null;
  }
+ if(mode==='direct'&&width===1440){await page.getByRole('button',{name:'Revisar e corrigir disciplinas',exact:true}).click();await page.getByRole('textbox',{name:/^Disciplina/}).fill('Corrected subject');await page.getByRole('button',{name:'Salvar revis\u00e3o',exact:true}).click();await page.getByText('Corrected subject',{exact:true}).waitFor();await page.getByRole('button',{name:'Meus estudos',exact:true}).click();await page.getByRole('button',{name:'Prepara\u00e7\u00f5es',exact:true}).click();await page.getByRole('button',{name:'Editais analisados',exact:true}).click();await page.getByRole('button',{name:'Visualizar an\u00e1lise',exact:false}).click();await page.getByText('Corrected subject',{exact:true}).waitFor();assert.equal(analysisGets,1);await page.getByRole('button',{name:'Revisar e corrigir disciplinas',exact:true}).click();await page.getByRole('textbox',{name:/^Disciplina/}).fill('Revised again');await page.getByRole('button',{name:'Salvar revis\u00e3o',exact:true}).click();await page.getByText('Revised again',{exact:true}).waitFor();assert.equal(analysis.revision,2);}
  await page.getByLabel('Cargo / especialidade',{exact:true}).waitFor();await page.getByLabel('Cargo / especialidade',{exact:true}).selectOption('1');const create=page.getByRole('button',{name:'Gerar programa para este cargo',exact:true});assert.equal(await create.isDisabled(),true);
  await page.getByLabel('Cargo / especialidade',{exact:true}).selectOption('2');await page.getByRole('combobox',{name:/\u00c1rea de estudos/}).selectOption('area1');await page.getByLabel('Data da prova / meta',{exact:true}).fill('2026-12-01');await page.getByRole('combobox',{name:/Horas por dia/}).selectOption('2');await page.getByRole('combobox',{name:/Dias por semana/}).selectOption('4');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);fs.mkdirSync('test-results',{recursive:true});await page.screenshot({path:`test-results/edital-${mode}-${width}.png`,fullPage:true});
  await create.click();await page.getByRole('heading',{name:'Programa Criado com Sucesso!',exact:true}).waitFor();assert.equal(created.cargo_index,2);assert.equal(created.hours_per_day,2);assert.equal(created.days_per_week,4);assert.equal(created.target_date,'2026-12-01');assert.equal(created.area_id,'area1');
- if(mode==='direct'){assert.equal(jobPosts,0);assert.equal(analysisGets,0);}if(mode==='fallback')assert.equal(jobPosts,1);
+ if(mode==='direct'){assert.equal(jobPosts,0);assert.equal(analysisGets,width===1440?1:0);}if(mode==='fallback')assert.equal(jobPosts,1);
  assert.deepEqual(errors,[]);console.log(JSON.stringify({width,mode,jobGets,directPosts,jobPosts,analysisGets,selectedCargo:created.cargo_index,overflow:false}));await context.close();
 }
 }finally{await browser.close();server.close();}})().catch(e=>{console.error(e);process.exitCode=1;server.close();});

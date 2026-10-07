@@ -229,6 +229,10 @@ export default function Studies() {
 
   // Multi-cargo edital
   const [editalAnalysis, setEditalAnalysis] = useState(null);
+  const activeAnalysisId = workspaceParams.get('analysis');
+  useEffect(() => {
+    if (editalAnalysis && activeAnalysisId !== editalAnalysis.analysis_id) setEditalAnalysis(null);
+  }, [activeAnalysisId, editalAnalysis]);
 
   // ========== EDITAL: LIST / COMPARE / CHAT (itens 4 e 6) ==========
   const [showCompareEditais, setShowCompareEditais] = useState(false);
@@ -697,12 +701,16 @@ export default function Studies() {
   const openAnalyzedEdital = analysis => {
     setEditalAnalysis(analysis);
     setSelectedCargoIndex(0);
-    setShowCargoSelection(true);
+    setShowCargoSelection(false);
     setEditalForceReanalyze(false);
     setWorkspaceParams({ analysis: analysis.analysis_id });
   };
 
   // ========== EDITAL: LIST / COMPARE / CHAT handlers ==========
+  const openSavedEdital = analysis => {
+    setEditalAnalysis(null);
+    setWorkspaceParams({ analysis });
+  };
 
   const refreshEditaisList = async () => {
     setEditaisLoading(true);
@@ -1090,7 +1098,7 @@ export default function Studies() {
     return <EditalAnalysisWorkspace user={user} api={API} analysisId={workspaceParams.get("analysis") || editalAnalysis?.analysis_id}
       initialAnalysis={editalAnalysis} areas={areas} defaultAreaId={selectedArea?.area_id} form={editalForm} onFormChange={setEditalForm}
       creating={creatingFromCargo} onCreate={handleCreateFromCargo}
-      onBack={() => { setWorkspaceParams({}); setShowCargoSelection(false); }}
+      onBack={() => { setEditalAnalysis(null); setWorkspaceParams({}); setShowCargoSelection(false); }}
       onReanalyze={() => { setWorkspaceParams({}); setShowCargoSelection(false); setActiveTab("programas"); setEditalForceReanalyze(true); setShowEditalDialog(true); }} />;
   }
   if (user && workspaceParams.get("program")) {
@@ -1143,7 +1151,7 @@ export default function Studies() {
           </Card>
         )}
 
-        {['dashboard', 'editais'].includes(activeTab) && <EditalJobs api={API} onOpen={id => { setEditalAnalysis(null); setWorkspaceParams({ analysis: id }); }} onRetry={() => setShowEditalDialog(true)} />}
+        {['dashboard', 'editais'].includes(activeTab) && <EditalJobs api={API} onOpen={openSavedEdital} onRetry={() => setShowEditalDialog(true)} />}
         {/* Breadcrumb */}
         {(selectedArea || selectedProgram || selectedNotebook) && (
           <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
@@ -1179,7 +1187,7 @@ export default function Studies() {
                       initialForce={editalForceReanalyze} onAnalyzed={openAnalyzedEdital} onQueued={() => { setEditalForceReanalyze(false); setActiveTab('editais'); }} />
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <StudiesNavigation active={activeTab} onChange={setActiveTab} />
-          <TabsContent value="library"><StudyLibrary programs={programs} onManage={() => setActiveTab('materias')} onAnalysis={analysis => setWorkspaceParams({ analysis })} onNotebook={item => { const notebook = notebooks.find(n => n.notebook_id === item?.notebook_id); if (notebook) { setSelectedArea(areas.find(a => a.area_id === notebook.area_id) || null); setSelectedProgram(programs.find(p => p.program_id === notebook.program_id) || null); navigateToNotebook(notebook); } }} /></TabsContent>
+          <TabsContent value="library"><StudyLibrary programs={programs} onManage={() => setActiveTab('materias')} onAnalysis={openSavedEdital} onNotebook={item => { const notebook = notebooks.find(n => n.notebook_id === item?.notebook_id); if (notebook) { setSelectedArea(areas.find(a => a.area_id === notebook.area_id) || null); setSelectedProgram(programs.find(p => p.program_id === notebook.program_id) || null); navigateToNotebook(notebook); } }} /></TabsContent>
           <TabsContent value="preparacoes"><StudyTargets onOpen={t => setWorkspaceParams({ program: t.program_id, view: 'edital' })} onImport={() => setShowEditalDialog(true)} onCreated={fetchAllData} /></TabsContent>
           <TabsContent value="desempenho"><MasteryDashboard onStudy={openStudySession} /></TabsContent>
 
@@ -1195,7 +1203,7 @@ export default function Studies() {
               <div><h2 className="text-xl font-semibold">Meus editais</h2><p className="text-sm text-[#A1A1AA] mt-1">Abra a análise, confira o cargo e organize seu plano de estudos.</p></div>
               <div className="flex gap-2"><Button variant="outline" disabled={editaisLoading} onClick={refreshEditaisList}>Atualizar</Button><Button onClick={() => { setActiveTab("programas"); setShowEditalDialog(true); }}>Analisar novo edital</Button></div>
             </div>
-            {editaisLoading ? <Loader2 className="animate-spin mx-auto my-10" /> : editaisList.length === 0 ? <p className="rounded-xl border border-[#27272A] p-6 text-[#A1A1AA]">Nenhuma análise salva. Comece enviando um edital em PDF.</p> : <div className="grid gap-4 md:grid-cols-2">{editaisList.map(edital => <article key={edital.analysis_id} className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><span className="text-xs text-purple-300">EDITAL ANALISADO</span><h3 className="font-semibold">{edital.concurso?.nome || edital.pdf_filename}</h3><p className="text-sm text-[#A1A1AA]">{edital.concurso?.banca || 'Banca não informada'} · {edital.num_cargos} cargos</p><p className="text-xs text-[#71717A] break-words">{edital.pdf_filename}</p><Button variant="outline" onClick={() => setWorkspaceParams({ analysis: edital.analysis_id })}>Visualizar análise<ChevronRight className="w-4 h-4 ml-2" /></Button></article>)}</div>}
+            {editaisLoading ? <Loader2 className="animate-spin mx-auto my-10" /> : editaisList.length === 0 ? <p className="rounded-xl border border-[#27272A] p-6 text-[#A1A1AA]">Nenhuma análise salva. Comece enviando um edital em PDF.</p> : <div className="grid gap-4 md:grid-cols-2">{editaisList.map(edital => <article key={edital.analysis_id} className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><span className="text-xs text-purple-300">EDITAL ANALISADO</span><h3 className="font-semibold">{edital.concurso?.nome || edital.pdf_filename}</h3><p className="text-sm text-[#A1A1AA]">{edital.concurso?.banca || 'Banca não informada'} · {edital.num_cargos} cargos</p><p className="text-xs text-[#71717A] break-words">{edital.pdf_filename}</p><Button variant="outline" onClick={() => openSavedEdital(edital.analysis_id)}>Visualizar análise<ChevronRight className="w-4 h-4 ml-2" /></Button></article>)}</div>}
           </TabsContent>
 
           {/* ========== PROGRAMAS TAB ========== */}
