@@ -142,7 +142,7 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
       if (status && status >= 400 && status < 500 && ![408, 429].includes(status)) {
         setAttempt(null); writeSaved(namespace, { index, drafts, attempt: null });
       }
-      setError(getApiErrorMessage(failure, 'Não foi possível confirmar a série. Seus dados estão preservados. Tente novamente.'));
+      setError(!operation ? failure.message : getApiErrorMessage(failure, 'Não foi possível confirmar a série. Seus dados estão preservados. Tente novamente.'));
     } finally { busy.current = false; }
   };
   const loadHistory = async () => {
