@@ -21,6 +21,7 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
   const [error, setError] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const started = useRef(0), controller = useRef(null), inFlight = useRef(false);
+  const fileInput = useRef(null);
   useEffect(() => { if (open) setForce(!!initialForce); }, [open, initialForce]);
   useEffect(() => {
     if (!open) return;
@@ -59,6 +60,7 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
     if (selected && !selected.name.toLowerCase().endsWith('.pdf')) { setError('Selecione um PDF válido.'); return; }
     if (selected?.size > 20 * 1024 * 1024) { setError('O PDF deve ter no máximo 20 MB.'); return; }
     setFile(selected || null);
+    if (!selected && fileInput.current) fileInput.current.value = '';
   };
   const submit = async event => {
     event.preventDefault();
@@ -105,7 +107,7 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
   return <Dialog open={open} onOpenChange={close}><DialogContent className="bg-[#101014] border-slate-700 w-[calc(100vw-24px)] max-w-lg max-h-[calc(100dvh-24px)] overflow-y-auto text-white">
     <DialogHeader><DialogTitle className="flex gap-2 items-center"><FileText size={20} className="text-purple-300" />Analisar edital</DialogTitle><DialogDescription>O Sirius identificará o concurso, cargos, disciplinas e conteúdo programático. Depois você escolhe o cargo e configura seu plano.</DialogDescription></DialogHeader>
     <form onSubmit={submit} className="space-y-5 min-w-0">
-      <label className="block rounded-xl border border-dashed border-slate-600 bg-slate-900/50 p-5 cursor-pointer"><span className="block font-medium text-sm">PDF do Edital *</span><Upload size={26} className="text-purple-300 my-3" /><span className="block text-sm text-slate-300 [overflow-wrap:anywhere]">{file?.name || 'Selecione o PDF do edital'}</span><span className="block text-xs text-slate-400 mt-2">Máximo 20 MB</span><input aria-label="PDF do Edital" type="file" accept=".pdf,application/pdf" className="block mt-3 w-full min-w-0 text-xs file:mr-2 file:rounded-lg file:border-0 file:bg-slate-700 file:p-2 file:text-white" disabled={busy} onChange={e => choose(e.target.files?.[0])} /></label>
+      <label className="block rounded-xl border border-dashed border-slate-600 bg-slate-900/50 p-5 cursor-pointer"><span className="block font-medium text-sm">PDF do Edital *</span><Upload size={26} className="text-purple-300 my-3" /><span className="block text-sm text-slate-300 [overflow-wrap:anywhere]">{file?.name || 'Selecione o PDF do edital'}</span><span className="block text-xs text-slate-400 mt-2">Máximo 20 MB</span><input ref={fileInput} aria-label="PDF do Edital" type="file" accept=".pdf,application/pdf" className="block mt-3 w-full min-w-0 text-xs file:mr-2 file:rounded-lg file:border-0 file:bg-slate-700 file:p-2 file:text-white" disabled={busy} onChange={e => choose(e.target.files?.[0])} /></label>
       {file && <Button type="button" variant="ghost" disabled={busy} onClick={() => choose(null)}>Remover PDF selecionado</Button>}
       <p className="text-xs text-slate-400">Pesos e número de questões serão apresentados quando houver evidência. Trechos incompletos ficam marcados para conferência.</p>
       <details><summary className="cursor-pointer py-3 text-sm text-slate-300">Opções avançadas</summary><label className="flex gap-3 items-start text-sm text-slate-300 py-2"><input type="checkbox" checked={force} disabled={busy} onChange={e => setForce(e.target.checked)} className="mt-1 accent-purple-400" /><span>Reanalisar PDF e ignorar análise salva</span></label></details>
