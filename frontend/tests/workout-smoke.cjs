@@ -124,7 +124,6 @@ const server = http.createServer((req, res) => {
           await page.getByText('Supino demonstrado', { exact: true }).waitFor();
           assert.equal(requests.filter(p => p.includes('tutorial-videos')).length, 1);
           await tutorial.click();
-          await page.getByRole('button', { name: 'Registrar série de Agachamento com halteres', exact: true }).click();
           await page.getByLabel('Carga da série', { exact: true }).fill('25');
           await page.getByLabel('Repetições da série', { exact: true }).fill('10');
           await page.getByLabel('Esforço percebido da série (RPE)', { exact: true }).fill('7');
@@ -134,8 +133,8 @@ const server = http.createServer((req, res) => {
           await page.getByRole('button', { name: '2. Retomar treino', exact: true }).click();
           assert.equal(await page.getByLabel('Carga da série', { exact: true }).inputValue(), '25');
           assert.equal(await page.getByLabel('Repetições da série', { exact: true }).inputValue(), '10');
-          await page.getByRole('button', { name: 'Salvar série', exact: true }).click();
-          await page.waitForFunction(() => !document.querySelector('input[aria-label="Carga da série"]'));
+          await page.getByRole('button', { name: 'Concluir série', exact: true }).click();
+          await page.getByText('Próxima: série 2 de 3 · 25 kg · 12 reps', { exact: true }).waitFor();
           assert.equal(activeWorkout.exercises[0].sets_completed, 1);
           await page.screenshot({ path: path.join(output, `active-rest-${width}.png`), fullPage: true });
         }
