@@ -72,6 +72,13 @@ class PreparationStateTests(unittest.IsolatedAsyncioTestCase):
         archived=self.ok(await self.http.get(self.base+'/state'))
         self.assertIsNone(archived['mastery']['score'])
         self.assertEqual(archived['performance']['questions'],101)
+        self.ok(await self.http.delete('/api/study/notebooks/'+self.nid))
+        with patch('services.studies_v2_routes.local_today',return_value=today):
+            hidden=self.ok(await self.http.get(self.base+'/state'))
+        self.assertEqual(hidden['study_debt']['overdue_blocks'],0)
+        self.assertEqual(hidden['required_pace']['minutes_per_week'],0)
+        self.assertIsNone(hidden['candidate_model']['consistency'])
+        self.assertIsNone(hidden['next_session'])
 
     async def test_primary_is_single_replay_safe_and_preserves_preferences(self):
         from db.models.identity import User
@@ -114,7 +121,8 @@ class PreparationStateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_flashcard_and_exam_activity_do_not_invent_individual_mastery(self):
         from db.models.studies import Flashcard, FlashcardReview, StudyNote
-        from db.models.exams import Exam, ExamAttempt
+        from db.models.exams import Exam, ExamAttempt, Question
+        from db.models.studies import QuestionAttempt
         now=datetime.now(timezone.utc)
         async with unit_of_work() as session:
             card=Flashcard(user_id=self.uid,notebook_id=UUID(self.nid),deck_name='Deck',front='Front',back='Back',next_review=date(2026,1,1))
@@ -123,8 +131,14 @@ class PreparationStateTests(unittest.IsolatedAsyncioTestCase):
             session.add(FlashcardReview(user_id=self.uid,flashcard_id=card.id,reviewed_at=now,quality=5))
             session.add(ExamAttempt(user_id=self.uid,exam_id=exam.id,completed_at=now,duration_seconds=60,score=100,scoring_version='test',result_details={}))
             session.add(StudyNote(user_id=self.uid,notebook_id=UUID(self.nid),title='Note',content='Not returned by this projection'))
+            blank=Question(user_id=self.uid,notebook_id=UUID(self.nid),statement='Blank answer',question_type='manual',source='manual')
+            session.add(blank); await session.flush()
+            session.add(QuestionAttempt(user_id=self.uid,notebook_id=UUID(self.nid),question_id=blank.id,total=1,correct=0,
+                source='simulado',answered_at=now,evidence={'answered':False}))
         state=self.ok(await self.http.get(self.base+'/state'))
         self.assertIsNone(state['mastery']['score'])
+        self.assertEqual(state['performance'],{'questions':0,'correct':0,'accuracy':None})
+        self.assertIsNone(next(c for c in state['health']['components'] if c['key']=='questions')['value'])
         self.assertEqual(state['reviews_due']['flashcards'],1)
         self.assertEqual({r['kind'] for r in state['evidence_ledger']},{'flashcard','exam'})
         self.assertTrue(all(not r['affects_mastery'] for r in state['evidence_ledger']))

@@ -43,6 +43,7 @@ async def preparation_state(session, uid, program, zone, today):
         StudyPlan.user_id == uid, StudyPlan.program_id == program.id))
     entries = list((await session.scalars(select(StudyPlanEntry).where(
         StudyPlanEntry.user_id == uid, StudyPlanEntry.plan_id == plan.id,
+        StudyPlanEntry.notebook_id.in_(ids),
         StudyPlanEntry.date.between(today-timedelta(days=27), today+timedelta(days=6)))
         .order_by(StudyPlanEntry.date, StudyPlanEntry.id).limit(LIMIT+1))).all()) if plan else []
     truncated |= len(entries) > LIMIT; entries = entries[:LIMIT]
@@ -52,7 +53,8 @@ async def preparation_state(session, uid, program, zone, today):
         .order_by(StudyPlanEntry.date, StudyPlanEntry.id).limit(1)) if plan else None
     question_totals = (await session.execute(select(func.coalesce(func.sum(QuestionAttempt.total), 0),
         func.coalesce(func.sum(QuestionAttempt.correct), 0)).where(
-        QuestionAttempt.user_id == uid, QuestionAttempt.notebook_id.in_(ids)))).one()
+        QuestionAttempt.user_id == uid, QuestionAttempt.notebook_id.in_(ids),
+        func.coalesce(QuestionAttempt.evidence['answered'].as_boolean(), True)))).one()
     card_reviews = (await session.execute(select(FlashcardReview, Flashcard.notebook_id)
         .join(Flashcard, (Flashcard.id == FlashcardReview.flashcard_id) &
             (Flashcard.user_id == FlashcardReview.user_id)).where(
