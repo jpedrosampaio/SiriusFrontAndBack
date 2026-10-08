@@ -184,6 +184,7 @@ export default function Studies() {
   const [currentSimulado, setCurrentSimulado] = useState(null);
   const [simuladoMode, setSimuladoMode] = useState(null); // null, "taking", "results", "viewing"
   const [simuladoAnswers, setSimuladoAnswers] = useState({});
+  const [simuladoEvidence, setSimuladoEvidence] = useState({});
   const [simuladoCurrentQ, setSimuladoCurrentQ] = useState(0);
   const [simuladoMarked, setSimuladoMarked] = useState(new Set());
   const [simuladoTimer, setSimuladoTimer] = useState(0);
@@ -477,6 +478,7 @@ export default function Studies() {
       setCurrentSimulado(res.data);
       simuladoSubmitKey.current = crypto.randomUUID();
       setSimuladoAnswers({});
+      setSimuladoEvidence({});
       setSimuladoCurrentQ(0);
       setSimuladoMarked(new Set());
       setSimuladoTimer(0);
@@ -494,7 +496,7 @@ export default function Studies() {
     setSimuladoTimerRunning(false);
     try {
       const answersArr = Object.entries(simuladoAnswers).map(([idx, ans]) => ({
-        question_idx: parseInt(idx), selected_answer: ans
+        question_idx: parseInt(idx), selected_answer: ans, confidence: simuladoEvidence[idx]?.confidence || null, changed_answer: simuladoEvidence[idx]?.changed_answer ?? null
       }));
       const res = await axios.post(`${API}/study/simulados/${currentSimulado.simulado_id}/submit`, {
         answers: answersArr, time_spent_seconds: simuladoTimer
@@ -543,6 +545,7 @@ export default function Studies() {
     setSimuladoMode(null);
     setSimuladoResult(null);
     setSimuladoAnswers({});
+      setSimuladoEvidence({});
     setSimuladoCurrentQ(0);
     setSimuladoMarked(new Set());
     setSimuladoTimer(0);
@@ -1849,7 +1852,7 @@ export default function Studies() {
 
           {/* ========== SIMULADOS TAB ========== */}
           <TabsContent value="simulados" className="space-y-4">
-<Suspense fallback={<p role="status">Carregando...</p>}><StudiesSimuladosTab simuladoMode={simuladoMode} currentSimulado={currentSimulado} handleExitSimulado={handleExitSimulado} simuladoCurrentQ={simuladoCurrentQ} formatTimer={formatTimer} simuladoTimer={simuladoTimer} simuladoAnswers={simuladoAnswers} simuladoMarked={simuladoMarked} setSimuladoMarked={setSimuladoMarked} setSimuladoAnswers={setSimuladoAnswers} setSimuladoCurrentQ={setSimuladoCurrentQ} handleSubmitSimulado={handleSubmitSimulado} simuladoSubmitting={simuladoSubmitting} showGabarito={showGabarito} setShowGabarito={setShowGabarito} handleStartSimulado={handleStartSimulado} simuladoResult={simuladoResult} setShowSimuladoStatsView={setShowSimuladoStatsView} showSimuladoStatsView={showSimuladoStatsView} showImportPdfDialog={showImportPdfDialog} setShowImportPdfDialog={setShowImportPdfDialog} setImportFile={setImportFile} importForm={importForm} setImportForm={setImportForm} handleImportPdf={handleImportPdf} simuladoImporting={simuladoImporting} importFile={importFile} showGenerateDialog={showGenerateDialog} setShowGenerateDialog={setShowGenerateDialog} generateForm={generateForm} setGenerateForm={setGenerateForm} handleGenerateSimulado={handleGenerateSimulado} simuladoGenerating={simuladoGenerating} simuladoStats={simuladoStats} simulados={simulados} handleDeleteSimulado={handleDeleteSimulado} handleViewSimulado={handleViewSimulado} handleViewResults={handleViewResults} /></Suspense>
+<Suspense fallback={<p role="status">Carregando...</p>}><StudiesSimuladosTab simuladoMode={simuladoMode} currentSimulado={currentSimulado} handleExitSimulado={handleExitSimulado} simuladoCurrentQ={simuladoCurrentQ} formatTimer={formatTimer} simuladoTimer={simuladoTimer} simuladoAnswers={simuladoAnswers} simuladoMarked={simuladoMarked} setSimuladoMarked={setSimuladoMarked} simuladoEvidence={simuladoEvidence} setSimuladoEvidence={setSimuladoEvidence} setSimuladoAnswers={next => { setSimuladoEvidence(current => { const updated = { ...current }; for (const [idx, answer] of Object.entries(next)) if (simuladoAnswers[idx] != null && simuladoAnswers[idx] !== answer) updated[idx] = { ...updated[idx], changed_answer: true }; return updated; }); setSimuladoAnswers(next); }} setSimuladoCurrentQ={setSimuladoCurrentQ} handleSubmitSimulado={handleSubmitSimulado} simuladoSubmitting={simuladoSubmitting} showGabarito={showGabarito} setShowGabarito={setShowGabarito} handleStartSimulado={handleStartSimulado} simuladoResult={simuladoResult} setShowSimuladoStatsView={setShowSimuladoStatsView} showSimuladoStatsView={showSimuladoStatsView} showImportPdfDialog={showImportPdfDialog} setShowImportPdfDialog={setShowImportPdfDialog} setImportFile={setImportFile} importForm={importForm} setImportForm={setImportForm} handleImportPdf={handleImportPdf} simuladoImporting={simuladoImporting} importFile={importFile} showGenerateDialog={showGenerateDialog} setShowGenerateDialog={setShowGenerateDialog} generateForm={generateForm} setGenerateForm={setGenerateForm} handleGenerateSimulado={handleGenerateSimulado} simuladoGenerating={simuladoGenerating} simuladoStats={simuladoStats} simulados={simulados} handleDeleteSimulado={handleDeleteSimulado} handleViewSimulado={handleViewSimulado} handleViewResults={handleViewResults} /></Suspense>
 </TabsContent>
 
           {/* ========== FOCO TAB ========== */}

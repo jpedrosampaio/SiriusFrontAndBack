@@ -1,3 +1,4 @@
+from db.study_attempts import answered_attempt
 from datetime import date, datetime, timezone
 from sqlalchemy import func, select
 from db.models.studies import Notebook, QuestionAttempt, StudySession, StudyTopic, ReviewEvent, FlashcardReview
@@ -37,7 +38,7 @@ class StudiesRepository:
             .where(StudySession.user_id == user_id,StudySession.notebook_id.in_(notebooks),StudySession.completed.is_(True)))
         total,correct = (await self.session.execute(select(func.coalesce(func.sum(QuestionAttempt.total),0),
             func.coalesce(func.sum(QuestionAttempt.correct),0)).where(QuestionAttempt.user_id == user_id,
-            QuestionAttempt.notebook_id.in_(notebooks)))).one()
+            QuestionAttempt.notebook_id.in_(notebooks),answered_attempt()))).one()
         return {'studied_minutes':minutes,'total_questions':total,'correct_questions':correct,
             'accuracy':round(correct/total*100,1) if total else None}
 

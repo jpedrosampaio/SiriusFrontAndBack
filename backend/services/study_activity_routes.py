@@ -1,3 +1,4 @@
+from db.study_attempts import answered_attempt
 from datetime import date as Date,datetime,timezone,timedelta
 from uuid import UUID
 from typing import Literal
@@ -120,7 +121,7 @@ async def questions_log(request: Request,body: QuestionsBody):
 @router.get('/questions/stats')
 async def question_stats(request: Request,notebook_id: UUID | None = None,program_id: UUID | None = None):
     user=await account(request); uid=UUID(user['user_id']); today=local_today(user['timezone'])
-    conditions=[QuestionAttempt.user_id==uid]
+    conditions=[QuestionAttempt.user_id==uid,answered_attempt()]
     if notebook_id: conditions.append(QuestionAttempt.notebook_id==notebook_id)
     if program_id: conditions.append(QuestionAttempt.notebook_id.in_(select(Notebook.id).where(Notebook.user_id==uid,Notebook.program_id==program_id)))
     total=func.coalesce(func.sum(QuestionAttempt.total),0); correct=func.coalesce(func.sum(QuestionAttempt.correct),0)
@@ -179,7 +180,9 @@ async def streak_summary(session,uid,zone):
     days=select(StudySession.date.label('day')).where(StudySession.user_id==uid,StudySession.completed.is_(True))
     other=[select(StudyTaskCheck.date.label('day')).where(StudyTaskCheck.user_id==uid)]
     for model,column in ((QuestionAttempt,QuestionAttempt.answered_at),(ReviewEvent,ReviewEvent.reviewed_at),(FlashcardReview,FlashcardReview.reviewed_at)):
-        other.append(select(func.timezone(zone,column).cast(SQLDate).label('day')).where(model.user_id==uid))
+        query=select(func.timezone(zone,column).cast(SQLDate).label('day')).where(model.user_id==uid)
+        if model is QuestionAttempt:query=query.where(answered_attempt())
+        other.append(query)
     union=days.union(*other).subquery()
     dates=(await session.scalars(select(union.c.day).where(union.c.day<=today).order_by(union.c.day))).all()
     current,best=streaks(dates,today)

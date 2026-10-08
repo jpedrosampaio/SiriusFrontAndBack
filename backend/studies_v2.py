@@ -12,7 +12,8 @@ from fastapi import APIRouter, Cookie, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from study_mastery import mastery, adaptive_review
 
-ERROR_REASONS = Literal['unknown', 'forgot', 'interpretation', 'attention', 'concepts', 'calculation', 'legislation', 'other']
+ERROR_REASONS = Literal['unknown', 'forgot', 'interpretation', 'attention', 'concepts', 'calculation', 'legislation', 'other',
+    'knowledge_gap','concept_confusion','memory','time_management']
 
 
 class TargetInput(BaseModel):
@@ -42,6 +43,10 @@ class AttemptInput(BaseModel):
     question_id: Optional[str] = Field(default=None, max_length=100)
     error_reason: Optional[ERROR_REASONS] = None
     difficulty: Optional[Literal['easy', 'medium', 'hard']] = None
+    confidence: Optional[Literal['guess','uncertain','confident']] = None
+    skipped: StrictBool = False
+    changed_answer: Optional[StrictBool] = None
+    internal_question_id: Optional[str] = Field(default=None,max_length=100)
 
 
 class ErrorUpdate(BaseModel):

@@ -81,12 +81,18 @@ class RuntimeStudiesV2(unittest.IsolatedAsyncioTestCase):
             session.add(exam); await session.flush()
             for index in range(3):
                 question=Question(user_id=self.uid,notebook_id=UUID(self.nid),statement=f'Question {index}',question_type='multipla_escolha',
-                    source='manual',options=['A','B'],correct_answer='A',provenance={'disciplina':'Português'})
+                    source='ai_generated',options=['A','B'],correct_answer='A',provenance={'disciplina':'Português'})
                 session.add(question); await session.flush()
                 session.add(ExamQuestion(user_id=self.uid,exam_id=exam.id,question_id=question.id,position=index))
         result=self.ok(await self.http.post(url+'/simulado',json=payload,headers=headers))
         self.assertEqual(result['questions_count'],2)
         self.assertTrue(all(q['weight']==3 for q in result['questions']))
+        self.assertTrue(all(q['origin']=='ai_generated' for q in result['questions']))
+        self.assertTrue(all(q['generated_by_ai'] for q in result['questions']))
+        from services.exam_catalog import details
+        async with unit_of_work() as session:
+            stored=await details(session,self.uid,UUID(result['simulado_id']))
+            self.assertTrue(all(q['generated_by_ai'] for q in stored['questions']))
         self.assertTrue(self.ok(await self.http.post(url+'/simulado',json=payload,headers=headers))['replayed'])
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(ExamQuestion).where(ExamQuestion.user_id==self.uid,

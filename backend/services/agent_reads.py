@@ -13,6 +13,7 @@ from db.models.identity import User
 from db.models.planning import Habit, HabitCheck, Goal, CalendarEvent
 from db.models.finance import FinancialTransaction, Budget
 from db.models.studies import Notebook, StudyProgram, StudyTopic, StudySession, QuestionAttempt, ReviewEvent, StudyPlan, StudyPlanEntry
+from db.study_attempts import answered_attempt
 from db.models.health import WorkoutPlan, WorkoutDay, WorkoutLog
 from db.models.files import FileRecord, EditalAnalysis
 from db.repositories.planning import PlanningRepository
@@ -111,7 +112,7 @@ async def read(name, user_id):
         if name == 'get_wrong_questions':
             latest = select(ReviewEvent).where(ReviewEvent.user_id == uid).distinct(ReviewEvent.topic_id).order_by(
                 ReviewEvent.topic_id, ReviewEvent.reviewed_at.desc(), ReviewEvent.id.desc()).subquery()
-            attempts = select(QuestionAttempt).where(QuestionAttempt.user_id == uid).distinct(QuestionAttempt.topic_id).order_by(
+            attempts = select(QuestionAttempt).where(QuestionAttempt.user_id == uid,answered_attempt()).distinct(QuestionAttempt.topic_id).order_by(
                 QuestionAttempt.topic_id, QuestionAttempt.answered_at.desc(), QuestionAttempt.id.desc()).subquery()
             rows = (await session.execute(select(StudyTopic, Notebook.program_id, latest.c.next_review, attempts.c.total, attempts.c.correct)
                 .join(Notebook, (Notebook.id == StudyTopic.notebook_id) & (Notebook.user_id == StudyTopic.user_id))

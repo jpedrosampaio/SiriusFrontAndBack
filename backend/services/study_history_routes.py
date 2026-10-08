@@ -1,3 +1,4 @@
+from db.study_attempts import answered_attempt
 """Owned lesson lookup and batched study history from normalized facts."""
 import os
 from collections import defaultdict
@@ -39,7 +40,7 @@ async def history(request: Request,program_id: UUID,days: int=Query(30,ge=1,le=3
         day=func.timezone(user['timezone'],QuestionAttempt.answered_at).cast(Date)
         questions=(await session.execute(select(day,QuestionAttempt.notebook_id,func.sum(QuestionAttempt.total),func.sum(QuestionAttempt.correct))
             .where(QuestionAttempt.user_id==uid,QuestionAttempt.notebook_id.in_(ids),QuestionAttempt.answered_at>=lower,
-                QuestionAttempt.answered_at<upper).group_by(day,QuestionAttempt.notebook_id))).all()
+                QuestionAttempt.answered_at<upper,answered_attempt()).group_by(day,QuestionAttempt.notebook_id))).all()
         minutes=(await session.execute(select(StudySession.date,StudySession.notebook_id,func.sum(StudySession.duration_minutes))
             .where(StudySession.user_id==uid,StudySession.notebook_id.in_(ids),StudySession.completed.is_(True),
                 StudySession.date>=start,StudySession.date<=today).group_by(StudySession.date,StudySession.notebook_id))).all()

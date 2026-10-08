@@ -27,6 +27,15 @@ async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key,kind=
             'weight':weight,'question_number':q.provenance.get('question_number',index+1),
             'disciplina':q.provenance.get('disciplina'),'subdisciplina':q.provenance.get('subdisciplina')} for index,(q,weight) in enumerate(pairs)]
         result = grade(questions,answers)
+        metadata={}
+        for item in answers:
+            confidence=item.get('confidence');changed=item.get('changed_answer');seconds=item.get('seconds')
+            if confidence not in (None,'guess','uncertain','confident') or (changed is not None and type(changed) is not bool) or (seconds is not None and (type(seconds) is not int or not 0<=seconds<=86400)):
+                raise HTTPException(422,'Metadados da resposta inválidos.')
+            metadata[item['question_idx']]={'confidence':confidence,'changed_answer':changed,'seconds':seconds}
+        for answer in result['answers']:
+            answer.update(metadata.get(answer['question_idx'],{'confidence':None,'changed_answer':None,'seconds':None}))
+            answer['skipped']=not answer['answered']
         previous = await repo.latest_attempt(user.id,exam_id)
         now = datetime.now(timezone.utc)
         row = ExamAttempt(user_id=user.id,exam_id=exam_id,completed_at=now,duration_seconds=duration_seconds,
@@ -41,7 +50,9 @@ async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key,kind=
             session.add(QuestionAttempt(user_id=user.id,notebook_id=question.notebook_id,topic_id=question.topic_id,
                 question_id=question.id,exam_attempt_id=row.id,source=kind,answered_at=now,total=1,
                 correct=int(answer['is_correct']),answer=answer['selected_answer'],
+                duration_seconds=answer['seconds'],
                 evidence={'answered':answer['answered'],'weight':answer['weight'],'board':exam.provenance.get('banca'),
+                    'confidence':answer['confidence'],'changed_answer':answer['changed_answer'],'skipped':answer['skipped'],
                     'exam':exam.title,'external_question_id':str(question.id)}))
             linked += int(bool(question.topic_id and answer['answered']))
             if question.topic_id and answer['answered']: reviewed_topics.add((question.notebook_id,question.topic_id))

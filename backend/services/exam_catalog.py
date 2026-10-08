@@ -11,6 +11,7 @@ from db.repositories.exams import ExamRepository
 from services.studies_catalog import owned,public
 from services.planning import apply_xp
 from study_resources import positive_number
+from question_intelligence import question_origin,provider_for_source
 
 
 def identity(value):
@@ -47,7 +48,10 @@ def exam_json(exam):
 
 
 def question_json(question,weight,index,topic_key=None):
+    provider=provider_for_source(question.source)
+    origin=provider.origin(question.provenance) if provider else question_origin(question.source,question.provenance)
     return {**question.provenance,'question_id':str(question.id),'question_number':question.provenance.get('question_number',index+1),
+        'provider':provider.name if provider else 'unknown','origin':origin,'generated_by_ai':origin=='ai_generated',
         'question_text':question.statement,'options':question.options,'correct_answer':question.correct_answer,
         'explanation':question.explanation or '', 'type':question.question_type,'weight':weight,
         'notebook_id':str(question.notebook_id) if question.notebook_id else None,'topic_key':topic_key}
@@ -80,7 +84,7 @@ async def create_in_session(session,user,document,questions,xp=0,kind="simulado"
             statement=str(data['question_text']),question_type=data.get('type') or document.get('question_type','multipla_escolha'),
             options=data.get('options') or [],correct_answer=str(data['correct_answer']),explanation=data.get('explanation'),
             source=document.get('source_type','manual'),provenance={k:data[k] for k in
-                ('question_number','texto_base','disciplina','subdisciplina','difficulty','provenance') if k in data})
+                ('question_number','texto_base','disciplina','subdisciplina','difficulty','provenance','provider','source_context','validation_level') if k in data})
         session.add(question); await session.flush()
         session.add(ExamQuestion(user_id=user.id,exam_id=exam.id,question_id=question.id,position=index,weight=weight))
         values.append(question_json(question,weight,index,topic.topic_key if topic else None))

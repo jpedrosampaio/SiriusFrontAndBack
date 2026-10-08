@@ -1,3 +1,4 @@
+from db.study_attempts import answered_attempt
 from datetime import date,datetime,time,timedelta,timezone
 from collections import defaultdict
 from uuid import UUID,uuid4
@@ -57,7 +58,7 @@ async def learning_summary(request: Request,notebook_id: UUID):
     async with unit_of_work() as session:
         await owned(session,Notebook,uid,notebook_id)
         total,correct=(await session.execute(select(func.coalesce(func.sum(QuestionAttempt.total),0),func.coalesce(func.sum(QuestionAttempt.correct),0))
-            .where(QuestionAttempt.user_id==uid,QuestionAttempt.notebook_id==notebook_id))).one()
+            .where(QuestionAttempt.user_id==uid,QuestionAttempt.notebook_id==notebook_id,answered_attempt()))).one()
     return {'answered':total,'correct':correct,'accuracy':round(correct/total*100,1) if total else None}
 
 
@@ -86,7 +87,7 @@ async def reviews(request: Request,notebook_id: UUID):
     async with unit_of_work() as session:
         notebook=await owned(session,Notebook,uid,notebook_id)
         latest=select(ReviewEvent).where(ReviewEvent.user_id==uid).distinct(ReviewEvent.topic_id).order_by(ReviewEvent.topic_id,ReviewEvent.reviewed_at.desc(),ReviewEvent.id.desc()).subquery()
-        attempts=select(QuestionAttempt).where(QuestionAttempt.user_id==uid,QuestionAttempt.notebook_id==notebook_id).distinct(QuestionAttempt.topic_id)
+        attempts=select(QuestionAttempt).where(QuestionAttempt.user_id==uid,QuestionAttempt.notebook_id==notebook_id,answered_attempt()).distinct(QuestionAttempt.topic_id)
         attempts=attempts.order_by(QuestionAttempt.topic_id,QuestionAttempt.answered_at.desc(),QuestionAttempt.id.desc()).subquery()
         rows=(await session.execute(select(StudyTopic.topic_key,StudyTopic.name,latest.c.next_review,latest.c.reviewed_at,attempts.c.total,attempts.c.correct)
             .join(latest,(latest.c.topic_id==StudyTopic.id)&(latest.c.user_id==StudyTopic.user_id))
@@ -151,7 +152,7 @@ async def plan_create(request: Request,program_id: UUID,body: PlanSettings):
             overdue={str(row.notebook_id) for row in previous if not row.completed and row.date<body.start_date}
             notebook_ids=[UUID(row['notebook_id']) for row in notebooks]
             evidence=(await session.scalars(select(QuestionAttempt).where(QuestionAttempt.user_id==user.id,
-                QuestionAttempt.notebook_id.in_(notebook_ids),QuestionAttempt.total==1).order_by(QuestionAttempt.answered_at.desc()).limit(5000))).all()
+                QuestionAttempt.notebook_id.in_(notebook_ids),QuestionAttempt.total==1,QuestionAttempt.question_id.is_not(None),answered_attempt()).order_by(QuestionAttempt.answered_at.desc()).limit(5000))).all()
             grouped=defaultdict(list)
             for row in evidence: grouped[str(row.notebook_id)].append({'correct':bool(row.correct),'date':row.answered_at.astimezone(ZoneInfo(user.timezone)).date().isoformat()})
             estimates={key:mastery(rows,today) for key,rows in grouped.items()}
