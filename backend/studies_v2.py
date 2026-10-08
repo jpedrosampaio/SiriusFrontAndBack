@@ -6,7 +6,7 @@ copying notebooks, schedules or edital content.
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
-from uuid import uuid4
+from uuid import uuid4,UUID
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Cookie, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
@@ -58,6 +58,16 @@ class BlueprintInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     title: str = Field(min_length=1, max_length=180)
     duration_minutes: int = Field(ge=1, le=600)
+    mode: Literal['edital','discipline','topics','weak','quick'] = 'edital'
+    notebook_ids: list[UUID] = Field(default_factory=list,max_length=100)
+    topic_ids: list[UUID] = Field(default_factory=list,max_length=100)
+    num_questions: int = Field(default=20,ge=1,le=200)
+    confirm_provisional: bool = False
+    wrong_penalty: float = Field(default=0,ge=0,le=100,allow_inf_nan=False)
+    blank_penalty: float = Field(default=0,ge=0,le=100,allow_inf_nan=False)
+    scoring_source: str = Field(default='',max_length=500)
+    scoring_excerpt: str = Field(default='',max_length=2000)
+    confirm_scoring_source: bool = False
 
 
 def topic_title(notebook, key):

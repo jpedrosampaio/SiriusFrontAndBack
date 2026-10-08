@@ -348,7 +348,11 @@ async def blueprint_get(request: Request,program_id: UUID):
     user=await account(request); uid=UUID(user['user_id'])
     async with unit_of_work() as session:
         await owned(session,StudyProgram,uid,program_id)
-        return blueprint(await catalog_notebooks(session,uid,program_id=program_id))
+        books=await catalog_notebooks(session,uid,program_id=program_id)
+        topics=(await session.scalars(select(StudyTopic).where(StudyTopic.user_id==uid,
+            StudyTopic.notebook_id.in_([UUID(n['notebook_id']) for n in books]),StudyTopic.archived_at.is_(None)).order_by(StudyTopic.id).limit(2001))).all()
+        return {**blueprint(books),'disciplines':[{'id':n['notebook_id'],'name':n['name']} for n in books],
+            'topics':[{'id':str(t.id),'name':t.name,'notebook_id':str(t.notebook_id)} for t in topics[:2000]],'topics_truncated':len(topics)>2000}
 
 
 @router.post('/programs/{program_id}/blueprint/simulado')
@@ -358,40 +362,74 @@ async def blueprint_create(request: Request,program_id: UUID,body: BlueprintInpu
     async def apply(session,user):
         program=await owned(session,StudyProgram,user.id,program_id)
         notebooks=await catalog_notebooks(session,user.id,program_id=program_id); plan=blueprint(notebooks)
-        if not plan['complete'] or not 1<=plan['total']<=200: raise HTTPException(422,'Distribuição incompleta ou fora do limite de 1 a 200 questões. Confira a análise do edital.')
+        if (body.wrong_penalty or body.blank_penalty) and not (body.confirm_scoring_source and body.scoring_source.strip() and body.scoring_excerpt.strip()):
+            raise HTTPException(422,'Penalização exige fonte, trecho e confirmação explícita. Nome da banca não basta.')
+        if body.mode=='edital' and (not plan['complete'] or not 1<=plan['total']<=200): raise HTTPException(422,'Distribuição incompleta ou fora do limite de 1 a 200 questões. Confira a análise do edital.')
+        book_ids={UUID(n['notebook_id']) for n in notebooks}
+        if not set(body.notebook_ids)<=book_ids:raise HTTPException(422,'Disciplina fora da preparação.')
+        active_topics=(await session.scalars(select(StudyTopic).where(StudyTopic.user_id==user.id,
+            StudyTopic.notebook_id.in_(book_ids),StudyTopic.archived_at.is_(None)))).all()
+        if not set(body.topic_ids)<={t.id for t in active_topics}:raise HTTPException(422,'Assunto fora da preparação.')
+        if body.mode=='discipline' and not body.notebook_ids:raise HTTPException(422,'Selecione uma disciplina.')
+        if body.mode=='topics' and not body.topic_ids:raise HTTPException(422,'Selecione assuntos.')
+        if body.mode=='edital' and not body.confirm_provisional and any(r['provenance']=='unverified' or r['weight_status'] not in ('extraido_com_fonte','ajustado_pelo_usuario') for r in plan['distribution']):
+            raise HTTPException(422,'Confirme os dados provisórios para usá-los como configuração de prática, sem afirmar regras oficiais.')
         rows=(await session.execute(select(ExamQuestion,Question,Exam,StudyTopic).join(Exam,
             (Exam.id==ExamQuestion.exam_id)&(Exam.user_id==ExamQuestion.user_id)).join(Question,
             (Question.id==ExamQuestion.question_id)&(Question.user_id==ExamQuestion.user_id)).outerjoin(StudyTopic,
             (StudyTopic.id==Question.topic_id)&(StudyTopic.user_id==Question.user_id))
-            .where(ExamQuestion.user_id==user.id,Exam.program_id==program_id,Exam.archived_at.is_(None)).order_by(Exam.id,ExamQuestion.position))).all()
+            .where(ExamQuestion.user_id==user.id,Exam.program_id==program_id,Exam.archived_at.is_(None),
+                or_(Question.notebook_id.is_(None),Question.notebook_id.in_(book_ids)),
+                or_(Question.topic_id.is_(None),StudyTopic.archived_at.is_(None)))
+            .distinct(Question.id).order_by(Question.id,Exam.id,ExamQuestion.position).limit(10001))).all()
+        if len(rows)>10000:raise HTTPException(422,'Banco acima do limite de montagem; selecione uma preparação menor.')
         exams={}
         names={row['notebook_id']:row['name'] for row in notebooks}
         for link,q,exam,topic in rows:
             doc=exams.setdefault(str(exam.id),{'simulado_id':str(exam.id),'questions':[]})
-            doc['questions'].append({'question_text':q.statement,'question_type':q.question_type,'options':q.options,
+            doc['questions'].append({'question_id':str(q.id),'topic_id':str(q.topic_id) if q.topic_id else None,'question_text':q.statement,'question_type':q.question_type,'options':q.options,
                 'source_type':q.source,'origin':question_origin(q.source,q.provenance),
                 **{key:q.provenance[key] for key in ('official_evidence_verified','provider','source_context','validation_level') if key in q.provenance},
                 'generated_by_ai':question_origin(q.source,q.provenance)=='ai_generated',
                 'correct_answer':q.correct_answer,'explanation':q.explanation,'disciplina':q.provenance.get('disciplina') or names.get(str(q.notebook_id),''),
                 'notebook_id':str(q.notebook_id) if q.notebook_id else None,'topic_key':topic.topic_key if topic else None})
-        selected=assemble(plan['distribution'],list(exams.values()),request.headers['Idempotency-Key'])
-        exam=Exam(user_id=user.id,program_id=program_id,area_id=program.area_id,title=body.title,description='Montado com questões existentes conforme a distribuição extraída do edital.',
+        if body.mode=='edital':
+            selected=assemble(plan['distribution'],list(exams.values()),request.headers['Idempotency-Key'])
+        else:
+            import random
+            candidates={q['question_id']:q for e in exams.values() for q in e['questions'] if q.get('correct_answer')}
+            pool=list(candidates.values())
+            if body.mode=='discipline':pool=[q for q in pool if q['notebook_id'] and UUID(q['notebook_id']) in body.notebook_ids]
+            if body.mode=='topics':pool=[q for q in pool if q['topic_id'] and UUID(q['topic_id']) in body.topic_ids]
+            random.Random(request.headers['Idempotency-Key']).shuffle(pool)
+            if body.mode=='weak':
+                from adaptive_strategy import strategy_summary
+                state=await preparation_state(session,user.id,program,user.timezone,local_today(user.timezone))
+                order={c['id']:i for i,c in enumerate(strategy_summary(state,local_today(user.timezone))['candidates'])}
+                pool=[q for q in pool if q['topic_id'] in order]
+                pool.sort(key=lambda q:order[q['topic_id']])
+            count=min(body.num_questions,10) if body.mode=='quick' else body.num_questions
+            if len(pool)<count:raise HTTPException(422,f'Necessárias {count} questões com gabarito no recorte; disponíveis {len(pool)}.')
+            selected=[{**q,'question_number':i+1,'weight':1} for i,q in enumerate(pool[:count])]
+            plan={'mode':body.mode,'total':count,'complete':True,'official_rules_available':False,
+                'notice':'Prática com quantidade e duração definidas pelo usuário; peso uniforme, sem penalização.'}
+        plan['mode']=body.mode
+        plan['provisional_confirmed']=body.confirm_provisional
+        plan['scoring']={'version':'sourced_weighted_v2' if body.wrong_penalty or body.blank_penalty else 'all_questions_weighted_v1',
+            'wrong_penalty':body.wrong_penalty,'blank_penalty':body.blank_penalty,
+            'source':body.scoring_source,'excerpt':body.scoring_excerpt,
+            'confirmation':'user_confirmed_source' if body.confirm_scoring_source else 'practice_default',
+            'notice':'Fonte conferida pelo usuário, não verificada oficialmente pelo Sirius. Percentual exibido tem piso zero; pontos líquidos preservam valores negativos.'}
+
+        exam=Exam(user_id=user.id,program_id=program_id,area_id=program.area_id,title=body.title,description='Prática montada com questões existentes; consulte a configuração e suas fontes.',
             kind='simulado',status='ready',duration_minutes=body.duration_minutes,blueprint=plan,provenance={'source_type':'edital_blueprint','duration_provenance':'user_provided','question_type':'misto'})
         session.add(exam); await session.flush()
         for index,values in enumerate(selected):
-            topic=None
-            if values.get('topic_key'):
-                topic=await session.scalar(select(StudyTopic).where(StudyTopic.user_id==user.id,StudyTopic.notebook_id==UUID(values['notebook_id']),
-                    StudyTopic.topic_key==values['topic_key'],StudyTopic.archived_at.is_(None)))
-            if topic is None: values.pop('topic_key',None)
-            question=Question(user_id=user.id,notebook_id=UUID(values['notebook_id']),topic_id=topic.id if topic else None,
-                statement=values['question_text'],question_type=values.get('question_type','multipla_escolha'),options=values.get('options',[]),
-                correct_answer=values.get('correct_answer'),explanation=values.get('explanation'),source=values.get('source_type','edital_blueprint'),
-                provenance={key:values[key] for key in ('disciplina','source_simulado_id','source_question_index','generated_by_ai','official_evidence_verified','provider','source_context','validation_level') if key in values})
-            session.add(question); await session.flush()
-            session.add(ExamQuestion(user_id=user.id,exam_id=exam.id,question_id=question.id,position=index,weight=values['weight']))
+            # Link the canonical question; redo/error recovery must preserve its identity.
+            session.add(ExamQuestion(user_id=user.id,exam_id=exam.id,question_id=UUID(values['question_id']),position=index,weight=values['weight']))
+        await session.flush()
         return {'simulado_id':str(exam.id),'user_id':str(user.id),'program_id':str(program_id),'area_id':str(program.area_id),
             'title':exam.title,'description':exam.description,'source_type':'edital_blueprint','questions':selected,'total_questions':len(selected),
             'questions_count':len(selected),'question_type':'misto','status':'ready','duration_minutes':body.duration_minutes,
             'duration_provenance':'user_provided','blueprint':plan,'created_at':exam.created_at.isoformat()}
-    return await mutate(request,['blueprint-simulado',str(program_id),body.model_dump()],apply)
+    return await mutate(request,['blueprint-simulado',str(program_id),body.model_dump(mode='json')],apply)

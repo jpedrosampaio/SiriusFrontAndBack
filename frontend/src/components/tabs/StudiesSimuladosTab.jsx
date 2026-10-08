@@ -1,3 +1,5 @@
+import ExamPostMortem from '@/components/studies/ExamPostMortem';
+import ExamRunner from '@/components/studies/ExamRunner';
 import { questionOriginLabel } from '@/lib/question-origin';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,134 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 import { Progress } from "@/components/ui/progress";
 
-import { BookOpen, Trash2, ChevronRight, Loader2, RotateCcw, CheckCircle2, XCircle, Sparkles, Play, Timer, Lightbulb, Repeat, ArrowLeft, BarChart3, Zap, TrendingUp, Upload, ListChecks, ClipboardList, Eye, EyeOff, ChevronLeft, CircleDot, Flag, StopCircle } from "lucide-react";
+import { BookOpen, Trash2, Loader2, RotateCcw, CheckCircle2, XCircle, Sparkles, Play, Lightbulb, Repeat, ArrowLeft, BarChart3, Zap, TrendingUp, Upload, ListChecks, ClipboardList, Eye, EyeOff, CircleDot } from "lucide-react";
 
-export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, handleExitSimulado, simuladoCurrentQ, formatTimer, simuladoTimer, simuladoAnswers, simuladoEvidence, setSimuladoEvidence, simuladoMarked, setSimuladoMarked, setSimuladoAnswers, setSimuladoCurrentQ, handleSubmitSimulado, simuladoSubmitting, showGabarito, setShowGabarito, handleStartSimulado, simuladoResult, setShowSimuladoStatsView, showSimuladoStatsView, showImportPdfDialog, setShowImportPdfDialog, setImportFile, importForm, setImportForm, handleImportPdf, simuladoImporting, importFile, showGenerateDialog, setShowGenerateDialog, generateForm, setGenerateForm, handleGenerateSimulado, simuladoGenerating, simuladoStats, simulados, handleDeleteSimulado, handleViewSimulado, handleViewResults }) {
+export default function StudiesSimuladosTab({ handleExecutionComplete, handleReviewErrors, simuladoMode, currentSimulado, handleExitSimulado, simuladoCurrentQ, formatTimer, simuladoEvidence, setSimuladoEvidence, simuladoMarked, setSimuladoMarked, setSimuladoAnswers, setSimuladoCurrentQ, handleSubmitSimulado, simuladoSubmitting, showGabarito, setShowGabarito, handleStartSimulado, simuladoResult, setShowSimuladoStatsView, showSimuladoStatsView, showImportPdfDialog, setShowImportPdfDialog, setImportFile, importForm, setImportForm, handleImportPdf, simuladoImporting, importFile, showGenerateDialog, setShowGenerateDialog, generateForm, setGenerateForm, handleGenerateSimulado, simuladoGenerating, simuladoStats, simulados, handleDeleteSimulado, handleViewSimulado, handleViewResults }) {
  return <>
             {simuladoMode === "taking" && currentSimulado ? (
               /* TAKING SIMULADO VIEW */
-              <div className="space-y-4">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="icon" onClick={() => { if (window.confirm("Deseja sair do simulado? Seu progresso será perdido.")) handleExitSimulado(); }}>
-                      <ArrowLeft className="w-5 h-5" />
-                    </Button>
-                    <div>
-                      <h3 className="text-lg font-bold">{currentSimulado.title}</h3>
-                      <p className="text-xs text-[#A1A1AA]">
-                        {currentSimulado.banca && <span className="mr-2">{currentSimulado.banca}</span>}
-                        {currentSimulado.disciplina && <span className="mr-2">• {currentSimulado.disciplina}</span>}
-                        Questão {simuladoCurrentQ + 1} de {currentSimulado.questions?.length || 0}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline" className="text-[#00F0FF] border-[#00F0FF] font-mono text-base px-3 py-1">
-                      <Timer className="w-4 h-4 mr-1" />{formatTimer(simuladoTimer)}
-                      {currentSimulado.duration_minutes && <span className="ml-2 text-xs">/ {currentSimulado.duration_minutes} min {simuladoTimer >= currentSimulado.duration_minutes * 60 ? '· tempo previsto esgotado' : ''}</span>}
-                    </Badge>
-                    <Badge variant="outline" className="text-green-400 border-green-400">
-                      {Object.keys(simuladoAnswers).length}/{currentSimulado.questions?.length || 0}
-                    </Badge>
-                  </div>
-                </div>
-
-                {/* Question */}
-                {currentSimulado.questions && currentSimulado.questions[simuladoCurrentQ] && (
-                  <Card className="bg-[#0A0A0A] border-[#27272A]">
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <Badge className={`${simuladoMarked.has(simuladoCurrentQ) ? 'bg-yellow-500/20 text-yellow-400' : 'bg-[#1A1A2E] text-[#A1A1AA]'}`}>
-                          Questão {currentSimulado.questions[simuladoCurrentQ].question_number || simuladoCurrentQ + 1}
-                          {currentSimulado.questions[simuladoCurrentQ].disciplina && ` • ${currentSimulado.questions[simuladoCurrentQ].disciplina}`}
-                        </Badge>
-                        <Button variant="ghost" size="sm" onClick={() => {
-                          const newMarked = new Set(simuladoMarked);
-                          if (newMarked.has(simuladoCurrentQ)) newMarked.delete(simuladoCurrentQ);
-                          else newMarked.add(simuladoCurrentQ);
-                          setSimuladoMarked(newMarked);
-                        }} className={simuladoMarked.has(simuladoCurrentQ) ? "text-yellow-400" : "text-[#A1A1AA]"}>
-                          <Flag className="w-4 h-4 mr-1" />{simuladoMarked.has(simuladoCurrentQ) ? "Marcada" : "Marcar"}
-                        </Button>
-                      </div>
-
-                      {/* Texto Base / Texto de Apoio */}
-                      {currentSimulado.questions[simuladoCurrentQ].texto_base && (
-                        <div className="mb-5 p-4 rounded-lg bg-[#121212] border border-[#27272A] border-l-4 border-l-[#007AFF]">
-                          <p className="text-xs text-[#007AFF] font-semibold uppercase tracking-wide mb-2 flex items-center gap-1">
-                            <BookOpen className="w-3 h-3" />Texto Base
-                          </p>
-                          <p className="text-[#D4D4D8] text-sm leading-relaxed whitespace-pre-wrap">
-                            {currentSimulado.questions[simuladoCurrentQ].texto_base}
-                          </p>
-                        </div>
-                      )}
-
-                      <p className="text-white text-base leading-relaxed mb-6 whitespace-pre-wrap">
-                        {currentSimulado.questions[simuladoCurrentQ].question_text}
-                        <span className="block text-xs text-slate-400 mt-2">{questionOriginLabel(currentSimulado.questions[simuladoCurrentQ].origin)}</span>
-                      </p>
-
-                      <label className="block text-sm text-slate-400 mb-4">Confiança na resposta (opcional)<select aria-label="Confiança na questão" className="block w-full bg-slate-900 p-2 rounded mt-2" value={simuladoEvidence?.[simuladoCurrentQ]?.confidence || ''} onChange={e => setSimuladoEvidence(current => ({ ...current, [simuladoCurrentQ]: { ...current[simuladoCurrentQ], confidence: e.target.value || null } }))}><option value="">Não informar</option><option value="guess">Chute</option><option value="uncertain">Incerto</option><option value="confident">Confiante</option></select></label>
-                      <div className="space-y-3">
-                        {(currentSimulado.questions[simuladoCurrentQ].options || []).map((opt, optIdx) => {
-                          const letter = opt.match(/^([A-E]\))/)?.[1]?.replace(")", "") || (currentSimulado.questions[simuladoCurrentQ].type === "certo_errado" ? opt : String.fromCharCode(65 + optIdx));
-                          const isSelected = simuladoAnswers[simuladoCurrentQ] === letter;
-                          return (
-                            <button key={optIdx} onClick={() => setSimuladoAnswers({ ...simuladoAnswers, [simuladoCurrentQ]: letter })}
-                              className={`w-full text-left p-4 rounded-lg border transition-all ${isSelected ? 'border-[#007AFF] bg-[#007AFF]/10 text-white' : 'border-[#27272A] bg-[#121212] text-[#A1A1AA] hover:border-[#3F3F46]'}`}>
-                              <span className={`font-bold mr-3 ${isSelected ? 'text-[#007AFF]' : ''}`}>{letter})</span>
-                              {opt.replace(/^[A-E]\)\s*/, "")}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Navigation */}
-                <div className="flex items-center justify-between">
-                  <Button variant="outline" onClick={() => setSimuladoCurrentQ(Math.max(0, simuladoCurrentQ - 1))} disabled={simuladoCurrentQ === 0}
-                    className="border-[#27272A]"><ChevronLeft className="w-4 h-4 mr-1" />Anterior</Button>
-
-                  <div className="flex gap-1 flex-wrap justify-center max-w-md">
-                    {(currentSimulado.questions || []).map((_, idx) => (
-                      <button key={idx} onClick={() => setSimuladoCurrentQ(idx)}
-                        className={`w-8 h-8 rounded text-xs font-bold transition-all ${
-                          idx === simuladoCurrentQ ? 'bg-[#007AFF] text-white' :
-                          simuladoAnswers[idx] !== undefined ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                          simuladoMarked.has(idx) ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
-                          'bg-[#121212] text-[#A1A1AA] border border-[#27272A]'
-                        }`}>{idx + 1}</button>
-                    ))}
-                  </div>
-
-                  {simuladoCurrentQ < (currentSimulado.questions?.length || 1) - 1 ? (
-                    <Button variant="outline" onClick={() => setSimuladoCurrentQ(simuladoCurrentQ + 1)}
-                      className="border-[#27272A]">Próxima<ChevronRight className="w-4 h-4 ml-1" /></Button>
-                  ) : (
-                    <Button onClick={() => {
-                      const unanswered = (currentSimulado.questions?.length || 0) - Object.keys(simuladoAnswers).length;
-                      const msg = unanswered > 0 ? `Você tem ${unanswered} questão(ões) sem resposta. Deseja finalizar?` : "Deseja finalizar o simulado?";
-                      if (window.confirm(msg)) handleSubmitSimulado();
-                    }} className="bg-green-600 hover:bg-green-700" disabled={simuladoSubmitting}>
-                      {simuladoSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <StopCircle className="w-4 h-4 mr-1" />}
-                      Finalizar
-                    </Button>
-                  )}
-                </div>
-
-                {/* Legend */}
-                <div className="flex items-center gap-4 justify-center text-xs text-[#A1A1AA]">
-                  <span className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-[#007AFF]" />Atual</span>
-                  <span className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-green-500/20 border border-green-500/30" />Respondida</span>
-                  <span className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-yellow-500/20 border border-yellow-500/30" />Marcada</span>
-                  <span className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-[#121212] border border-[#27272A]" />Não respondida</span>
-                </div>
-              </div>
-
+              <ExamRunner key={currentSimulado.simulado_id} exam={currentSimulado} onComplete={handleExecutionComplete} onExit={handleExitSimulado} />
             ) : simuladoMode === "viewing" && currentSimulado ? (
               /* VIEWING MODE - Browse questions with option to show/hide gabarito */
               <div className="space-y-4">
@@ -291,6 +172,7 @@ export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, han
                   </Card>
                 )}
 
+                <ExamPostMortem result={simuladoResult} attempts={currentSimulado?.attempts || []} onAttempt={handleExecutionComplete} onReviewErrors={handleReviewErrors} />
                 {/* XP Earned */}
                 {simuladoResult.xp_earned > 0 && (
                   <div className="text-center py-2">

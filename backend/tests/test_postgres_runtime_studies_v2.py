@@ -74,7 +74,7 @@ class RuntimeStudiesV2(unittest.IsolatedAsyncioTestCase):
     async def test_blueprint_creates_normalized_exam_and_replays(self):
         url=f'/api/study/v2/programs/{self.pid}/blueprint'
         self.assertEqual(self.ok(await self.http.get(url))['total'],2)
-        payload={'title':'Blueprint','duration_minutes':60}; headers={'Idempotency-Key':'blueprint-once'}
+        payload={'title':'Blueprint','duration_minutes':60,'confirm_provisional':True}; headers={'Idempotency-Key':'blueprint-once'}
         self.assertEqual((await self.http.post(url+'/simulado',json=payload,headers=headers)).status_code,422)
         async with unit_of_work() as session:
             exam=Exam(user_id=self.uid,program_id=UUID(self.pid),title='Source',kind='simulado',status='ready')
@@ -93,6 +93,7 @@ class RuntimeStudiesV2(unittest.IsolatedAsyncioTestCase):
         async with unit_of_work() as session:
             stored=await details(session,self.uid,UUID(result['simulado_id']))
             self.assertTrue(all(q['generated_by_ai'] for q in stored['questions']))
+            self.assertEqual(await session.scalar(select(func.count()).select_from(Question).where(Question.user_id==self.uid)),3)
         self.assertTrue(self.ok(await self.http.post(url+'/simulado',json=payload,headers=headers))['replayed'])
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(ExamQuestion).where(ExamQuestion.user_id==self.uid,

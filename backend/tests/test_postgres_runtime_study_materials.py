@@ -61,7 +61,12 @@ class RuntimeStudyMaterials(unittest.IsolatedAsyncioTestCase):
     async def test_essay_replay_history_owner_and_atomic_failure(self):
         self.gemini.return_value=SimpleNamespace(text=json.dumps(ESSAY))
         async def submit(): return await self.http.post('/api/study/redacao/correct',files={'file':('essay.txt',b'Argumento','text/plain')},headers={'Idempotency-Key':'essay-retry-001'})
-        results=[self.ok(r) for r in await asyncio.gather(*(submit() for _ in range(4)))]
+        responses=await asyncio.gather(*(submit() for _ in range(4)))
+        self.assertTrue(all(r.status_code in (200,409) for r in responses))
+        results=[self.ok(r) for r in responses if r.status_code==200]
+        results.append(self.ok(await submit()))
+        self.assertEqual(self.gemini.await_count,1)
+        self.assertFalse(results[0]['correction']['official'])
         self.assertTrue(all({k:v for k,v in r.items() if k!='replayed'}=={k:v for k,v in results[0].items() if k!='replayed'} for r in results))
         self.assertEqual(len(self.ok(await self.http.get('/api/study/redacao/history'))),1)
         self.assertEqual(self.ok(await self.http.get('/api/study/redacao/history',headers={'Authorization':'Bearer bob'})),[])

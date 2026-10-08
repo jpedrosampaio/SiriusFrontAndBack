@@ -10,25 +10,37 @@ from simulado_scoring import grade
 from services.time import local_today
 from services.study_evidence import attempts
 from study_mastery import adaptive_review
+from services.exam_sessions import execution,validate_answers
+from exam_intelligence import post_mortem
 
 
-async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key,kind='simulado'):
+async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key,kind='simulado',session_id=None,revision=None):
     if not request_key and kind=='simulado':
         raise HTTPException(422,'Idempotency-Key obrigatório para concluir o simulado.')
     if type(duration_seconds) is not int or not 0 <= duration_seconds <= 86400:
         raise HTTPException(422,'Tempo de prova inválido.')
     async def apply(session,user):
+        submitted_answers=answers;submitted_duration=duration_seconds
         repo = ExamRepository(session)
         exam = await repo.get(user.id,exam_id)
         if exam is None or exam.kind!=kind:
             raise HTTPException(404,'Simulado não encontrado.')
         pairs = await repo.questions(user.id,exam_id)
+        active=execution(exam)
+        if session_id:
+            if not active or active['session_id']!=str(session_id) or active['status']!='active' or active['revision']!=revision:
+                raise HTTPException(409,'Execução já concluída ou alterada. Recarregue o resultado/progresso.')
+            submitted_answers=active['answers'];submitted_duration=active['elapsed_seconds']
+        elif active and active['status']=='active':
+            raise HTTPException(409,'Conclua a execução ativa com sua identidade e revisão.')
+        validate_answers(pairs,submitted_answers)
         questions = [{'question_text':q.statement,'correct_answer':q.correct_answer,'explanation':q.explanation,
             'weight':weight,'question_number':q.provenance.get('question_number',index+1),
             'disciplina':q.provenance.get('disciplina'),'subdisciplina':q.provenance.get('subdisciplina')} for index,(q,weight) in enumerate(pairs)]
-        result = grade(questions,answers)
+        rules=(exam.blueprint or {}).get('scoring',{})
+        result = grade(questions,submitted_answers,rules)
         metadata={}
-        for item in answers:
+        for item in submitted_answers:
             confidence=item.get('confidence');changed=item.get('changed_answer');seconds=item.get('seconds')
             if confidence not in (None,'guess','uncertain','confident') or (changed is not None and type(changed) is not bool) or (seconds is not None and (type(seconds) is not int or not 0<=seconds<=86400)):
                 raise HTTPException(422,'Metadados da resposta inválidos.')
@@ -36,12 +48,24 @@ async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key,kind=
         for answer in result['answers']:
             answer.update(metadata.get(answer['question_idx'],{'confidence':None,'changed_answer':None,'seconds':None}))
             answer['skipped']=not answer['answered']
+            answer['question_id']=str(pairs[answer['question_idx']][0].id)
+            answer['question_type']=pairs[answer['question_idx']][0].question_type
+        ids=[q.id for q,_ in pairs]
+        recurring=(await session.scalars(select(QuestionAttempt.question_id).where(QuestionAttempt.user_id==user.id,
+            QuestionAttempt.question_id.in_(ids),QuestionAttempt.correct==0,
+            func.coalesce(QuestionAttempt.evidence['answered'].as_boolean(),True)).distinct())).all()
+        result['post_mortem']=post_mortem(result,submitted_duration,exam.duration_minutes,[str(i) for i in recurring])
         previous = await repo.latest_attempt(user.id,exam_id)
         now = datetime.now(timezone.utc)
-        row = ExamAttempt(user_id=user.id,exam_id=exam_id,completed_at=now,duration_seconds=duration_seconds,
-            score=result['score'],scoring_version='all_questions_weighted_v1',result_details=result)
+        if session_id:
+            result['execution']={'session_id':str(session_id),'started_at':active['started_at'],
+                'completed_at':now.isoformat(),'revision':revision,'timing_basis':'declared_visible_page_interaction'}
+        row = ExamAttempt(user_id=user.id,exam_id=exam_id,completed_at=now,duration_seconds=submitted_duration,
+            score=result['score'],scoring_version=rules.get('version','all_questions_weighted_v1'),result_details=result)
         session.add(row)
         await session.flush()
+        if session_id:
+            exam.blueprint={**exam.blueprint,'execution':{**active,'status':'completed','attempt_id':str(row.id)}}
         linked = 0
         reviewed_topics=set()
         for answer in result['answers']:
@@ -73,7 +97,9 @@ async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key,kind=
         return {**row.result_details,'attempt_id':str(row.id),'simulado_id':str(exam_id),'title':exam.title,
             'program_id':str(exam.program_id) if exam.program_id else None,'banca':exam.provenance.get('banca'),
             'disciplina':exam.provenance.get('disciplina'),'concurso':exam.provenance.get('concurso'),
-            'time_spent_seconds':duration_seconds,'completed_at':now.isoformat(),
+            'time_spent_seconds':submitted_duration,'completed_at':now.isoformat(),
             'change_since_previous':round(result['score']-previous.score,1) if previous else None,
             'mastery_answers_linked':linked,'xp_earned':earned,'new_xp':user.xp}
-    return await run_activity(user_id,request_key,['submit-'+kind,str(exam_id),answers,duration_seconds],apply)
+    fingerprint=['submit-'+kind,str(exam_id),answers,duration_seconds]
+    if session_id:fingerprint.extend([str(session_id),revision])
+    return await run_activity(user_id,request_key,fingerprint,apply)

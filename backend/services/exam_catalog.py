@@ -44,7 +44,9 @@ async def validate_scope(uid,**kwargs):
 def exam_json(exam):
     return jsonable_encoder({**exam.provenance,'simulado_id':exam.id,'user_id':exam.user_id,'title':exam.title,
         'description':exam.description or '', 'area_id':exam.area_id,'program_id':exam.program_id,'notebook_id':exam.notebook_id,
-        'status':exam.status,'duration_minutes':exam.duration_minutes,'blueprint':exam.blueprint,'created_at':exam.created_at})
+        'status':exam.status,'duration_minutes':exam.duration_minutes,
+        'blueprint':{k:v for k,v in (exam.blueprint or {}).items() if k!='execution'},
+        'execution_status':(exam.blueprint or {}).get('execution',{}).get('status'),'created_at':exam.created_at})
 
 
 def question_json(question,weight,index,topic_key=None):

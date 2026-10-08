@@ -5,7 +5,10 @@ import { Badge } from "@/components/ui/badge";
 
 import { FileText, Loader2, CheckCircle2, XCircle, Sparkles, PenTool, BookMarked, Lightbulb, Zap, Upload } from "lucide-react";
 
-export default function StudiesRedacaoTab({ redacaoFile, setRedacaoFile, handleRedacaoCorrection, redacaoLoading, handleRandomTheme, themeLoading, randomTheme, showRedacaoResult, redacaoCorrection, setShowRedacaoResult, redacaoHistory, fetchRedacaoHistory, setRedacaoCorrection }) {
+export default function StudiesRedacaoTab({ essayCriteria, setEssayCriteria, essayKind, setEssayKind, redacaoFile, setRedacaoFile, handleRedacaoCorrection, redacaoLoading, handleRandomTheme, themeLoading, randomTheme, showRedacaoResult, redacaoCorrection, setShowRedacaoResult, redacaoHistory, fetchRedacaoHistory, setRedacaoCorrection }) {
+ const latest = redacaoHistory[0]?.correction;
+ const comparable = latest?.rubric_fingerprint ? redacaoHistory.filter(r => r.correction?.rubric_fingerprint === latest.rubric_fingerprint && r.correction?.nota_maxima === latest.nota_maxima) : [];
+ const delta = comparable.length > 1 ? latest.nota_geral - comparable[comparable.length - 1].correction.nota_geral : null;
  return <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Enviar Redação */}
@@ -31,6 +34,9 @@ export default function StudiesRedacaoTab({ redacaoFile, setRedacaoFile, handleR
                       </label>
                     )}
                   </div>
+                  <label className="block text-sm">Tipo<select aria-label="Tipo de texto" className="block w-full bg-slate-900 p-3 rounded-lg" disabled={redacaoLoading} value={essayKind} onChange={e => setEssayKind(e.target.value)}><option value="essay">Redação</option><option value="discursive">Discursiva</option></select></label>
+                  <label className="block text-sm">Tema e critérios disponíveis (opcional)<textarea aria-label="Critérios da avaliação" maxLength={5000} rows={4} disabled={redacaoLoading} value={essayCriteria} onChange={e => setEssayCriteria(e.target.value)} className="block w-full bg-slate-900 rounded-lg p-3" placeholder="Cole os critérios e a fonte. Sem critérios, será usada uma rubrica genérica estimada." /></label>
+                  <p className="text-xs text-amber-200">Avaliação estimada pelo Sirius, nunca correção oficial. Critérios informados por você não são verificados automaticamente.</p>
                   <Button onClick={handleRedacaoCorrection} disabled={!redacaoFile || redacaoLoading} className="w-full bg-purple-600 hover:bg-purple-700">
                     {redacaoLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Corrigindo...</> : <><Sparkles className="w-4 h-4 mr-2" />Corrigir Redação</>}
                   </Button>
@@ -41,7 +47,7 @@ export default function StudiesRedacaoTab({ redacaoFile, setRedacaoFile, handleR
               <Card className="bg-[#0A0A0A] border-[#27272A]">
                 <CardHeader>
                   <CardTitle className="text-sm flex items-center gap-2"><Lightbulb className="w-4 h-4 text-yellow-400" />Sortear Tema de Redação</CardTitle>
-                  <CardDescription className="text-xs">Temas com probabilidade de cair em concursos</CardDescription>
+                  <CardDescription className="text-xs">Sugestões para praticar, sem previsão de temas da prova</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <Button onClick={handleRandomTheme} disabled={themeLoading} className="w-full bg-yellow-600 hover:bg-yellow-700 text-black">
@@ -74,17 +80,18 @@ export default function StudiesRedacaoTab({ redacaoFile, setRedacaoFile, handleR
               </Card>
             </div>
 
-            {/* Resultado da Correção */}
+            {/* Avaliação estimada pelo Sirius */}
             {showRedacaoResult && redacaoCorrection && (
               <Card className="bg-[#0A0A0A] border-[#27272A]">
                 <CardHeader>
-                  <CardTitle className="text-sm flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" />Resultado da Correção</CardTitle>
+                  <CardTitle className="text-sm flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-green-400" />Avaliação estimada pelo Sirius</CardTitle>
                   <div className="flex items-center gap-3 mt-2">
                     <div className="text-3xl font-bold text-[#00F0FF]">{redacaoCorrection.nota_geral}/{redacaoCorrection.nota_maxima}</div>
                     <Badge className="bg-purple-500/20 text-purple-300">{redacaoCorrection.nivel}</Badge>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <p className="text-xs text-amber-200">Estimativa assistida por IA. {redacaoCorrection.criteria_source === 'user_provided' ? 'Critérios informados pelo usuário.' : 'Rubrica genérica; não representa regras oficiais.'} Compare tentativas com a mesma rubrica e escala.</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2">
                     {(redacaoCorrection.competencias || []).map((c, i) => (
                       <Card key={i} className="bg-[#121212] border-[#27272A] p-3">
@@ -135,6 +142,7 @@ export default function StudiesRedacaoTab({ redacaoFile, setRedacaoFile, handleR
                 <CardTitle className="text-sm flex items-center gap-2"><BookMarked className="w-4 h-4 text-[#00F0FF]" />Histórico de Correções</CardTitle>
               </CardHeader>
               <CardContent>
+                {delta != null && <p className="text-sm text-slate-400 mb-3">Evolução estimada na mesma rubrica e escala: {delta > 0 ? '+' : ''}{delta.toFixed(1)} pontos · {comparable.length} avaliações registradas. Não é uma nota oficial.</p>}
                 {redacaoHistory.length === 0 ? (
                   <div className="text-center py-6">
                     <PenTool className="w-8 h-8 text-[#52525B] mx-auto mb-2" />
@@ -144,14 +152,14 @@ export default function StudiesRedacaoTab({ redacaoFile, setRedacaoFile, handleR
                 ) : (
                   <div className="space-y-2">
                     {redacaoHistory.map(r => (
-                      <div key={r.correction_id} className="flex items-center gap-3 p-2 bg-[#121212] rounded-lg cursor-pointer hover:bg-[#1A1A2E]" onClick={() => { setRedacaoCorrection(r.correction); setShowRedacaoResult(true); }}>
+                      <button key={r.correction_id} className="flex w-full text-left min-h-11 items-center gap-3 p-2 bg-[#121212] rounded-lg cursor-pointer hover:bg-[#1A1A2E]" onClick={() => { setRedacaoCorrection(r.correction); setShowRedacaoResult(true); }}>
                         <FileText className="w-4 h-4 text-purple-400" />
                         <div className="flex-1">
                           <p className="text-sm">{r.filename}</p>
                           <p className="text-[10px] text-[#52525B]">{new Date(r.created_at).toLocaleDateString('pt-BR')}</p>
                         </div>
                         <span className="text-sm font-bold text-[#00F0FF]">{r.correction?.nota_geral}/{r.correction?.nota_maxima}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
