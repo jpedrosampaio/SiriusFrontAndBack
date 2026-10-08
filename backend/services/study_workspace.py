@@ -212,9 +212,11 @@ async def plan_create(request: Request,program_id: UUID,body: PlanSettings):
             if state['exam_date'] and body.end_date>date.fromisoformat(state['exam_date']):
                 raise HTTPException(422,'O cronograma deve terminar até a data da prova/meta.')
             candidates=strategy_summary(state,today)['candidates']
+            if not candidates:
+                notebooks=[{**n,'planning_reason':'Sem assuntos ativos cadastrados; distribuição por disciplina, sem prioridade por tópico.'} for n in notebooks]
         reserved=await reserved_minutes(session,user,body.start_date,body.end_date)
         generated=(build_strategy_plan(str(program_id),candidates,body.availability,max(today,body.start_date).isoformat(),
-            body.end_date.isoformat(),body.block_minutes,[entry_json(row) for row in preserved],reserved) if body.adaptive else
+            body.end_date.isoformat(),body.block_minutes,[entry_json(row) for row in preserved],reserved) if body.adaptive and candidates else
             build_plan(str(program_id),notebooks,body.availability,max(today,body.start_date).isoformat(),
             body.end_date.isoformat(),body.block_minutes,[entry_json(row) for row in preserved],reserved))
         values=body.model_dump(exclude={'recovery'})

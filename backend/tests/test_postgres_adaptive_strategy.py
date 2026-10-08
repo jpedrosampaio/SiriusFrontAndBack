@@ -108,3 +108,15 @@ class AdaptiveStrategy(unittest.IsolatedAsyncioTestCase):
             headers={'Idempotency-Key':'recovery-28-day-boundary'}))
         identities={e['entry_id'] for e in result['entries']}
         self.assertNotIn(boundary,identities);self.assertIn(older,identities)
+
+    async def test_legacy_notebook_without_topics_keeps_explicit_discipline_planning(self):
+        self.ok(await self.http.patch('/api/study/notebooks/'+self.nid,json={'conteudo_programatico':[]}))
+        body={'start_date':self.today.isoformat(),'end_date':self.today.isoformat(),'availability':[60]*7,'block_minutes':60}
+        before=self.ok(await self.http.post(self.base+'/dated-plan',json=body))
+        self.assertEqual(len(before['entries']),1)
+        after=self.ok(await self.http.post(self.base+'/dated-plan',json={**body,'adaptive':True},
+            headers={'Idempotency-Key':'legacy-no-active-topics'}))
+        self.assertEqual(len(after['entries']),1)
+        self.assertIsNone(after['entries'][0]['topic_id'])
+        self.assertEqual(after['entries'][0]['minutes'],60)
+        self.assertIn('sem prioridade por tópico',after['entries'][0]['reason'])
