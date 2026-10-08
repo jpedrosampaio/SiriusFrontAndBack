@@ -17,7 +17,7 @@ from study_mastery import mastery,adaptive_review,topic_priority
 from studies_v2 import TargetInput,AttemptInput,ErrorUpdate,BlueprintInput
 from db.models.identity import User
 from services.preparation_state import preparation_state
-from question_intelligence import error_bank,forensic_clusters
+from question_intelligence import error_bank,forensic_clusters,question_origin
 from db.models.question_insights import QuestionInsight
 from pydantic import BaseModel
 from typing import Literal
@@ -369,6 +369,9 @@ async def blueprint_create(request: Request,program_id: UUID,body: BlueprintInpu
         for link,q,exam,topic in rows:
             doc=exams.setdefault(str(exam.id),{'simulado_id':str(exam.id),'questions':[]})
             doc['questions'].append({'question_text':q.statement,'question_type':q.question_type,'options':q.options,
+                'source_type':q.source,'origin':question_origin(q.source,q.provenance),
+                **{key:q.provenance[key] for key in ('official_evidence_verified','provider','source_context','validation_level') if key in q.provenance},
+                'generated_by_ai':question_origin(q.source,q.provenance)=='ai_generated',
                 'correct_answer':q.correct_answer,'explanation':q.explanation,'disciplina':q.provenance.get('disciplina') or names.get(str(q.notebook_id),''),
                 'notebook_id':str(q.notebook_id) if q.notebook_id else None,'topic_key':topic.topic_key if topic else None})
         selected=assemble(plan['distribution'],list(exams.values()),request.headers['Idempotency-Key'])
@@ -383,8 +386,8 @@ async def blueprint_create(request: Request,program_id: UUID,body: BlueprintInpu
             if topic is None: values.pop('topic_key',None)
             question=Question(user_id=user.id,notebook_id=UUID(values['notebook_id']),topic_id=topic.id if topic else None,
                 statement=values['question_text'],question_type=values.get('question_type','multipla_escolha'),options=values.get('options',[]),
-                correct_answer=values.get('correct_answer'),explanation=values.get('explanation'),source='edital_blueprint',
-                provenance={key:values[key] for key in ('disciplina','source_simulado_id','source_question_index') if key in values})
+                correct_answer=values.get('correct_answer'),explanation=values.get('explanation'),source=values.get('source_type','edital_blueprint'),
+                provenance={key:values[key] for key in ('disciplina','source_simulado_id','source_question_index','generated_by_ai','official_evidence_verified','provider','source_context','validation_level') if key in values})
             session.add(question); await session.flush()
             session.add(ExamQuestion(user_id=user.id,exam_id=exam.id,question_id=question.id,position=index,weight=values['weight']))
         return {'simulado_id':str(exam.id),'user_id':str(user.id),'program_id':str(program_id),'area_id':str(program.area_id),

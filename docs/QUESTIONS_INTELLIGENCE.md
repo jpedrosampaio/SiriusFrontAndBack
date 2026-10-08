@@ -10,7 +10,7 @@ Error-bank recovery requires a later individual answer to the same scoped questi
 
 ## Implementation
 
-Provider-neutral serialization labels each question as official, imported, user_created, ai_generated or unknown. The manual, import, official and generated contracts share this serializer; an external provider is explicitly unavailable. AI wins over conflicting official metadata; official requires server-verified evidence. Existing imported questions retain their imported label, which does not assert that extracted/inferred answer sheets are verified. Exam and error screens show provenance; legacy unverified origins stay unknown.
+Provider-neutral serialization labels each question as official, imported, user_created, ai_generated or unknown. The manual, import, official and generated contracts share this serializer; an external provider is explicitly unavailable. AI wins over conflicting official metadata; official requires server-verified evidence. Existing imported questions retain their imported label, which does not assert that extracted/inferred answer sheets are verified. Exam and error screens show provenance; legacy unverified origins stay unknown. Blueprint assembly preserves the original source, AI flag and validation context rather than replacing them with the assembly method.
 
 Optional confidence (`guess`, `uncertain`, `confident`), answer changes, time and skipped evidence are stored on canonical attempts. Manual practice can skip and redo the exact owned question identity without rewriting its statement. Exam submission accepts the same optional metadata and preserves blank answers as skipped facts. Skips do not contribute to mastery or adaptive review. The expanded error taxonomy retains readable historical causes.
 
