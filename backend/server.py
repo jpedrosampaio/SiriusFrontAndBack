@@ -2526,6 +2526,9 @@ configure_ai_compatibility(agent_runtime.router)
 
 from services.study_workspace import router as workspace_router
 api_router.include_router(workspace_router)
+from services import study_tutor
+study_tutor.configure(call_llm)
+api_router.include_router(study_tutor.router)
 from services import edital_import_routes
 edital_import_routes.configure(get_current_user,call_llm,call_gemini,get_user_api_key,_hydrate_disciplinas_from_text,extract_pdf_text)
 api_router.include_router(edital_import_routes.router)

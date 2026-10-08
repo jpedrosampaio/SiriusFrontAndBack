@@ -1,0 +1,25 @@
+# Phase 7 — Sirius Tutor & Knowledge
+
+Pre-edit audit, base f623ead8f8594e57cbd78fa786d54c6880e6b184 (Phase 6 published).
+
+Existing Conversations/Message/ConversationReceipt already provide owned history, short provider leases, fencing, bounded context and retry receipts. Reuse them for separately scoped tutor conversations; do not introduce another chat ledger or grant mastery/XP for estimated AI dialogue. Existing FileRecord/RagSource/RagChunk retain hashes and extracted text, not original attachments. Reuse lexical retrieval explicitly; do not claim vector search. Existing notebook drafts/notes, edital analyses, canonical questions/attempts and Adaptive Strategy remain the factual sources.
+
+StudyProgramWorkspace already has topic study, notes, Pomodoro, practice, error-bank and completion. Embed tutoring in this flow, preserving those controls. Material links must validate live preparation/notebook/topic ownership; archived scopes revoke access. Sources must distinguish user materials, edital records, Sirius facts and general model knowledge. A recorded edital is not automatically authenticated as official.
+
+Modes: explain, Socratic, quick review, examiner/test, questions, flashcards, deepen and pre-exam. Socratic/examiner prompts use progressive question/answer/evaluation, not lectures. Highlights create proposals only; saving notes/cards/questions/reviews is an explicit action through existing contracts. Copilot summaries derive persisted session/answer/review records in a declared time window, never model-generated counts.
+
+No new schema planned. No paid service, real-provider tests or production test writes. Exact-head CI, clean review and production health verification remain publication gates. Optional voice must not block the phase.
+
+## Implemented contracts and limits
+
+`/api/study/tutor/turn` and `/history` validate live preparation/discipline/topic scope. Topic keys resolve to the canonical topic ID returned in facts; conversations are isolated by preparation, discipline, topic, mode and conversation UUID. Existing leases and retry receipts prevent simultaneous provider work or duplicate exchanges. The optional conversation fingerprint context preserves existing general-chat behavior. Tutor exchanges never write QuestionAttempt, mastery, review or XP.
+
+Eight modes are embedded in the existing study-by-topic workspace. Socratic and examiner modes instruct one progressive question at a time; evaluation is estimated AI assistance, not deterministic official correction. Generated questions/cards are proposals, not exam-bank evidence. Model compliance is not guaranteed; the interface always labels assistance and exposes source excerpts supplied to the model.
+
+Existing PDF attachment ingestion processes up to8MB/200 pages in memory, saves extracted text/hash/metadata and deduplicates uploads. Material links use existing FileRecord details, with at most20 owned scope links per attachment. No original binary retention is claimed. Archiving a discipline/preparation/topic revokes scoped tutor access. The current material panel displays linked extracted materials; deletion remains available through the existing attachment API. Related errors are up to20 canonical answered errors within the same topic/discipline, not proof that a particular PDF caused an error.
+
+Retrieval is explicitly lexical, with at most4 matching excerpts from user materials/notes and4 from the preparation's owned edital analysis. It never falls back to another preparation or unlinked attachment. Source IDs, pages and hashes come from persisted chunks. Registered edital text is not automatically authenticated as official. Sirius fact counts and general model knowledge are separate; missing matching excerpts produce an explicit general-knowledge label. Citations shown are sources supplied to the model, not a claim of independently verified generated quotations.
+
+Marked excerpts propose editable notes/cards; saving uses existing idempotent endpoints only after an explicit action. A question proposal opens question mode with an editable request. Review confirmation uses the existing manual topic-review action, without asserting mastery. Session copilot reads records within a stated window of at most24 hours: completed focus time in the discipline, answered questions and distinct reviewed topics in the selected scope. Unconfirmed time is excluded; recommendations are proposals and do not change plans or XP. Voice remains available in the existing assistant; no new oral grading contract is introduced.
+
+Local verification: disposable PostgreSQL220, backend regression140/security5, frontend51/lint/build passed. New tutor smoke passes all five widths and tests retry after uncertain responses, history resumption, PDF binding and once-only card saving. Remote final-head CI/review and production metadata are authoritative in the PR and current HANDOFF section.

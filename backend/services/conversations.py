@@ -85,9 +85,10 @@ class Conversations:
             return {'messages':[public_message(m, False) for m in rows[:50]],
                 'next_cursor':rows[49].created_at.isoformat() if len(rows)>50 else None}
 
-    async def send(self, user_id, body, system):
+    async def send(self, user_id, body, system, fingerprint_context=None):
         uid, cid = UUID(str(user_id)), key(body.conversation_id)
-        digest = hashlib.sha256(body.message.encode()).hexdigest()
+        digest_input = body.message if fingerprint_context is None else json.dumps([fingerprint_context,body.message],sort_keys=True)
+        digest = hashlib.sha256(digest_input.encode()).hexdigest()
         token, now = uuid4(), datetime.now(timezone.utc)
         async with unit_of_work() as session:
             # Serializes first creation only while preparing; never held during provider work.
@@ -115,7 +116,7 @@ class Conversations:
             reply = await self.llm(prompt, user_id=user_id, system_message=system)
             metadata = {}
             if isinstance(reply, dict):
-                metadata = jsonable_encoder({k:v for k,v in reply.items() if k in ('actions','facts','citations','model','degraded','retrieval_method')})
+                metadata = jsonable_encoder({k:v for k,v in reply.items() if k in ('actions','facts','citations','model','degraded','retrieval_method','tutor')})
                 reply = reply['reply']
             if not isinstance(reply, str): raise HTTPException(502, 'Resposta inválida do assistente.')
             if reply.startswith('⚠️'): raise HTTPException(503, reply)
