@@ -160,3 +160,24 @@ class AdaptiveStrategyTests(unittest.TestCase):
         self.assertLessEqual(calls[0],2000+3*len(rows))
         self.assertGreater(len(rows),8000)
         print(f'Strategy maximum: topics=2000 days=181 entries={len(rows)} priority_evaluations={calls[0]} seconds={time.perf_counter()-started:.3f}')
+
+    def test_maximum_protected_preview_filters_with_linear_id_reads(self):
+        calls=[0]
+        class ProtectedEntry(dict):
+            def __getitem__(self,key):
+                if key=='entry_id': calls[0]+=1
+                return super().__getitem__(key)
+        today=date(2026,10,8)
+        protected=[ProtectedEntry(entry_id=f'fixed-{day}-{block}',
+            date=(today+timedelta(days=day)).isoformat(),minutes=15,
+            completed=False,manual=False,fixed=True,topic_id=None)
+            for day in range(181) for block in range(48)]
+        settings=StrategyScenario(start_date=today,end_date=today+timedelta(days=180),
+            availability=[720]*7,block_minutes=15)
+        result=preview_strategy(self.state(),today,settings,protected,{})
+        self.assertLessEqual(calls[0],4*len(protected))
+        for scenario in result['scenarios'].values():
+            self.assertEqual(scenario['generated_minutes'],0)
+            self.assertEqual(scenario['protected_minutes'],len(protected)*15)
+            self.assertEqual(scenario['entries_count'],len(protected))
+            self.assertTrue(scenario['entries_truncated'])

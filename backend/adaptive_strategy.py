@@ -131,6 +131,7 @@ def preview_strategy(state, today, settings, previous, reserved, missed_days=0):
     protected = [e for e in previous if e['completed'] or e['manual'] or e['fixed']]
     # Blocks outside the requested range also remain, but don't contaminate its projection.
     within = [e for e in protected if first.isoformat() <= e['date'] <= settings.end_date.isoformat()]
+    protected_ids = {e['entry_id'] for e in within}
     scenarios = {}
     for mode, cap in (('A', 720), ('B', 45), ('C', 25)):
         availability = [min(m, cap) for m in settings.availability]
@@ -138,7 +139,7 @@ def preview_strategy(state, today, settings, previous, reserved, missed_days=0):
         constraints = {**reserved, **excluded}
         entries = build_strategy_plan(state['preparation_id'], summary['candidates'], availability,
             first.isoformat(), settings.end_date.isoformat(), settings.block_minutes, within, constraints)
-        generated = [e for e in entries if e['entry_id'] not in {p['entry_id'] for p in within}]
+        generated = [e for e in entries if e['entry_id'] not in protected_ids]
         allocation = Counter()
         for e in entries:
             if e.get('topic_id'): allocation[e['topic_id']] += e['minutes']
