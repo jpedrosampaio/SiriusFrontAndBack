@@ -1,3 +1,4 @@
+from db.study_attempts import answered_attempt
 from collections import defaultdict
 from datetime import timedelta
 from uuid import UUID
@@ -55,7 +56,7 @@ async def overall(request: Request):
             .group_by(StudySession.date))).all()
         day=func.timezone(user['timezone'],QuestionAttempt.answered_at).cast(Date)
         questions=(await session.execute(select(day,func.sum(QuestionAttempt.total),func.sum(QuestionAttempt.correct)).where(
-            QuestionAttempt.user_id==uid,day>=start,day<=today).group_by(day))).all()
+            QuestionAttempt.user_id==uid,day>=start,day<=today,answered_attempt()).group_by(day))).all()
         by_focus={d:(minutes,count) for d,minutes,count in focus}; by_question={d:(total,correct) for d,total,correct in questions}
         focus_daily=[]; question_daily=[]
         for offset in range(7):

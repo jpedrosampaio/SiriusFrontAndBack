@@ -44,6 +44,18 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
         skipped=await self.attempt(1,skipped=True,confidence='guess',changed_answer=True)
         self.assertIsNone(skipped['review']);self.assertTrue(skipped['skipped'])
         self.assertEqual(self.ok(await self.http.get('/api/study/v2/performance'))['summary']['samples'],0)
+        stats=self.ok(await self.http.get('/api/study/questions/stats'))
+        self.assertEqual((stats['total_questions'],stats['incorrect']),(0,0))
+        book=next(r for r in self.ok(await self.http.get('/api/study/notebooks')) if r['notebook_id']==self.nid)
+        self.assertEqual((book['total_questions'],book['correct_questions']),(0,0))
+        overview=self.ok(await self.http.get('/api/study/v2/programs/'+self.pid+'/overview'))
+        self.assertEqual(overview['questions'],0);self.assertIsNone(overview['accuracy'])
+        from db.repositories.studies import StudiesRepository
+        from services.study_activity_routes import streak_summary
+        async with unit_of_work() as session:
+            facts=await StudiesRepository(session).program_facts(self.uid,UUID(self.pid))
+            self.assertEqual(facts['total_questions'],0)
+            self.assertEqual((await streak_summary(session,self.uid,'America/Sao_Paulo'))['total_study_days'],0)
         wrong=await self.attempt(2,confidence='uncertain',source='official')
         self.assertEqual(wrong['question_provenance'],'user_created')
         self.assertEqual(wrong['confidence'],'uncertain')

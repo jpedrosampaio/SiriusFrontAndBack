@@ -1,3 +1,4 @@
+from db.study_attempts import answered_attempt
 """Study catalog and aggregates, with no stored mutable cumulative counters."""
 from datetime import datetime,timezone
 from sqlalchemy import select,func,update
@@ -53,7 +54,7 @@ async def facts(session,user_id,notebooks):
     ids=[row.id for row in notebooks]
     if not ids: return {}
     attempts=(await session.execute(select(QuestionAttempt.notebook_id,func.sum(QuestionAttempt.total),func.sum(QuestionAttempt.correct))
-        .where(QuestionAttempt.user_id==user_id,QuestionAttempt.notebook_id.in_(ids)).group_by(QuestionAttempt.notebook_id))).all()
+        .where(QuestionAttempt.user_id==user_id,QuestionAttempt.notebook_id.in_(ids),answered_attempt()).group_by(QuestionAttempt.notebook_id))).all()
     minutes=(await session.execute(select(StudySession.notebook_id,func.sum(StudySession.duration_minutes))
         .where(StudySession.user_id==user_id,StudySession.notebook_id.in_(ids),StudySession.completed.is_(True)).group_by(StudySession.notebook_id))).all()
     result={identity:{'total_questions':0,'correct_questions':0,'total_study_time_minutes':0} for identity in ids}
