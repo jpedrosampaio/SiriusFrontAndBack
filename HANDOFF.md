@@ -1,12 +1,16 @@
 # Sirius — handoff
 
-## Current status - 2026-10-08: Phase 6 published; Phase 7 audit
+## Current status - 2026-10-08: Phases 6 and 7 published
+
+Phase 7 PR33 merged 358edcc378cb030077befaff9ac6eb71922ec79a from reviewed 715fac34ed9c712b88948d46b9dfedad268d0e13. Five P2 review findings corrected and resolved; final Codex completed 21:22:07Z without major issues (comment6069301177). All four exact-head CI green: backend37845980918, PostgreSQL37845980954, migration-safety37845980934 and frontend37845982264 (all11 browser suites/five widths). Local disposable PostgreSQL221, backend140/security5/frontend51, lint/build passed. No migration: a81c9d37e502 unchanged.
+
+Exact merge deployed to Northflank6947232413 success21:29:27Z and Vercel Production6947300194 success21:32:47Z. Read-only production live200/ready200/frontend200/main asset200; all six /api/study/tutor routes published, including explicit canonical review confirmation. No production test writes, real AI calls in tests or paid services.
+
+Sirius Tutor reuses owned conversations/leases/receipts, the existing study workspace, topic-scoped lexical retrieval and canonical review history. Eight tutoring modes, linked extracted materials, editable proposals requiring explicit saving, and factual session summaries are published. Evaluations remain estimates; original PDFs are not retained; minutes belong to discipline scope. See docs/SIRIUS_TUTOR.md for the pre-edit audit, contracts and limits. Other life modules remain integrated. The authorized Phase 6-to-7 sequence is complete; later phases require a new user instruction.
 
 Phase 6 PR32 merged f623ead8f8594e57cbd78fa786d54c6880e6b184 from reviewed7b9b0e39f9a69dcc806529a0799644f847524b04. Five P2 fixed and resolved; final Codex completed20:23:21Z without major issues (comment6068368710). All four exact-head CI green: backend37838634359, PostgreSQL37838634431, migration-safety37838634484, frontend37838634394 (all10 browser suites/five widths). No migration: a81c9d37e502 unchanged.
 
 Exact merge deployed to Northflank6946053314 success20:28:40Z and Vercel Production6946098614 success20:30:50Z. Read-only production live200/ready200/frontend200/main asset200; execution session and /api/study/programs/{program_id}/final-sprint published. No production test writes or real AI calls.
-
-Next authorized phase: Sirius Tutor & Knowledge, branchfeat/sirius-tutor from this healthy merge. Pre-edit audit docs/SIRIUS_TUTOR.md reuses owned conversations/receipts, lexical retrieval, metadata-only extracted materials, canonical evidence and the existing study workspace. Implementation reuses existing conversation leases/receipts, validates material links and provides factual window summaries without XP. Local PostgreSQL220/regression140/security5/frontend51/lint/build passed; tutor browser smoke passed all5 widths. All11 local browser suites passed in all5 widths; CI/review/publication pending. Other life modules must remain integrated and preserved.
 
 ## Historical records - superseded status snapshots below
 
