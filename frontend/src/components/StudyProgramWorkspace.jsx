@@ -1,6 +1,5 @@
 import PreparationOverview from '@/components/studies/PreparationOverview';
 import TopicExam from '@/components/studies/TopicExam';
-import StudyRecommendations from '@/components/studies/StudyRecommendations';
 import ExamBlueprint from '@/components/studies/ExamBlueprint';
 import { openSirius } from '@/lib/sirius-context';
 import ContestUpdates from '@/components/studies/ContestUpdates';
@@ -161,7 +160,7 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
             })}
           </div>}
 
-          {view === 'cronograma' && <div className="space-y-6"><StudyRecommendations programId={programId} onStudy={t => navigate('estudar', { notebookId: t.notebook_id, key: t.topic_key })} />
+          {view === 'cronograma' && <div className="space-y-6">
             <AdaptiveStrategy programId={programId} onStudy={t => navigate('estudar', { notebookId: t.notebook_id, key: t.topic_key, minutes: t.minutes })} />
             <DatedStudyPlan api={api} program={program} onStudy={entry => {
               if (entry.topic_id && entry.topic_key == null) { toast.error('O assunto deste bloco não está mais disponível. Reorganize a agenda.'); return; }
