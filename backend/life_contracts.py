@@ -67,6 +67,8 @@ class Constraint(Window):
     domain: Domain
     scope_id: str | None = Field(default=None, max_length=80)
     reason: str = Field(max_length=300)
+    elapsed_minutes: int | None = Field(default=None,ge=0,strict=True)
+    civil_time_ambiguous: bool = False
 
 
 class DomainState(Contract):

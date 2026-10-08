@@ -35,7 +35,7 @@ export default function DailyWorkspace() {
       {(plan.warnings || []).map(w => <p role="alert" className="text-sm text-amber-300" key={w}>{w}</p>)}
       {plan.conflicts?.length > 0 && <p role="alert" className="text-sm text-amber-300">Conflito de horário: {plan.conflicts_truncated ? 'ao menos ' : ''}{plan.conflicts.length} sobreposição(ões). Confira os itens na agenda; nenhum foi movido.</p>}
       <ol className="space-y-2">{items.map(item => <li key={item.key} className="rounded-lg bg-slate-900/70 p-3 text-sm">
-        <span className="text-xs text-sky-300">{clock(item.start_minute)}–{clock(item.end_minute)} · {item.kind === 'commitment' ? 'Compromisso' : item.kind === 'fixed_task' ? 'Horário definido' : 'Sugestão do Sirius'}</span>
+        <span className="text-xs text-sky-300">{item.civil_time_ambiguous ? `${item.elapsed_minutes} min reais · mudança de horário; confira a agenda` : `${clock(item.start_minute)}–${clock(item.end_minute)}`} · {item.kind === 'commitment' ? 'Compromisso' : item.kind === 'fixed_task' ? 'Horário definido' : 'Sugestão do Sirius'}</span>
         {item.past_due && <p className="text-xs text-amber-300">Não concluído · horário já passou</p>}
         <p className="mt-1 break-words">{item.title}</p>{item.kind !== 'commitment' && <p className="text-xs text-slate-400">{item.duration_minutes} min{item.duration_estimated ? ' · duração estimada' : ''}</p>}
         {item.link && <Link to={item.link} className="inline-flex min-h-11 items-center text-sky-300 underline">Abrir atividade</Link>}

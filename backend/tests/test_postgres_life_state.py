@@ -241,6 +241,15 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
         result=await calendar_events(self.uid,day,day,'America/New_York')
         segment=next(e for e in result['events'] if e['id'].startswith(identity+'_'))
         self.assertEqual(segment['duration_minutes'],45)
+        async with unit_of_work() as s:
+            user=await s.get(User,self.uid);user.timezone='America/New_York'
+        state=await snapshot(self.uid,day=day,now=datetime(2026,11,1,4,tzinfo=timezone.utc))
+        self.assertFalse(state.planning_safe)
+        calendar=next(d for d in state.domains if d.domain=='calendar')
+        repeated=next(c for c in calendar.constraints if c.id=='calendar:'+identity)
+        self.assertEqual(repeated.elapsed_minutes,45)
+        self.assertTrue(repeated.civil_time_ambiguous)
+        self.assertIn('45 min',repeated.reason)
 
     async def test_once_task_future_allocation_blocks_other_days_until_release(self):
         result=await self.simulate()

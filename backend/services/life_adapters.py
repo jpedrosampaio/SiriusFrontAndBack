@@ -88,13 +88,23 @@ async def calendar(session, uid, day, zone):
     state = DomainState(domain='calendar', truncated=len(rows) > FIXED_LIMIT)
     accepted = [];allocations=[]
     for row in rows[:FIXED_LIMIT]:
-        begin,end = max(row.start_at.astimezone(zone),lower),min(row.end_at.astimezone(zone),upper)
+        begin_utc=max(row.start_at.astimezone(timezone.utc),lower.astimezone(timezone.utc))
+        end_utc=min(row.end_at.astimezone(timezone.utc),upper.astimezone(timezone.utc))
+        begin,end=begin_utc.astimezone(zone),end_utc.astimezone(zone)
         # Round outward so seconds cannot leak occupied time.
         a = begin.hour*60+begin.minute
         b = 1440 if end == upper else end.hour*60+end.minute+bool(end.second or end.microsecond)
+        reason='Alocação já confirmada.' if row.source_type == 'global_plan' else 'Compromisso fixo registrado.'
+        elapsed=int((end_utc-begin_utc).total_seconds()/60)
+        ambiguous=begin.utcoffset()!=end.utcoffset()
+        if ambiguous:
+            # Civil-minute windows cannot represent a repeated/skipped hour.
+            # Retain the fact conservatively; the coordinator suspends this day.
+            a,b=0,1440
+            reason=f'Mudança de horário: janela civil conservadora, não duração do evento; {elapsed} min reais. Alocação suspensa.'
         if a < b:
             state.constraints.append(Constraint(id='calendar:'+str(row.id),domain='calendar',title=row.title[:300],
-                start_minute=a,end_minute=b,reason='Alocação já confirmada.' if row.source_type == 'global_plan' else 'Compromisso fixo registrado.'))
+                start_minute=a,end_minute=b,reason=reason,elapsed_minutes=elapsed,civil_time_ambiguous=ambiguous))
         if row.source_type == 'global_plan':
             accepted.append((row.details or {}).get('candidate_id'))
             allocations.append({'event_id':str(row.id),'title':row.title[:300],'start_at':row.start_at.isoformat(),
