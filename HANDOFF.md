@@ -1,5 +1,13 @@
 # Sirius — handoff
 
+## 2026-10-08 - production migration verified; PR30 merge validation pending
+
+Owner configured production-migrations (main only, DATABASE_URL_DIRECT, required reviewer) and approved run37805902313. Trusted workflow main ad84d494e79518e12f472965363eccc524fbc879 validated PR30 c8659194c40571b2450ec40704bd12fe4f2c0797 and the approved migration bytes. At16:08:12Z it returned already_applied; revision a81c9d37e502. No DDL was replayed and no local production database command was executed. Run: https://github.com/jpedrosampaio/SiriusFrontAndBack/actions/runs/37805902313.
+
+PR31 automation is merged as ad84d494e79518e12f472965363eccc524fbc879, after four successful CI workflows and clean exact-head Codex review of aba35a9f45ac2c3cc7391ad617e26a505b2ad949. Updating PR30 from this trusted main conflicts only in this handoff; both historical records below are retained. Application and migration source remain unchanged from reviewed c865. The registry records that migration execution's historical approval SHA; this documentation/main merge requires fresh full CI and Codex review before merging PR30, not another migration execution.
+
+Last fully deployed phase remains phase4 until phase5 deployment is verified. Next: validate the new PR30 head, merge with expected-head guard, await matching Vercel Production and Northflank deployments, check live/ready/frontend read-only, then phase6 Exams, Simulations & Final Sprint. Older pending/manual migration statements below are historical and superseded by this workflow receipt. Final head/check/review/deployment evidence belongs to PR30 metadata.
+
 ## 2026-10-08 — phase4 deployed; phase5 Adaptive Strategy Engine
 
 Latest review corrections: mixed topicless disciplines receive provisional discipline allocation with explicit unknown coverage; protected canonical blocks contribute progress on their scheduled date; an incremental heap replaces per-block full scans. Maximum case2000 topics/181 days/8688 entries/10688 evaluations took0.05s locally. Targeted13 pure and9 SQL tests passed; full regressions134/security5 passed. Final CI/exact-head review remain required. Migrationa81c9d37e502 is still pending in Neon; PR30 must remain unmerged.
@@ -27,6 +35,20 @@ MIGRATION REQUIRED before phase5 merge: revision a81c9d37e502; down_revision b73
 Next: finish full CI, request @codex review, correct valid P1/P2 and rerun checks/review, then report the concrete migration gate. After owner confirmation, merge exact reviewed head, await both exact-SHA production deployments and readonly live/ready/frontend smoke. Then phase6 Exams, Simulations & Final Sprint (feat/exam-intelligence) per the master attachment. No new paid services, Mongo, pgvector or infrastructure.
 
 Known limits: costs50/25 min and coverage projection are conditional operational heuristics, not measured learning times or pass probabilities. Decay expresses stale evidence, never forgotten facts. Topic snapshot5000-answer/2000-topic limits and28-day debt window are explicit; late once-only tasks500 and scenario entries200 are bounded. No wall-clock starts in dated blocks, so break/consecutive-day warnings cannot measure continuous focus. Downgrade discards only optional topic links, leaving plan/answer facts. No current source/model promises external exam-provider integrations.
+
+## 2026-10-08 — produção via workflow de migrations; PR30 permanece aberto
+
+Pedido do proprietário substitui a execução local manual das migrations: instalar automação segura em PR separada baseada na main, testar sem Neon, revisar e integrar somente a configuração. Branch `ci/production-migrations`, base5867b9676478f6545a72900facf2e37f7b0b5e8d. Nenhuma nova migration da aplicação nesta branch; schema head continua b73a16ce9024. PR/CI/head/revisão/merge finais ficam nos metadados da PR de configuração para evitar ciclos de commits só de status.
+
+Última fase concluída é fase4, PR29: reviewed33aebdc550d128c6e980de39bfc35b452319f79a, merge5867b9676478f6545a72900facf2e37f7b0b5e8d. Vercel Production6936542300 e Northflank6936503469 publicaram esse merge; live/ready/frontend200. Proprietário confirmou schema b73a16ce9024 no Neon.
+
+Fase5 está implementada e revisada, ainda não publicada: PR30 `feat/adaptive-strategy-engine`, headc8659194c40571b2450ec40704bd12fe4f2c0797. CI completo aprovado, SQL212/regressões134/segurança5/frontend51/nove smokes nas cinco larguras. Codex final sem problemas importantes, comentário6063091667 em2026-10-08T15:19:14Z; seis P2 corrigidas/resolvidas. Migration a81c9d37e502, parentb73a16ce9024, continua pendente de aplicação no Neon. Não fazer merge do PR30 nesta tarefa.
+
+Arquitetura: workflow manual somente main → aprovação imutável por PR/SHA/hash na main → gate sem banco → Environment production-migrations → gate novamente → executor Alembic da main com somente o blob aprovado, sem env.py/models/deps da PR → lock PostgreSQL → parent exato → upgrade transacional → head exato. Grupo concurrency serial; permissões read-only; único secret customizado DATABASE_URL_DIRECT em etapa final. Registro inicial autoriza bytes já revisados do PR30, sem disparar execução. Alembic/upgrades históricos do backend não são alterados. Documentação/configuração simples: docs/PRODUCTION_MIGRATIONS.md.
+
+Testes dedicados12 passaram localmente em schemas de PostgreSQL descartável: recusa de SHA/PR/revisão/CI alterados, main/ref, hash e migração histórica, não execução de top-level ao inspecionar, logs sem credenciais, lock concorrente, revisão divergente, no-op idempotente, rollback e migration real PR30 preservando dados/FK. Gate real GitHub do PR30 também validado somente em leitura. Nenhum acesso/escrita no Neon ou dispatch de produção nesta tarefa.
+
+Próximo: concluir CI/revisão e integrar apenas esta PR de configuração. Depois aguardar confirmação do proprietário de Environment com deployment branch main e DATABASE_URL_DIRECT antes de disparar qualquer migration. Só após aplicação verificada de a81 concluir PR30/deploys/smoke, então fase6 Exams, Simulations & Final Sprint. Não contratar serviços, usar pgvector ou alterar banco manualmente. Limites reais: uma migration linear autocontida por execução; mudança de SHA exige nova aprovação na main; operações DDL não transacionais não suportadas; required reviewers dependem do plano e não substituem a restrição obrigatória do Environment a main.
 
 ## 2026-10-08 — final review correction: labeled true/false
 
