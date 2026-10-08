@@ -1,0 +1,13 @@
+{
+  "repository": "jpedrosampaio/SiriusFrontAndBack",
+  "approvals": {
+    "30": {
+      "sha": "c8659194c40571b2450ec40704bd12fe4f2c0797",
+      "revision": "a81c9d37e502",
+      "down_revision": "b73a16ce9024",
+      "path": "backend/alembic/versions/a81c9d37e502_link_strategy_plan_topics.py",
+      "sha256": "1922856f70973908dbdc1a37c44908da1b3c811a9bd444fd69279cc105fcc519",
+      "review_comment_id": 6063091667
+    }
+  }
+}

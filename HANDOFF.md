@@ -1,5 +1,19 @@
 # Sirius — handoff
 
+## 2026-10-08 — produção via workflow de migrations; PR30 permanece aberto
+
+Pedido do proprietário substitui a execução local manual das migrations: instalar automação segura em PR separada baseada na main, testar sem Neon, revisar e integrar somente a configuração. Branch `ci/production-migrations`, base5867b9676478f6545a72900facf2e37f7b0b5e8d. Nenhuma nova migration da aplicação nesta branch; schema head continua b73a16ce9024. PR/CI/head/revisão/merge finais ficam nos metadados da PR de configuração para evitar ciclos de commits só de status.
+
+Última fase concluída é fase4, PR29: reviewed33aebdc550d128c6e980de39bfc35b452319f79a, merge5867b9676478f6545a72900facf2e37f7b0b5e8d. Vercel Production6936542300 e Northflank6936503469 publicaram esse merge; live/ready/frontend200. Proprietário confirmou schema b73a16ce9024 no Neon.
+
+Fase5 está implementada e revisada, ainda não publicada: PR30 `feat/adaptive-strategy-engine`, headc8659194c40571b2450ec40704bd12fe4f2c0797. CI completo aprovado, SQL212/regressões134/segurança5/frontend51/nove smokes nas cinco larguras. Codex final sem problemas importantes, comentário6063091667 em2026-10-08T15:19:14Z; seis P2 corrigidas/resolvidas. Migration a81c9d37e502, parentb73a16ce9024, continua pendente de aplicação no Neon. Não fazer merge do PR30 nesta tarefa.
+
+Arquitetura: workflow manual somente main → aprovação imutável por PR/SHA/hash na main → gate sem banco → Environment production-migrations → gate novamente → executor Alembic da main com somente o blob aprovado, sem env.py/models/deps da PR → lock PostgreSQL → parent exato → upgrade transacional → head exato. Grupo concurrency serial; permissões read-only; único secret customizado DATABASE_URL_DIRECT em etapa final. Registro inicial autoriza bytes já revisados do PR30, sem disparar execução. Alembic/upgrades históricos do backend não são alterados. Documentação/configuração simples: docs/PRODUCTION_MIGRATIONS.md.
+
+Testes dedicados12 passaram localmente em schemas de PostgreSQL descartável: recusa de SHA/PR/revisão/CI alterados, main/ref, hash e migração histórica, não execução de top-level ao inspecionar, logs sem credenciais, lock concorrente, revisão divergente, no-op idempotente, rollback e migration real PR30 preservando dados/FK. Gate real GitHub do PR30 também validado somente em leitura. Nenhum acesso/escrita no Neon ou dispatch de produção nesta tarefa.
+
+Próximo: concluir CI/revisão e integrar apenas esta PR de configuração. Depois aguardar confirmação do proprietário de Environment com deployment branch main e DATABASE_URL_DIRECT antes de disparar qualquer migration. Só após aplicação verificada de a81 concluir PR30/deploys/smoke, então fase6 Exams, Simulations & Final Sprint. Não contratar serviços, usar pgvector ou alterar banco manualmente. Limites reais: uma migration linear autocontida por execução; mudança de SHA exige nova aprovação na main; operações DDL não transacionais não suportadas; required reviewers dependem do plano e não substituem a restrição obrigatória do Environment a main.
+
 ## 2026-10-08 — final review correction: labeled true/false
 
 Review of documentation head6d53d06 identified an additional P2: true/false options with uppercase A) labels are submitted as letters by the exam UI. Canonical generation now mirrors that protocol, while unlabeled/other-prefix true/false options retain their exact text. A real SQL laboratory generation/submission regression checks saved A and score100; pure tests cover letter, text and labeled answers. Renewed full CI/review on this correction must pass before requesting the owner migration. Phase3 remains deployed; phase4 migration b73a16ce9024 is still pending on Neon. Final head/check metadata belongs to PR29. No production writes or migration performed.
