@@ -9,6 +9,9 @@ from sqlalchemy import select,func
 from db.models.exams import Question,Exam
 from db.models.studies import QuestionAttempt,ReviewEvent
 from db.models.question_insights import QuestionInsight
+from db.models.agent import Usage
+from db.models.identity import ActivityReceipt
+from db.repositories.identity import IdentityRepository
 from db.session import unit_of_work
 import test_postgres_runtime_studies_v2 as fixture
 
@@ -72,13 +75,21 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
 
     async def test_lab_two_mocked_calls_discards_low_confidence_and_keeps_provenance(self):
         questions=[{'question_text':'Crase: '+str(i),'options':['A) First','B) Second'],'correct_answer':'A','explanation':'Justification'} for i in (1,2)]
-        self.generator.side_effect=[SimpleNamespace(text=json.dumps({'questions':questions})),
-            SimpleNamespace(text=json.dumps({'validation':[{'index':0,'acceptable':True,'confidence':'high'},
-                {'index':1,'acceptable':True,'confidence':'low'}]}))]
+        async def provider(**kwargs):
+            # Real providers read credentials/write usage using separate units of work.
+            async with unit_of_work() as session:
+                await IdentityRepository(session).by_id(self.uid,lock=True)
+                session.add(Usage(user_id=self.uid,provider='mock',model='mock',task=kwargs['task'],status='ok',duration_ms=0))
+            await asyncio.sleep(.05)
+            payload={'questions':questions} if kwargs['task']=='study_question_generation' else {'validation':[
+                {'index':0,'acceptable':True,'confidence':'high'},{'index':1,'acceptable':True,'confidence':'low'}]}
+            return SimpleNamespace(text=json.dumps(payload))
+        self.generator.side_effect=provider
+        self.extra[1].new.return_value=None  # A text laboratory also supports Groq-only configured accounts.
         body={'title':'Lab','notebook_id':self.nid,'topic_key':'0','num_questions':2,'laboratory':True}
         concurrent=await asyncio.gather(*(self.http.post('/api/study/simulados/generate',json=body,headers={'Idempotency-Key':'laboratory-key'}) for _ in range(5)))
-        responses=[self.ok(r) for r in concurrent];response=responses[0]
-        self.assertEqual(sum(bool(r.get('replayed')) for r in responses),4)
+        self.assertTrue(all(r.status_code in (200,409) for r in concurrent))
+        responses=[self.ok(r) for r in concurrent if r.status_code==200];response=responses[0]
         self.assertEqual(len({r['simulado']['simulado_id'] for r in responses}),1)
         self.ok(await self.http.patch('/api/study/notebooks/'+self.nid,json={'name':'Renamed'}))
         replayed=self.ok(await self.http.post('/api/study/simulados/generate',json={'title':'Lab','notebook_id':self.nid,
@@ -86,6 +97,7 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(replayed['replayed'])
         self.assertEqual(replayed['simulado']['simulado_id'],response['simulado']['simulado_id'])
         self.assertEqual(self.generator.await_count,2)
+        self.extra[1].new.assert_not_awaited()
         saved=response['simulado']['questions'];self.assertEqual(len(saved),1)
         self.assertTrue(saved[0]['generated_by_ai']);self.assertEqual(saved[0]['origin'],'ai_generated')
         self.assertEqual(saved[0]['validation_level'],'separate_ai_and_structural')
@@ -102,3 +114,35 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code,502)
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(Exam).where(Exam.user_id==self.uid)),0)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(ActivityReceipt).where(
+                ActivityReceipt.user_id==self.uid,ActivityReceipt.request_key=='malformed-validation')),0)
+
+    async def test_expired_reservation_fences_old_worker_and_preserves_new_result(self):
+        from services.question_generation import generate_once,LEASE_KEY
+        from fastapi import HTTPException
+        started,release=asyncio.Event(),asyncio.Event()
+        document={'title':'Reserved','notebook_id':self.nid,'source_type':'ai_generated'}
+        questions=[{'question_text':'Crase','correct_answer':'A','options':['A','B']}]
+        async def old_worker():
+            started.set();await release.wait();return document,questions
+        async def new_worker():return document,questions
+        first=asyncio.create_task(generate_once(str(self.uid),'expired-reservation',['reserved'],old_worker))
+        await asyncio.wait_for(started.wait(),5)
+        try:
+            async with unit_of_work() as session:
+                await IdentityRepository(session).by_id(self.uid,lock=True)
+                receipt=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==self.uid,
+                    ActivityReceipt.request_key=='expired-reservation'))
+                receipt.result={LEASE_KEY:{**receipt.result[LEASE_KEY],'until':'2020-01-01T00:00:00+00:00'}}
+            completed=await generate_once(str(self.uid),'expired-reservation',['reserved'],new_worker)
+            release.set()
+            with self.assertRaises(HTTPException) as failure:await first
+            self.assertEqual(failure.exception.status_code,409)
+            replayed=await generate_once(str(self.uid),'expired-reservation',['reserved'],new_worker)
+            self.assertTrue(replayed['replayed']);self.assertEqual(replayed['simulado']['simulado_id'],completed['simulado']['simulado_id'])
+            async with unit_of_work() as session:
+                self.assertEqual(await session.scalar(select(func.count()).select_from(Exam).where(Exam.user_id==self.uid)),1)
+        finally:
+            release.set()
+            if not first.done():first.cancel()
+            await asyncio.gather(first,return_exceptions=True)
