@@ -45,7 +45,7 @@ async def preparation_state(session, uid, program, zone, today):
     entries = list((await session.scalars(select(StudyPlanEntry).where(
         StudyPlanEntry.user_id == uid, StudyPlanEntry.plan_id == plan.id,
         StudyPlanEntry.notebook_id.in_(ids),
-        StudyPlanEntry.date.between(today-timedelta(days=27), today+timedelta(days=6)))
+        StudyPlanEntry.date.between(today-timedelta(days=28), today+timedelta(days=6)))
         .order_by(StudyPlanEntry.date, StudyPlanEntry.id).limit(LIMIT+1))).all()) if plan else []
     truncated |= len(entries) > LIMIT; entries = entries[:LIMIT]
     upcoming = await session.scalar(select(StudyPlanEntry).where(

@@ -92,3 +92,19 @@ class AdaptiveStrategy(unittest.IsolatedAsyncioTestCase):
             headers={'Idempotency-Key':'partial-review-completion'}))
         self.assertEqual(len(result['entries']),2)
         self.assertTrue(all(e['minutes']==15 and e['kind']=='Revisão' and e['topic_key']=='0' for e in result['entries']))
+
+    async def test_recovery_includes_day_28_and_preserves_older_automatic_history(self):
+        async with unit_of_work() as session:
+            plan=StudyPlan(user_id=self.uid,program_id=UUID(self.pid),start_date=self.today-timedelta(days=29),
+                end_date=self.today,availability=[60]*7,block_minutes=50)
+            session.add(plan); await session.flush()
+            rows=[StudyPlanEntry(user_id=self.uid,plan_id=plan.id,notebook_id=UUID(self.nid),
+                date=self.today-timedelta(days=age),name=str(age),minutes=60,kind='study') for age in (28,29)]
+            session.add_all(rows); await session.flush(); boundary,older=(str(e.id) for e in rows)
+        before=self.ok(await self.http.get(self.base+'/strategy'))
+        self.assertEqual([e['entry_id'] for e in before['debt']['missed_blocks']],[boundary])
+        result=self.ok(await self.http.post(self.base+'/dated-plan',json={'start_date':self.today.isoformat(),
+            'end_date':self.today.isoformat(),'availability':[60]*7,'adaptive':True,'recovery':True},
+            headers={'Idempotency-Key':'recovery-28-day-boundary'}))
+        identities={e['entry_id'] for e in result['entries']}
+        self.assertNotIn(boundary,identities);self.assertIn(older,identities)

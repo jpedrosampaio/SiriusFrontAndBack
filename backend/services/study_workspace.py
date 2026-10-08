@@ -206,7 +206,7 @@ async def plan_create(request: Request,program_id: UUID,body: PlanSettings):
         plan,previous=await plan_rows(session,user.id,program_id)
         today=local_today(user.timezone)
         preserved=[row for row in previous if row.completed or row.manual or row.fixed or row.date>body.end_date or
-            (row.date<max(today,body.start_date) and not (body.adaptive and body.recovery and today-timedelta(days=27)<=row.date<today))]
+            (row.date<max(today,body.start_date) and not (body.adaptive and body.recovery and today-timedelta(days=28)<=row.date<today))]
         if body.adaptive:
             state=await strategy_state(session,user.id,program,user.timezone,today)
             if state['exam_date'] and body.end_date>date.fromisoformat(state['exam_date']):
