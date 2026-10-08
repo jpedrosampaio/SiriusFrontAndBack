@@ -22,11 +22,16 @@ def candidate(domain, row, day, title, duration, link, *, priority='medium', loc
         earliest=day, latest=latest or day, date_locked=locked, priority=priority, reasons=list(reasons), link=link)
 
 
-async def tasks(session, uid, day, zone):
+async def tasks(session, uid, day, zone, now=None):
     # Temporal constraints never use the shorter display limit.
     done_once=select(TaskInstance.id).where(TaskInstance.user_id==uid,TaskInstance.task_id==Task.id,
         TaskInstance.date==Task.date,TaskInstance.completed.is_(True)).correlate(Task).exists()
+    allocated_once=select(CalendarEvent.id).where(CalendarEvent.user_id==uid,
+        CalendarEvent.source_type=='global_plan',CalendarEvent.source_id==Task.id,
+        CalendarEvent.details['domain'].as_string()=='tasks',
+        CalendarEvent.end_at>(now or datetime.now(timezone.utc))).correlate(Task).exists()
     rows = (await session.scalars(select(Task).where(Task.user_id == uid, Task.archived_at.is_(None),
+        (Task.recurrence!='once')|Task.scheduled_time.is_not(None)|~allocated_once,
         Task.date <= day,(Task.recurrence!='once')|(Task.date==day)|
         ((Task.scheduled_time.is_not(None))&(Task.date==day-timedelta(days=1)))|
         ((Task.scheduled_time.is_(None))&~done_once))

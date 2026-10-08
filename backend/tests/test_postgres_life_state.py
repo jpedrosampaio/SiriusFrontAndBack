@@ -231,3 +231,30 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
             segments=[e for e in result['events'] if e['id'].startswith(identity+'_')]
             self.assertEqual(len(segments),1)
             self.assertEqual(segments[0]['duration_minutes'],expected)
+
+        day=date(2026,11,1)
+        async with unit_of_work() as s:
+            row=CalendarEvent(user_id=self.uid,title='Repeated hour event',
+                start_at=datetime(2026,11,1,5,30,tzinfo=timezone.utc),
+                end_at=datetime(2026,11,1,6,15,tzinfo=timezone.utc))
+            s.add(row);await s.flush();identity=str(row.id)
+        result=await calendar_events(self.uid,day,day,'America/New_York')
+        segment=next(e for e in result['events'] if e['id'].startswith(identity+'_'))
+        self.assertEqual(segment['duration_minutes'],45)
+
+    async def test_once_task_future_allocation_blocks_other_days_until_release(self):
+        result=await self.simulate()
+        accepted=self.ok(await self.http.post('/api/life/accept',json={
+            'scenario':result['plan']['scenario'],'fingerprint':result['state']['fingerprint'],
+            'blocks':result['plan']['blocks'],'confirmed':True},headers={'Idempotency-Key':'once-first-day'}))
+        task=next(b for b in result['plan']['blocks'] if b['domain']=='tasks')
+        later=await self.simulate(date=str(self.day+timedelta(days=1)))
+        self.assertFalse(any(b['source_id']==task['source_id'] for b in later['plan']['blocks']))
+        async with unit_of_work() as s:
+            event=await s.scalar(select(CalendarEvent).where(CalendarEvent.user_id==self.uid,
+                CalendarEvent.source_type=='global_plan',CalendarEvent.source_id==UUID(task['source_id'])))
+        self.assertIn(str(event.id),accepted['event_ids'])
+        self.ok(await self.http.delete('/api/life/allocations/'+str(event.id),params={'confirmed':'true'},
+            headers={'Idempotency-Key':'once-release-day'}))
+        available=await self.simulate(date=str(self.day+timedelta(days=1)))
+        self.assertTrue(any(b['source_id']==task['source_id'] for b in available['plan']['blocks']))

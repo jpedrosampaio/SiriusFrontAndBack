@@ -58,13 +58,15 @@ async def calendar_events(user_id, start, end, timezone):
         commitments = (await session.scalars(select(CalendarEvent).where(CalendarEvent.user_id == user_id,
             CalendarEvent.end_at > first, CalendarEvent.start_at < last))).all()
         for row in commitments:
-            local=max(row.start_at.astimezone(zone),first); finish=min(row.end_at.astimezone(zone),last)
-            while local<finish:
+            cursor=max(row.start_at.astimezone(utc_timezone.utc),first.astimezone(utc_timezone.utc))
+            finish=min(row.end_at.astimezone(utc_timezone.utc),last.astimezone(utc_timezone.utc))
+            while cursor<finish:
+                local=cursor.astimezone(zone)
                 midnight=datetime.combine(local.date()+timedelta(days=1),time(),tzinfo=zone)
-                segment_end=min(midnight,finish)
+                segment_end=min(midnight.astimezone(utc_timezone.utc),finish)
                 events.append({'id':str(row.id)+'_'+local.date().isoformat(),'date':local.date().isoformat(),
                     'title':f'{local:%H:%M} · {row.title}','type':'commitment','completed':False,
-                    'duration_minutes':int((segment_end.astimezone(utc_timezone.utc)-local.astimezone(utc_timezone.utc)).total_seconds()/60),
+                    'duration_minutes':int((segment_end-cursor).total_seconds()/60),
                     'link':(row.details or {}).get('link','/assistant/settings'),'source_type':row.source_type})
-                local=segment_end
+                cursor=segment_end
     return {'events':sorted(events,key=lambda e:(e['date'],e['id'])),'start':start.isoformat(),'end':end.isoformat()}
