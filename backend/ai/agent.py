@@ -92,7 +92,8 @@ class SiriusAgent:
         result=await daily(user_id,scenario=scenario)
         domains={d['domain']:d for d in result['state']['domains']};plan=result['plan']
         return {**result,'tasks':{'total':domains['tasks']['facts']['eligible_today'],'completed':domains['tasks']['facts']['completed_today']},
-            'commitments':plan['constraints'],'next_study':domains['preparation']['candidates'][:5],
+            'commitments':[{**c,'event_id':c['id'],'date':plan['date']} for c in plan['constraints']],
+            'next_study':domains['preparation']['candidates'][:5],
             'next_action':next(iter(plan['blocks']),None),'end_day':{'replan_requires_confirmation':True}}
 
     async def respond(self, user_id, body, prompt):

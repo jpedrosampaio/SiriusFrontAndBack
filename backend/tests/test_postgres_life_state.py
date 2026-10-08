@@ -202,3 +202,17 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
         current=next(d for d in today.domains if d.domain=='training');self.assertEqual(len(current.candidates),1)
         tomorrow=await snapshot(self.uid,day=today.date+timedelta(days=1),now=now)
         future=next(d for d in tomorrow.domains if d.domain=='training');self.assertFalse(future.candidates)
+
+    async def test_legacy_agent_daily_retains_timeline_commitment_date_and_identity(self):
+        from server import agent_runtime
+        from zoneinfo import ZoneInfo
+        today=datetime.now(timezone.utc).astimezone(ZoneInfo('America/Sao_Paulo')).date()
+        async with unit_of_work() as s:
+            s.add(CalendarEvent(user_id=self.uid,title='Legacy timeline fixed',start_at=datetime.combine(today,time(12),timezone.utc),
+                end_at=datetime.combine(today,time(13),timezone.utc)))
+            s.add(Task(user_id=self.uid,title='Legacy fixed task',date=today,scheduled_time=time(6,30),duration_minutes=15))
+        result=await agent_runtime.agent.daily(str(self.uid))
+        fixed={c['title']:c for c in result['commitments']}
+        for title in ('Legacy timeline fixed','Legacy fixed task'):
+            self.assertEqual(fixed[title]['date'],result['plan']['date']);self.assertTrue(fixed[title]['event_id'])
+        self.assertEqual(fixed['Legacy fixed task']['start_minute'],390)
