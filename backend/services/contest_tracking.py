@@ -7,7 +7,8 @@ from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select,func,update
 from sqlalchemy.dialects.postgresql import insert
-from db.models.contests import ContestSource,ContestUpdate,ContestHostLimit
+from db.models.contests import ContestSource,ContestUpdate,ContestHostLimit,ContestSourceVersion
+from edital_intelligence import impact,official_dates
 from db.models.studies import StudyProgram
 from db.repositories.identity import IdentityRepository
 from db.session import unit_of_work
@@ -27,7 +28,7 @@ async def program(session,uid,pid):
 
 def source_json(row):
     return jsonable_encoder({'source_id':row.id,'user_id':row.user_id,'program_id':row.program_id,
-        **{key:getattr(row,key) for key in ('url','title','trust','provider','terms_confirmed_at','created_at','next_poll','enabled','failures','status','last_checked','error')}})
+        **{key:getattr(row,key) for key in ('url','title','trust','provider','source_kind','terms_confirmed_at','created_at','next_poll','enabled','failures','status','last_checked','last_successful_check','error')}})
 
 
 def update_json(row):
@@ -61,9 +62,10 @@ async def add(user_id,program_id,body):
         now=datetime.now(timezone.utc)
         if row:
             row.deleted_at=None;row.enabled=True;row.next_poll=now;row.terms_confirmed_at=now;row.title=body.title.strip()
+            row.source_kind=body.source_kind
         else:
             row=ContestSource(user_id=uid,program_id=pid,url=url,url_hash=digest,title=body.title.strip(),trust=trust(url),
-                provider=provider_for(url).name,terms_confirmed_at=now,next_poll=now)
+                provider=provider_for(url).name,source_kind=body.source_kind,terms_confirmed_at=now,next_poll=now)
             session.add(row)
         await session.flush();await session.refresh(row)
         return source_json(row)
@@ -90,6 +92,63 @@ async def timeline(user_id,program_id,exams=False):
         return [update_json(row) for row in rows]
 
 
+def version_json(row,detail=False):
+    result=jsonable_encoder({'version_id':row.id,'source_id':row.source_id,'previous_id':row.previous_id,
+        'hash':row.content_hash,'hash_basis':row.hash_basis,'partial':row.partial,'official':row.official,
+        'detected_at':row.detected_at,'details':{k:v for k,v in row.details.items() if k!='documents'},'impact':row.impact,'dates':row.dates})
+    if detail:result['text']=row.snapshot_text
+    return result
+
+
+async def versions(user_id,program_id,source_id,offset=0,limit=20,version_id=None):
+    uid,pid,sid=identity(user_id),identity(program_id),identity(source_id)
+    async with unit_of_work() as session:
+        await program(session,uid,pid)
+        source=await session.scalar(select(ContestSource).where(ContestSource.user_id==uid,
+            ContestSource.program_id==pid,ContestSource.id==sid,ContestSource.deleted_at.is_(None)))
+        if source is None:raise HTTPException(404,'Fonte não encontrada.')
+        query=select(ContestSourceVersion).where(ContestSourceVersion.user_id==uid,ContestSourceVersion.source_id==sid)
+        if version_id:
+            row=await session.scalar(query.where(ContestSourceVersion.id==identity(version_id)))
+            if row is None:raise HTTPException(404,'Versão não encontrada.')
+            return version_json(row,detail=True)
+        rows=(await session.scalars(query.order_by(ContestSourceVersion.detected_at.desc(),ContestSourceVersion.id.desc())
+            .offset(offset).limit(limit+1))).all()
+        return {'items':[version_json(row) for row in rows[:limit]],'next_offset':offset+limit if len(rows)>limit else None}
+
+
+async def radar(user_id,program_id):
+    uid,pid=identity(user_id),identity(program_id)
+    async with unit_of_work() as session:
+        await program(session,uid,pid)
+        sources=(await session.scalars(select(ContestSource).where(ContestSource.user_id==uid,
+            ContestSource.program_id==pid,ContestSource.deleted_at.is_(None)).order_by(ContestSource.id))).all()
+        ids=[row.id for row in sources]
+        latest=[]
+        if ids:
+            latest=(await session.scalars(select(ContestSourceVersion).where(ContestSourceVersion.user_id==uid,
+                ContestSourceVersion.source_id.in_(ids)).distinct(ContestSourceVersion.source_id)
+                .order_by(ContestSourceVersion.source_id,ContestSourceVersion.detected_at.desc(),ContestSourceVersion.id.desc()))).all()
+        dates=[]
+        for row in latest:
+            for entry in row.dates:
+                dates.append({**entry,'source_id':str(row.source_id),'version_id':str(row.id),
+                    'url':row.details.get('url'),'hash':row.content_hash,'partial':row.partial})
+        for entry in dates:
+            entry['conflicting_candidates']=len({item['date'] for item in dates if item['event']==entry['event']})>1
+        return {'sources':[source_json(row) for row in sources], 'latest_versions':[version_json(row) for row in latest],
+            'dates':sorted(dates,key=lambda item:(item['date'],item['event'],item['source_id'])),
+            'plan_changed':False,'date_notice':'Datas extraídas exigem conferência; horários e conflitos não são resolvidos automaticamente.'}
+
+
+async def official_freshness(session,uid,program_id):
+    """Public projection contract; successful checks are not publication dates."""
+    checked=await session.scalar(select(func.max(ContestSource.last_successful_check)).where(ContestSource.user_id==uid,
+        ContestSource.program_id==program_id,ContestSource.deleted_at.is_(None),ContestSource.enabled.is_(True),
+        ContestSource.trust=='OFFICIAL'))
+    return checked.isoformat() if checked else None
+
+
 async def claim(user_id,program_id,source_id):
     uid,pid,sid=identity(user_id),identity(program_id),identity(source_id)
     now=datetime.now(timezone.utc)
@@ -108,7 +167,7 @@ async def claim(user_id,program_id,source_id):
             row.next_poll=now+timedelta(minutes=15);row.lease_token=None
             return {'status':'deferred','message':'Outra fonte deste domínio foi consultada recentemente.'}
         return {'claimed':True,'source_id':str(row.id),'user_id':str(uid),'program_id':str(pid),'lease':str(row.lease_token),
-            **{key:getattr(row,key) for key in ('url','title','trust','snapshot','content_hash','etag','modified','failures')}}
+            **{key:getattr(row,key) for key in ('url','title','trust','source_kind','snapshot','content_hash','etag','modified','failures')}}
 
 
 async def finish(source,page=None,documents=(),error=None):
@@ -125,11 +184,43 @@ async def finish(source,page=None,documents=(),error=None):
             row.failures=min(8,row.failures+1);row.status='unavailable';row.error=error[:300]
             row.next_poll=now+timedelta(hours=min(72,6*2**row.failures))
             return True
-        row.status='ok';row.error=None;row.failures=0
+        row.status='ok';row.error=None;row.failures=0;row.last_successful_check=now
         if page is not None:
+            documents=[dict(item) for item in documents]
+            version_id=None
+            if page.content_hash != row.content_hash:
+                previous=await session.scalar(select(ContestSourceVersion).where(ContestSourceVersion.user_id==uid,
+                    ContestSourceVersion.source_id==sid).order_by(ContestSourceVersion.detected_at.desc(),ContestSourceVersion.id.desc()).limit(1))
+                comparison=impact(previous.snapshot_text if previous else row.snapshot,page.text,
+                    baseline=not bool(previous or row.content_hash),partial=page.partial or bool(previous and previous.partial))
+                document_metadata=[{k:item.get(k) for k in ('url','title','document_type','hash')} for item in page.documents[:300]]
+                if previous and 'documents' in previous.details:
+                    old={d['url']:d for d in previous.details['documents']};new={d['url']:d for d in document_metadata}
+                    comparison['document_links_added']=[new[key] for key in sorted(new.keys()-old.keys())][:20]
+                    comparison['document_links_removed']=[old[key] for key in sorted(old.keys()-new.keys())][:20]
+                    comparison['partial']=comparison['partial'] or len(new.keys()-old.keys())>20 or len(old.keys()-new.keys())>20
+                else:comparison['document_comparison_available']=False
+                if previous or row.content_hash:
+                    if page.hash_basis=='document_bytes':
+                        for document in documents:
+                            if document['hash']==page.content_hash:document['changes']=comparison
+                    else:
+                        documents.insert(0,{'title':'Alteração detectada na página acompanhada','url':row.url,
+                            'document_type':'page_change','hash':page.content_hash,'hash_basis':page.hash_basis,
+                            'published_at':None,'official':row.trust=='OFFICIAL','source_type':row.trust,'changes':comparison})
+                dates=official_dates(page.text,official=row.trust=='OFFICIAL')
+                version=ContestSourceVersion(user_id=uid,source_id=sid,previous_id=previous.id if previous else None,
+                    claim_token=identity(source['lease']),content_hash=page.content_hash,hash_basis=page.hash_basis,
+                    snapshot_text=page.text[:200000],partial=page.partial,official=row.trust=='OFFICIAL',detected_at=now,
+                    details={'title':row.title,'url':row.url,'source_kind':row.source_kind,'etag':page.etag,
+                        'last_modified':page.modified,'original_available':False,'documents':document_metadata,
+                        'date_analysis':{'limit':100,'partial':page.partial or len(dates)>=100}},
+                    impact=comparison,
+                    dates=dates)
+                session.add(version);await session.flush();version_id=version.id
             for item in documents:
                 values={key:item.get(key) for key in ('title','url','document_url','document_type','hash_basis','source_type','official','published_at','changes','text_extraction','text_partial')}
-                await session.execute(insert(ContestUpdate).values(user_id=uid,program_id=pid,source_id=sid,source=row.title,
+                await session.execute(insert(ContestUpdate).values(user_id=uid,program_id=pid,source_id=sid,source=row.title,version_id=version_id,
                     content_hash=item['hash'],detected_at=now,summary='Documento encontrado na página acompanhada; confira o conteúdo na fonte.',**values)
                     .on_conflict_do_nothing(index_elements=['user_id','source_id','content_hash']))
             row.snapshot=page.text;row.content_hash=page.content_hash;row.etag=page.etag;row.modified=page.modified

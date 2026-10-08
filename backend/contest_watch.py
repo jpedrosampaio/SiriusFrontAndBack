@@ -1,11 +1,10 @@
 """Opt-in source polling; persistence and leases are PostgreSQL-backed."""
 import asyncio
-import difflib
 import logging
 from contextlib import suppress
-from typing import Optional
-from fastapi import APIRouter,Cookie,Request
-from pydantic import BaseModel,ConfigDict,Field
+from typing import Optional,Literal
+from fastapi import APIRouter,Cookie,Request,Query
+from pydantic import BaseModel,ConfigDict,Field,StrictBool
 from contest_sources import provider_for,SourceUnavailable
 from services import contest_tracking as tracking
 
@@ -14,7 +13,8 @@ class SourceInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     url: str = Field(min_length=10, max_length=2000)
     title: str = Field(min_length=1, max_length=180)
-    terms_allow_monitoring: bool = False
+    terms_allow_monitoring: StrictBool = False
+    source_kind: Literal['unknown','official_page','board','official_pdf','rectification','announcement','result','calendar'] = 'unknown'
 
 
 class ContestWatcher:
@@ -49,6 +49,19 @@ class ContestWatcher:
         async def exams(request: Request,program_id: str,session_token: Optional[str]=Cookie(None)):
             return await tracking.timeline(await owner(request,session_token),program_id,exams=True)
 
+        @self.router.get('/{program_id}/radar')
+        async def radar(request: Request,program_id: str,session_token: Optional[str]=Cookie(None)):
+            return await tracking.radar(await owner(request,session_token),program_id)
+
+        @self.router.get('/{program_id}/sources/{source_id}/versions')
+        async def versions(request: Request,program_id: str,source_id: str,offset: int=Query(0,ge=0,le=100000),
+                           limit: int=Query(20,ge=1,le=50),session_token: Optional[str]=Cookie(None)):
+            return await tracking.versions(await owner(request,session_token),program_id,source_id,offset,limit)
+
+        @self.router.get('/{program_id}/sources/{source_id}/versions/{version_id}')
+        async def version(request: Request,program_id: str,source_id: str,version_id: str,session_token: Optional[str]=Cookie(None)):
+            return await tracking.versions(await owner(request,session_token),program_id,source_id,version_id=version_id)
+
     async def poll_source(self,user_id,program_id,source_id):
         source=await tracking.claim(user_id,program_id,source_id)
         if not source.get('claimed'):return source
@@ -57,14 +70,6 @@ class ContestWatcher:
             documents=[]
             if page:
                 documents=list(page.documents)
-                previous=source.get('snapshot','')
-                if previous and page.content_hash!=source.get('content_hash'):
-                    diff=list(difflib.unified_diff(previous.splitlines(),page.text.splitlines(),n=1))
-                    changes={'added':[line[1:] for line in diff if line.startswith('+') and not line.startswith('+++')][:60],
-                        'removed':[line[1:] for line in diff if line.startswith('-') and not line.startswith('---')][:60],'partial':len(diff)>120}
-                    documents.insert(0,{'title':'Alteração detectada na página acompanhada','url':source['url'],'document_type':'page_change',
-                        'hash':page.content_hash,'hash_basis':'page_text','published_at':None,'official':source['trust']=='OFFICIAL',
-                        'source_type':source['trust'],'changes':changes})
             if not await tracking.finish(source,page,documents):return {'status':'removed'}
             return {'status':'ok','message':'Fonte consultada. Documentos e diferenças disponíveis na linha do tempo.'}
         except Exception as exc:

@@ -1,5 +1,6 @@
 """Public-source adapters. No browser automation, authentication or access bypass."""
 import hashlib
+import json
 import http.client
 import ipaddress
 import re
@@ -26,6 +27,8 @@ def validate_url(value):
         if url.scheme != 'https' or not url.hostname or url.username or url.password or url.port not in (None, 443):
             raise SourceUnavailable('Use uma URL pública HTTPS, sem credenciais ou porta personalizada.')
         host = url.hostname.encode('idna').decode('ascii').lower()
+        if any(host == domain or host.endswith('.' + domain) for domain in ('tecconcursos.com.br', 'qconcursos.com')):
+            raise SourceUnavailable('Esta plataforma exige uma integração autorizada; acompanhamento automático não permitido.')
         if len(value) > 2000 or any(c in value for c in ('\r', '\n', '\\')):
             raise SourceUnavailable('URL inválida.')
         if '.' not in host or host.endswith(('.local', '.internal', '.localhost')):
@@ -118,6 +121,8 @@ class SourcePage:
     content_hash: str
     etag: str | None = None
     modified: str | None = None
+    hash_basis: str = 'page_text'
+    partial: bool = False
 
 
 class ContestSourceProvider:
@@ -153,8 +158,14 @@ class ContestSourceProvider:
             documents.append({'title': title[:500] or 'Documento publicado', 'url': link, 'document_url': link if urlsplit(link).path.lower().endswith('.pdf') else None,
                               'document_type': kind, 'hash': digest, 'hash_basis': 'url_and_title', 'source_type': trust(link), 'official': trust(link) == 'OFFICIAL', 'published_at': None})
             if len(documents) == 300: break
-        text = '\n'.join(parser.text)[:200000]
-        return SourcePage(text, documents, hashlib.sha256(text.encode()).hexdigest())
+        full_text = '\n'.join(parser.text)
+        text = full_text[:200000]
+        # Link replacements can change the edital even when anchor text does not.
+        metadata=sorted((d['url'],d['title'],d['document_type']) for d in documents)
+        digest=hashlib.sha256((text+'\n'+json.dumps(metadata,ensure_ascii=False,separators=(',',':'))).encode()).hexdigest()
+        page = SourcePage(text, documents, digest,hash_basis='page_text_and_links')
+        page.partial = len(full_text) > 200000 or len(documents) >= 300
+        return page
 
     def poll(self, url, etag=None, modified=None):
         url = validate_url(url)
@@ -189,15 +200,19 @@ class ContestSourceProvider:
                     parts.append(part)
                     remaining -= len(part)
                     if remaining <= 0: break
-                text = '\n'.join(parts)
+                joined = '\n'.join(parts)
+                partial = remaining <= 0 or len(joined) > 200000
+                text = joined[:200000]
             except SourceUnavailable: raise
             except Exception: raise SourceUnavailable('Não foi possível ler o PDF público.') from None
             digest = hashlib.sha256(body).hexdigest()
             page = SourcePage(text, [{'title': urlsplit(url).path.rsplit('/', 1)[-1] or 'PDF acompanhado', 'url': url, 'document_url': url,
                 'document_type': document_type('', url) or 'document', 'hash': digest, 'hash_basis': 'document_bytes',
                 'source_type': trust(url), 'official': trust(url) == 'OFFICIAL', 'published_at': None,
-                'text_extraction': 'available' if text.strip() else 'unavailable', 'text_partial': remaining <= 0}], digest)
+                'text_extraction': 'available' if text.strip() else 'unavailable', 'text_partial': partial}], digest)
             page.etag, page.modified = response_headers.get('etag'), response_headers.get('last-modified')
+            page.hash_basis = 'document_bytes'
+            page.partial = partial
             return page
         if not any(t in mime for t in ('text/html', 'text/plain', 'application/xhtml')): raise SourceUnavailable('Cadastre uma página pública ou PDF.')
         text = body.decode('utf-8', 'replace')
