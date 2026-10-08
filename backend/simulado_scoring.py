@@ -27,7 +27,7 @@ def grade(questions, answers, rules=None):
         correct = bool(answer) and answer.upper() == expected.upper()
         try:weight=float(q.get('weight',1))
         except (ValueError,TypeError):raise HTTPException(422,'Peso de questão inválido.') from None
-        if not math.isfinite(weight) or not 0<weight<=100:raise HTTPException(422,'Peso de questão inválido.')
+        if not math.isfinite(weight) or not 0<weight<=1000:raise HTTPException(422,'Peso de questão inválido.')
         total_weight += weight
         points=weight if correct else -weight*(wrong if answer else blank)
         earned += points

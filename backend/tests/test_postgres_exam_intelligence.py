@@ -73,6 +73,10 @@ class ExamIntelligence(unittest.IsolatedAsyncioTestCase):
         result=self.ok(await self.http.post(target+'/submit',json={'answers':[]},headers={'Idempotency-Key':'assembled-numbering'}))
         self.assertEqual([a['question_number'] for a in result['answers']],[1,2])
         async with unit_of_work() as session:self.assertEqual(await session.scalar(select(func.count()).select_from(Question).where(Question.user_id==self.uid)),2)
+        self.ok(await self.http.patch('/api/study/notebooks/'+self.nid,json={'weight':200,'num_questoes_edital':2}))
+        weighted=self.ok(await self.http.post(path,json={'title':'Weighted','duration_minutes':30,'mode':'edital','confirm_provisional':True},headers={'Idempotency-Key':'large-edital-weight'}))
+        weighted_url='/api/study/simulados/'+weighted['simulado_id']
+        self.ok(await self.http.post(weighted_url+'/session',json={},headers={'Idempotency-Key':'start-weighted'}))
         body['notebook_ids']=['00000000-0000-0000-0000-000000000001']
         self.assertEqual((await self.http.post(path,json=body,headers={'Idempotency-Key':'assemble-foreign'})).status_code,422)
         body.update(mode='weak',notebook_ids=[])

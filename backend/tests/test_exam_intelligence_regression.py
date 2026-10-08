@@ -28,6 +28,8 @@ class Diagnostics(unittest.TestCase):
         small=grade([{'correct_answer':'A','weight':.05},{'correct_answer':'A','weight':1}],
             [{'question_idx':0,'selected_answer':'A'}])
         self.assertEqual(small['score'],4.8)
+        large=grade([{'correct_answer':'A','weight':200},{'correct_answer':'A','weight':1}],[{'question_idx':0,'selected_answer':'A'}])
+        self.assertEqual(large['raw_points'],200);self.assertEqual(large['score'],99.5)
         with self.assertRaises(HTTPException):grade([{'correct_answer':'A','weight':float('inf')}],[])
 
     def test_canonical_discipline_identity_survives_rename(self):
