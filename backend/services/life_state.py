@@ -27,6 +27,26 @@ async def collect(session, uid, *, day=None, now=None, user=None):
     except ValidationError:
         availability=Availability();warnings.append('Disponibilidade inválida; configure novamente.')
     domains=[await adapter(session,uid,day,zone) for adapter in ADAPTERS]
+    prep=next(d for d in domains if d.domain=='preparation')
+    constraints=[c for d in domains for c in d.constraints]
+    # Cross-domain association belongs to the coordinator, not domain adapters.
+    study_conflict=any(a.id!=b.id and a.start_minute<b.end_minute and b.start_minute<a.end_minute
+        for a in prep.constraints for b in constraints)
+    if study_conflict:
+        prep.warnings.append('Horários de estudo em conflito: cobertura e alocação suspensas. Revise os horários fixos.')
+    else:
+        reserved={}
+        for c in prep.constraints:reserved[c.scope_id]=reserved.get(c.scope_id,0)+c.end_minute-c.start_minute
+        remaining=[]
+        for c in prep.candidates:
+            used=min(c.duration_minutes,reserved.get(c.scope_id,0))
+            reserved[c.scope_id]=max(0,reserved.get(c.scope_id,0)-used)
+            if used<c.duration_minutes:
+                c.duration_minutes-=used
+                if used:c.reasons.append(f'{used} min já reservados no horário do caderno.')
+                remaining.append(c)
+        prep.candidates=remaining
+    warnings.extend(prep.warnings)
     for domain in domains:
         if domain.domain=='training' and not domain.facts.get('active_session'):
             domain.candidates=[c for c in domain.candidates if c.source_id==str(availability.training_plan_id)

@@ -104,35 +104,27 @@ async def preparation(session, uid, day, zone):
         .order_by(StudyPlanEntry.fixed.desc(),StudyPlanEntry.id).limit(LIMIT+1))).all()
     state = DomainState(domain='preparation',truncated=len(rows)>LIMIT)
     for row,pid in rows[:LIMIT]:
-        state.candidates.append(candidate('preparation',row,day,row.name+' · '+row.kind,row.minutes,
+        c=candidate('preparation',row,day,row.name+' · '+row.kind,row.minutes,
             f'/studies?program={pid}&view=cronograma',locked=row.fixed or row.manual,
-            reasons=['Bloco canônico do cronograma em '+day.isoformat(),row.reason[:400] or 'Distribuição do plano operacional.']))
+            reasons=['Bloco canônico do cronograma em '+day.isoformat(),row.reason[:400] or 'Distribuição do plano operacional.'])
+        c.scope_id=str(row.notebook_id);state.candidates.append(c)
     schedules = (await session.execute(select(StudySchedule,Notebook.name).join(Notebook,
         (Notebook.id == StudySchedule.notebook_id)&(Notebook.user_id == StudySchedule.user_id)).where(
         StudySchedule.user_id == uid,Notebook.archived_at.is_(None)).order_by(StudySchedule.id).limit(FIXED_LIMIT+1))).all()
     state.truncated |= len(schedules)>FIXED_LIMIT
     labels=('monday','tuesday','wednesday','thursday','friday','saturday','sunday')
-    reserved={}
     for row,title in schedules[:FIXED_LIMIT]:
         if row.day_of_week != labels[day.weekday()]: continue
-        if not row.repeat and row.created_at.astimezone(zone).date()!=day: continue
+        if not row.repeat:
+            created=row.created_at.astimezone(zone).date()
+            occurrence=created+timedelta(days=(labels.index(row.day_of_week)-created.weekday())%7)
+            if occurrence!=day:continue
         a=row.start_time.hour*60+row.start_time.minute; b=row.end_time.hour*60+row.end_time.minute
         if b<=a:
             if not state.warnings:state.warnings.append('Horário de estudo inválido; planejamento suspenso.')
         else:
-            state.constraints.append(Constraint(id='schedule:'+str(row.id),domain='preparation',title=title[:300],
+            state.constraints.append(Constraint(id='schedule:'+str(row.id),domain='preparation',scope_id=str(row.notebook_id),title=title[:300],
                 start_minute=a,end_minute=b,reason='Horário recorrente de estudo registrado.'))
-            reserved[str(row.notebook_id)]=reserved.get(str(row.notebook_id),0)+(b-a)
-    # Existing wall-clock study slots already cover the dated book allocation.
-    remaining=[]
-    for (row,_),c in zip(rows[:LIMIT],state.candidates):
-        used=min(c.duration_minutes,reserved.get(str(row.notebook_id),0))
-        reserved[str(row.notebook_id)]=max(0,reserved.get(str(row.notebook_id),0)-used)
-        if used<c.duration_minutes:
-            c.duration_minutes-=used
-            if used:c.reasons.append(f'{used} min já reservados no horário do caderno.')
-            remaining.append(c)
-    state.candidates=remaining
     state.facts={'dated_blocks':len(state.candidates),'locked_date_blocks':sum(c.date_locked for c in state.candidates),
         'recorded_minutes_today':await session.scalar(select(func.coalesce(func.sum(StudySession.duration_minutes),0)).where(
             StudySession.user_id==uid,StudySession.date==day,StudySession.completed.is_(True)))}

@@ -48,6 +48,7 @@ class Candidate(Contract):
     id: str = Field(min_length=1, max_length=160)
     domain: Domain
     source_id: str = Field(max_length=80)
+    scope_id: str | None = Field(default=None, max_length=80)
     action_type: str = Field(max_length=40)
     title: str = Field(max_length=300)
     duration_minutes: int | None = Field(default=None, gt=0, le=1440, strict=True)
@@ -64,6 +65,7 @@ class Constraint(Window):
     id: str = Field(max_length=160)
     title: str = Field(max_length=300)
     domain: Domain
+    scope_id: str | None = Field(default=None, max_length=80)
     reason: str = Field(max_length=300)
 
 

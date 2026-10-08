@@ -72,8 +72,9 @@ def plan_day(tasks, commitments, day, start=480, end=1080, capacity=None,
             'start_minute': gap[0], 'end_minute': gap[0] + duration, 'duration_minutes': duration,
             'duration_estimated': task.get('duration_origin')=='user_estimate' or task.get('duration_minutes') is None,
             'reason': 'Prioridade por prazo vencido, data protegida e prioridade declarada; alocação em tempo livre.' if metadata else 'Sugestão nos horários livres restantes.'})
-        gap[0] += duration
+        gap[0] = ((gap[0]+duration+4)//5)*5
         capacity -= duration
+        capacity=min(capacity,sum(max(0,b-a) for a,b in gaps))
     blocks.sort(key=lambda b: b['start_minute'])
     return {'date': day, 'timezone': timezone_name, 'blocks': blocks, 'unscheduled': unscheduled,
         'conflicts': conflicts, 'conflicts_truncated':conflicts_truncated, 'available_minutes': available, 'budget_minutes': budget,

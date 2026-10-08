@@ -162,3 +162,25 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
             fixed=await s.scalar(select(CalendarEvent).where(CalendarEvent.user_id==self.uid,CalendarEvent.title=='Work'))
             self.assertIsNotNone(fixed);self.assertFalse((await s.get(StudyPlanEntry,self.entry.id)).completed)
         self.assertEqual((await self.http.delete('/api/life/allocations/'+str(fixed.id),params={'confirmed':'true'},headers={'Idempotency-Key':'cannot-release-fixed'})).status_code,404)
+
+    async def test_one_time_schedule_created_in_advance_reserves_first_selected_weekday(self):
+        async with unit_of_work() as s:
+            labels=('monday','tuesday','wednesday','thursday','friday','saturday','sunday')
+            row=StudySchedule(user_id=self.uid,notebook_id=self.nid,day_of_week=labels[self.day.weekday()],
+                start_time=time(18),end_time=time(19),repeat=False,
+                created_at=datetime.combine(self.day-timedelta(days=1),time(12),timezone.utc))
+            s.add(row);await s.flush();identity=str(row.id)
+        result=await self.simulate();self.assertTrue(any(c['id']=='schedule:'+identity for c in result['plan']['constraints']))
+        later=await self.simulate(date=str(self.day+timedelta(days=7)))
+        self.assertFalse(any(c['id']=='schedule:'+identity for c in later['plan']['constraints']))
+
+    async def test_overlapping_study_slots_never_double_count_canonical_coverage(self):
+        async with unit_of_work() as s:
+            row=await s.get(StudyPlanEntry,self.entry.id);row.minutes=120
+            labels=('monday','tuesday','wednesday','thursday','friday','saturday','sunday')
+            s.add_all([StudySchedule(user_id=self.uid,notebook_id=self.nid,day_of_week=labels[self.day.weekday()],
+                start_time=time(18),end_time=time(19),repeat=True) for _ in range(2)])
+        result=await self.simulate();self.assertFalse(result['state']['planning_safe']);self.assertFalse(result['plan']['blocks'])
+        prep=next(d for d in result['state']['domains'] if d['domain']=='preparation')
+        self.assertEqual(prep['candidates'][0]['duration_minutes'],120)
+        self.assertTrue(any('conflito' in w for w in result['state']['warnings']))
