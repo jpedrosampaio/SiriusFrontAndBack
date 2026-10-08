@@ -9,6 +9,7 @@ from services.studies_catalog import owned
 from db.repositories.exams import ExamRepository
 from simulado_scoring import grade
 from typing import Literal
+import re
 
 class AnswerEvidence(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -43,6 +44,8 @@ def validate_answers(questions,answers):
         q=questions[a['question_idx']][0];value=a['selected_answer'].strip()
         options=q.options or []
         allowed={str(o).strip() for o in options}|{chr(65+i) for i in range(len(options))}
+        allowed.add(str(q.correct_answer).strip())
+        allowed.update(re.sub(r'^[A-E][).:\-]\s*', '', str(o).strip(), flags=re.IGNORECASE) for o in options)
         if value and options and value.casefold() not in {option.casefold() for option in allowed}:raise HTTPException(422,'Alternativa inválida.')
 
 async def start(uid,eid,key):

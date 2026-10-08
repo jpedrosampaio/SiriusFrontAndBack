@@ -11,6 +11,10 @@ class Diagnostics(unittest.TestCase):
         answers=[{'question_idx':0,'selected_answer':'a'}]
         validate_answers(questions,answers)
         self.assertEqual(grade([{'correct_answer':'A','weight':1}],answers)['correct_count'],1)
+        legacy=[(SimpleNamespace(correct_answer='Paris',options=['A) Paris','B) Rome']),1)]
+        for value in ('Paris','paris','Rome','A','B) Rome'):
+            validate_answers(legacy,[{'question_idx':0,'selected_answer':value}])
+        self.assertEqual(grade([{'correct_answer':'Paris','weight':1}],[{'question_idx':0,'selected_answer':'Paris'}])['correct_count'],1)
 
     def test_penalties_require_source_and_preserve_negative_raw_points(self):
         from fastapi import HTTPException
