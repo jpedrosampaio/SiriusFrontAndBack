@@ -24,8 +24,12 @@ def candidate(domain, row, day, title, duration, link, *, priority='medium', loc
 
 async def tasks(session, uid, day, zone):
     # Temporal constraints never use the shorter display limit.
+    done_once=select(TaskInstance.id).where(TaskInstance.user_id==uid,TaskInstance.task_id==Task.id,
+        TaskInstance.date==Task.date,TaskInstance.completed.is_(True)).correlate(Task).exists()
     rows = (await session.scalars(select(Task).where(Task.user_id == uid, Task.archived_at.is_(None),
-        Task.date <= day)
+        Task.date <= day,(Task.recurrence!='once')|(Task.date==day)|
+        ((Task.scheduled_time.is_not(None))&(Task.date==day-timedelta(days=1)))|
+        ((Task.scheduled_time.is_(None))&~done_once))
         .order_by(Task.date, Task.id).limit(FIXED_LIMIT+1))).all()
     instances = (await session.execute(select(TaskInstance.task_id, TaskInstance.date, TaskInstance.completed).join(Task,
         (Task.id==TaskInstance.task_id)&(Task.user_id==TaskInstance.user_id)).where(

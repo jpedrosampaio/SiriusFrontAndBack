@@ -184,3 +184,12 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
         prep=next(d for d in result['state']['domains'] if d['domain']=='preparation')
         self.assertEqual(prep['candidates'][0]['duration_minutes'],120)
         self.assertTrue(any('conflito' in w for w in result['state']['warnings']))
+
+    async def test_completed_once_history_does_not_exhaust_live_temporal_limit(self):
+        async with unit_of_work() as s:
+            old=self.day-timedelta(days=90)
+            rows=[Task(user_id=self.uid,title='Closed history'+str(i),date=old,duration_minutes=20) for i in range(1001)]
+            s.add_all(rows);await s.flush()
+            s.add_all([TaskInstance(user_id=self.uid,task_id=row.id,date=old,status='done',completed=True) for row in rows])
+        result=await self.simulate();self.assertTrue(result['state']['planning_safe']);self.assertTrue(result['plan']['blocks'])
+        self.assertNotIn('Closed history',str(result['state']))
