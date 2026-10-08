@@ -3,6 +3,15 @@ from datetime import date,timedelta
 from exam_intelligence import final_sprint,post_mortem
 
 class Diagnostics(unittest.TestCase):
+    def test_legacy_lowercase_answers_remain_valid(self):
+        from types import SimpleNamespace
+        from services.exam_sessions import validate_answers
+        from simulado_scoring import grade
+        questions=[(SimpleNamespace(correct_answer='A',options=['A) First','B) Second']),1)]
+        answers=[{'question_idx':0,'selected_answer':'a'}]
+        validate_answers(questions,answers)
+        self.assertEqual(grade([{'correct_answer':'A','weight':1}],answers)['correct_count'],1)
+
     def test_penalties_require_source_and_preserve_negative_raw_points(self):
         from fastapi import HTTPException
         from simulado_scoring import grade

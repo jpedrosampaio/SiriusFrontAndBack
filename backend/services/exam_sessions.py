@@ -43,7 +43,7 @@ def validate_answers(questions,answers):
         q=questions[a['question_idx']][0];value=a['selected_answer'].strip()
         options=q.options or []
         allowed={str(o).strip() for o in options}|{chr(65+i) for i in range(len(options))}
-        if value and options and value not in allowed:raise HTTPException(422,'Alternativa inválida.')
+        if value and options and value.casefold() not in {option.casefold() for option in allowed}:raise HTTPException(422,'Alternativa inválida.')
 
 async def start(uid,eid,key):
     if not key:raise HTTPException(422,'Idempotency-Key obrigatório.')
