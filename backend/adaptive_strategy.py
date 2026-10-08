@@ -35,7 +35,7 @@ def rank_candidates(state, today):
         risk = round(min(100, sum(components.values()) * urgency), 2)
         weight = max(.1, min(100, float(discipline.get('weight') or 1)))
         incidence = max(1, min(200, discipline.get('question_count') or 1)) / max(1, counts[topic['notebook_id']])
-        impact = round(weight * incidence, 4)
+        impact = round(weight * incidence, 8)
         reviewing = overdue or topic['covered']
         cost = 25 if reviewing else 50
         interval = topic.get('review_interval_days', 7)
@@ -51,7 +51,7 @@ def rank_candidates(state, today):
             'id': topic['id'], 'notebook_id': topic['notebook_id'], 'topic_key': topic['topic_key'],
             'title': topic['title'], 'discipline': discipline['title'], 'covered': topic['covered'],
             'risk': risk, 'risk_components': components, 'urgency_multiplier': urgency,
-            'impact': impact, 'cost_minutes': cost, 'expected_return': round(impact * risk / 100 / cost, 6),
+            'impact': impact, 'cost_minutes': cost, 'expected_return': round(impact * risk / 100 / cost, 12),
             'kind': 'Revisão' if reviewing else 'Teoria e questões',
             'review_interval_days': interval, 'review_due_date': due,
             'review_reason': topic.get('review_reason'), 'evidence_ids': topic['evidence_ids'],

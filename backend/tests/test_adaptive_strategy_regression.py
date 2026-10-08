@@ -81,3 +81,13 @@ class AdaptiveStrategyTests(unittest.TestCase):
         entries=[{'date':'2026-10-08','minutes':30,'completed':True}]
         guard=load_guard(self.state(),entries,[60]*7,{'2026-10-08':45})
         self.assertIn('protected_over_capacity',[w['code'] for w in guard['warnings']])
+
+    def test_small_positive_returns_still_distribute_large_manual_syllabus(self):
+        state=self.state(); state['syllabus_graph']['disciplines'][0].update(weight=.1,question_count=None)
+        template=state['syllabus_graph']['topics'][0]
+        state['syllabus_graph']['topics']=[{**template,'id':f't{i:04d}','topic_key':str(i),
+            'question_count':10,'mastery':{'score':90}} for i in range(1000)]
+        candidates=rank_candidates(state,date(2026,10,8))
+        self.assertTrue(all(c['expected_return']>0 for c in candidates))
+        entries=build_strategy_plan('p',candidates,[120]*7,'2026-10-08','2026-10-08',50)
+        self.assertEqual(len({e['topic_id'] for e in entries}),3)

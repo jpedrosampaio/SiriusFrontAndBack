@@ -105,7 +105,7 @@ async def plan_rows(session,uid,program_id):
     entries=[] if plan is None else list((await session.scalars(select(StudyPlanEntry).where(StudyPlanEntry.user_id==uid,StudyPlanEntry.plan_id==plan.id)
         .order_by(StudyPlanEntry.date,StudyPlanEntry.id))).all())
     topics = {t.id:t for t in (await session.scalars(select(StudyTopic).where(StudyTopic.user_id==uid,
-        StudyTopic.id.in_([e.topic_id for e in entries if e.topic_id]),StudyTopic.archived_at.is_(None)))).all()}
+        StudyTopic.id.in_(sorted({e.topic_id for e in entries if e.topic_id})),StudyTopic.archived_at.is_(None)))).all()}
     for entry in entries:
         topic=topics.get(entry.topic_id)
         entry.strategy_topic_key=topic.topic_key if topic and topic.notebook_id==entry.notebook_id else None
