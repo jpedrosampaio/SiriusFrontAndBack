@@ -32,7 +32,7 @@ for(const width of [1440,1024,768,390,320]){
  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:4183/calendar');
  const panel=page.getByRole('region',{name:'Planejador global'});await panel.getByRole('heading',{name:'Seu dia integrado'}).waitFor();
  await panel.getByRole('button',{name:'Minha disponibilidade'}).click();await panel.getByRole('button',{name:'Salvar disponibilidade'}).click();await panel.getByRole('status').waitFor();
- await panel.getByText('Candidatos e cenário do dia',{exact:true}).click();assert.equal(await panel.getByRole('checkbox').first().isDisabled(),true);
+ await panel.getByText('Candidatos e cenário do dia',{exact:true}).click();assert.equal(await panel.getByRole('checkbox',{name:/Revis\u00e3o constitucional/}).isDisabled(),true);
  await panel.getByRole('button',{name:'Simular meu dia',exact:true}).click();await panel.getByRole('region',{name:'Resultado da simulação'}).waitFor();
  assert.equal(writes,0);assert.equal(simulations,1);await panel.getByText('10:00–11:00 · Compromisso fixo · fixo',{exact:true}).waitFor();
  const confirm=panel.getByRole('button',{name:'Confirmar estes horários na agenda',exact:true});await confirm.click();await panel.getByRole('alert').waitFor();await confirm.click();await panel.getByRole('status').waitFor();
