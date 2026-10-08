@@ -10,6 +10,7 @@ import TopicPractice from '@/components/TopicPractice';
 import StudyPerformance from '@/components/StudyPerformance';
 import { SourceEvidence } from '@/components/EditalReview';
 import DatedStudyPlan from '@/components/DatedStudyPlan';
+import AdaptiveStrategy from '@/components/studies/AdaptiveStrategy';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -161,10 +162,12 @@ export default function StudyProgramWorkspace({ user, programId, api, onBack, on
           </div>}
 
           {view === 'cronograma' && <div className="space-y-6"><StudyRecommendations programId={programId} onStudy={t => navigate('estudar', { notebookId: t.notebook_id, key: t.topic_key })} />
+            <AdaptiveStrategy programId={programId} onStudy={t => navigate('estudar', { notebookId: t.notebook_id, key: t.topic_key, minutes: t.minutes })} />
             <DatedStudyPlan api={api} program={program} onStudy={entry => {
+              if (entry.topic_id && entry.topic_key == null) { toast.error('O assunto deste bloco não está mais disponível. Reorganize a agenda.'); return; }
               const discipline = disciplines.find(d => d.notebook_id === entry.notebook_id);
               const topic = discipline && topicRows(discipline).find(t => !progress[discipline.notebook_id]?.[t.key]?.[entry.kind === 'Revisão' ? 'reviewed' : 'studied']);
-              navigate('estudar', { notebookId: entry.notebook_id, key: topic?.key, minutes: entry.minutes, entryId: entry.entry_id });
+              navigate('estudar', { notebookId: entry.notebook_id, key: entry.topic_key ?? topic?.key, minutes: entry.minutes, entryId: entry.entry_id });
             }} />
             <section className={box}><div className="flex flex-wrap justify-between gap-4"><div><h2 className="text-xl font-semibold">Modelo semanal de referência</h2><p className={`${muted} mt-2`}>Escolha um bloco para abrir a página de estudo com a matéria e a duração previstas.</p></div><Button variant="outline" onClick={() => onManageSchedule(programId)}>Ajustes e exportação</Button></div>{data.estrategia?.resumo && <p className={`${muted} mt-4`}>{data.estrategia.resumo}</p>}</section>
             {data.cronograma?.length ? data.cronograma.map(day => <section key={day.day} className={box}><div className="flex justify-between mb-4"><h3 className="font-semibold">{day.day_label}</h3><span className="text-xs text-[#71717A]">{day.total_minutes} min planejados</span></div><div className="space-y-3">{day.blocos.map(block => {

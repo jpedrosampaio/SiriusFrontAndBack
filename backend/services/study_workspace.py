@@ -6,17 +6,18 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter,Request,Query,HTTPException
 from sqlalchemy import select,func,delete
 from db.session import unit_of_work
-from db.models.studies import Notebook,StudyProgram,StudyTopic,StudyDraft,StudyPlan,StudyPlanEntry,QuestionAttempt,ReviewEvent
+from db.models.studies import Notebook,StudyProgram,StudyTopic,StudyDraft,StudyPlan,StudyPlanEntry,QuestionAttempt,ReviewEvent,StudyTask,StudyTaskCheck
 from db.models.planning import CalendarEvent
 from db.repositories.studies import StudiesRepository
 from services.studies_catalog import owned,notebooks as catalog_notebooks
 from services.auth_routes import account
 from services.study_activity_routes import mutate
 from services.time import local_today
-from study_workspace_routes import DraftUpdate,PlanSettings,TopicPractice,PlanEntryUpdate
-from study_planner import build_plan
-from study_adaptation import adapt_notebooks,next_review
-from study_mastery import mastery
+from study_workspace_routes import DraftUpdate,PlanSettings,TopicPractice,PlanEntryUpdate,StrategyScenario
+from study_planner import build_plan,build_strategy_plan
+from adaptive_strategy import strategy_summary,preview_strategy
+from services.preparation_state import preparation_state
+from study_adaptation import next_review
 from services.study_plan_views import entry_json
 
 router=APIRouter(prefix='/study')
@@ -103,6 +104,11 @@ async def plan_rows(session,uid,program_id):
     plan=await session.scalar(select(StudyPlan).where(StudyPlan.user_id==uid,StudyPlan.program_id==program_id))
     entries=[] if plan is None else list((await session.scalars(select(StudyPlanEntry).where(StudyPlanEntry.user_id==uid,StudyPlanEntry.plan_id==plan.id)
         .order_by(StudyPlanEntry.date,StudyPlanEntry.id))).all())
+    topics = {t.id:t for t in (await session.scalars(select(StudyTopic).where(StudyTopic.user_id==uid,
+        StudyTopic.id.in_([e.topic_id for e in entries if e.topic_id]),StudyTopic.archived_at.is_(None)))).all()}
+    for entry in entries:
+        topic=topics.get(entry.topic_id)
+        entry.strategy_topic_key=topic.topic_key if topic and topic.notebook_id==entry.notebook_id else None
     return plan,entries
 
 
@@ -126,6 +132,59 @@ async def reserved_minutes(session,user,start,end):
     return dict(result)
 
 
+async def strategy_state(session,uid,program,zone,today):
+    state=await preparation_state(session,uid,program,zone,today)
+    ids=[UUID(d['id']) for d in state['syllabus_graph']['disciplines']]
+    checked=select(StudyTaskCheck.id).where(StudyTaskCheck.user_id==uid,StudyTaskCheck.task_id==StudyTask.id).exists()
+    tasks=list((await session.scalars(select(StudyTask).where(StudyTask.user_id==uid,
+        StudyTask.notebook_id.in_(ids),StudyTask.archived_at.is_(None),StudyTask.recurrence=='once',
+        StudyTask.deadline<today,~checked).order_by(StudyTask.deadline,StudyTask.id).limit(501))).all())
+    state['strategy_facts']['late_milestones']=[{'task_id':str(t.id),'title':t.title,
+        'deadline':t.deadline.isoformat(),'notebook_id':str(t.notebook_id)} for t in tasks[:500]]
+    state['truncated'] |= len(tasks)>500
+    return state
+
+
+def validate_scenario(body,today,exam_date=None):
+    if any(m<0 or m>720 for m in body.availability) or not any(m>=15 for m in body.availability):
+        raise HTTPException(422,'Informe de 15 a 720 minutos em pelo menos um dia.')
+    if body.start_date<today or not 0<=(body.end_date-body.start_date).days<=180:
+        raise HTTPException(422,'Simule um período futuro de até 181 dias.')
+    if exam_date and body.end_date>date.fromisoformat(exam_date):
+        raise HTTPException(422,'A simulação deve terminar até a data da prova/meta.')
+
+
+@router.get('/programs/{program_id}/strategy')
+async def strategy_get(request: Request,program_id: UUID):
+    user=await account(request); uid=UUID(user['user_id']); today=local_today(user['timezone'])
+    async with unit_of_work() as session:
+        program=await owned(session,StudyProgram,uid,program_id)
+        state=await strategy_state(session,uid,program,user['timezone'],today)
+        plan,previous=await plan_rows(session,uid,program_id)
+        end=today+timedelta(days=27)
+        if state['exam_date']: end=min(end,date.fromisoformat(state['exam_date']))
+        body=StrategyScenario(start_date=today,end_date=end,availability=plan.availability if plan else [60]*5+[0,0],
+            block_minutes=plan.block_minutes if plan else 50,adaptive=True)
+        reserved=await reserved_minutes(session,SimpleUser(uid,user['timezone']),today,end) if end>=today else {}
+        return preview_strategy(state,today,body,[entry_json(e) for e in previous],reserved)
+
+
+class SimpleUser:
+    def __init__(self,uid,zone): self.id=uid; self.timezone=zone
+
+
+@router.post('/programs/{program_id}/strategy/simulate')
+async def strategy_simulate(request: Request,program_id: UUID,body: StrategyScenario):
+    user=await account(request); uid=UUID(user['user_id']); today=local_today(user['timezone'])
+    async with unit_of_work() as session:
+        program=await owned(session,StudyProgram,uid,program_id)
+        state=await strategy_state(session,uid,program,user['timezone'],today)
+        validate_scenario(body,today,state['exam_date'])
+        _,previous=await plan_rows(session,uid,program_id)
+        reserved=await reserved_minutes(session,SimpleUser(uid,user['timezone']),body.start_date,body.end_date)
+        return preview_strategy(state,today,body,[entry_json(e) for e in previous],reserved,body.missed_days)
+
+
 @router.get('/programs/{program_id}/dated-plan')
 async def plan_get(request: Request,program_id: UUID):
     user=await account(request); uid=UUID(user['user_id'])
@@ -146,27 +205,22 @@ async def plan_create(request: Request,program_id: UUID,body: PlanSettings):
         if not notebooks: raise HTTPException(422,'Adicione disciplinas antes de planejar.')
         plan,previous=await plan_rows(session,user.id,program_id)
         today=local_today(user.timezone)
-        preserved=[row for row in previous if row.completed or row.manual or row.fixed or row.date<max(today,body.start_date) or row.date>body.end_date]
+        preserved=[row for row in previous if row.completed or row.manual or row.fixed or row.date>body.end_date or
+            (row.date<max(today,body.start_date) and not (body.adaptive and body.recovery and today-timedelta(days=27)<=row.date<today))]
         if body.adaptive:
-            performance={row['notebook_id']:{'total':row['total_questions'],'correct':row['correct_questions']} for row in notebooks}
-            overdue={str(row.notebook_id) for row in previous if not row.completed and row.date<body.start_date}
-            notebook_ids=[UUID(row['notebook_id']) for row in notebooks]
-            evidence=(await session.scalars(select(QuestionAttempt).where(QuestionAttempt.user_id==user.id,
-                QuestionAttempt.notebook_id.in_(notebook_ids),QuestionAttempt.total==1,QuestionAttempt.question_id.is_not(None),answered_attempt()).order_by(QuestionAttempt.answered_at.desc()).limit(5000))).all()
-            grouped=defaultdict(list)
-            for row in evidence: grouped[str(row.notebook_id)].append({'correct':bool(row.correct),'date':row.answered_at.astimezone(ZoneInfo(user.timezone)).date().isoformat()})
-            estimates={key:mastery(rows,today) for key,rows in grouped.items()}
-            latest=select(ReviewEvent).where(ReviewEvent.user_id==user.id).distinct(ReviewEvent.topic_id).order_by(ReviewEvent.topic_id,ReviewEvent.reviewed_at.desc(),ReviewEvent.id.desc()).subquery()
-            due=(await session.scalars(select(StudyTopic.notebook_id).join(latest,latest.c.topic_id==StudyTopic.id)
-                .where(StudyTopic.user_id==user.id,StudyTopic.notebook_id.in_(notebook_ids),latest.c.next_review<=today))).all()
-            overdue.update(str(identity) for identity in due)
-            notebooks=adapt_notebooks(notebooks,performance,overdue,estimates)
+            state=await strategy_state(session,user.id,program,user.timezone,today)
+            if state['exam_date'] and body.end_date>date.fromisoformat(state['exam_date']):
+                raise HTTPException(422,'O cronograma deve terminar até a data da prova/meta.')
+            candidates=strategy_summary(state,today)['candidates']
         reserved=await reserved_minutes(session,user,body.start_date,body.end_date)
-        generated=build_plan(str(program_id),notebooks,body.availability,max(today,body.start_date).isoformat(),
-            body.end_date.isoformat(),body.block_minutes,[entry_json(row) for row in preserved],reserved)
-        if plan is None: plan=StudyPlan(user_id=user.id,program_id=program_id,**body.model_dump()); session.add(plan)
+        generated=(build_strategy_plan(str(program_id),candidates,body.availability,max(today,body.start_date).isoformat(),
+            body.end_date.isoformat(),body.block_minutes,[entry_json(row) for row in preserved],reserved) if body.adaptive else
+            build_plan(str(program_id),notebooks,body.availability,max(today,body.start_date).isoformat(),
+            body.end_date.isoformat(),body.block_minutes,[entry_json(row) for row in preserved],reserved))
+        values=body.model_dump(exclude={'recovery'})
+        if plan is None: plan=StudyPlan(user_id=user.id,program_id=program_id,**values); session.add(plan)
         else:
-            for key,value in body.model_dump().items(): setattr(plan,key,value)
+            for key,value in values.items(): setattr(plan,key,value)
         await session.flush()
         keep={str(row.id) for row in preserved}
         for row in previous:
@@ -175,7 +229,9 @@ async def plan_create(request: Request,program_id: UUID,body: PlanSettings):
         for values in generated:
             if values['entry_id'] in keep: continue
             row=StudyPlanEntry(user_id=user.id,plan_id=plan.id,notebook_id=UUID(values['notebook_id']),date=date.fromisoformat(values['date']),
+                topic_id=UUID(values['topic_id']) if values.get('topic_id') else None,
                 name=values['name'],minutes=values['minutes'],kind=values['kind'],reason=values.get('reason',''))
+            row.strategy_topic_key=values.get('topic_key')
             session.add(row); entries.append(row)
         await session.flush(); await session.refresh(plan)
         return plan_json(plan,sorted(entries,key=lambda row:(row.date,str(row.id))))

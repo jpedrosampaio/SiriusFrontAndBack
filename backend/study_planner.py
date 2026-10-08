@@ -4,6 +4,41 @@ from datetime import date, timedelta
 import hashlib
 
 
+def build_strategy_plan(program_id, candidates, availability, start, end, block_minutes, preserved=(), reserved=None):
+    """Fit ranked candidates into a fixed budget; never add missed minutes to a day."""
+    first, last = date.fromisoformat(start), date.fromisoformat(end)
+    result = [dict(e) for e in preserved]
+    identities = {e['entry_id'] for e in preserved}
+    used = defaultdict(int)
+    for e in preserved: used[e['date']] += e['minutes']
+    allocated = defaultdict(int)
+    review_next = {}
+    serial = 0
+    for offset in range(max(0, (last - first).days + 1)):
+        day = first + timedelta(days=offset); iso = day.isoformat()
+        budget = max(0, availability[day.weekday()] - used[iso] - (reserved or {}).get(iso, 0))
+        while budget >= 15:
+            eligible = [c for c in candidates if c['kind'] != 'Revisão' or
+                day >= review_next.get(c['id'], date.fromisoformat(c['review_due_date']) if c['review_due_date'] else first)]
+            if not eligible: break
+            candidate = min(eligible, key=lambda c: (-c['expected_return'] / (1 + allocated[c['id']] / c['cost_minutes']), c['id']))
+            minutes = min(block_minutes, candidate['cost_minutes'], budget)
+            allocated[candidate['id']] += minutes
+            if candidate['kind'] == 'Revisão':
+                review_next[candidate['id']] = day + timedelta(days=candidate['review_interval_days'])
+            serial += 1
+            identity = hashlib.sha256(f'{program_id}:{iso}:{serial}:{candidate["id"]}:strategy'.encode()).hexdigest()[:24]
+            while identity in identities: identity += '-next'
+            identities.add(identity)
+            result.append({'entry_id': identity, 'date': iso, 'notebook_id': candidate['notebook_id'],
+                'topic_id': candidate['id'], 'topic_key': candidate['topic_key'],
+                'name': f'{candidate["discipline"]} · {candidate["title"]}', 'minutes': minutes,
+                'kind': candidate['kind'], 'completed': False, 'manual': False, 'fixed': False,
+                'reason': '; '.join(candidate['reasons']), 'suggested_break': minutes >= 50})
+            budget -= minutes
+    return sorted(result, key=lambda e: (e['date'], e['entry_id']))
+
+
 def build_plan(program_id, notebooks, availability, start, end, block_minutes, completed=(), reserved=None):
     start, end = date.fromisoformat(start), date.fromisoformat(end)
     result = [dict(item) for item in completed]

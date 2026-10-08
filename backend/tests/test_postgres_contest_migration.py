@@ -13,7 +13,8 @@ from sqlalchemy import select
 from db.engine import database_url, dispose_engine
 from db.session import unit_of_work
 from db.models.contests import ContestSource, ContestSourceVersion
-from db.models.studies import StudyArea, StudyProgram, Notebook, QuestionAttempt
+from db.models.studies import StudyArea, StudyProgram, Notebook, QuestionAttempt, StudyTopic, StudyPlan, StudyPlanEntry
+from datetime import date
 from db.models.exams import Question
 from db.models.question_insights import QuestionInsight
 from db.repositories.identity import IdentityRepository
@@ -47,6 +48,9 @@ class ContestMigration(unittest.IsolatedAsyncioTestCase):
                 area=StudyArea(user_id=uid,name='Area');session.add(area);await session.flush()
                 program=StudyProgram(user_id=uid,area_id=area.id,name='Program');session.add(program);await session.flush()
                 book=Notebook(user_id=uid,area_id=area.id,program_id=program.id,name='Book');session.add(book);await session.flush()
+                topic=StudyTopic(user_id=uid,notebook_id=book.id,topic_key='0',name='Original topic',position=0);session.add(topic);await session.flush()
+                plan=StudyPlan(user_id=uid,program_id=program.id,start_date=date(2026,10,8),end_date=date(2026,10,9),availability=[60]*7,block_minutes=50);session.add(plan);await session.flush()
+                entry=StudyPlanEntry(user_id=uid,plan_id=plan.id,notebook_id=book.id,topic_id=topic.id,date=date(2026,10,8),name='Protected original',minutes=50,kind='study',completed=True,manual=True,fixed=True,reason='Original reason');session.add(entry);await session.flush();eid=entry.id
                 question=Question(user_id=uid,notebook_id=book.id,statement='Original question',source='manual',question_type='manual');session.add(question);await session.flush()
                 attempt=QuestionAttempt(user_id=uid,notebook_id=book.id,question_id=question.id,total=1,correct=0,source='manual',answered_at=datetime.now(timezone.utc),error_cause='memory',evidence={'confidence':'guess'})
                 session.add(attempt);await session.flush();aid=attempt.id
@@ -55,6 +59,14 @@ class ContestMigration(unittest.IsolatedAsyncioTestCase):
                     title='Legacy',trust='OFFICIAL',provider='generic',terms_confirmed_at=datetime.now(timezone.utc),
                     next_poll=datetime.now(timezone.utc),snapshot='Original text',content_hash='original-hash')
                 session.add(source);await session.flush();sid=source.id
+            await dispose_engine()
+            await migrate('downgrade','b73a16ce9024')
+            await migrate('upgrade','head')
+            async with unit_of_work() as session:
+                preserved=await session.get(StudyPlanEntry,eid)
+                self.assertEqual((preserved.name,preserved.minutes,preserved.completed,preserved.manual,preserved.fixed,preserved.reason),
+                    ('Protected original',50,True,True,True,'Original reason'))
+                self.assertIsNone(preserved.topic_id)  # downgrade discards only the optional topic link
             await dispose_engine()
             await migrate('downgrade','84d2a71ef309')
             await migrate('upgrade','head')
