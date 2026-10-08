@@ -216,3 +216,18 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
         for title in ('Legacy timeline fixed','Legacy fixed task'):
             self.assertEqual(fixed[title]['date'],result['plan']['date']);self.assertTrue(fixed[title]['event_id'])
         self.assertEqual(fixed['Legacy fixed task']['start_minute'],390)
+
+    async def test_calendar_transition_segments_report_elapsed_utc_minutes(self):
+        from services.calendar import calendar_events
+        from zoneinfo import ZoneInfo
+        zone=ZoneInfo('America/New_York')
+        for day,expected in ((date(2026,3,8),1380),(date(2026,11,1),1500)):
+            async with unit_of_work() as s:
+                row=CalendarEvent(user_id=self.uid,title='DST recorded duration',
+                    start_at=datetime.combine(day,time(),zone),
+                    end_at=datetime.combine(day+timedelta(days=1),time(),zone))
+                s.add(row);await s.flush();identity=str(row.id)
+            result=await calendar_events(self.uid,day,day,'America/New_York')
+            segments=[e for e in result['events'] if e['id'].startswith(identity+'_')]
+            self.assertEqual(len(segments),1)
+            self.assertEqual(segments[0]['duration_minutes'],expected)

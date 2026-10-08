@@ -1,5 +1,5 @@
 """Calendar projection: owner/date predicates run in SQL before serialization."""
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone as utc_timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, func
 from db.session import unit_of_work
@@ -64,7 +64,7 @@ async def calendar_events(user_id, start, end, timezone):
                 segment_end=min(midnight,finish)
                 events.append({'id':str(row.id)+'_'+local.date().isoformat(),'date':local.date().isoformat(),
                     'title':f'{local:%H:%M} · {row.title}','type':'commitment','completed':False,
-                    'duration_minutes':int((segment_end-local).total_seconds()/60),
+                    'duration_minutes':int((segment_end.astimezone(utc_timezone.utc)-local.astimezone(utc_timezone.utc)).total_seconds()/60),
                     'link':(row.details or {}).get('link','/assistant/settings'),'source_type':row.source_type})
                 local=segment_end
     return {'events':sorted(events,key=lambda e:(e['date'],e['id'])),'start':start.isoformat(),'end':end.isoformat()}
