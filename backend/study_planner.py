@@ -12,6 +12,7 @@ def build_strategy_plan(program_id, candidates, availability, start, end, block_
     used = defaultdict(int)
     for e in preserved: used[e['date']] += e['minutes']
     allocated = defaultdict(int)
+    review_progress = defaultdict(int)
     review_next = {}
     serial = 0
     for offset in range(max(0, (last - first).days + 1)):
@@ -25,7 +26,10 @@ def build_strategy_plan(program_id, candidates, availability, start, end, block_
             minutes = min(block_minutes, candidate['cost_minutes'], budget)
             allocated[candidate['id']] += minutes
             if candidate['kind'] == 'Revisão':
-                review_next[candidate['id']] = day + timedelta(days=candidate['review_interval_days'])
+                review_progress[candidate['id']] += minutes
+                if review_progress[candidate['id']] >= candidate['cost_minutes']:
+                    review_next[candidate['id']] = day + timedelta(days=candidate['review_interval_days'])
+                    review_progress[candidate['id']] = 0
             serial += 1
             identity = hashlib.sha256(f'{program_id}:{iso}:{serial}:{candidate["id"]}:strategy'.encode()).hexdigest()[:24]
             while identity in identities: identity += '-next'

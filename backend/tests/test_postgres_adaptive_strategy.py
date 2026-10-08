@@ -76,3 +76,19 @@ class AdaptiveStrategy(unittest.IsolatedAsyncioTestCase):
             session.add(StudyTaskCheck(user_id=self.uid,task_id=tasks[1].id,date=self.today,completed_at=datetime.now(timezone.utc),xp_earned=0))
         result=self.ok(await self.http.get(self.base+'/strategy'))
         self.assertEqual([m['title'] for m in result['debt']['late_milestones']],['Late'])
+
+    async def test_two_partial_review_blocks_reach_cost_before_deferral(self):
+        from db.models.studies import ReviewEvent
+        from datetime import datetime,timezone
+        self.ok(await self.http.patch('/api/study/notebooks/'+self.nid,json={
+            'conteudo_programatico':[{'assunto':'First','subtopicos':[]}]}))
+        async with unit_of_work() as session:
+            topic=await session.scalar(select(StudyTopic).where(StudyTopic.user_id==self.uid,
+                StudyTopic.notebook_id==UUID(self.nid),StudyTopic.archived_at.is_(None)))
+            session.add(ReviewEvent(user_id=self.uid,topic_id=topic.id,
+                reviewed_at=datetime(2026,9,27,tzinfo=timezone.utc),next_review=self.today-timedelta(days=1),result='practice'))
+        result=self.ok(await self.http.post(self.base+'/dated-plan',json={'start_date':self.today.isoformat(),
+            'end_date':self.today.isoformat(),'availability':[30]*7,'adaptive':True,'block_minutes':15},
+            headers={'Idempotency-Key':'partial-review-completion'}))
+        self.assertEqual(len(result['entries']),2)
+        self.assertTrue(all(e['minutes']==15 and e['kind']=='Revisão' and e['topic_key']=='0' for e in result['entries']))

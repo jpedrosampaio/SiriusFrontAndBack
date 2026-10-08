@@ -91,3 +91,11 @@ class AdaptiveStrategyTests(unittest.TestCase):
         self.assertTrue(all(c['expected_return']>0 for c in candidates))
         entries=build_strategy_plan('p',candidates,[120]*7,'2026-10-08','2026-10-08',50)
         self.assertEqual(len({e['topic_id'] for e in entries}),3)
+
+    def test_partial_review_finishes_before_starting_its_interval(self):
+        state=self.state(); topic=state['syllabus_graph']['topics'][0]
+        topic.update(covered=True,review_due_date='2026-10-07',review_interval_days=7)
+        candidate=next(c for c in rank_candidates(state,date(2026,10,8)) if c['id']=='a')
+        rows=build_strategy_plan('p',[candidate],[15]*7,'2026-10-08','2026-10-19',15)
+        self.assertEqual([e['date'] for e in rows],['2026-10-08','2026-10-09','2026-10-16','2026-10-17'])
+        self.assertTrue(all(e['minutes']==15 for e in rows))
