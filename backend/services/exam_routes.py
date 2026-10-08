@@ -10,6 +10,7 @@ from services.study_activity_routes import mutate
 from services.studies_catalog import owned
 from services.exams import submit_exam
 from services.exam_catalog import list_exams,details,attempt_json
+from services.exam_sessions import SessionSave,start,save,execution
 
 router=APIRouter(prefix='/study/simulados')
 
@@ -17,6 +18,8 @@ router=APIRouter(prefix='/study/simulados')
 class Submission(BaseModel):
     answers: list[dict] = Field(max_length=500)
     time_spent_seconds: int = Field(default=0,ge=0,le=86400)
+    session_id: UUID | None = None
+    revision: int | None = Field(default=None,ge=0)
 
 
 @router.get('')
@@ -62,7 +65,28 @@ async def get_simulado(request: Request,simulado_id: UUID):
 @router.post('/{simulado_id}/submit')
 async def submit(request: Request,simulado_id: UUID,body: Submission):
     user=await account(request)
-    return await submit_exam(UUID(user['user_id']),simulado_id,body.answers,body.time_spent_seconds,request.headers.get('Idempotency-Key'))
+    return await submit_exam(UUID(user['user_id']),simulado_id,body.answers,body.time_spent_seconds,request.headers.get('Idempotency-Key'),session_id=body.session_id,revision=body.revision)
+
+
+@router.get('/{simulado_id}/session')
+async def get_session(request:Request,simulado_id:UUID):
+    user=await account(request)
+    async with unit_of_work() as session:
+        exam=await owned(session,Exam,UUID(user['user_id']),simulado_id)
+        if exam.kind!='simulado':raise HTTPException(404,'Simulado não encontrado.')
+        return execution(exam)
+
+
+@router.post('/{simulado_id}/session')
+async def start_session(request:Request,simulado_id:UUID):
+    user=await account(request)
+    return await start(UUID(user['user_id']),simulado_id,request.headers.get('Idempotency-Key'))
+
+
+@router.put('/{simulado_id}/session')
+async def save_session(request:Request,simulado_id:UUID,body:SessionSave):
+    user=await account(request)
+    return await save(UUID(user['user_id']),simulado_id,body,request.headers.get('Idempotency-Key'))
 
 
 @router.get('/{simulado_id}/results')

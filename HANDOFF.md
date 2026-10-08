@@ -1,5 +1,18 @@
 # Sirius — handoff
 
+## Current status - 2026-10-08: phase5 published; phase6 implementation under validation
+
+Last fully published phase5, PR30 feat/adaptive-strategy-engine: reviewed3c399a61b3e417baabb5810f698e09812dcb743a, merge d0a0fd8b07e1c009e60676321b7864f213c26ab0. Four PR CI workflows passed, Codex completed17:42:47Z without major issues; seven P2 resolved. Northflank6942650016 success17:44:32Z and Vercel Production6942699883 success17:46:54Z both deployed that exact merge. Read-only live200/ready200/frontend200 and published strategy routes verified17:48Z. Protected migration run37805902313 returned already_applied revisiona81c9d37e502 after owner approval; no DDL replay/local production Alembic.
+
+User authorized phase6 Exams, Simulations & Final Sprint, then phase7 Sirius Tutor & Knowledge only after healthy phase6 production. Branchfeat/exam-intelligence based on d0a0fd8. Pre-edit audit docs/EXAM_INTELLIGENCE.md reuses Exam/Question/ExamAttempt/QuestionAttempt, activity locks/receipts, PreparationState/Strategy Engine and EssayCorrection. No schema change: head remainsa81c9d37e502. Existing finance/workout/nutrition/tasks/calendar/habits/agent contracts retained.
+
+Implemented phase6: bounded server-persisted execution/CAS, single completion, canonical question-bank assembly in five modes, sourced/provisional metadata, explicit source-confirmed practice penalties preserving negative raw points, post-mortem/time/confidence/recurrence, existing error-bank/attempt evolution, read-only90/30/14/7/2-day sprint, estimated essay/discursive rubric labels and provider reservation replay. Local regression139/security5/frontend51 passed. First full PostgreSQL215 passed; expanded216 run had one abnormal migration-check subprocess exit, and the isolated migration check plus latest execution/blueprint SQL9 passed on rerun. All10 browser smoke suites passed in five widths; final focused UI validation and remote exact-head CI/review remain required. PR/head/status metadata will record exact final evidence. Nothing from phase6 has been merged or deployed yet; no production writes or real AI test calls. No migration approval requested because no new migration exists.
+
+Next: finish scoring regressions/full checks, all ten browser suites/five widths, open PR and exact-head CI/Codex review; correct valid P1/P2, repeat checks/review, merge guarded head, verify both exact-SHA production deployments and health/frontend. Then phase7. Timing is declared visible-page interaction (5-second autosave), not a server-enforced official exam clock. Rules are user-confirmed sourced practice settings; Sirius does not certify them official. Essay rubric history is retained but not linked to topic mastery.
+
+## Historical records - superseded status snapshots below
+
+
 ## 2026-10-08 - production migration verified; PR30 merge validation pending
 
 Owner configured production-migrations (main only, DATABASE_URL_DIRECT, required reviewer) and approved run37805902313. Trusted workflow main ad84d494e79518e12f472965363eccc524fbc879 validated PR30 c8659194c40571b2450ec40704bd12fe4f2c0797 and the approved migration bytes. At16:08:12Z it returned already_applied; revision a81c9d37e502. No DDL was replayed and no local production database command was executed. Run: https://github.com/jpedrosampaio/SiriusFrontAndBack/actions/runs/37805902313.

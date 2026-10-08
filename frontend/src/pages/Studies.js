@@ -34,6 +34,7 @@ import ExportButtons from "@/components/ExportButtons";
 import { BookOpen, Plus, Trash2, Folder, FileText, Clock, Calendar, Brain, Layers, Target, Trophy, Flame, ChevronRight, Loader2, GraduationCap, Briefcase, FolderOpen, CheckCircle2, XCircle, Sparkles, PenTool, Link, Play, Edit3, AlertCircle, Timer, BookMarked, Lightbulb, Repeat, BarChart3, ChevronDown, ChevronUp, Hash, TrendingUp, Upload, ListChecks, ClipboardList, FileUp, Scale, LayoutGrid, Download, Image, BellRing, Network, GitCompareArrows, Bot, PlusCircle, MinusCircle, RefreshCw } from "lucide-react";
 
 const StudiesDashboardTab = lazy(() => import('@/components/tabs/StudiesDashboardTab'));
+const ExamRunner = lazy(() => import('@/components/studies/ExamRunner'));
 const StudiesSimuladosTab = lazy(() => import('@/components/tabs/StudiesSimuladosTab'));
 const StudiesRedacaoTab = lazy(() => import('@/components/tabs/StudiesRedacaoTab'));
 const html2canvas = async (...args) => (await import('html2canvas')).default(...args);
@@ -281,6 +282,8 @@ export default function Studies() {
 
   // Redação
   const [redacaoFile, setRedacaoFile] = useState(null);
+  const [essayCriteria, setEssayCriteria] = useState(''), [essayKind, setEssayKind] = useState('essay');
+  const essayRequest = useRef(null), essayBusy = useRef(false);
   const [redacaoCorrection, setRedacaoCorrection] = useState(null);
   const [redacaoLoading, setRedacaoLoading] = useState(false);
   const [redacaoHistory, setRedacaoHistory] = useState([]);
@@ -482,7 +485,7 @@ export default function Studies() {
       setSimuladoCurrentQ(0);
       setSimuladoMarked(new Set());
       setSimuladoTimer(0);
-      setSimuladoTimerRunning(true);
+      setSimuladoTimerRunning(false);
       setSimuladoResult(null);
       setSimuladoMode("taking");
     } catch { toast.error("Erro ao carregar simulado"); }
@@ -912,20 +915,25 @@ export default function Studies() {
   // ========== REDAÇÃO HANDLERS ==========
   const handleRedacaoCorrection = async () => {
     if (!redacaoFile) { toast.error("Selecione um arquivo"); return; }
+    if (essayBusy.current) return; essayBusy.current = true;
+    if (essayRequest.current?.file !== redacaoFile || essayRequest.current?.criteria !== essayCriteria || essayRequest.current?.kind !== essayKind)
+      essayRequest.current = { file: redacaoFile, criteria: essayCriteria, kind: essayKind, key: crypto.randomUUID() };
     setRedacaoLoading(true);
     try {
       const formData = new FormData();
       formData.append("file", redacaoFile);
+      formData.append("criteria", essayCriteria); formData.append("kind", essayKind);
       const res = await axios.post(`${API}/study/redacao/correct`, formData, {
-        withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 120000
+        withCredentials: true, headers: { "Content-Type": "multipart/form-data", "Idempotency-Key": essayRequest.current.key }, timeout: 120000
       });
+      essayRequest.current = null;
       setRedacaoCorrection(res.data.correction);
       setShowRedacaoResult(true);
       setRedacaoFile(null);
       toast.success("Redação corrigida!");
       fetchRedacaoHistory();
     } catch (err) { toast.error(getApiErrorMessage(err, "Erro ao corrigir redação")); }
-    finally { setRedacaoLoading(false); }
+    finally { essayBusy.current = false; setRedacaoLoading(false); }
   };
 
   const fetchRedacaoHistory = async () => {
@@ -1097,6 +1105,13 @@ export default function Studies() {
     setActiveTab("conteudo");
   };
 
+  const handleExecutionComplete = result => {
+    setCurrentSimulado(current => current ? { ...current, attempts: [result, ...(current.attempts || []).filter(a => a.attempt_id !== result.attempt_id)] } : current);
+    setSimuladoResult(result); setSimuladoMode("results"); fetchSimulados(); fetchAllData();
+  };
+  if (user && simuladoMode === "taking" && currentSimulado) {
+    return <main className="max-w-5xl mx-auto p-3 md:p-6 pb-24"><Suspense fallback={<p role="status">Carregando prova...</p>}><ExamRunner key={currentSimulado.simulado_id} exam={currentSimulado} onComplete={handleExecutionComplete} onExit={handleExitSimulado} /></Suspense></main>;
+  }
   if (user && (workspaceParams.get("analysis") || showCargoSelection)) {
     return <EditalAnalysisWorkspace user={user} api={API} analysisId={workspaceParams.get("analysis") || editalAnalysis?.analysis_id}
       initialAnalysis={editalAnalysis} areas={areas} defaultAreaId={selectedArea?.area_id} form={editalForm} onFormChange={setEditalForm}
@@ -1852,7 +1867,7 @@ export default function Studies() {
 
           {/* ========== SIMULADOS TAB ========== */}
           <TabsContent value="simulados" className="space-y-4">
-<Suspense fallback={<p role="status">Carregando...</p>}><StudiesSimuladosTab simuladoMode={simuladoMode} currentSimulado={currentSimulado} handleExitSimulado={handleExitSimulado} simuladoCurrentQ={simuladoCurrentQ} formatTimer={formatTimer} simuladoTimer={simuladoTimer} simuladoAnswers={simuladoAnswers} simuladoMarked={simuladoMarked} setSimuladoMarked={setSimuladoMarked} simuladoEvidence={simuladoEvidence} setSimuladoEvidence={setSimuladoEvidence} setSimuladoAnswers={next => { setSimuladoEvidence(current => { const updated = { ...current }; for (const [idx, answer] of Object.entries(next)) if (simuladoAnswers[idx] != null && simuladoAnswers[idx] !== answer) updated[idx] = { ...updated[idx], changed_answer: true }; return updated; }); setSimuladoAnswers(next); }} setSimuladoCurrentQ={setSimuladoCurrentQ} handleSubmitSimulado={handleSubmitSimulado} simuladoSubmitting={simuladoSubmitting} showGabarito={showGabarito} setShowGabarito={setShowGabarito} handleStartSimulado={handleStartSimulado} simuladoResult={simuladoResult} setShowSimuladoStatsView={setShowSimuladoStatsView} showSimuladoStatsView={showSimuladoStatsView} showImportPdfDialog={showImportPdfDialog} setShowImportPdfDialog={setShowImportPdfDialog} setImportFile={setImportFile} importForm={importForm} setImportForm={setImportForm} handleImportPdf={handleImportPdf} simuladoImporting={simuladoImporting} importFile={importFile} showGenerateDialog={showGenerateDialog} setShowGenerateDialog={setShowGenerateDialog} generateForm={generateForm} setGenerateForm={setGenerateForm} handleGenerateSimulado={handleGenerateSimulado} simuladoGenerating={simuladoGenerating} simuladoStats={simuladoStats} simulados={simulados} handleDeleteSimulado={handleDeleteSimulado} handleViewSimulado={handleViewSimulado} handleViewResults={handleViewResults} /></Suspense>
+<Suspense fallback={<p role="status">Carregando...</p>}><StudiesSimuladosTab handleReviewErrors={() => { setWorkspaceParams({}); setActiveTab("desempenho"); }} handleExecutionComplete={handleExecutionComplete} simuladoMode={simuladoMode} currentSimulado={currentSimulado} handleExitSimulado={handleExitSimulado} simuladoCurrentQ={simuladoCurrentQ} formatTimer={formatTimer} simuladoTimer={simuladoTimer} simuladoAnswers={simuladoAnswers} simuladoMarked={simuladoMarked} setSimuladoMarked={setSimuladoMarked} simuladoEvidence={simuladoEvidence} setSimuladoEvidence={setSimuladoEvidence} setSimuladoAnswers={next => { setSimuladoEvidence(current => { const updated = { ...current }; for (const [idx, answer] of Object.entries(next)) if (simuladoAnswers[idx] != null && simuladoAnswers[idx] !== answer) updated[idx] = { ...updated[idx], changed_answer: true }; return updated; }); setSimuladoAnswers(next); }} setSimuladoCurrentQ={setSimuladoCurrentQ} handleSubmitSimulado={handleSubmitSimulado} simuladoSubmitting={simuladoSubmitting} showGabarito={showGabarito} setShowGabarito={setShowGabarito} handleStartSimulado={handleStartSimulado} simuladoResult={simuladoResult} setShowSimuladoStatsView={setShowSimuladoStatsView} showSimuladoStatsView={showSimuladoStatsView} showImportPdfDialog={showImportPdfDialog} setShowImportPdfDialog={setShowImportPdfDialog} setImportFile={setImportFile} importForm={importForm} setImportForm={setImportForm} handleImportPdf={handleImportPdf} simuladoImporting={simuladoImporting} importFile={importFile} showGenerateDialog={showGenerateDialog} setShowGenerateDialog={setShowGenerateDialog} generateForm={generateForm} setGenerateForm={setGenerateForm} handleGenerateSimulado={handleGenerateSimulado} simuladoGenerating={simuladoGenerating} simuladoStats={simuladoStats} simulados={simulados} handleDeleteSimulado={handleDeleteSimulado} handleViewSimulado={handleViewSimulado} handleViewResults={handleViewResults} /></Suspense>
 </TabsContent>
 
           {/* ========== FOCO TAB ========== */}
@@ -1911,7 +1926,7 @@ export default function Studies() {
 
           {/* ===== REDAÇÃO TAB ===== */}
           <TabsContent value="redacao" className="space-y-4">
-<Suspense fallback={<p role="status">Carregando...</p>}><StudiesRedacaoTab redacaoFile={redacaoFile} setRedacaoFile={setRedacaoFile} handleRedacaoCorrection={handleRedacaoCorrection} redacaoLoading={redacaoLoading} handleRandomTheme={handleRandomTheme} themeLoading={themeLoading} randomTheme={randomTheme} showRedacaoResult={showRedacaoResult} redacaoCorrection={redacaoCorrection} setShowRedacaoResult={setShowRedacaoResult} redacaoHistory={redacaoHistory} fetchRedacaoHistory={fetchRedacaoHistory} setRedacaoCorrection={setRedacaoCorrection} /></Suspense>
+<Suspense fallback={<p role="status">Carregando...</p>}><StudiesRedacaoTab essayCriteria={essayCriteria} setEssayCriteria={setEssayCriteria} essayKind={essayKind} setEssayKind={setEssayKind} redacaoFile={redacaoFile} setRedacaoFile={setRedacaoFile} handleRedacaoCorrection={handleRedacaoCorrection} redacaoLoading={redacaoLoading} handleRandomTheme={handleRandomTheme} themeLoading={themeLoading} randomTheme={randomTheme} showRedacaoResult={showRedacaoResult} redacaoCorrection={redacaoCorrection} setShowRedacaoResult={setShowRedacaoResult} redacaoHistory={redacaoHistory} fetchRedacaoHistory={fetchRedacaoHistory} setRedacaoCorrection={setRedacaoCorrection} /></Suspense>
 </TabsContent>
 
         </Tabs>

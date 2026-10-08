@@ -17,6 +17,7 @@ from study_workspace_routes import DraftUpdate,PlanSettings,TopicPractice,PlanEn
 from study_planner import build_plan,build_strategy_plan
 from adaptive_strategy import strategy_summary,preview_strategy
 from services.preparation_state import preparation_state
+from exam_intelligence import final_sprint
 from study_adaptation import next_review
 from services.study_plan_views import entry_json
 
@@ -167,6 +168,17 @@ async def strategy_get(request: Request,program_id: UUID):
             block_minutes=plan.block_minutes if plan else 50,adaptive=True)
         reserved=await reserved_minutes(session,SimpleUser(uid,user['timezone']),today,end) if end>=today else {}
         return preview_strategy(state,today,body,[entry_json(e) for e in previous],reserved)
+
+
+@router.get('/programs/{program_id}/final-sprint')
+async def sprint_get(request:Request,program_id:UUID):
+    user=await account(request);uid=UUID(user['user_id']);today=local_today(user['timezone'])
+    async with unit_of_work() as session:
+        program=await owned(session,StudyProgram,uid,program_id)
+        state=await strategy_state(session,uid,program,user['timezone'],today)
+        result=final_sprint(state,strategy_summary(state,today)['candidates'],today)
+        result['truncated']=state.get('truncated',False)
+        return result
 
 
 class SimpleUser:

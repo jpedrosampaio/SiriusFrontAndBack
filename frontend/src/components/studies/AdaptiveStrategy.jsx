@@ -1,3 +1,4 @@
+import FinalSprint from './FinalSprint';
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ export default function AdaptiveStrategy({ programId, onStudy }) {
   const scenario = data?.scenarios?.[mode];
   return <section aria-label="Estratégia adaptativa" className="sirius-study-panel min-w-0 rounded-2xl border p-5 space-y-5 [&_button]:min-h-11 [&_input]:min-h-11">
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-semibold">Estratégia adaptativa</h2><p className="text-sm text-slate-400 mt-2">Escolha o que estudar pelo risco e retorno sugeridos. A agenda distribui o tempo; esta simulação não altera seus registros.</p></div><Button variant="outline" disabled={busy} onClick={() => setRefresh(n => n + 1)}>Atualizar estratégia</Button></div>
+    <FinalSprint programId={programId} />
     {error && <p role="alert" className="text-amber-300 text-sm">{error}</p>}
     {!data && !error && <p role="status">Calculando prioridades…</p>}
     {data && <>

@@ -14,10 +14,14 @@ from services import exam_catalog
 LEASE_KEY='_question_generation_lease'
 
 
-async def generate_once(user_id,key,fingerprint,generate,xp=5):
+async def generate_once(user_id,key,fingerprint,generate,xp=5,persist=None):
     uid=exam_catalog.identity(user_id)
     if key is None:
         document,questions=await generate()
+        if persist:
+            from db.activity import run_activity
+            async def apply(session,user):return await persist(session,user,document,questions)
+            return await run_activity(uid,None,fingerprint,apply)
         return await exam_catalog.create(user_id,None,fingerprint,document,questions,xp=xp)
     if not 8<=len(key)<=128 or not all(c.isascii() and (c.isalnum() or c in '-_') for c in key):
         raise HTTPException(422,'Invalid Idempotency-Key')
@@ -45,7 +49,7 @@ async def generate_once(user_id,key,fingerprint,generate,xp=5):
             receipt=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==uid,ActivityReceipt.request_key==key))
             if user is None or receipt is None or receipt.result.get(LEASE_KEY,{}).get('token')!=token:
                 raise HTTPException(409,'A geração perdeu sua reserva. Consulte os simulados e tente novamente.')
-            result=await exam_catalog.create_in_session(session,user,document,questions,xp=xp)
+            result=await persist(session,user,document,questions) if persist else await exam_catalog.create_in_session(session,user,document,questions,xp=xp)
             receipt.result=result
         completed=True
         return result
