@@ -1,12 +1,12 @@
 """Preparation projections from owner-scoped facts; no AI and no copied ledger."""
 from collections import Counter, defaultdict
 from datetime import date, timedelta
-from sqlalchemy import select, func
+from sqlalchemy import select, func, Date
 from db.models.studies import (Notebook, StudyTopic, TopicProgress, StudySession,
     StudyPlan, StudyPlanEntry, StudyTarget, QuestionAttempt, ReviewEvent,
     Flashcard, FlashcardReview, StudyNote, StudyDraft)
 from services.study_evidence import attempts, latest_reviews
-from study_mastery import mastery, topic_priority
+from study_mastery import mastery, topic_priority, adaptive_review
 from db.models.exams import Exam, ExamAttempt
 from services.study_plan_views import entry_json
 from preparation_core import VERSION, learning_stage
@@ -45,7 +45,7 @@ async def preparation_state(session, uid, program, zone, today):
     entries = list((await session.scalars(select(StudyPlanEntry).where(
         StudyPlanEntry.user_id == uid, StudyPlanEntry.plan_id == plan.id,
         StudyPlanEntry.notebook_id.in_(ids),
-        StudyPlanEntry.date.between(today-timedelta(days=27), today+timedelta(days=6)))
+        StudyPlanEntry.date.between(today-timedelta(days=28), today+timedelta(days=6)))
         .order_by(StudyPlanEntry.date, StudyPlanEntry.id).limit(LIMIT+1))).all()) if plan else []
     truncated |= len(entries) > LIMIT; entries = entries[:LIMIT]
     upcoming = await session.scalar(select(StudyPlanEntry).where(
@@ -69,7 +69,13 @@ async def preparation_state(session, uid, program, zone, today):
     due = [r for r in reviews if r['due_date'] and r['due_date'] <= today.isoformat()]
     overdue_keys = {(r['notebook_id'], r['topic_key']) for r in due}
     review_ids = defaultdict(list)
+    review_dates = {}
+    review_day = func.timezone(zone, ReviewEvent.reviewed_at).cast(Date)
+    review_counts = dict((await session.execute(select(ReviewEvent.topic_id, func.count(func.distinct(review_day))).where(
+        ReviewEvent.user_id == uid, ReviewEvent.topic_id.in_([t.id for t, _ in topic_rows]), review_day < today)
+        .group_by(ReviewEvent.topic_id))).all())
     for r in reviews: review_ids[(r['notebook_id'], r['topic_key'])].append(r['review_id'])
+    for r in reviews: review_dates[(r['notebook_id'], r['topic_key'])] = r['due_date']
     materials = defaultdict(list)
     for model, kind in ((StudyNote, 'note'), (StudyDraft, 'summary'), (Flashcard, 'flashcard')):
         query = select(model).where(model.user_id == uid, model.notebook_id.in_(ids))
@@ -88,6 +94,12 @@ async def preparation_state(session, uid, program, zone, today):
         last = max((date.fromisoformat(a['date']) for a in evidence), default=None)
         covered = bool(studied); covered_count += covered
         book = books_by_id[topic.notebook_id]
+        recent_answers = evidence[:5]
+        older_answers = evidence[5:10]
+        change = (round(100*(sum(a['correct'] for a in recent_answers)/5 - sum(a['correct'] for a in older_answers)/5), 1)
+            if len(recent_answers) == len(older_answers) == 5 else None)
+        review_suggestion = adaptive_review(evidence, today, previous_reviews=review_counts.get(topic.id, 0),
+            importance=book.weight)
         priority = topic_priority(weight=book.weight, question_count=book.num_questoes_edital,
             estimate=estimate['score'], errors=sum(not a['correct'] for a in evidence),
             overdue=(str(book.id), topic.topic_key) in overdue_keys, studied=covered, days_left=days)
@@ -101,7 +113,12 @@ async def preparation_state(session, uid, program, zone, today):
             'exam_attempt_ids': sorted({a['exam_attempt_id'] for a in evidence if a['exam_attempt_id']}),
             'question_count': len(evidence), 'error_count': sum(not a['correct'] for a in evidence),
             'review_ids': review_ids[(str(book.id), topic.topic_key)],
-            'sources': topic.evidence or {}, 'evidence_ids_truncated': len(evidence) > 100}
+            'sources': topic.evidence or {}, 'evidence_ids_truncated': len(evidence) > 100,
+            'last_answer_date': last.isoformat() if last else None,
+            'recent_errors': sum(not a['correct'] for a in recent_answers), 'accuracy_change': change,
+            'review_due_date': review_dates.get((str(book.id), topic.topic_key)),
+            'review_history_days': review_counts.get(topic.id, 0),
+            'review_interval_days': review_suggestion['interval_days'], 'review_reason': review_suggestion['reason']}
         graph.append(node)
         candidates.append({**{k: node[k] for k in ('id', 'notebook_id', 'topic_key', 'title')},
             'discipline': book.name, 'weight_status': book.peso_status,
@@ -191,8 +208,11 @@ async def preparation_state(session, uid, program, zone, today):
         'next_candidates': sorted(candidates, key=lambda c: (-c['priority'], c['id']))[:10],
         'syllabus_graph': {'preparation_id': str(program.id), 'disciplines': [
             {'id': str(b.id), 'parent_id': str(program.id), 'title': b.name,
+             'weight': b.weight, 'weight_status': b.peso_status, 'weight_source': b.peso_fonte,
+             'question_count': b.num_questoes_edital, 'question_count_status': b.num_questoes_status,
              'materials': materials[b.id], 'recommended_resources': (b.recursos_recomendados or [])[:30],
              'sources': (b.fontes or [])[:30]} for b in books], 'topics': graph},
+        'strategy_facts': {'missed_entries': [entry_json(e) for e in debt_entries]},
         'mastery_evidence_ids': [a['attempt_id'] for a in individual],
         'evidence_ledger': sorted(ledger, key=lambda r: (r['at'] or '', r['id']), reverse=True)[:100],
         'source_freshness': {'computed_at': today.isoformat(), 'program_updated_at': program.updated_at.isoformat(),

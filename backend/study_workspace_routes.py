@@ -1,7 +1,7 @@
 """Validated study workspace payloads, shared with isolated contract tests."""
 from datetime import date as CalendarDate
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 class DraftUpdate(BaseModel):
     text: str = Field(max_length=100000)
@@ -14,6 +14,11 @@ class PlanSettings(BaseModel):
     availability: list[int] = Field(min_length=7, max_length=7)
     block_minutes: int = Field(default=50, ge=15, le=120)
     adaptive: bool = False
+    recovery: StrictBool = False
+
+
+class StrategyScenario(PlanSettings):
+    missed_days: int = Field(default=0, ge=0, le=181)
 
 
 class TopicPractice(BaseModel):

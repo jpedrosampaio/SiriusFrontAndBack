@@ -234,6 +234,7 @@ class StudyPlanEntry(Identity, Owned, Timestamps, Base):
     __tablename__ = 'study_plan_entries'
     plan_id: Mapped[UUID]
     notebook_id: Mapped[UUID]
+    topic_id: Mapped[UUID | None]
     date: Mapped[date] = mapped_column(Date)
     name: Mapped[str]
     minutes: Mapped[int]
@@ -243,6 +244,7 @@ class StudyPlanEntry(Identity, Owned, Timestamps, Base):
     fixed: Mapped[bool] = mapped_column(default=False)
     reason: Mapped[str] = mapped_column(Text,default='')
     __table_args__ = (ForeignKeyConstraint(['user_id','plan_id'],['study_plans.user_id','study_plans.id'],ondelete='RESTRICT'),
+        ForeignKeyConstraint(['user_id','topic_id'],['study_topics.user_id','study_topics.id'],ondelete='RESTRICT'),
         ForeignKeyConstraint(['user_id','notebook_id'],['study_notebooks.user_id','study_notebooks.id'],ondelete='RESTRICT'),
         Index('ix_plan_entries_owner_date','user_id','date'),CheckConstraint('minutes > 0',name='minutes'))
 

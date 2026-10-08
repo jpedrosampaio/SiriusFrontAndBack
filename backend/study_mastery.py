@@ -28,7 +28,7 @@ def mastery(attempts, today=None):
             'version': VERSION, 'reason': f'{n} respostas; evidências antigas têm menor peso. Estimativa, não previsão de aprovação.'}
 
 
-def adaptive_review(attempts, today=None, previous_reviews=0, difficulty=None):
+def adaptive_review(attempts, today=None, previous_reviews=0, difficulty=None, importance=None):
     today = today or date.today()
     result = mastery(attempts, today)
     score = result['score']
@@ -45,6 +45,12 @@ def adaptive_review(attempts, today=None, previous_reviews=0, difficulty=None):
     if difficulty == 'hard':
         interval = max(1, interval // 2)
         reason += ' Dificuldade alta reduz o intervalo.'
+    if any(a.get('confidence') in ('guess', 'uncertain') for a in recent):
+        interval = max(1, interval // 2)
+        reason += ' Confiança informada limitada sugere revisão mais próxima; não altera domínio.'
+    if importance is not None and importance >= 3:
+        interval = max(1, round(interval * .75))
+        reason += ' Peso registrado alto aproxima a revisão; confira a fonte.'
     return {'due_date': (today + timedelta(days=interval)).isoformat(), 'interval_days': interval, 'reason': reason, 'mastery': result}
 
 
