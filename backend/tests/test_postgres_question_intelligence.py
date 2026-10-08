@@ -103,6 +103,11 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved[0]['validation_level'],'separate_ai_and_structural')
         self.assertEqual(saved[0]['source_context']['source_type'],'syllabus')
         self.assertEqual(self.generator.await_args_list[1].kwargs['task'],'study_question_validation')
+        self.ok(await self.http.delete('/api/study/notebooks/'+self.nid))
+        archived_replay=self.ok(await self.http.post('/api/study/simulados/generate',json=body,headers={'Idempotency-Key':'laboratory-key'}))
+        self.assertTrue(archived_replay['replayed']);self.assertEqual(self.generator.await_count,2)
+        refused=await self.http.post('/api/study/simulados/generate',json=body,headers={'Idempotency-Key':'new-archived-generation'})
+        self.assertEqual(refused.status_code,404);self.assertEqual(self.generator.await_count,2)
 
     async def test_lab_missing_context_and_malformed_validation_do_not_save(self):
         body={'title':'Lab','notebook_id':self.nid,'topic_key':'0','num_questions':1,'laboratory':True,'context_source':'materials'}

@@ -206,20 +206,20 @@ async def generate_simulado(request: Request, data: SimuladoCreate, session_toke
     fingerprint=['generate-simulado',data.model_dump()]
     if data.laboratory and (not data.notebook_id or data.num_questions>20):
         raise HTTPException(422,'O laboratório exige uma matéria e permite até 20 questões por lote.')
-    notebook,topic = await catalog.validate_scope(user.user_id,area_id=data.area_id,program_id=data.program_id,
-        notebook_id=data.notebook_id,topic_key=data.topic_key)
-    if notebook:
-        data.program_id,data.area_id=notebook.get('program_id'),notebook.get('area_id')
-        data.disciplina=notebook['name']
-        if topic: data.topic=topic
-
-    if not data.laboratory and not await get_user_api_key(user.user_id):
-        raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
-
     request_key=request.headers.get('Idempotency-Key')
     if data.laboratory and not request_key:
         raise HTTPException(422,'Idempotency-Key required for question laboratory')
     async def generate_document():
+        notebook,topic = await catalog.validate_scope(user.user_id,area_id=data.area_id,program_id=data.program_id,
+            notebook_id=data.notebook_id,topic_key=data.topic_key)
+        if notebook:
+            data.program_id,data.area_id=notebook.get('program_id'),notebook.get('area_id')
+            data.disciplina=notebook['name']
+            if topic: data.topic=topic
+
+        if not data.laboratory and not await get_user_api_key(user.user_id):
+            raise HTTPException(status_code=500, detail="Serviço de IA indisponível")
+
         num_q = data.num_questions
 
         type_instruction = ""
