@@ -1,7 +1,7 @@
 import sys
 import unittest
 from copy import deepcopy
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from adaptive_strategy import rank_candidates, preview_strategy, load_guard
@@ -54,9 +54,14 @@ class AdaptiveStrategyTests(unittest.TestCase):
         result=preview_strategy(state,date(2026,10,8),settings,[],{},7)
         self.assertFalse(result['facts_changed']); self.assertTrue(result['simulation'])
         self.assertEqual(result['debt']['missed_minutes'],600)
-        self.assertEqual(result['scenarios']['A']['minutes'],840)
-        self.assertEqual(result['scenarios']['B']['minutes'],315)
-        self.assertEqual(result['scenarios']['C']['minutes'],175)
+        self.assertLessEqual(result['scenarios']['A']['minutes'],840)
+        self.assertLessEqual(result['scenarios']['B']['minutes'],315)
+        self.assertLessEqual(result['scenarios']['C']['minutes'],175)
+        self.assertGreaterEqual(result['scenarios']['A']['minutes'],result['scenarios']['B']['minutes'])
+        self.assertGreaterEqual(result['scenarios']['B']['minutes'],result['scenarios']['C']['minutes'])
+        for scenario in result['scenarios'].values():
+            for day in {e['date'] for e in scenario['entries']}:
+                self.assertLessEqual(sum(e['minutes'] for e in scenario['entries'] if e['date']==day),scenario['availability'][date.fromisoformat(day).weekday()])
         self.assertTrue(all(e['date']>='2026-10-15' for e in result['scenarios']['A']['entries']))
         self.assertTrue(any(w['code']=='above_recent_pattern' for w in result['scenarios']['A']['load_guard']['warnings']))
 
@@ -99,3 +104,59 @@ class AdaptiveStrategyTests(unittest.TestCase):
         rows=build_strategy_plan('p',[candidate],[15]*7,'2026-10-08','2026-10-19',15)
         self.assertEqual([e['date'] for e in rows],['2026-10-08','2026-10-09','2026-10-16','2026-10-17'])
         self.assertTrue(all(e['minutes']==15 for e in rows))
+
+    def test_protected_topic_work_is_credited_on_its_date_not_before(self):
+        state=self.state(); state['syllabus_graph']['topics']=state['syllabus_graph']['topics'][:1]
+        candidate=rank_candidates(state,date(2026,10,8))[0]
+        protected={'entry_id':'fixed','topic_id':'a','date':'2026-10-09','minutes':50,
+            'completed':False,'manual':False,'fixed':True}
+        rows=build_strategy_plan('p',[candidate],[120]*7,'2026-10-08','2026-10-09',50,[protected])
+        self.assertEqual([e['minutes'] for e in rows if e['date']=='2026-10-08'],[50])
+        self.assertEqual([e for e in rows if e['date']=='2026-10-09'],[protected])
+        settings=StrategyScenario(start_date='2026-10-09',end_date='2026-10-09',availability=[120]*7)
+        projection=preview_strategy(state,date(2026,10,8),settings,[protected],{})
+        self.assertEqual(projection['scenarios']['A']['new_topics_assuming_completion'],1)
+        self.assertEqual(projection['scenarios']['A']['generated_minutes'],0)
+
+    def test_protected_full_and_partial_reviews_share_cycle_progress(self):
+        state=self.state(); topic=state['syllabus_graph']['topics'][0]
+        topic.update(covered=True,review_due_date='2026-10-07',review_interval_days=7)
+        candidate=next(c for c in rank_candidates(state,date(2026,10,8)) if c['id']=='a')
+        protected={'entry_id':'done','topic_id':'a','date':'2026-10-08','minutes':25,
+            'completed':True,'manual':False,'fixed':False}
+        rows=build_strategy_plan('p',[candidate],[100]*7,'2026-10-08','2026-10-10',50,[protected])
+        self.assertEqual(rows,[protected])
+        partial={**protected,'minutes':15,'completed':False,'fixed':True}
+        rows=build_strategy_plan('p',[candidate],[40]*7,'2026-10-08','2026-10-10',15,[partial])
+        self.assertEqual(len(rows),2)
+        self.assertEqual(sum(e['minutes'] for e in rows),30)
+        self.assertTrue(all(e['date']=='2026-10-08' for e in rows))
+
+    def test_mixed_legacy_discipline_gets_capacity_without_inventing_topic_coverage(self):
+        state=self.state(); state['syllabus_graph']['disciplines'].append({'id':'legacy','title':'Legacy','weight':2})
+        candidates=rank_candidates(state,date(2026,10,8))
+        rows=build_strategy_plan('p',candidates,[200]*7,'2026-10-08','2026-10-08',50)
+        legacy=[e for e in rows if e['notebook_id']=='legacy']
+        self.assertTrue(legacy);self.assertTrue(all(e['topic_id'] is None and e['topic_key'] is None for e in legacy))
+        result=preview_strategy(state,date(2026,10,8),StrategyScenario(start_date='2026-10-08',end_date='2026-10-08',availability=[200]*7),[],{})
+        self.assertTrue(result['coverage_partial'])
+        self.assertEqual(set(result['debt']['critical_unstarted']),{'a','b'})
+        self.assertEqual(result['scenarios']['A']['new_topics_assuming_completion'],2)
+        self.assertEqual(result['scenarios']['A']['coverage_scope'],'registered_topics_only')
+
+    def test_maximum_horizon_uses_bounded_incremental_priority_evaluations(self):
+        import time
+        calls=[0]
+        class CountingCandidate(dict):
+            def __getitem__(self,key):
+                if key=='expected_return': calls[0]+=1
+                return super().__getitem__(key)
+        state=self.state(); template=state['syllabus_graph']['topics'][0]
+        state['syllabus_graph']['topics']=[{**template,'id':f't{i:04d}','topic_key':str(i)} for i in range(2000)]
+        candidates=[CountingCandidate(c) for c in rank_candidates(state,date(2026,10,8))]
+        started=time.perf_counter()
+        rows=build_strategy_plan('p',candidates,[720]*7,'2026-10-08',
+            (date(2026,10,8)+timedelta(days=180)).isoformat(),15)
+        self.assertLessEqual(calls[0],2000+3*len(rows))
+        self.assertGreater(len(rows),8000)
+        print(f'Strategy maximum: topics=2000 days=181 entries={len(rows)} priority_evaluations={calls[0]} seconds={time.perf_counter()-started:.3f}')

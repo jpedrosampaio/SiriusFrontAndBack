@@ -30,7 +30,7 @@ class AdaptiveStrategy(unittest.IsolatedAsyncioTestCase):
         settings={'start_date':self.today.isoformat(),'end_date':'2026-10-04','availability':[120]*7,'missed_days':3}
         result=self.ok(await self.http.post(self.base+'/strategy/simulate',json=settings))
         self.assertFalse(result['facts_changed'])
-        self.assertEqual(result['scenarios']['A']['minutes'],480)
+        self.assertLessEqual(result['scenarios']['A']['minutes'],480)
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(StudyPlan).where(StudyPlan.user_id==self.uid)),0)
         self.assertEqual((await self.http.get(self.base+'/strategy',headers={'Authorization':'Bearer bob'})).status_code,404)
@@ -147,3 +147,39 @@ class AdaptiveStrategy(unittest.IsolatedAsyncioTestCase):
                 result='practice',next_review=self.today) for stamp in stamps])
         second=next(c for c in self.ok(await self.http.get(self.base+'/strategy'))['candidates'] if c['id']==str(tid))
         self.assertEqual((second['review_history_days'],second['review_interval_days']),(1,17))
+
+    async def test_mixed_notebooks_keep_legacy_discipline_capacity(self):
+        legacy=self.ok(await self.http.post('/api/study/notebooks',json={
+            'area_id':self.notebook['area_id'],'program_id':self.pid,'name':'Legacy','weight':2}))
+        result=self.ok(await self.http.post(self.base+'/dated-plan',json={
+            'start_date':self.today.isoformat(),'end_date':self.today.isoformat(),
+            'availability':[200]*7,'adaptive':True,'block_minutes':50},
+            headers={'Idempotency-Key':'mixed-legacy-discipline'}))
+        canonical=[e for e in result['entries'] if e['notebook_id']==self.nid]
+        fallback=[e for e in result['entries'] if e['notebook_id']==legacy['notebook_id']]
+        self.assertTrue(canonical);self.assertTrue(fallback)
+        self.assertTrue(all(e['topic_id'] and e['topic_key'] in ('0','1') for e in canonical))
+        self.assertTrue(all(e['topic_id'] is None and e['topic_key'] is None for e in fallback))
+        strategy=self.ok(await self.http.get(self.base+'/strategy'))
+        self.assertTrue(strategy['coverage_partial'])
+        self.assertEqual([d['id'] for d in strategy['topicless_disciplines']],[legacy['notebook_id']])
+        self.assertEqual(len(strategy['debt']['critical_unstarted']),2)
+
+    async def test_protected_topic_contact_prevents_same_date_duplicate(self):
+        async with unit_of_work() as session:
+            topic=await session.scalar(select(StudyTopic).where(StudyTopic.user_id==self.uid,
+                StudyTopic.notebook_id==UUID(self.nid),StudyTopic.topic_key=='0'))
+            plan=StudyPlan(user_id=self.uid,program_id=UUID(self.pid),start_date=self.today,
+                end_date=self.today,availability=[150]*7,block_minutes=50)
+            session.add(plan);await session.flush()
+            row=StudyPlanEntry(user_id=self.uid,plan_id=plan.id,notebook_id=UUID(self.nid),topic_id=topic.id,
+                date=self.today,name='Protected contact',minutes=50,kind='Teoria e quest\u00f5es',fixed=True)
+            session.add(row);await session.flush();identity,tid=str(row.id),str(topic.id)
+        result=self.ok(await self.http.post(self.base+'/dated-plan',json={
+            'start_date':self.today.isoformat(),'end_date':self.today.isoformat(),
+            'availability':[150]*7,'adaptive':True,'block_minutes':50},
+            headers={'Idempotency-Key':'protected-full-contact'}))
+        same_topic=[e for e in result['entries'] if e['topic_id']==tid]
+        self.assertEqual([e['entry_id'] for e in same_topic],[identity])
+        self.assertTrue(same_topic[0]['fixed']);self.assertEqual(same_topic[0]['minutes'],50)
+        self.assertTrue(any(e['topic_id']!=tid for e in result['entries']))

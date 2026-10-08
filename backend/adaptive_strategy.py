@@ -48,7 +48,7 @@ def rank_candidates(state, today):
         if discipline.get('weight_status') != 'extraido_com_fonte': reasons.append('peso registrado a conferir')
         if discipline.get('question_count_status') != 'extraido_com_fonte': reasons.append('incidência registrada a conferir')
         candidates.append({
-            'id': topic['id'], 'notebook_id': topic['notebook_id'], 'topic_key': topic['topic_key'],
+            'id': topic['id'], 'topic_id': topic['id'], 'scope': 'topic', 'notebook_id': topic['notebook_id'], 'topic_key': topic['topic_key'],
             'title': topic['title'], 'discipline': discipline['title'], 'covered': topic['covered'],
             'risk': risk, 'risk_components': components, 'urgency_multiplier': urgency,
             'impact': impact, 'cost_minutes': cost, 'expected_return': round(impact * risk / 100 / cost, 12),
@@ -60,17 +60,37 @@ def rank_candidates(state, today):
             'question_count_status': discipline.get('question_count_status'),
             'reasons': reasons, 'classification': 'operational_heuristic',
         })
+    for discipline in graph['disciplines']:
+        if counts[discipline['id']]: continue
+        weight = max(.1, min(100, float(discipline.get('weight') or 1)))
+        incidence = max(1, min(200, discipline.get('question_count') or 1))
+        urgency = 1.2 if days is not None and 0 <= days <= 30 else 1
+        risk, impact = 40 * urgency, round(weight * incidence, 8)
+        candidates.append({'id': 'notebook:' + discipline['id'], 'topic_id': None, 'topic_key': None,
+            'scope': 'discipline', 'notebook_id': discipline['id'], 'title': 'Distribui\u00e7\u00e3o por disciplina',
+            'discipline': discipline['title'], 'covered': None, 'risk': risk,
+            'risk_components': {'coverage': 15, 'mastery_gap': 15, 'insufficient_evidence': 10},
+            'urgency_multiplier': urgency, 'impact': impact, 'cost_minutes': 50,
+            'expected_return': round(impact * risk / 100 / 50, 12), 'kind': 'Teoria e quest\u00f5es',
+            'review_interval_days': None, 'review_due_date': None, 'review_history_days': 0,
+            'review_reason': None, 'evidence_ids': [], 'weight_status': discipline.get('weight_status'),
+            'weight_source': discipline.get('weight_source'), 'question_count_status': discipline.get('question_count_status'),
+            'reasons': ['Sem assuntos ativos cadastrados; distribui\u00e7\u00e3o por disciplina, sem prioridade por t\u00f3pico.',
+                'Cobertura e dom\u00ednio dos assuntos desconhecidos; prioridade provis\u00f3ria pelo peso e incid\u00eancia registrados.'],
+            'classification': 'discipline_fallback'})
     return sorted(candidates, key=lambda c: (-c['expected_return'], -c['risk'], c['id']))
 
 
 def strategy_summary(state, today):
     candidates = rank_candidates(state, today)
-    critical = [c['id'] for c in candidates if not c['covered'] and c['risk'] >= 40]
-    lagging = [c['id'] for c in candidates if c['covered'] and c['risk_components']['evidence_age'] >= 5]
+    topics = [c for c in candidates if c['scope'] == 'topic']
+    topicless = [{'id': c['notebook_id'], 'title': c['discipline']} for c in candidates if c['scope'] == 'discipline']
+    critical = [c['id'] for c in topics if not c['covered'] and c['risk'] >= 40]
+    lagging = [c['id'] for c in topics if c['covered'] and c['risk_components']['evidence_age'] >= 5]
     missed = state.get('strategy_facts', {}).get('missed_entries', [])
     return {'version': VERSION, 'preparation_id': state['preparation_id'], 'computed_at': today.isoformat(),
-        'candidates': candidates, 'debt': {
-            'overdue_reviews': [c['id'] for c in candidates if c['review_due_date'] and c['review_due_date'] < today.isoformat()],
+        'candidates': candidates, 'coverage_partial': bool(topicless), 'topicless_disciplines': topicless, 'debt': {
+            'overdue_reviews': [c['id'] for c in topics if c['review_due_date'] and c['review_due_date'] < today.isoformat()],
             'critical_unstarted': critical, 'lagging_topics': lagging,
             'missed_blocks': missed, 'missed_minutes': sum(e['minutes'] for e in missed),
             'late_milestones': state.get('strategy_facts', {}).get('late_milestones', []),
@@ -120,15 +140,18 @@ def preview_strategy(state, today, settings, previous, reserved, missed_days=0):
             first.isoformat(), settings.end_date.isoformat(), settings.block_minutes, within, constraints)
         generated = [e for e in entries if e['entry_id'] not in {p['entry_id'] for p in within}]
         allocation = Counter()
-        for e in generated: allocation[e['topic_id']] += e['minutes']
-        new_topics = sum(not c['covered'] and allocation[c['id']] >= c['cost_minutes'] for c in summary['candidates'])
-        total = len(summary['candidates']); covered = state['coverage']['studied']
-        scheduled_reviews = {c['id'] for c in summary['candidates'] if c['kind']=='Revisão' and allocation[c['id']]>=c['cost_minutes']}
+        for e in entries:
+            if e.get('topic_id'): allocation[e['topic_id']] += e['minutes']
+        topics = [c for c in summary['candidates'] if c['scope'] == 'topic']
+        new_topics = sum(not c['covered'] and allocation[c['id']] >= c['cost_minutes'] for c in topics)
+        total = len(topics); covered = state['coverage']['studied']
+        scheduled_reviews = {c['id'] for c in topics if c['kind']=='Revisão' and allocation[c['id']]>=c['cost_minutes']}
         scenarios[mode] = {'availability': availability, 'minutes': sum(e['minutes'] for e in entries),
             'generated_minutes': sum(e['minutes'] for e in generated), 'protected_minutes': sum(e['minutes'] for e in within),
             'entries': entries[:200], 'entries_count': len(entries), 'entries_truncated': len(entries) > 200,
             'projected_coverage': round(100 * min(total, covered + new_topics) / total, 1) if total else None,
-            'new_topics_assuming_completion': new_topics,
+            'new_topics_assuming_completion': new_topics, 'coverage_scope': 'registered_topics_only',
+            'coverage_partial': summary['coverage_partial'],
             'unaddressed_due_reviews': [i for i in summary['debt']['overdue_reviews'] if i not in scheduled_reviews],
             'unaddressed_critical_topics': [i for i in summary['debt']['critical_unstarted'] if allocation[i] < 50],
             'load_guard': load_guard(state, entries, availability, constraints)}

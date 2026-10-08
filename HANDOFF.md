@@ -2,6 +2,8 @@
 
 ## 2026-10-08 — phase4 deployed; phase5 Adaptive Strategy Engine
 
+Latest review corrections: mixed topicless disciplines receive provisional discipline allocation with explicit unknown coverage; protected canonical blocks contribute progress on their scheduled date; an incremental heap replaces per-block full scans. Maximum case2000 topics/181 days/8688 entries/10688 evaluations took0.05s locally. Targeted13 pure and9 SQL tests passed; full regressions134/security5 passed. Final CI/exact-head review remain required. Migrationa81c9d37e502 is still pending in Neon; PR30 must remain unmerged.
+
 Follow-up before review retains precision for small positive returns (1000-topic manual syllabus regression proves allocation still distributes across3 topics instead of zero-ranking starvation). Topic lookup deduplicates canonical UUIDs before its batched query. Full-check/final-head metadata remains in PR30; this does not change the migration or production gate.
 
 Codex initial review P2 partial-review deferral is corrected: the allocator accumulates suggested review cost before starting the next interval, resets per-cycle progress, and can finish a partial block on another day without overbooking. Pure two-cycle/15-minute regression and SQL two-block persisted review verify the fix. Final CI/review must cover the correction head; no migration change.
