@@ -1,5 +1,6 @@
 """SQL lexical retrieval; source ownership and revocation are checked in SQL."""
 import hashlib
+import json
 import re
 from itertools import islice
 from uuid import UUID
@@ -32,7 +33,7 @@ class Retrieval:
         if model is Notebook: statement=statement.where(Notebook.archived_at.is_(None))
         if await session.scalar(statement.with_for_update()) is None: raise HTTPException(404,'Fonte não encontrada.')
         batch=list(islice(chunks(pages),2001));truncated=len(batch)>2000;batch=batch[:2000]
-        generation=hashlib.sha256(''.join(c['hash'] for c in batch).encode()).hexdigest()
+        generation=hashlib.sha256(json.dumps([(c['hash'],c['page'],c.get('topic_key')) for c in batch]).encode()).hexdigest()
         source=await session.scalar(select(RagSource).where(RagSource.user_id==uid,field==source_id))
         if source is None:
             source=RagSource(user_id=uid,source_type=source_type,generation='',**{field.key:source_id})
@@ -54,12 +55,13 @@ class Retrieval:
             await IdentityRepository(session).by_id(uid,lock=True)
             row=await session.scalar(select(Notebook).where(Notebook.user_id==uid,Notebook.id==sid,Notebook.archived_at.is_(None)).with_for_update())
             if row is None: raise HTTPException(404,'Caderno não encontrado.')
-            drafts=(await session.scalars(select(StudyDraft.text).where(StudyDraft.user_id==uid,StudyDraft.notebook_id==sid)
+            drafts=(await session.execute(select(StudyDraft.topic_key,StudyDraft.text).where(StudyDraft.user_id==uid,StudyDraft.notebook_id==sid)
                 .order_by(StudyDraft.updated_at.desc(),StudyDraft.id).limit(100))).all()
             notes=(await session.execute(select(StudyNote.title,StudyNote.content).where(StudyNote.user_id==uid,StudyNote.notebook_id==sid)
                 .order_by(StudyNote.updated_at.desc(),StudyNote.id).limit(100))).all()
-            pages=[row.notes or '',*drafts,*[title+'\n'+content for title,content in notes]]
-            return await self._index(session,uid,sid,'notebook',[re.sub(r'<[^>]+>',' ',p) for p in pages])
+            pages=[{'text':row.notes or '', 'topic_key':'general'}, *[{'text':text,'topic_key':key} for key,text in drafts],
+                *[{'text':title+'\n'+content,'topic_key':'general'} for title,content in notes]]
+            return await self._index(session,uid,sid,'notebook',[{**p,'text':re.sub(r'<[^>]+>',' ',p['text'])} for p in pages])
 
     async def ensure_selection(self,user_id,selection):
         if 'analysis' in selection: await self.index_edital(user_id,selection['analysis']['analysis_id'])

@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from unittest.mock import AsyncMock, patch
 from sqlalchemy import select, func
 from db.session import unit_of_work
-from db.models.studies import StudyTopic, StudySession, QuestionAttempt, ReviewEvent
+from db.models.studies import StudyTopic, StudySession, QuestionAttempt, ReviewEvent, StudyDraft
 from db.models.agent import Message
 from db.models.identity import User
 from services.retrieval import Retrieval
@@ -62,6 +62,10 @@ class Tutor(unittest.IsolatedAsyncioTestCase):
 
     async def test_material_binding_grounding_ownership_and_archive(self):
         first = await self.attach(); unrelated = await self.attach('Other', 'Crase: outro material não vinculado.')
+        self.ok(await self.http.patch('/api/study/notebooks/'+self.nid,json={'conteudo_programatico':[{'assunto':'Crase'},{'assunto':'Sibling'}]}))
+        async with unit_of_work() as session:
+            session.add(StudyDraft(user_id=self.uid,notebook_id=UUID(self.nid),topic_key='0',text='Crase current topic draft',revision=1))
+            session.add(StudyDraft(user_id=self.uid,notebook_id=UUID(self.nid),topic_key='1',text='Crase SIBLING_DRAFT_SECRET',revision=1))
         url = '/api/study/tutor/materials/'+first['attachment_id']+'/link'
         headers = {'Idempotency-Key': 'bind-material-01'}
         self.ok(await self.http.post(url, json=self.scope, headers=headers))
@@ -71,7 +75,8 @@ class Tutor(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([f['attachment_id'] for f in listed['materials']], [first['attachment_id']])
         result = self.ok(await self.http.post('/api/study/tutor/turn', json=self.turn))
         citations = result['ai_message']['citations']
-        self.assertTrue(citations); self.assertEqual({c['source_id'] for c in citations}, {first['attachment_id']})
+        self.assertTrue(citations); self.assertIn(first['attachment_id'], {c['source_id'] for c in citations}); self.assertNotIn('SIBLING_DRAFT_SECRET',str(citations))
+        self.assertTrue(any('current topic draft' in c['text'] for c in citations))
         self.assertTrue(all(c['category'] == 'user_material' for c in citations))
         self.assertNotIn(unrelated['attachment_id'], str(citations))
         self.assertIn('uma pergunta', self.provider.call_args.kwargs['system_message'])
@@ -105,3 +110,14 @@ class Tutor(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((r['recorded_minutes'],r['answered'],r['accuracy'],r['reviewed_topics']), (25,4,75,1))
         self.assertTrue(r['proposal_only']); self.assertEqual(self.provider.await_count,0)
         self.assertEqual((await self.http.get('/api/study/tutor/copilot', params={**self.scope,'since':(now-timedelta(days=2)).isoformat()})).status_code,422)
+
+    async def test_confirmed_review_is_once_only_and_visible_in_copilot(self):
+        now=datetime.now(timezone.utc)
+        params={**self.scope,'since':(now-timedelta(minutes=1)).isoformat()}
+        body=self.scope;headers={'Idempotency-Key':'confirmed-review-01'}
+        self.ok(await self.http.post('/api/study/tutor/review',json=body,headers=headers))
+        self.assertTrue(self.ok(await self.http.post('/api/study/tutor/review',json=body,headers=headers))['replayed'])
+        self.assertEqual(self.ok(await self.http.get('/api/study/tutor/copilot',params=params))['reviewed_topics'],1)
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(ReviewEvent).where(ReviewEvent.user_id==self.uid)),1)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)

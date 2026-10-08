@@ -16,4 +16,4 @@ def chunks(pages, size=1400):
         for start in range(0, len(text), size-150):
             content = text[start:start+size].strip()
             if content:
-                yield {'page': page_number, 'text': content, 'hash': hashlib.sha256(content.encode()).hexdigest(), 'terms': sorted(terms(content))[:250]}
+                yield {'page': page_number, 'text': content, 'hash': hashlib.sha256(content.encode()).hexdigest(), 'terms': sorted(terms(content))[:250], 'topic_key': page.get('topic_key') if isinstance(page, dict) else None}

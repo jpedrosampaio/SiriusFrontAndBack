@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, Integer
 from db.session import unit_of_work
 from db.models.files import FileRecord, RagSource, RagChunk, EditalAnalysis
-from db.models.studies import StudyProgram, Notebook, StudyTopic, StudySession, QuestionAttempt, ReviewEvent
+from db.models.studies import StudyProgram, Notebook, StudyTopic, StudySession, QuestionAttempt, ReviewEvent, TopicProgress
 from db.study_attempts import answered_attempt
 from services.auth_routes import account
 from services.studies_catalog import owned
@@ -167,8 +167,13 @@ async def grounding(uid, body):
             origins = {s.id: s for s in sources}
             if not origins or not tokens: continue
             score = sum(func.coalesce(RagChunk.terms.any(token), False).cast(Integer) for token in tokens)
-            rows = (await session.scalars(select(RagChunk).where(RagChunk.user_id == uid,
-                RagChunk.source_id.in_(origins), RagChunk.terms.overlap(tokens)).order_by(score.desc(), RagChunk.id).limit(4))).all()
+            query = select(RagChunk).where(RagChunk.user_id == uid, RagChunk.source_id.in_(origins), RagChunk.terms.overlap(tokens))
+            if topic:
+                keys=['general']+['_'.join(topic.topic_key.split('_')[:i]) for i in range(1,len(topic.topic_key.split('_'))+1)]
+                keys=['general',*(await session.scalars(select(StudyTopic.topic_key).where(StudyTopic.user_id==uid,StudyTopic.notebook_id==book.id,StudyTopic.archived_at.is_(None),StudyTopic.topic_key.in_(keys)))).all()]
+                notebook_sources=[s.id for s in sources if s.notebook_id]
+                query=query.where(~RagChunk.source_id.in_(notebook_sources) | RagChunk.details['topic_key'].as_string().in_(keys))
+            rows = (await session.scalars(query.order_by(score.desc(), RagChunk.id).limit(4))).all()
             for row in rows:
                 source = origins[row.source_id]; sid = str(source.file_id or source.notebook_id or source.analysis_id)
                 citations.append({'id': f'S{len(citations)+1}', 'source_id': sid, 'title': names.get(sid, 'Material'),
@@ -244,3 +249,24 @@ async def copilot(request: Request, preparation_id: UUID, notebook_id: UUID, sin
         'reviewed_topics': reviewed, 'proposal_only': True,
         'recommendation': 'Revise os erros registrados antes do próximo recall.' if total > correct else 'Faça um recall breve e consulte as prioridades do Strategy Engine.',
         'notice': 'Tempo registrado na disciplina e respostas/revisões no recorte selecionado; não inclui tempo ainda não salvo. Sem novas gravações ou XP.'}
+
+
+@router.post('/review')
+async def confirm_review(request: Request, body: Scope):
+    if not request.headers.get('Idempotency-Key'):
+        raise HTTPException(422, 'Idempotency-Key obrigatório.')
+    async def apply(session,user):
+        _,_,topic=await scope(session,user.id,body)
+        if topic is None: raise HTTPException(422,'Selecione um assunto para confirmar a revisão.')
+        previous=await session.scalar(select(ReviewEvent).where(ReviewEvent.user_id==user.id,ReviewEvent.topic_id==topic.id)
+            .order_by(ReviewEvent.reviewed_at.desc(),ReviewEvent.id.desc()).limit(1))
+        row=await session.scalar(select(TopicProgress).where(TopicProgress.user_id==user.id,TopicProgress.topic_id==topic.id))
+        if row is None:
+            row=TopicProgress(user_id=user.id,topic_id=topic.id,reviewed=True);session.add(row)
+        else: row.reviewed=True
+        event=ReviewEvent(user_id=user.id,topic_id=topic.id,reviewed_at=datetime.now(timezone.utc),
+            result='manual_tutor_confirmation',next_review=previous.next_review if previous else None)
+        session.add(event);await session.flush()
+        return {'review_id':str(event.id),'topic_id':str(topic.id),'reviewed_at':event.reviewed_at.isoformat(),
+            'notice':'Revisão confirmada por você; sem alteração de domínio ou XP. Data de revisão existente preservada.'}
+    return await mutate(request,['tutor-review',body.model_dump(mode='json')],apply)
