@@ -49,10 +49,10 @@ def exam_json(exam):
         'execution_status':(exam.blueprint or {}).get('execution',{}).get('status'),'created_at':exam.created_at})
 
 
-def question_json(question,weight,index,topic_key=None):
+def question_json(question,weight,index,topic_key=None,sequential=False):
     provider=provider_for_source(question.source)
     origin=provider.origin(question.provenance) if provider else question_origin(question.source,question.provenance)
-    return {**question.provenance,'question_id':str(question.id),'question_number':question.provenance.get('question_number',index+1),
+    return {**question.provenance,'question_id':str(question.id),'question_number':index+1 if sequential else question.provenance.get('question_number',index+1),
         'provider':provider.name if provider else 'unknown','origin':origin,'generated_by_ai':origin=='ai_generated',
         'question_text':question.statement,'options':question.options,'correct_answer':question.correct_answer,
         'explanation':question.explanation or '', 'type':question.question_type,'weight':weight,
@@ -109,7 +109,7 @@ async def details(session,uid,exam_id):
     topics=dict((await session.execute(select(StudyTopic.id,StudyTopic.topic_key).where(StudyTopic.user_id==uid,StudyTopic.id.in_(topic_ids)))).all())
     attempts=(await session.scalars(select(ExamAttempt).where(ExamAttempt.user_id==uid,ExamAttempt.exam_id==exam_id)
         .order_by(ExamAttempt.completed_at.desc()).limit(50))).all()
-    return {**exam_json(exam),'questions':[question_json(q,w,i,topics.get(q.topic_id)) for i,(q,w) in enumerate(pairs)],
+    return {**exam_json(exam),'questions':[question_json(q,w,i,topics.get(q.topic_id),(exam.blueprint or {}).get('numbering')=='exam_position') for i,(q,w) in enumerate(pairs)],
         'questions_count':len(pairs),'attempts':[attempt_json(a,exam) for a in attempts]}
 
 

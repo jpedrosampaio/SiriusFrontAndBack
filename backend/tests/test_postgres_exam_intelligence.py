@@ -61,10 +61,17 @@ class ExamIntelligence(unittest.IsolatedAsyncioTestCase):
         await self.begin()
         async with unit_of_work() as session:
             original=set((await session.scalars(select(Question.id).where(Question.user_id==self.uid))).all())
+            for question in (await session.scalars(select(Question).where(Question.user_id==self.uid))).all():
+                question.provenance={**question.provenance,'question_number':9}
         path=f'/api/study/v2/programs/{self.pid}/blueprint/simulado'
         body={'title':'Focused','duration_minutes':30,'mode':'discipline','notebook_ids':[self.nid],'num_questions':2}
         assembled=self.ok(await self.http.post(path,json=body,headers={'Idempotency-Key':'assemble-owned'}))
         self.assertEqual({UUID(q['question_id']) for q in assembled['questions']},original)
+        target='/api/study/simulados/'+assembled['simulado_id']
+        detail=self.ok(await self.http.get(target))
+        self.assertEqual([q['question_number'] for q in detail['questions']],[1,2])
+        result=self.ok(await self.http.post(target+'/submit',json={'answers':[]},headers={'Idempotency-Key':'assembled-numbering'}))
+        self.assertEqual([a['question_number'] for a in result['answers']],[1,2])
         async with unit_of_work() as session:self.assertEqual(await session.scalar(select(func.count()).select_from(Question).where(Question.user_id==self.uid)),2)
         body['notebook_ids']=['00000000-0000-0000-0000-000000000001']
         self.assertEqual((await self.http.post(path,json=body,headers={'Idempotency-Key':'assemble-foreign'})).status_code,422)

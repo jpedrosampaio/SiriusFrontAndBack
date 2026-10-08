@@ -414,6 +414,7 @@ async def blueprint_create(request: Request,program_id: UUID,body: BlueprintInpu
             plan={'mode':body.mode,'total':count,'complete':True,'official_rules_available':False,
                 'notice':'Prática com quantidade e duração definidas pelo usuário; peso uniforme, sem penalização.'}
         plan['mode']=body.mode
+        plan['numbering']='exam_position'
         plan['provisional_confirmed']=body.confirm_provisional
         plan['scoring']={'version':'sourced_weighted_v2' if body.wrong_penalty or body.blank_penalty else 'all_questions_weighted_v1',
             'wrong_penalty':body.wrong_penalty,'blank_penalty':body.blank_penalty,

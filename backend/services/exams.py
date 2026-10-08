@@ -35,7 +35,7 @@ async def submit_exam(user_id,exam_id,answers,duration_seconds,request_key,kind=
             raise HTTPException(409,'Conclua a execução ativa com sua identidade e revisão.')
         validate_answers(pairs,submitted_answers)
         questions = [{'question_text':q.statement,'correct_answer':q.correct_answer,'explanation':q.explanation,
-            'weight':weight,'question_number':q.provenance.get('question_number',index+1),
+            'weight':weight,'question_number':index+1 if (exam.blueprint or {}).get('numbering')=='exam_position' else q.provenance.get('question_number',index+1),
             'disciplina':q.provenance.get('disciplina'),'subdisciplina':q.provenance.get('subdisciplina')} for index,(q,weight) in enumerate(pairs)]
         rules=(exam.blueprint or {}).get('scoring',{})
         result = grade(questions,submitted_answers,rules)
