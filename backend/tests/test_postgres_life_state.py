@@ -11,7 +11,7 @@ from db.models.identity import User
 from db.models.planning import Task, TaskInstance, CalendarEvent, Habit, Goal
 from db.models.studies import StudyPlan, StudyPlanEntry, StudySchedule
 from db.models.finance import FinancialTransaction
-from db.models.health import WorkoutPlan
+from db.models.health import WorkoutPlan, WorkoutSession
 from services.life_state import snapshot, preview
 from life_contracts import Availability, Scenario
 import test_postgres_runtime_catalog as fixtures
@@ -193,3 +193,12 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
             s.add_all([TaskInstance(user_id=self.uid,task_id=row.id,date=old,status='done',completed=True) for row in rows])
         result=await self.simulate();self.assertTrue(result['state']['planning_safe']);self.assertTrue(result['plan']['blocks'])
         self.assertNotIn('Closed history',str(result['state']))
+
+    async def test_active_workout_cannot_be_allocated_again_on_future_days(self):
+        now=datetime.now(timezone.utc)
+        async with unit_of_work() as s:
+            s.add(WorkoutSession(user_id=self.uid,plan_id=self.workout.id,plan_name='Active',day_index=0,status='active',started_at=now))
+        today=await snapshot(self.uid,now=now)
+        current=next(d for d in today.domains if d.domain=='training');self.assertEqual(len(current.candidates),1)
+        tomorrow=await snapshot(self.uid,day=today.date+timedelta(days=1),now=now)
+        future=next(d for d in tomorrow.domains if d.domain=='training');self.assertFalse(future.candidates)

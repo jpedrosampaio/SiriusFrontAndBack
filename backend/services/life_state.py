@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from db.models.identity import User
 from db.session import unit_of_work
 from life_contracts import Availability, LifeState, Scenario
-from services.life_adapters import ADAPTERS
+from services.life_adapters import ADAPTERS, training
 from ai.planning import plan_day
 
 
@@ -26,7 +26,9 @@ async def collect(session, uid, *, day=None, now=None, user=None):
     try:availability=Availability.model_validate((user.preferences or {}).get('life_availability',{}))
     except ValidationError:
         availability=Availability();warnings.append('Disponibilidade inválida; configure novamente.')
-    domains=[await adapter(session,uid,day,zone) for adapter in ADAPTERS]
+    domains=[await adapter(session,uid,day,zone,now=instant) if adapter is training else
+        await adapter(session,uid,day,zone) for adapter in ADAPTERS]
+    warnings.extend(next(d for d in domains if d.domain=='training').warnings)
     prep=next(d for d in domains if d.domain=='preparation')
     constraints=[c for d in domains for c in d.constraints]
     # Cross-domain association belongs to the coordinator, not domain adapters.

@@ -1,5 +1,5 @@
 """Independent read-only domain adapters; each emits the shared contract."""
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID
@@ -155,7 +155,7 @@ async def finance(session, uid, day, zone):
     return state
 
 
-async def training(session, uid, day, zone):
+async def training(session, uid, day, zone, *, now=None):
     active=(await session.execute(select(WorkoutSession,WorkoutPlan).join(WorkoutPlan,
         (WorkoutPlan.id==WorkoutSession.plan_id)&(WorkoutPlan.user_id==WorkoutSession.user_id)).where(
         WorkoutSession.user_id==uid,WorkoutSession.status=='active',WorkoutPlan.archived_at.is_(None)).limit(1))).first()
@@ -165,13 +165,15 @@ async def training(session, uid, day, zone):
         .order_by(WorkoutPlan.id).limit(LIMIT+1))).all()
     state=DomainState(domain='training',truncated=len(plans)>LIMIT,facts={'completed_today':count,'recorded_minutes_today':minutes,
         'active_session':str(active[0].id) if active else None,'available_plans':[{'id':str(p.id),'name':p.name[:200]} for p in plans[:LIMIT]]})
-    if active:
+    if active and day==(now or datetime.now(timezone.utc)).astimezone(zone).date():
         state.candidates.append(candidate('training',active[1],day,'Retomar '+active[1].name,None,'/workouts',
             reasons=['Sessão ativa real. Duração restante precisa da sua estimativa.']))
-    elif count==0:
+    elif not active and count==0:
         for p in plans[:LIMIT]:
             state.candidates.append(candidate('training',p,day,'Treino: '+p.name,None,'/workouts',
                 reasons=['Plano cadastrado; inclusão no dia exige sua seleção e estimativa de duração.']))
+    elif active:
+        state.warnings.append('Uma sessão de treino ativa só é sugerida para hoje, sem duplicação em dias futuros.')
     return state
 
 
