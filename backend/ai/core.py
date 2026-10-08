@@ -24,9 +24,11 @@ class Core:
             names = ('get_today_tasks', 'get_study_progress', 'get_workout_progress', 'get_finance_summary')
             return dict(zip(names, await asyncio.gather(*(self.read(n, user_id) for n in names))))
         if name == 'get_daily_plan':
-            from ai.planning import plan_day
-            tasks, commitments = await asyncio.gather(self.read('get_today_tasks', user_id), self.read('get_calendar', user_id))
-            return plan_day(tasks['items'], commitments, tasks['date'], timezone_name=tasks.get('timezone', 'America/Sao_Paulo'))
+            from services.life_state import daily,agent_plan
+            return agent_plan((await daily(user_id))['plan'])
+        if name == 'get_life_state':
+            from services.life_state import snapshot,agent_context
+            return agent_context(await snapshot(user_id))
         if name == 'get_weekly_review': return await self.weekly(user_id)
         return await read(name, user_id)
 

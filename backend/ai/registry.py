@@ -54,6 +54,7 @@ class Tool:
 
 
 READS = {
+    'get_life_state': 'Estado unificado factual dos oito módulos, disponibilidade e restrições; sem alterações',
     'get_daily_plan': 'Plano de hoje e próximo passo calculados por regras, sem alterar tarefas',
     'get_weekly_review': 'Revisão semanal comparada aos mesmos dias da semana anterior',
     'get_today_tasks': 'Tarefas e conclusões de hoje', 'get_tasks': 'Tarefas que ocorrem hoje',
