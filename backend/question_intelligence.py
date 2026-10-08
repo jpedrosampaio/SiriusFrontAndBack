@@ -105,7 +105,10 @@ def canonical_generated_answer(question):
             normalize(re.sub(r'^[A-E][).:]\s*','',option,flags=re.I))==normalized]
         if len(matches)!=1:return None
         index=matches[0]
-    return options[index] if question.get('type')=='certo_errado' else letters[index]
+    # The exam UI submits an uppercase A) prefix as a letter, including true/false.
+    if question.get('type')=='certo_errado' and not re.match(r'^[A-E]\)',options[index]):
+        return options[index]
+    return letters[index]
 
 
 def validate_generated_question(question):

@@ -45,4 +45,7 @@ class QuestionIntelligenceTests(unittest.TestCase):
         self.assertEqual(canonical_generated_answer({**question,'correct_answer':'B) Rome'}),'B')
         self.assertEqual(canonical_generated_answer({**question,'correct_answer':'b'}),'B')
         self.assertEqual(canonical_generated_answer({'options':['Certo','Errado'],'type':'certo_errado','correct_answer':'certo'}),'Certo')
+        for answer in ('Certo','A','A) Certo'):
+            self.assertEqual(canonical_generated_answer({'options':['A) Certo','B) Errado'],'type':'certo_errado','correct_answer':answer}),'A')
+        self.assertEqual(canonical_generated_answer({'options':['A: Certo','B: Errado'],'type':'certo_errado','correct_answer':'Certo'}),'A: Certo')
         self.assertIsNone(canonical_generated_answer({**question,'correct_answer':'unknown'}))

@@ -1,5 +1,9 @@
 # Sirius — handoff
 
+## 2026-10-08 — final review correction: labeled true/false
+
+Review of documentation head6d53d06 identified an additional P2: true/false options with uppercase A) labels are submitted as letters by the exam UI. Canonical generation now mirrors that protocol, while unlabeled/other-prefix true/false options retain their exact text. A real SQL laboratory generation/submission regression checks saved A and score100; pure tests cover letter, text and labeled answers. Renewed full CI/review on this correction must pass before requesting the owner migration. Phase3 remains deployed; phase4 migration b73a16ce9024 is still pending on Neon. Final head/check metadata belongs to PR29. No production writes or migration performed.
+
 ## 2026-10-08 — Phase 4 code reviewed; awaiting owner migration
 
 PR29: https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/29. Branch feat/questions-intelligence; reviewed code head2319e47485c3af897112858a3847aa1e9ed8ecaa. Last fully concluded/deployed phase remains phase3, PR28 mergeba42fc7e6db197ac01f4443485e2624337d2a350. Phase4 is implemented but not merged/deployed. This follow-up changes only this handoff; final PR metadata records its current head and renewed CI/review.

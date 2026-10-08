@@ -131,6 +131,20 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
         refused=await self.http.post('/api/study/simulados/generate',json=body,headers={'Idempotency-Key':'new-archived-generation'})
         self.assertEqual(refused.status_code,404);self.assertEqual(self.generator.await_count,2)
 
+    async def test_labeled_true_false_lab_grades_ui_letter_correctly(self):
+        question={'question_text':'Crase statement','type':'certo_errado','options':['A) Certo','B) Errado'],
+            'correct_answer':'Certo','explanation':'Reason'}
+        self.generator.side_effect=[SimpleNamespace(text=json.dumps({'questions':[question]})),
+            SimpleNamespace(text=json.dumps({'validation':[{'index':0,'acceptable':True,'confidence':'high'}]}))]
+        response=self.ok(await self.http.post('/api/study/simulados/generate',json={'title':'True false lab',
+            'notebook_id':self.nid,'topic_key':'0','num_questions':1,'laboratory':True},
+            headers={'Idempotency-Key':'labeled-true-false'}))
+        self.assertEqual(response['simulado']['questions'][0]['correct_answer'],'A')
+        from services.exams import submit_exam
+        graded=await submit_exam(self.uid,UUID(response['simulado']['simulado_id']),
+            [{'question_idx':0,'selected_answer':'A'}],10,'lab-true-false-answer')
+        self.assertEqual(graded['score'],100)
+
     async def test_lab_missing_context_and_malformed_validation_do_not_save(self):
         body={'title':'Lab','notebook_id':self.nid,'topic_key':'0','num_questions':1,'laboratory':True,'context_source':'materials'}
         self.assertEqual((await self.http.post('/api/study/simulados/generate',json=body,headers={'Idempotency-Key':'missing-context'})).status_code,422)
