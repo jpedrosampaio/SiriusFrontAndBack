@@ -8,6 +8,7 @@ const optionsFor = q => (q.options || []).map((text, i) => ({ text, value: text.
 const timer = seconds => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 export default function ExamRunner({ exam, onComplete, onExit }) {
   const [draft, setDraft] = useState(null), [error, setError] = useState(''), [status, setStatus] = useState('Carregando progresso…');
+  const [completed, setCompleted] = useState(null), [restart, setRestart] = useState(0);
   const [paused, setPaused] = useState(false), [busy, setBusy] = useState(false), [conflict, setConflict] = useState(false);
   const current = useRef(null), revision = useRef(0), pending = useRef(null), saving = useRef(null), alive = useRef(true);
   const frozen = useRef(false), lastTick = useRef(Date.now()), submit = useRef(null), dirty = useRef(false);
@@ -19,13 +20,16 @@ export default function ExamRunner({ exam, onComplete, onExit }) {
     window.scrollTo({ top: 0 });
     const load = async () => {
       try {
-        await axios.post(`${url}/session`, {}, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
-        const { data } = await axios.get(`${url}/session`);
+        let { data } = await axios.get(`${url}/session`);
+        if (!data || restart) {
+          await axios.post(`${url}/session`, {}, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
+          ({ data } = await axios.get(`${url}/session`));
+        }
         if (canceled) return;
         if (data?.status === 'completed') {
           const results = await axios.get(`${url}/results`);
           const completed = results.data.find(a => a.attempt_id === data.attempt_id);
-          if (!canceled && completed) functions.current.onComplete(completed);
+          if (!canceled) { if (completed) { setCompleted(completed); setStatus('Resultado salvo'); } else throw new Error('Resultado indisponivel. Tente carregar novamente.'); }
           return;
         }
         if (!data || data.status !== 'active' || typeof data.session_id !== 'string' || !Number.isInteger(data.revision) || !Array.isArray(data.answers) || !Array.isArray(data.marked)) throw new Error('Progresso inválido. Consulte a execução salva.');
@@ -34,7 +38,7 @@ export default function ExamRunner({ exam, onComplete, onExit }) {
     };
     load();
     return () => { canceled = true; alive.current = false; };
-  }, [url]);
+  }, [url, restart]);
   const tick = () => {
     const now = Date.now(), delta = Math.max(0, Math.floor((now - lastTick.current) / 1000));
     lastTick.current += delta * 1000;
@@ -117,6 +121,7 @@ export default function ExamRunner({ exam, onComplete, onExit }) {
       current.current = data; revision.current = data.revision; pending.current = null; dirty.current = false; frozen.current = false; hardConflict.current = false; submit.current = null; setDraft(data); setConflict(false); setError(''); setStatus('Progresso salvo'); lastTick.current = Date.now();
     }
   };
+  if (completed) return <section aria-label="Execução da prova" className="space-y-4 p-5"><h2>Resultado salvo</h2><p>Esta tentativa foi concluída. Seu resultado permanece no histórico.</p><div className="flex flex-wrap gap-3"><Button onClick={() => onComplete(completed)}>Ver resultado</Button><Button variant="outline" onClick={() => { if (window.confirm('Iniciar uma nova tentativa? O resultado anterior sera preservado.')) { setCompleted(null); setRestart(v => v + 1); } }}>Iniciar nova tentativa</Button></div></section>;
   const q = draft && exam.questions[draft.current_question];
   const selected = draft?.answers.find(a => a.question_idx === draft.current_question);
   const answer = value => edit(d => {
