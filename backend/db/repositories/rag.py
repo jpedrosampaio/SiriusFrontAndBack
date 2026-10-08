@@ -29,7 +29,7 @@ class RagRepository:
         await self.session.execute(delete(RagChunk).where(RagChunk.user_id == user_id,RagChunk.source_id == source_id))
         for i,item in enumerate(chunks):
             self.session.add(RagChunk(user_id=user_id,source_id=source_id,chunk_index=i,content=item['text'],
-                content_hash=item['hash'],terms=item['terms'],details={'page':item.get('page')}))
+                content_hash=item['hash'],terms=item['terms'],details={'page':item.get('page'),'topic_key':item.get('topic_key')}))
         source.generation = generation
         await self.session.flush()
         return {'chunks':len(chunks),'unchanged':False}
