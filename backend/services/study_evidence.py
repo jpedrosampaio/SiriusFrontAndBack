@@ -5,6 +5,7 @@ from sqlalchemy import select,func,Date,or_
 from db.models.studies import Notebook,StudyTopic,QuestionAttempt,ReviewEvent
 from db.models.exams import Question
 from study_mastery import mastery,adaptive_review
+from question_intelligence import question_origin
 
 
 def attempt_json(row,notebook,topic,question,zone):
@@ -17,7 +18,10 @@ def attempt_json(row,notebook,topic,question,zone):
         'position':metadata.get('position',''),'error_reason':row.error_cause,'difficulty':metadata.get('difficulty'),
         'date':row.answered_at.astimezone(ZoneInfo(zone)).date().isoformat(),'created_at':row.created_at.isoformat(),
         'answered_at':row.answered_at.isoformat(),'internal_question_id':str(row.question_id) if row.question_id else None,
-        'exam_attempt_id':str(row.exam_attempt_id) if row.exam_attempt_id else None}
+        'exam_attempt_id':str(row.exam_attempt_id) if row.exam_attempt_id else None,
+        'confidence':metadata.get('confidence'),'skipped':metadata.get('skipped',metadata.get('answered') is False),
+        'changed_answer':metadata.get('changed_answer'),
+        'question_provenance':question_origin(question.source,question.provenance) if question else 'unknown'}
 
 
 async def attempts(session,uid,zone,*,program_id=None,notebook_id=None,topic_id=None,limit=5000,active_topics=False):

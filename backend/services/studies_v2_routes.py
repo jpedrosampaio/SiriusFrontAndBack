@@ -2,7 +2,7 @@ from collections import Counter,defaultdict
 from datetime import date,datetime,timezone
 from uuid import UUID
 from fastapi import APIRouter,Request,HTTPException
-from sqlalchemy import select,func,Date
+from sqlalchemy import select,func,Date,or_
 from db.session import unit_of_work
 from db.models.studies import StudyArea,StudyProgram,StudyTarget,Notebook,StudyTopic,TopicProgress,StudySession,StudyPlan,StudyPlanEntry,QuestionAttempt,ReviewEvent,Flashcard,StudyNote,StudyDraft
 from db.models.exams import Question,Exam,ExamQuestion
@@ -17,6 +17,10 @@ from study_mastery import mastery,adaptive_review,topic_priority
 from studies_v2 import TargetInput,AttemptInput,ErrorUpdate,BlueprintInput
 from db.models.identity import User
 from services.preparation_state import preparation_state
+from question_intelligence import error_bank,forensic_clusters
+from db.models.question_insights import QuestionInsight
+from pydantic import BaseModel
+from typing import Literal
 
 router=APIRouter(prefix='/study/v2')
 
@@ -102,29 +106,99 @@ async def today_view(request: Request):
 @router.post('/attempts')
 async def attempt_create(request: Request,body: AttemptInput):
     if not request.headers.get('Idempotency-Key'): raise HTTPException(422,'Idempotency-Key obrigatório.')
+    if body.skipped and (body.correct or body.answer.strip()):raise HTTPException(422,'Questão pulada não pode ter resposta nem acerto.')
     async def apply(session,user):
         notebook=await owned(session,Notebook,user.id,identity(body.notebook_id))
         topic=await session.scalar(select(StudyTopic).where(StudyTopic.user_id==user.id,StudyTopic.notebook_id==notebook.id,
             StudyTopic.topic_key==body.topic_key,StudyTopic.archived_at.is_(None)))
         if topic is None: raise HTTPException(422,'Assunto não encontrado.')
-        question=Question(user_id=user.id,notebook_id=notebook.id,topic_id=topic.id,statement=body.question,
-            question_type='manual',source=body.source,provenance={'board':body.board,'exam':body.exam,'position':body.position})
-        session.add(question); await session.flush()
+        if body.internal_question_id:
+            question=await session.scalar(select(Question).where(Question.user_id==user.id,
+                Question.id==identity(body.internal_question_id),Question.notebook_id==notebook.id,Question.topic_id==topic.id))
+            if question is None:raise HTTPException(404,'Questão não encontrada neste assunto.')
+        else:
+            question=Question(user_id=user.id,notebook_id=notebook.id,topic_id=topic.id,statement=body.question,
+                question_type='manual',source='manual',provenance={'board':body.board,'exam':body.exam,'position':body.position,
+                    'provider':'manual','origin':'user_created','generated_by_ai':False})
+            session.add(question); await session.flush()
         row=QuestionAttempt(user_id=user.id,notebook_id=notebook.id,topic_id=topic.id,question_id=question.id,total=1,correct=int(body.correct),
             answer=body.answer,duration_seconds=body.seconds,source=body.source,error_cause=None if body.correct else body.error_reason,
             answered_at=datetime.now(timezone.utc),evidence={'board':body.board,'exam':body.exam,'position':body.position,
-                'difficulty':body.difficulty,'external_question_id':body.question_id})
+                'difficulty':body.difficulty,'external_question_id':body.question_id,'confidence':body.confidence,
+                'skipped':body.skipped,'answered':not body.skipped,'changed_answer':body.changed_answer})
         previous=await attempts(session,user.id,user.timezone,notebook_id=notebook.id,topic_id=topic.id,limit=499)
         today=local_today(user.timezone)
         review_day=func.timezone(user.timezone,ReviewEvent.reviewed_at).cast(Date)
         count=await session.scalar(select(func.count(func.distinct(review_day))).where(ReviewEvent.user_id==user.id,ReviewEvent.topic_id==topic.id,review_day<today))
         session.add(row); await session.flush()
         document=attempt_json(row,notebook,topic,question,user.timezone)
+        if body.skipped:return {**document,'review':None}
         review=adaptive_review(previous+[document],today,previous_reviews=count,difficulty=body.difficulty)
         session.add(ReviewEvent(user_id=user.id,topic_id=topic.id,reviewed_at=datetime.now(timezone.utc),
             result=review['reason'],next_review=date.fromisoformat(review['due_date'])))
         return {**document,'review':review}
     return await mutate(request,['study-attempt',body.model_dump()],apply)
+
+
+@router.get('/programs/{program_id}/question-intelligence')
+async def question_intelligence_view(request: Request,program_id: UUID):
+    user=await account(request);uid=UUID(user['user_id'])
+    async with unit_of_work() as session:
+        await owned(session,StudyProgram,uid,program_id)
+        rows=await attempts(session,uid,user['timezone'],program_id=program_id,limit=5000,active_topics=True)
+        current_fingerprints={item['fingerprint'] for item in forensic_clusters(rows)}
+        insights=(await session.scalars(select(QuestionInsight).where(QuestionInsight.user_id==uid,
+            QuestionInsight.program_id==program_id,QuestionInsight.status=='active',QuestionInsight.fingerprint.in_(current_fingerprints)).order_by(QuestionInsight.updated_at.desc(),QuestionInsight.id).limit(50))).all()
+        reviews=await latest_reviews(session,uid,program_id=program_id)
+    bank=error_bank(rows);related={(r['notebook_id'],r['topic_key']) for r in bank['items']}
+    return {'error_bank':bank,'suggestions':[{'insight_id':str(row.id),'status':row.status,**row.details} for row in insights],
+        'related_reviews':[r for r in reviews if (r['notebook_id'],r['topic_key']) in related][:100],'truncated':len(rows)>=5000,'sample_limit':5000,'requires_confirmation':True}
+
+
+@router.post('/programs/{program_id}/question-intelligence/analyze')
+async def analyze_question_errors(request: Request,program_id: UUID):
+    if not request.headers.get('Idempotency-Key'):raise HTTPException(422,'Idempotency-Key obrigatório.')
+    async def apply(session,user):
+        await owned(session,StudyProgram,user.id,program_id)
+        rows=await attempts(session,user.id,user.timezone,program_id=program_id,limit=5000,active_topics=True)
+        suggestions=forensic_clusters(rows)
+        for suggestion in suggestions:suggestion['computed_at']=datetime.now(timezone.utc).isoformat()
+        fingerprints={item['fingerprint'] for item in suggestions}
+        existing=(await session.scalars(select(QuestionInsight).where(QuestionInsight.user_id==user.id,QuestionInsight.program_id==program_id,
+            or_(QuestionInsight.status=='active',QuestionInsight.fingerprint.in_(fingerprints))))).all()
+        indexed={row.fingerprint:row for row in existing}
+        for row in existing:
+            if row.status=='active':row.status='superseded'
+        results=[]
+        for suggestion in suggestions:
+            row=indexed.get(suggestion['fingerprint'])
+            if row is None:
+                row=QuestionInsight(user_id=user.id,program_id=program_id,fingerprint=suggestion['fingerprint'],status='active',details=suggestion)
+                session.add(row)
+            else:
+                row.details=suggestion
+                if row.status!='dismissed':row.status='active'
+            results.append(row)
+        await session.flush()
+        return {'suggestions':[{'insight_id':str(row.id),'status':row.status,**row.details} for row in results if row.status=='active'],
+            'truncated':len(rows)>=5000,'facts_changed':False}
+    return await mutate(request,['question-forensics',str(program_id)],apply)
+
+
+class InsightStatus(BaseModel):
+    status: Literal['active','dismissed']
+
+
+@router.patch('/programs/{program_id}/question-intelligence/{insight_id}')
+async def insight_status(request: Request,program_id: UUID,insight_id: UUID,body: InsightStatus):
+    if not request.headers.get('Idempotency-Key'):raise HTTPException(422,'Idempotency-Key obrigatório.')
+    async def apply(session,user):
+        await owned(session,StudyProgram,user.id,program_id)
+        row=await session.scalar(select(QuestionInsight).where(QuestionInsight.user_id==user.id,
+            QuestionInsight.program_id==program_id,QuestionInsight.id==insight_id))
+        if row is None:raise HTTPException(404,'Sugestão não encontrada.')
+        row.status=body.status;return {'insight_id':str(row.id),'status':row.status,'facts_changed':False}
+    return await mutate(request,['question-insight-status',str(program_id),str(insight_id),body.status],apply)
 
 
 @router.patch('/attempts/{attempt_id}/error')

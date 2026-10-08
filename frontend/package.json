@@ -74,7 +74,7 @@
     "test": "craco test",
     "lint": "eslint src --max-warnings 0",
     "test:unit": "node --test tests/*.test.cjs",
-    "test:smoke": "node tests/smoke.cjs && node tests/workout-smoke.cjs && node tests/operational-smoke.cjs && node tests/workout-session-smoke.cjs && node tests/edital-smoke.cjs && node tests/preparation-smoke.cjs && node tests/radar-smoke.cjs"
+    "test:smoke": "node tests/smoke.cjs && node tests/workout-smoke.cjs && node tests/operational-smoke.cjs && node tests/workout-session-smoke.cjs && node tests/edital-smoke.cjs && node tests/preparation-smoke.cjs && node tests/radar-smoke.cjs && node tests/questions-smoke.cjs"
   },
   "browserslist": {
     "production": [

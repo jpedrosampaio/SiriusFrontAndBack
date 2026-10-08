@@ -37,6 +37,7 @@ TASKS = {
     'report_analysis': ('reasoning', 'flash', 'lite'),
     'study_explanation': ('reasoning', 'flash', 'lite'),
     'study_question_generation': ('flash', 'reasoning', 'lite'),
+    'study_question_validation': ('flash', 'reasoning', 'lite'),
     'workout_generation': ('flash', 'reasoning', 'lite'),
     'nutrition_generation': ('flash', 'reasoning', 'lite'),
     'mindmap_generation': ('flash', 'reasoning', 'lite'),

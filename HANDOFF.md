@@ -1,5 +1,17 @@
 # Sirius — handoff
 
+## 2026-10-08 — Phase 4 implemented; migration gate pending
+
+Branch feat/questions-intelligence adds provider-neutral provenance, optional confidence/answer-change/skip evidence, identity-preserving manual redo, deterministic error recovery, persisted heuristic recurrence suggestions, user dismissal and a bounded topic question laboratory with separate AI validation. See docs/QUESTIONS_INTELLIGENCE.md. Generation shares one activity transaction/context connection; concurrent same-key requests and replay after a notebook rename save one exam and make only two mocked AI calls.
+
+Local PostgreSQL full suite200, backend regressions120/security5, frontend unit51/lint/build passed. Focused migration/attempt/exam tests additionally passed after final changes, including downgrade/upgrade preserving original facts. Full browser suite in five widths is required locally and by PR CI; all AI calls are mocked. No production writes or new paid integration. CI and Codex review must pass before the owner is asked to apply revision b73a16ce9024 (parent6f12b8e4a903) on Neon via DATABASE_URL_DIRECT from backend. Do not merge this phase before confirmed application; PR28 deployment and its separate gate are already complete.
+
+## 2026-10-08 — Phase 3 deployed; phase 4 audit
+
+Owner confirmed Neon `alembic current`6f12b8e4a903(head). PR28 reviewed head9f899faa37ff76fabaa9bd874d06192eb9598a81, all3 PR CI green, final Codex review completed22:46:32UTC onOct7 with no new findings/all7 P2 threads resolved. Merged as ba42fc7e6db197ac01f4443485e2624337d2a350. Northflank deployment6933323509 succeeded2026-10-08T10:38:41Z; Vercel Production6933371135 succeeded10:41:11Z, both exact mergeSHA. Production live/ready/frontend200; OpenAPI radar/version routes present. No authenticated writes/AI calls in smoke. All three main CI workflows subsequently passed (security37764711848, PostgreSQL37764711973, frontend37764711977).
+
+Started feat/questions-intelligence from that merge. Pre-edit audit docs/QUESTIONS_INTELLIGENCE.md reuses canonical questions/attempts/quiz/exam generation, provenance and evidence, existing owner scopes and receipts. Phase3 migration gate is satisfied. Any new migration in phase4 still requires completed tests/review PR and owner application before merge, per master plan.
+
 ## 2026-10-07 — Sirius POS 3.0 / Phase 3 audit
 
 Phase 2 PR27 completed: branch feat/preparation-core-3, final head82f48fb4b84c069da111bdedf2df3cf07e73498f, mergecfaa4bfacadda22311c4adefe60fcda54226dacc. PR all3 CI workflows green; final Codex review completed21:55:01UTC with no new findings and all4 P2 threads resolved. Local SQL192/regression111/security5/frontend51/lint/build/full5-width browser smoke pass. Vercel Production deployed merge22:04:15UTC; Northflank siriusfrontandback22:02:40UTC. Frontend200 and published state UI; backendlive/ready200, OpenAPI state/primary routes present, CORS200, anonymous state401. No migration/manual setup in phase2; authenticated production interactions not exercised.

@@ -13,7 +13,9 @@ from sqlalchemy import select
 from db.engine import database_url, dispose_engine
 from db.session import unit_of_work
 from db.models.contests import ContestSource, ContestSourceVersion
-from db.models.studies import StudyArea, StudyProgram
+from db.models.studies import StudyArea, StudyProgram, Notebook, QuestionAttempt
+from db.models.exams import Question
+from db.models.question_insights import QuestionInsight
 from db.repositories.identity import IdentityRepository
 
 if sys.platform == 'win32':
@@ -44,6 +46,11 @@ class ContestMigration(unittest.IsolatedAsyncioTestCase):
                 uid=(await IdentityRepository(session).create(email='migration@example.test',name='Migration',password_hash='test')).id
                 area=StudyArea(user_id=uid,name='Area');session.add(area);await session.flush()
                 program=StudyProgram(user_id=uid,area_id=area.id,name='Program');session.add(program);await session.flush()
+                book=Notebook(user_id=uid,area_id=area.id,program_id=program.id,name='Book');session.add(book);await session.flush()
+                question=Question(user_id=uid,notebook_id=book.id,statement='Original question',source='manual',question_type='manual');session.add(question);await session.flush()
+                attempt=QuestionAttempt(user_id=uid,notebook_id=book.id,question_id=question.id,total=1,correct=0,source='manual',answered_at=datetime.now(timezone.utc),error_cause='memory',evidence={'confidence':'guess'})
+                session.add(attempt);await session.flush();aid=attempt.id
+                session.add(QuestionInsight(user_id=uid,program_id=program.id,fingerprint='disposable',status='active',details={'classification':'suggestion'}))
                 source=ContestSource(user_id=uid,program_id=program.id,url='https://orgao.gov.br/edital',url_hash='legacy',
                     title='Legacy',trust='OFFICIAL',provider='generic',terms_confirmed_at=datetime.now(timezone.utc),
                     next_poll=datetime.now(timezone.utc),snapshot='Original text',content_hash='original-hash')
@@ -59,6 +66,10 @@ class ContestMigration(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(version.snapshot_text,'Original text')
                 self.assertEqual(version.content_hash,'original-hash')
                 self.assertTrue(version.details['legacy']);self.assertEqual(version.dates,[])
+                fact=await session.get(QuestionAttempt,aid)
+                self.assertEqual((fact.total,fact.correct,fact.error_cause,fact.evidence),(1,0,'memory',{'confidence':'guess'}))
+                self.assertEqual((await session.get(Question,question.id)).statement,'Original question')
+                self.assertIsNone(await session.scalar(select(QuestionInsight).where(QuestionInsight.user_id==uid)))
         finally:
             await dispose_engine()
             for key,value in old.items():

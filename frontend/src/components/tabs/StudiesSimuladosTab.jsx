@@ -1,3 +1,4 @@
+import { questionOriginLabel } from '@/lib/question-origin';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,7 @@ import { Progress } from "@/components/ui/progress";
 
 import { BookOpen, Trash2, ChevronRight, Loader2, RotateCcw, CheckCircle2, XCircle, Sparkles, Play, Timer, Lightbulb, Repeat, ArrowLeft, BarChart3, Zap, TrendingUp, Upload, ListChecks, ClipboardList, Eye, EyeOff, ChevronLeft, CircleDot, Flag, StopCircle } from "lucide-react";
 
-export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, handleExitSimulado, simuladoCurrentQ, formatTimer, simuladoTimer, simuladoAnswers, simuladoMarked, setSimuladoMarked, setSimuladoAnswers, setSimuladoCurrentQ, handleSubmitSimulado, simuladoSubmitting, showGabarito, setShowGabarito, handleStartSimulado, simuladoResult, setShowSimuladoStatsView, showSimuladoStatsView, showImportPdfDialog, setShowImportPdfDialog, setImportFile, importForm, setImportForm, handleImportPdf, simuladoImporting, importFile, showGenerateDialog, setShowGenerateDialog, generateForm, setGenerateForm, handleGenerateSimulado, simuladoGenerating, simuladoStats, simulados, handleDeleteSimulado, handleViewSimulado, handleViewResults }) {
+export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, handleExitSimulado, simuladoCurrentQ, formatTimer, simuladoTimer, simuladoAnswers, simuladoEvidence, setSimuladoEvidence, simuladoMarked, setSimuladoMarked, setSimuladoAnswers, setSimuladoCurrentQ, handleSubmitSimulado, simuladoSubmitting, showGabarito, setShowGabarito, handleStartSimulado, simuladoResult, setShowSimuladoStatsView, showSimuladoStatsView, showImportPdfDialog, setShowImportPdfDialog, setImportFile, importForm, setImportForm, handleImportPdf, simuladoImporting, importFile, showGenerateDialog, setShowGenerateDialog, generateForm, setGenerateForm, handleGenerateSimulado, simuladoGenerating, simuladoStats, simulados, handleDeleteSimulado, handleViewSimulado, handleViewResults }) {
  return <>
             {simuladoMode === "taking" && currentSimulado ? (
               /* TAKING SIMULADO VIEW */
@@ -74,8 +75,10 @@ export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, han
 
                       <p className="text-white text-base leading-relaxed mb-6 whitespace-pre-wrap">
                         {currentSimulado.questions[simuladoCurrentQ].question_text}
+                        <span className="block text-xs text-slate-400 mt-2">{questionOriginLabel(currentSimulado.questions[simuladoCurrentQ].origin)}</span>
                       </p>
 
+                      <label className="block text-sm text-slate-400 mb-4">Confiança na resposta (opcional)<select aria-label="Confiança na questão" className="block w-full bg-slate-900 p-2 rounded mt-2" value={simuladoEvidence?.[simuladoCurrentQ]?.confidence || ''} onChange={e => setSimuladoEvidence(current => ({ ...current, [simuladoCurrentQ]: { ...current[simuladoCurrentQ], confidence: e.target.value || null } }))}><option value="">Não informar</option><option value="guess">Chute</option><option value="uncertain">Incerto</option><option value="confident">Confiante</option></select></label>
                       <div className="space-y-3">
                         {(currentSimulado.questions[simuladoCurrentQ].options || []).map((opt, optIdx) => {
                           const letter = opt.match(/^([A-E]\))/)?.[1]?.replace(")", "") || (currentSimulado.questions[simuladoCurrentQ].type === "certo_errado" ? opt : String.fromCharCode(65 + optIdx));
@@ -184,7 +187,7 @@ export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, han
                             <p className="text-[#D4D4D8] text-xs leading-relaxed whitespace-pre-wrap">{q.texto_base}</p>
                           </div>
                         )}
-                        <p className="text-white text-sm leading-relaxed mb-4 whitespace-pre-wrap">{q.question_text}</p>
+                        <p className="text-white text-sm leading-relaxed mb-4 whitespace-pre-wrap">{q.question_text}</p><p className="text-xs text-slate-400 mb-2">{questionOriginLabel(q.origin)}</p>
                         <div className="space-y-2 mb-4">
                           {(q.options || []).map((opt, optIdx) => {
                             const letter = opt.match(/^([A-E]\))/)?.[1]?.replace(")", "") || (q.type === "certo_errado" ? opt : String.fromCharCode(65 + optIdx));
@@ -540,7 +543,7 @@ export default function StudiesSimuladosTab({ simuladoMode, currentSimulado, han
 
                           <div className="flex items-center gap-3 text-xs text-[#A1A1AA] mb-3">
                             <span className="flex items-center gap-1"><ListChecks className="w-3 h-3" />{sim.questions_count} questões</span>
-                            <span className="flex items-center gap-1"><CircleDot className="w-3 h-3" />{sim.source_type === "pdf_import" ? "PDF" : "IA"}</span>
+                            <span className="flex items-center gap-1"><CircleDot className="w-3 h-3" />{questionOriginLabel(sim.source_type === "pdf_import" ? "imported" : sim.source_type === "ai_generated" ? "ai_generated" : "unknown")}</span>
                             {sim.attempts_count > 0 && <span className="flex items-center gap-1"><RotateCcw className="w-3 h-3" />{sim.attempts_count}x</span>}
                           </div>
 

@@ -1,0 +1,1 @@
+export const questionOriginLabel = origin => ({ official: 'Questão oficial', imported: 'Importada · confira a fonte e o gabarito', user_created: 'Criada por você', ai_generated: 'Gerada pelo Sirius · IA', unknown: 'Origem não verificada' })[origin] || 'Origem não verificada';
