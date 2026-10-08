@@ -108,8 +108,10 @@ class SiriusAgent:
             remembered.append({'category': memory.get('category'), 'content': content}); length += len(content)
         context = {'date': today().isoformat(), 'page': page, 'memories': remembered, 'conversation_extracts': history.get('summary_extracts', '')[-2000:]}
         context['selection'] = await self.core.page_context(user_id, body.page_context)
-        if any(w in body.message.casefold() for w in ('fazer agora','faço agora','meu dia','reorganizar')):
-            context['global_plan']=await self.core.read('get_daily_plan',user_id)
+        consulted={}
+        if 'get_daily_plan' not in prefs.blocked_tools and any(w in body.message.casefold() for w in ('fazer agora','faço agora','meu dia','reorganizar')):
+            consulted.update(await self.core.life_context(user_id))
+            context['global_plan']=consulted['get_daily_plan']
             if isinstance(context['global_plan'],dict):context['date']=context['global_plan'].get('date',context['date'])
         if any(w in body.message.casefold() for w in ('estud', 'caderno')):
             context['owned_notebooks'] = await self.core.read('get_study_progress', user_id)
@@ -144,7 +146,11 @@ class SiriusAgent:
                 if autonomy(tool, prefs) == 'BLOCKED':
                     errors.append('Ferramenta bloqueada nas preferências.'); continue
                 if tool.permission == 'read':
-                    facts[call.name] = await self.core.read(call.name, user_id)
+                    if call.name in ('get_daily_plan','get_life_state') and call.name not in consulted:
+                        consulted.update(await self.core.life_context(user_id))
+                    if call.name not in consulted:
+                        consulted[call.name]=await self.core.read(call.name,user_id)
+                    facts[call.name]=consulted[call.name]
                 else:
                     proposals.append(await self.actions.propose(user_id, body.conversation_id + ':' + body.request_id, index, call.name, args, call.reason, [{'source': 'current_message', 'text': body.message[:300]}]))
             except (ValueError, KeyError):

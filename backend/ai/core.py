@@ -18,6 +18,12 @@ class Core:
         from services.agent_reads import page_context
         return await page_context(user_id, raw)
 
+    async def life_context(self, user_id):
+        from services.life_state import daily, agent_context, agent_plan
+        result=await daily(user_id)
+        return {'get_daily_plan':agent_plan(result['plan']),
+            'get_life_state':agent_context(result['state'])}
+
     async def read(self, name, user_id):
         from services.agent_reads import read
         if name == 'get_dashboard_summary':

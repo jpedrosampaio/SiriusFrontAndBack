@@ -272,3 +272,24 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
             headers={'Idempotency-Key':'once-release-day'}))
         available=await self.simulate(date=str(self.day+timedelta(days=1)))
         self.assertTrue(any(b['source_id']==task['source_id'] for b in available['plan']['blocks']))
+
+    async def test_degraded_agent_reuses_one_coherent_life_snapshot(self):
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        from ai.core import Core
+        from ai.agent import SiriusAgent
+        from ai.actions import Preferences
+        router=SimpleNamespace(settings=SimpleNamespace(rag=False),generate=AsyncMock(side_effect=AssertionError('No provider calls')))
+        agent=SiriusAgent(Core(),router,SimpleNamespace(get=AsyncMock(return_value={})),
+            SimpleNamespace(preferences=AsyncMock(return_value=Preferences())),
+            SimpleNamespace(list=AsyncMock(return_value=[])),SimpleNamespace())
+        before=await self.counts()
+        with patch('services.life_state.snapshot',new_callable=AsyncMock,wraps=snapshot) as collected:
+            result=await agent.respond(str(self.uid),SimpleNamespace(message='Como reorganizar meu dia?',
+                page='/calendar',page_context={},conversation_id='primary',request_id='coherent-test'),json.dumps({'history':[]}))
+            self.assertEqual(collected.await_count,1)
+        self.assertEqual(set(result['facts']),{'get_daily_plan','get_life_state'})
+        self.assertEqual(result['facts']['get_daily_plan']['date'],result['facts']['get_life_state']['date'])
+        self.assertFalse(result['actions']);self.assertEqual(before,await self.counts())
+        router.generate.assert_not_called()
