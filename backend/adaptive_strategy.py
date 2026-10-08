@@ -54,6 +54,7 @@ def rank_candidates(state, today):
             'impact': impact, 'cost_minutes': cost, 'expected_return': round(impact * risk / 100 / cost, 12),
             'kind': 'Revisão' if reviewing else 'Teoria e questões',
             'review_interval_days': interval, 'review_due_date': due,
+            'review_history_days': topic.get('review_history_days', 0),
             'review_reason': topic.get('review_reason'), 'evidence_ids': topic['evidence_ids'],
             'weight_status': discipline.get('weight_status'), 'weight_source': discipline.get('weight_source'),
             'question_count_status': discipline.get('question_count_status'),

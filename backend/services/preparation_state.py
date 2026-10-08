@@ -1,7 +1,7 @@
 """Preparation projections from owner-scoped facts; no AI and no copied ledger."""
 from collections import Counter, defaultdict
 from datetime import date, timedelta
-from sqlalchemy import select, func
+from sqlalchemy import select, func, Date
 from db.models.studies import (Notebook, StudyTopic, TopicProgress, StudySession,
     StudyPlan, StudyPlanEntry, StudyTarget, QuestionAttempt, ReviewEvent,
     Flashcard, FlashcardReview, StudyNote, StudyDraft)
@@ -70,8 +70,9 @@ async def preparation_state(session, uid, program, zone, today):
     overdue_keys = {(r['notebook_id'], r['topic_key']) for r in due}
     review_ids = defaultdict(list)
     review_dates = {}
-    review_counts = dict((await session.execute(select(ReviewEvent.topic_id, func.count()).where(
-        ReviewEvent.user_id == uid, ReviewEvent.topic_id.in_([t.id for t, _ in topic_rows]))
+    review_day = func.timezone(zone, ReviewEvent.reviewed_at).cast(Date)
+    review_counts = dict((await session.execute(select(ReviewEvent.topic_id, func.count(func.distinct(review_day))).where(
+        ReviewEvent.user_id == uid, ReviewEvent.topic_id.in_([t.id for t, _ in topic_rows]), review_day < today)
         .group_by(ReviewEvent.topic_id))).all())
     for r in reviews: review_ids[(r['notebook_id'], r['topic_key'])].append(r['review_id'])
     for r in reviews: review_dates[(r['notebook_id'], r['topic_key'])] = r['due_date']
@@ -116,6 +117,7 @@ async def preparation_state(session, uid, program, zone, today):
             'last_answer_date': last.isoformat() if last else None,
             'recent_errors': sum(not a['correct'] for a in recent_answers), 'accuracy_change': change,
             'review_due_date': review_dates.get((str(book.id), topic.topic_key)),
+            'review_history_days': review_counts.get(topic.id, 0),
             'review_interval_days': review_suggestion['interval_days'], 'review_reason': review_suggestion['reason']}
         graph.append(node)
         candidates.append({**{k: node[k] for k in ('id', 'notebook_id', 'topic_key', 'title')},

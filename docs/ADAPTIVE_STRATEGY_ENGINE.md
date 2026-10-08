@@ -30,6 +30,8 @@ Impact = clamped registered discipline weight (0.1–100) × registered question
 
 Review suggestions use the existing mastery and history rule (1–45 days), recent mistakes, previous review count, optional difficulty, and reported guess/uncertain confidence. Limited confidence halves the interval; weight≥3 multiplies by0.75, always with minimum1 day. Confidence does not change mastery. Current persisted review due dates are respected; suggestions do not rewrite historical review events. Automatic adaptive blocks cannot schedule the same review twice within its suggested interval.
 
+History counts distinct calendar dates in the owner's timezone strictly before today, matching the existing attempt/exam writers. Multiple answers/events during one day never count as multiple prior review days. The batched aggregation also returns `review_history_days` for audit.
+
 ## Capacity, scenarios and recovery
 
 The allocator picks expected return divided by (1 + already allocated minutes/suggested cost), to avoid repeating the same highest-ranked topic all day. It never exceeds weekday capacity minus preserved blocks and calendar reservations. Minimum block15 min; unusable remainder stays free. Review candidates respect their due date and suggested interval. Canonical IDs produce stable preview block IDs; SQL entries retain normal UUID identities.

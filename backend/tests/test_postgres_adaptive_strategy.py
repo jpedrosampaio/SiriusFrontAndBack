@@ -120,3 +120,30 @@ class AdaptiveStrategy(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(after['entries'][0]['topic_id'])
         self.assertEqual(after['entries'][0]['minutes'],60)
         self.assertIn('sem prioridade por tópico',after['entries'][0]['reason'])
+
+    async def test_review_history_counts_distinct_prior_local_days(self):
+        from db.models.studies import ReviewEvent,QuestionAttempt
+        from db.models.exams import Question
+        from datetime import datetime,time,timezone
+        current=datetime.combine(self.today,time(18),timezone.utc)
+        async with unit_of_work() as session:
+            topic=await session.scalar(select(StudyTopic).where(StudyTopic.user_id==self.uid,
+                StudyTopic.notebook_id==UUID(self.nid),StudyTopic.topic_key=='0'))
+            question=Question(user_id=self.uid,notebook_id=UUID(self.nid),topic_id=topic.id,
+                statement='History fixture',source='manual',question_type='manual')
+            session.add(question); await session.flush()
+            session.add_all([QuestionAttempt(user_id=self.uid,notebook_id=UUID(self.nid),topic_id=topic.id,
+                question_id=question.id,total=1,correct=1,source='manual',answered_at=current,evidence={'answered':True}) for _ in range(50)])
+            session.add_all([ReviewEvent(user_id=self.uid,topic_id=topic.id,reviewed_at=current,
+                result='practice',next_review=self.today) for _ in range(20)])
+            tid=topic.id
+        first=next(c for c in self.ok(await self.http.get(self.base+'/strategy'))['candidates'] if c['id']==str(tid))
+        self.assertEqual((first['review_history_days'],first['review_interval_days']),(0,14))
+        async with unit_of_work() as session:
+            # 01:00 UTC is yesterday22:00 in Sao Paulo, while tomorrow01:00 is today22:00.
+            stamps=[datetime.combine(self.today,time(1),timezone.utc)]*3+[
+                datetime.combine(self.today+timedelta(days=1),time(1),timezone.utc)]
+            session.add_all([ReviewEvent(user_id=self.uid,topic_id=tid,reviewed_at=stamp,
+                result='practice',next_review=self.today) for stamp in stamps])
+        second=next(c for c in self.ok(await self.http.get(self.base+'/strategy'))['candidates'] if c['id']==str(tid))
+        self.assertEqual((second['review_history_days'],second['review_interval_days']),(1,17))
