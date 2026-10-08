@@ -30,12 +30,14 @@ async def tasks(session, uid, day, zone, now=None):
         CalendarEvent.source_type=='global_plan',CalendarEvent.source_id==Task.id,
         CalendarEvent.details['domain'].as_string()=='tasks',
         CalendarEvent.end_at>(now or datetime.now(timezone.utc))).correlate(Task).exists()
-    rows = (await session.scalars(select(Task).where(Task.user_id == uid, Task.archived_at.is_(None),
-        (Task.recurrence!='once')|Task.scheduled_time.is_not(None)|~allocated_once,
+    pairs = (await session.execute(select(Task,allocated_once).where(Task.user_id == uid, Task.archived_at.is_(None),
+        (Task.recurrence!='once')|Task.scheduled_time.is_not(None)|(Task.date==day)|~allocated_once,
         Task.date <= day,(Task.recurrence!='once')|(Task.date==day)|
         ((Task.scheduled_time.is_not(None))&(Task.date==day-timedelta(days=1)))|
         ((Task.scheduled_time.is_(None))&~done_once))
         .order_by(Task.date, Task.id).limit(FIXED_LIMIT+1))).all()
+    rows=[row for row,_ in pairs]
+    allocated={row.id for row,reserved in pairs if reserved}
     instances = (await session.execute(select(TaskInstance.task_id, TaskInstance.date, TaskInstance.completed).join(Task,
         (Task.id==TaskInstance.task_id)&(Task.user_id==TaskInstance.user_id)).where(
         TaskInstance.user_id == uid, ((Task.recurrence=='once')&(TaskInstance.date==Task.date))|
@@ -59,6 +61,8 @@ async def tasks(session, uid, day, zone, now=None):
                 state.constraints.append(Constraint(id=f'tasks:{row.id}:{day}', domain='tasks', title=row.title[:300],
                     start_minute=begin, end_minute=min(1440,begin+(row.duration_minutes or (1440-begin))),
                     reason='Horário fixo registrado.' if row.duration_minutes else 'Duração fixa desconhecida; planejamento suspenso.'))
+            elif row.recurrence=='once' and row.id in allocated:
+                pass  # Allocation is not completion: retain factual daily totals.
             elif len(state.candidates) < LIMIT:
                 c = candidate('tasks',row,day,row.title,row.duration_minutes,'/tasks',priority=row.priority,
                     reasons=['Prioridade informada: '+row.priority, 'Data registrada: '+row.date.isoformat()],latest=row.date)

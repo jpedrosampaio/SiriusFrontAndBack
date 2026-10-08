@@ -257,6 +257,11 @@ class UnifiedLife(unittest.IsolatedAsyncioTestCase):
             'scenario':result['plan']['scenario'],'fingerprint':result['state']['fingerprint'],
             'blocks':result['plan']['blocks'],'confirmed':True},headers={'Idempotency-Key':'once-first-day'}))
         task=next(b for b in result['plan']['blocks'] if b['domain']=='tasks')
+        same_day=await self.simulate()
+        task_state=next(d for d in same_day['state']['domains'] if d['domain']=='tasks')
+        self.assertEqual(task_state['facts']['eligible_today'],1)
+        self.assertEqual(task_state['facts']['completed_today'],0)
+        self.assertFalse(task_state['candidates'])
         later=await self.simulate(date=str(self.day+timedelta(days=1)))
         self.assertFalse(any(b['source_id']==task['source_id'] for b in later['plan']['blocks']))
         async with unit_of_work() as s:
