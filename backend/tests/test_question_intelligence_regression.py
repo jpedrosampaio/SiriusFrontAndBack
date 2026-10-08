@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from question_intelligence import error_bank,forensic_clusters,question_origin,validate_generated_question,PROVIDERS
+from question_intelligence import error_bank,forensic_clusters,question_origin,validate_generated_question,canonical_generated_answer,PROVIDERS
 
 
 class QuestionIntelligenceTests(unittest.TestCase):
@@ -34,5 +34,15 @@ class QuestionIntelligenceTests(unittest.TestCase):
     def test_generated_validation_rejects_ambiguous_answer_and_low_confidence(self):
         valid={'question_text':'What?','options':['A) First','B) Second'],'correct_answer':'A','explanation':'Reason'}
         self.assertTrue(validate_generated_question(valid))
-        for change in ({'correct_answer':'E'},{'options':['A) Same','B) Same']},{'explanation':''},{'validation_confidence':'low'},{'question_text':{'bad':'type'}}):
+        for change in ({'correct_answer':'E'},{'correct_answer':'AB'},{'options':['A) Same','B) Same']},
+            {'options':['B) First','A) Second']},{'options':['A) First','A) Second']},
+            {'explanation':''},{'question_text':'   '},{'validation_confidence':'low'},{'question_text':{'bad':'type'}}):
             self.assertFalse(validate_generated_question({**valid,**change}))
+
+    def test_textual_answers_match_the_same_protocol_as_exam_selection(self):
+        question={'options':['A) Paris','B) Rome'],'correct_answer':'Paris'}
+        self.assertEqual(canonical_generated_answer(question),'A')
+        self.assertEqual(canonical_generated_answer({**question,'correct_answer':'B) Rome'}),'B')
+        self.assertEqual(canonical_generated_answer({**question,'correct_answer':'b'}),'B')
+        self.assertEqual(canonical_generated_answer({'options':['Certo','Errado'],'type':'certo_errado','correct_answer':'certo'}),'Certo')
+        self.assertIsNone(canonical_generated_answer({**question,'correct_answer':'unknown'}))

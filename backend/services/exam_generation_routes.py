@@ -11,7 +11,7 @@ from fastapi import APIRouter,Cookie,File,Form,HTTPException,Request,UploadFile
 from pydantic import BaseModel,Field
 from services import exam_catalog as catalog
 from services.question_generation import generate_once
-from question_intelligence import validate_generated_question
+from question_intelligence import validate_generated_question,canonical_generated_answer
 from services.question_lab import context as lab_context
 
 router=APIRouter()
@@ -327,7 +327,8 @@ async def generate_simulado(request: Request, data: SimuladoCreate, session_toke
             if len(questions) != num_q or any(not isinstance(q, dict) or not q.get('question_text') or not q.get('correct_answer') for q in questions):
                 raise HTTPException(502, 'A geração retornou quantidade ou questões inválidas. Nenhum simulado foi salvo; tente novamente.')
             if data.laboratory:
-                questions=[q for q in questions if validate_generated_question(q)]
+                questions=[{**q,'type':q.get('type') or data.question_type} for q in questions]
+                questions=[{**q,'correct_answer':canonical_generated_answer(q)} for q in questions if validate_generated_question(q)]
                 if not questions:raise HTTPException(502,'As questões não passaram na validação estrutural. Nenhuma foi salva.')
                 if len(json.dumps(questions,ensure_ascii=False))>100000:raise HTTPException(502,'O lote excedeu o limite de validação. Nenhuma questão foi salva.')
                 validation=await request_gemini(task='study_question_validation',user_id=user.user_id,
@@ -340,7 +341,8 @@ async def generate_simulado(request: Request, data: SimuladoCreate, session_toke
                 accepted={c['index'] for c in checks if c.get('acceptable') is True and c.get('confidence') in ('high','medium')}
                 questions=[q for index,q in enumerate(questions) if index in accepted]
                 if not questions:raise HTTPException(502,'As questões foram descartadas por baixa confiança. Nenhuma foi salva.')
-            for question in questions:
+            for index,question in enumerate(questions):
+                if data.laboratory:question['question_number']=index+1
                 question['provenance'] = 'inferred'
                 question['generated_by_ai']=True
                 question['provider']='generated'

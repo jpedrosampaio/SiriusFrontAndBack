@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock,patch
 from uuid import UUID
 from sqlalchemy import select,func
 from db.models.exams import Question,Exam
-from db.models.studies import QuestionAttempt,ReviewEvent
+from db.models.studies import QuestionAttempt,ReviewEvent,StudyTopic
+from datetime import datetime,timezone,timedelta
 from db.models.question_insights import QuestionInsight
 from db.models.agent import Usage
 from db.models.identity import ActivityReceipt
@@ -63,6 +64,10 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(correct['internal_question_id'],wrong['internal_question_id'])
         bank=self.ok(await self.http.get(self.base))['error_bank']
         self.assertEqual(bank['question_count'],1);self.assertEqual(bank['recovery_rate'],100)
+        await self.attempt(4,skipped=True,internal_question_id=wrong['internal_question_id'])
+        from services.agent_reads import read
+        agent_rows=await read('get_wrong_questions',str(self.uid))
+        self.assertEqual((agent_rows[0]['total'],agent_rows[0]['correct'],agent_rows[0]['accuracy']),(1,1,100))
         response=await self.http.post('/api/study/v2/attempts',json={'notebook_id':self.nid,'topic_key':'0',
             'question':'Reference','correct':True,'internal_question_id':wrong['internal_question_id']},
             headers={'Authorization':'Bearer bob','Idempotency-Key':'foreign-key'})
@@ -86,7 +91,7 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.ok(await self.http.get(self.base))['suggestions'],[])
 
     async def test_lab_two_mocked_calls_discards_low_confidence_and_keeps_provenance(self):
-        questions=[{'question_text':'Crase: '+str(i),'options':['A) First','B) Second'],'correct_answer':'A','explanation':'Justification'} for i in (1,2)]
+        questions=[{'question_number':i,'question_text':'Crase: '+str(i),'options':['A) First','B) Second'],'correct_answer':'First','explanation':'Justification'} for i in (1,2)]
         async def provider(**kwargs):
             # Real providers read credentials/write usage using separate units of work.
             async with unit_of_work() as session:
@@ -94,7 +99,7 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
                 session.add(Usage(user_id=self.uid,provider='mock',model='mock',task=kwargs['task'],status='ok',duration_ms=0))
             await asyncio.sleep(.05)
             payload={'questions':questions} if kwargs['task']=='study_question_generation' else {'validation':[
-                {'index':0,'acceptable':True,'confidence':'high'},{'index':1,'acceptable':True,'confidence':'low'}]}
+                {'index':0,'acceptable':True,'confidence':'low'},{'index':1,'acceptable':True,'confidence':'high'}]}
             return SimpleNamespace(text=json.dumps(payload))
         self.generator.side_effect=provider
         self.extra[1].new.return_value=None  # A text laboratory also supports Groq-only configured accounts.
@@ -111,6 +116,11 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.generator.await_count,2)
         self.extra[1].new.assert_not_awaited()
         saved=response['simulado']['questions'];self.assertEqual(len(saved),1)
+        self.assertEqual(saved[0]['correct_answer'],'A')
+        self.assertEqual(saved[0]['question_number'],1);self.assertEqual(saved[0]['question_text'],'Crase: 2')
+        from services.exams import submit_exam
+        graded=await submit_exam(self.uid,UUID(response['simulado']['simulado_id']),[{'question_idx':0,'selected_answer':'A'}],10,'lab-text-answer')
+        self.assertEqual(graded['score'],100)
         self.assertTrue(saved[0]['generated_by_ai']);self.assertEqual(saved[0]['origin'],'ai_generated')
         self.assertEqual(saved[0]['validation_level'],'separate_ai_and_structural')
         self.assertEqual(saved[0]['source_context']['source_type'],'syllabus')
@@ -163,3 +173,19 @@ class QuestionIntelligence(unittest.IsolatedAsyncioTestCase):
             release.set()
             if not first.done():first.cancel()
             await asyncio.gather(first,return_exceptions=True)
+
+    async def test_error_context_limits_inside_selected_topic(self):
+        wrong=await self.attempt(1)
+        self.ok(await self.http.patch('/api/study/notebooks/'+self.nid,json={'conteudo_programatico':[
+            {'assunto':'Crase','subtopicos':[]},{'assunto':'Other','subtopicos':[]}]}))
+        async with unit_of_work() as session:
+            topic=await session.scalar(select(StudyTopic).where(StudyTopic.user_id==self.uid,
+                StudyTopic.notebook_id==UUID(self.nid),StudyTopic.topic_key=='1',StudyTopic.archived_at.is_(None)))
+            question=Question(user_id=self.uid,notebook_id=UUID(self.nid),topic_id=topic.id,statement='Other',source='manual',question_type='manual')
+            session.add(question);await session.flush();now=datetime.now(timezone.utc)
+            session.add_all([QuestionAttempt(user_id=self.uid,notebook_id=UUID(self.nid),topic_id=topic.id,
+                question_id=question.id,source='manual',answered_at=now+timedelta(seconds=i),total=1,correct=1,
+                evidence={'answered':True}) for i in range(501)])
+        from services.question_lab import context
+        result=await context(str(self.uid),self.nid,'0','errors')
+        self.assertEqual(result['source_ids'],[wrong['attempt_id']])

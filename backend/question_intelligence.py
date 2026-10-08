@@ -92,17 +92,35 @@ def forensic_clusters(rows):
     return sorted(clusters,key=lambda c:(-c['question_count'],c['fingerprint']))[:50]
 
 
+def canonical_generated_answer(question):
+    options=question.get('options') or []
+    answer=question.get('correct_answer')
+    if not isinstance(answer,str) or not answer.strip() or not isinstance(options,list) or not 2<=len(options)<=5 or any(not isinstance(o,str) for o in options):return None
+    answer=answer.strip();letters='ABCDE'[:len(options)]
+    if len(answer)==1 and answer.upper() in letters:
+        index=letters.index(answer.upper())
+    else:
+        normalized=normalize(re.sub(r'^[A-E][).:]\s*','',answer,flags=re.I))
+        matches=[i for i,option in enumerate(options) if isinstance(option,str) and
+            normalize(re.sub(r'^[A-E][).:]\s*','',option,flags=re.I))==normalized]
+        if len(matches)!=1:return None
+        index=matches[0]
+    return options[index] if question.get('type')=='certo_errado' else letters[index]
+
+
 def validate_generated_question(question):
     """Structural validation is not a claim of factual correctness."""
-    options=question.get('options');answer=str(question.get('correct_answer') or '').strip()
-    if not isinstance(question.get('question_text'),str) or not 1<=len(question['question_text'])<=12000:
+    options=question.get('options')
+    if not isinstance(question.get('question_text'),str) or not question['question_text'].strip() or not 1<=len(question['question_text'])<=12000:
         return False
-    if not isinstance(question.get('explanation'),str) or not 1<=len(question['explanation'])<=8000:
+    if not isinstance(question.get('explanation'),str) or not question['explanation'].strip() or not 1<=len(question['explanation'])<=8000:
         return False
     if not isinstance(options,list) or not 2<=len(options)<=5 or any(not isinstance(o,str) or not 1<=len(o)<=4000 for o in options):
         return False
-    normalized=[normalize(re.sub(r'^[A-E][).:]\s*','',str(option))) for option in options]
+    normalized=[normalize(re.sub(r'^[A-E][).:]\s*','',str(option),flags=re.I)) for option in options]
     if any(not item for item in normalized) or len(set(normalized))!=len(normalized):return False
-    valid_letters=list('ABCDE'[:len(options)])
-    if answer not in valid_letters and normalize(answer) not in normalized:return False
+    for index,option in enumerate(options):
+        label=re.match(r'^([A-E])[).:]',option,flags=re.I)
+        if label and label.group(1).upper()!='ABCDE'[index]:return False
+    if canonical_generated_answer(question) is None:return False
     return question.get('validation_confidence') not in ('low','baixa')

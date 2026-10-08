@@ -23,7 +23,7 @@ async def context(user_id,notebook_id,topic_key,mode,session=None):
         return {'source_type':'user_material','source_ids':[str(row.id) for row in notes],
             'text':'\n'.join(row.content[:4000] for row in notes)[:12000]}
     if mode=='errors':
-        rows=await attempts(session,uid,'UTC',notebook_id=nid,limit=500,active_topics=True)
+        rows=await attempts(session,uid,'UTC',notebook_id=nid,topic_id=topic.id if topic else None,limit=500,active_topics=True)
         rows=[r for r in rows if not r['correct'] and (topic_key is None or r['topic_key']==topic_key)][:20]
         if not rows:raise ValueError('Este assunto ainda não tem erros individuais registrados.')
         return {'source_type':'error_evidence','source_ids':[r['attempt_id'] for r in rows],
