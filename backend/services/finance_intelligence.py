@@ -135,6 +135,7 @@ class FinanceEngine:
                 paid=isinstance(row,MonthlyBill) and (row.paid or row.id in paid_bill_ids)
                 if row.card_id:
                     key=(row.card_id,row.month);represented[key]=represented.get(key,ZERO)+row.amount
+                if isinstance(row,MonthlyBill) and row.source=='deleted':return
                 if paid:
                     if not row.paid:warnings.append('Conta com despesa vinculada foi deduplicada, embora a flag de pagamento esteja divergente.')
                     return

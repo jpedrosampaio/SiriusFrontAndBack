@@ -365,9 +365,9 @@ async def bill_toggle(request: Request,bill_id: UUID,paid: bool | None = None):
 async def bill_delete(request: Request,bill_id: UUID):
     async def apply(session,user):
         row=await owned(session,MonthlyBill,user.id,bill_id)
-        await session.execute(update(FinancialTransaction).where(FinancialTransaction.user_id==user.id,
-            FinancialTransaction.bill_id==bill_id).values(bill_id=None))
-        await session.delete(row)
+        # Retain the original links and paid evidence; deleted bills cannot be
+        # imported again or turn their settled projection into a new obligation.
+        row.source='deleted'
         return {'message':'Conta removida'}
     return await mutate(request,['bill_delete',str(bill_id)],apply)
 

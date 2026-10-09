@@ -126,6 +126,7 @@ async def bills(session,user,month):
                 installment_info=f'{row.installment_number}/{row.total_installments}' if row.installment_number else None)
             session.add(bill); rows.append(bill)
         await session.flush()
+    rows=[row for row in rows if row.source!='deleted']
     total = sum((r.amount for r in rows),ZERO)
     paid = sum((r.amount for r in rows if r.paid),ZERO)
     return wire({'month':month.strftime('%Y-%m'),'bills':[public(r) for r in rows], 'total':total,
@@ -134,6 +135,7 @@ async def bills(session,user,month):
 
 async def toggle_bill(session,user,bill_id,paid=None):
     bill = await owned(session,MonthlyBill,user.id,bill_id)
+    if bill.source=='deleted':raise HTTPException(404,'Conta removida.')
     target = not bill.paid if paid is None else paid
     if target != bill.paid:
         bill.paid = target

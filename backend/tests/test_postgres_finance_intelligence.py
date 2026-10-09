@@ -118,6 +118,26 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(o['source_id'],o['amount']) for o in old],[('projection:'+str(unpaid.id),'23.45')])
         self.assertEqual(state['forecast']['months'][0]['estimated_expense'],'23.45')
 
+    async def test_deleted_paid_bill_keeps_payment_evidence_and_never_reimports(self):
+        prior=shift_month(self.first,-1)
+        async with unit_of_work() as s:
+            projection=Projection(user_id=self.uid,month=prior,description='Settled original',amount=Decimal('23.45'),category='old')
+            s.add(projection);await s.flush()
+            bill=MonthlyBill(user_id=self.uid,month=prior,description=projection.description,amount=projection.amount,category='old',projection_id=projection.id)
+            s.add(bill);await s.flush();bill_id=bill.id
+        self.ok(await self.http.patch('/api/finance/monthly-bills/'+str(bill_id)+'/toggle'))
+        before=await self.counts()
+        for _ in range(2):self.ok(await self.http.delete('/api/finance/monthly-bills/'+str(bill_id),headers={'Idempotency-Key':'delete-settled'}))
+        after=await self.counts();self.assertEqual(before[:-1],after[:-1]);self.assertEqual(after[-1],before[-1]+1)
+        async with unit_of_work() as s:
+            retained=await s.get(MonthlyBill,bill_id);self.assertEqual(retained.source,'deleted');self.assertTrue(retained.paid)
+            expense=await s.scalar(select(FinancialTransaction).where(FinancialTransaction.user_id==self.uid,FinancialTransaction.bill_id==bill_id))
+            self.assertEqual(expense.amount,Decimal('23.45'));self.assertEqual(retained.projection_id,projection.id)
+        visible=self.ok(await self.http.get('/api/finance/monthly-bills',params={'month':str(prior)[:7]}))
+        self.assertEqual(visible['bills'],[]);self.assertEqual(after,await self.counts())
+        state=await self.state();self.assertFalse(any(o['month']==str(prior) for o in state['upcoming_bills']))
+        self.assertEqual((await self.http.patch('/api/finance/monthly-bills/'+str(bill_id)+'/toggle')).status_code,404)
+
     async def test_future_ledger_entries_do_not_change_current_budget_basis(self):
         from ai.core import Core
         # Pin all readers to the same account-local date, including at month end.
