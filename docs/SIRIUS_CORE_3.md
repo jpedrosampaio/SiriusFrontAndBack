@@ -1,5 +1,7 @@
 # Sirius Personal Operating System 3.0
 
+> Historical Phase 1/2 implementation snapshot, preserved below. Current publication/authorization is in [HANDOFF](../HANDOFF.md); the unchanged 14-phase source is [SIRIUS_3_MASTER_PLAN](SIRIUS_3_MASTER_PLAN.md). Production migrations now require the [protected workflow](PRODUCTION_MIGRATIONS.md), never direct agent execution or superseded manual procedures.
+
 Sequential implementation from main a0c0e35. Phase 1 is PR26, merged and deployed on Vercel/Northflank as a0c0e35b82fa4bdb3cfedfb378cb3da4c6463724. It provides resilient two-stage PDF analysis with storage capability handling; see EDITAL_ANALYSIS_MODES and FILE_UPLOAD_AUDIT.
 
 Phase 2 evolves existing Studies contracts as documented in PREPARATION_ENGINE. Core projections use owned domain facts; versioned deterministic rules calculate indicators, while LLMs may later explain or propose. Engines are services, not an artificial inheritance framework. Stable IDs, provenance, sample limits and explanations belong in their contracts.

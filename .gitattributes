@@ -1,0 +1,2 @@
+# Preserve the owner's original master plan bytes, including CRLF line endings.
+docs/SIRIUS_3_MASTER_PLAN.md -text whitespace=cr-at-eol
