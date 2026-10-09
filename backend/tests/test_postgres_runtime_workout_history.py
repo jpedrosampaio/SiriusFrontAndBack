@@ -33,7 +33,9 @@ class RuntimeWorkoutHistory(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result['exercises']['Supino']),1);self.assertEqual(result['exercises']['Supino'][0]['source'],'session')
         self.assertEqual(self.ok(await self.http.get('/api/workout-stats/exercise-evolution',params={'exercise_name':'%'}))['exercises'],{})
         loads=self.ok(await self.http.get('/api/workouts/next-loads',params={'plan_id':plan['plan_id']}))
-        self.assertEqual(loads['suggestions'][0]['next_weight'],27.5)
+        # One execution without RPE no longer proves that progression is appropriate.
+        self.assertIsNone(loads['suggestions'][0]['next_weight'])
+        self.assertFalse(loads['suggestions'][0]['progress_possible'])
         self.assertEqual(self.ok(await self.http.get('/api/workouts/next-loads',params={'plan_id':plan['plan_id']},headers={'Authorization':'Bearer bob'}))['suggestions'],[])
 
     async def test_next_load_handles_empty_or_incomplete_sets(self):

@@ -1,4 +1,3 @@
-from decimal import Decimal,InvalidOperation
 from uuid import UUID
 from fastapi import APIRouter,Request,Query
 from sqlalchemy import select,func,or_
@@ -61,32 +60,32 @@ async def evolution(request: Request,exercise_name: str | None=Query(None,max_le
 
 @router.get('/workouts/next-loads')
 async def next_loads(request: Request,plan_id: UUID | None=None):
+    from services.training_intelligence import load_state, normalized, decimal
+    from services.time import local_today
+    from sqlalchemy import text
     user=await account(request); uid=UUID(user['user_id'])
     async with unit_of_work() as session:
-        if plan_id is None:plan_id=await session.scalar(select(WorkoutPlan.id).where(WorkoutPlan.user_id==uid,WorkoutPlan.archived_at.is_(None)).order_by(WorkoutPlan.created_at.desc()).limit(1))
+        await session.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
+        if plan_id is None:plan_id=await session.scalar(select(WorkoutPlan.id).where(WorkoutPlan.user_id==uid,WorkoutPlan.archived_at.is_(None)).order_by(WorkoutPlan.created_at.desc(),WorkoutPlan.id).limit(1))
         plan=await HealthRepository(session).plan(uid,plan_id) if plan_id else None
         if plan is None:return {'suggestions':[]}
         document=plan_json(plan)
-        # Bound history to the selected plan, rather than mixing unrelated workouts.
-        latest=await session.scalar(select(WorkoutLog).where(WorkoutLog.user_id==uid,WorkoutLog.plan_id==plan.id,
-            WorkoutLog.completed.is_(True)).order_by(WorkoutLog.date.desc(),WorkoutLog.created_at.desc()).limit(1))
-        logs=await serialize_logs(session,uid,[latest]) if latest else []
-    by_name={ex['name'].strip().lower():ex for ex in logs[0]['exercises_completed']} if logs else {}
+        state=await load_state(session,uid,local_today(user['timezone']),user['timezone'],plan_id=plan.id)
+    by_key={(normalized(ex.name),normalized(ex.muscle_group)):ex for ex in state.exercises}
     suggestions=[]
     for day in document['days']:
         for ex in day['exercises']:
-            value={'name':ex['name'],'day_label':day['day_label'],'sets':ex['sets'],'reps':ex['reps'],'current_weight':ex['weight'],
-                'next_weight':None,'reason':'','progress_possible':True}
-            previous=by_name.get(ex['name'].strip().lower()); sets=previous['sets_data'] if previous else []
-            if sets:
-                if all(s['completed'] for s in sets) and len(sets)>=ex['sets']:
-                    try:
-                        weights=[Decimal(s['weight']) for s in sets]
-                        if not all(w.is_finite() and w>=0 for w in weights):raise InvalidOperation()
-                        mean=sum(weights)/len(weights); increment=Decimal('2.5') if mean>20 else Decimal('1')
-                        value['next_weight']=float(round(mean+increment,1)); value['reason']=f'Completou todas as séries. Sugerido +{increment}kg'
-                    except (InvalidOperation,ValueError):value['reason']='Registre as cargas para calcular a progressão.'
-                else:
-                    value['reason']='Mantenha o peso atual - ainda não completou todas as séries'; value['progress_possible']=False
-            suggestions.append(value)
+            previous=by_key.get((normalized(ex['name']),normalized(ex['muscle_group'])))
+            progress=previous.progression if previous else None
+            # A historical recommendation must also match the currently displayed prescription.
+            last=previous.history[-1] if previous and previous.history else None
+            matches=last and last.prescribed_sets==ex['sets'] and str(last.target_reps)==str(ex['reps'])
+            prescribed=decimal(ex['weight'])
+            if progress and prescribed is not None and progress.current_weight is not None and prescribed!=decimal(progress.current_weight):
+                matches=False
+            suggested=progress.suggested_weight if progress and matches else None
+            suggestions.append({'name':ex['name'],'day_label':day['day_label'],'sets':ex['sets'],'reps':ex['reps'],
+                'current_weight':ex['weight'],'next_weight':float(suggested) if suggested is not None else None,
+                'reason':progress.reason if progress and matches else 'Dados comparáveis insuficientes para esta prescrição.',
+                'progress_possible':bool(suggested),'automatic':False})
     return {'suggestions':suggestions,'plan_id':document['plan_id'],'plan_name':document['name']}

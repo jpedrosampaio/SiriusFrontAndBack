@@ -26,6 +26,11 @@ class Core:
 
     async def read(self, name, user_id, arguments=None):
         from services.agent_reads import read
+        if name in ('get_training_state','get_exercise_substitutions'):
+            from services.training_intelligence import TrainingEngine,agent_context,substitutions
+            from training_contracts import SubstitutionArgs
+            if name=='get_training_state':return agent_context(await TrainingEngine().get_state(user_id))
+            return (await substitutions(user_id,SubstitutionArgs.model_validate(arguments or {}))).model_dump(mode='json')
         if name in ('get_finance_state','simulate_finances','compare_debt_strategies'):
             from services.finance_intelligence import FinanceEngine,agent_context,exact_wire
             from services.finance_debt import compare_debts

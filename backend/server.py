@@ -2594,6 +2594,8 @@ health_ai_routes.configure(get_current_user,call_llm,request_gemini)
 api_router.include_router(health_ai_routes.api_router)
 from services import workout_history_routes
 api_router.include_router(workout_history_routes.router)
+from services import training_intelligence_routes
+api_router.include_router(training_intelligence_routes.router)
 from services import workout_generation_routes
 workout_generation_routes.configure(get_current_user,call_llm,get_user_api_key,request_gemini)
 api_router.include_router(workout_generation_routes.api_router)
