@@ -4,7 +4,7 @@
 
 Base: main `3e968711392364ac4858fe3981b0d29c9fcae6ca` (PR #38). `health.py` já normaliza WorkoutSession → SessionExercise → WorkoutSet e WorkoutLog → WorkoutLogExercise → WorkoutSet. A conclusão cria um único log vinculado à sessão; os logs podem ser desmarcados ou excluídos. A projeção deve partir de logs concluídos, sem contar a sessão novamente. Séries efetivamente registradas são distintas da prescrição textual; logs antigos sem séries não comprovam cargas/repetições/RPE reais.
 
-`workout_history_routes.py` e `serialize_logs` oferecem leitura em lote e ownership. A sugestão antiga usa apenas o último log e não exige repetições ou RPE; será substituída pelo mesmo motor factual que alimenta a nova tela, preservando seu contrato. Sessões, revisões, receipts, XP, tutoriais e calendário não precisam mudar. Os planos não possuem catálogo de movimento nem calendário obrigatório de comparecimento: aderência às séries é calculável; aderência a uma frequência semanal prescrita não é.
+`workout_history_routes.py` e `serialize_logs` oferecem leitura em lote e ownership. Na base auditada, a sugestão antiga usava apenas o último log e não exigia repetições ou RPE; foi substituída pelo mesmo motor factual que alimenta a nova tela. Revisões, receipts, XP, tutoriais e calendário foram preservados; a sessão recebeu somente a origem estável privada descrita abaixo. Os planos não possuem catálogo de movimento nem calendário obrigatório de comparecimento: aderência às séries é calculável; aderência a uma frequência semanal prescrita não é.
 
 Life State já publica planos e sessão ativa, e o Global Planner existente continua sendo o único distribuidor de horários. O Agent dispõe de ferramentas somente leitura. A inteligência de treino deve enriquecer esses contratos, sem criar prioridades concorrentes nem aplicar sugestões.
 
@@ -18,6 +18,8 @@ Substituições são propostas a partir dos próprios planos: objetivo explicita
 
 ## Validação e publicação
 
+Fase publicada pelo [PR39](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/39), com evidências finais e limitações no [registro de publicação](history/PHASE_10_PUBLICATION.md). Consulte o HANDOFF para o estado atual e a autorização vigente.
+
 A origem estável do dia é registrada pelo servidor no JSON existente da sessão (`_training_origin_v1`), sem migration, e preservada ao concluir/repetir a conclusão. Essa chave não aparece no feedback público. Sessões anteriores sem origem continuam contribuindo para histórico, volume e recordes, mas não justificam progressão numérica. Recriar, editar, reordenar ou arquivar uma ficha invalida as comparações dos dias antigos. O consumidor de sugestões verifica plano, UUID do dia, índice e grupo muscular; nunca escolhe apenas pelo nome do exercício.
 
 `GET /api/workouts/intelligence/state?days=90` aceita janelas de 7–365 dias. `POST /api/workouts/intelligence/substitutions` recebe somente plano/dia/índice de exercício, valida ownership e é somente leitura. Ambos usam snapshot repeatable-read/read-only. O endpoint existente `next-loads` conserva seu formato, mas exige a evidência conservadora do motor e prescrição atual compatível.
@@ -28,4 +30,4 @@ Autorrevisão técnica antes da PR: ownership em cada fonte, leitura sem XP/rece
 
 A verificação dos consumidores confirmou uma inconsistência no comparador antigo: `Number('')` produzia carga zero e séries não concluídas podiam entrar no total. O comparador agora exige séries concluídas e valores conhecidos em toda a comparação, mantendo o fallback e o fluxo da UX2. O interceptor do cliente reconhece a consulta POST de alternativas como análise somente leitura; gravações reais continuam invalidando os dados.
 
-CI completo, PostgreSQL descartável, segurança, regressões, todas as suítes responsivas e revisão Codex final permanecem gates de publicação. Estado publicado e evidências finais serão registrados após merge e validação dos dois deploys; a implementação não equivale a publicação.
+CI completo, PostgreSQL descartável, segurança, regressões, todas as suítes responsivas e revisão Codex final passaram no SHA final da implementação. O merge e os dois deploys foram confirmados, e as leituras de saúde, ownership e frontend de produção passaram. O estado publicado está no HANDOFF; as evidências finais estão no registro histórico vinculado acima. Esses gates continuam obrigatórios para publicações futuras.
