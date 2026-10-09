@@ -24,8 +24,16 @@ class Core:
         return {'get_daily_plan':agent_plan(result['plan']),
             'get_life_state':agent_context(result['state'])}
 
-    async def read(self, name, user_id):
+    async def read(self, name, user_id, arguments=None):
         from services.agent_reads import read
+        if name in ('get_finance_state','simulate_finances','compare_debt_strategies'):
+            from services.finance_intelligence import FinanceEngine,agent_context,exact_wire
+            from services.finance_debt import compare_debts
+            from finance_contracts import FinanceScenario,DebtScenario
+            if name=='get_finance_state':return agent_context(await FinanceEngine().get_state(user_id))
+            if name=='compare_debt_strategies':return exact_wire(compare_debts(DebtScenario.model_validate(arguments or {})))
+            result=await FinanceEngine().simulate(user_id,FinanceScenario.model_validate(arguments or {}))
+            return {**{k:v for k,v in result.items() if k!='state'},'state':agent_context(result['state'])}
         if name == 'get_dashboard_summary':
             names = ('get_today_tasks', 'get_study_progress', 'get_workout_progress', 'get_finance_summary')
             return dict(zip(names, await asyncio.gather(*(self.read(n, user_id) for n in names))))

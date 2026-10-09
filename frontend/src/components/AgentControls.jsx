@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { getApiErrorMessage } from '@/lib/api-errors';
+import { formatBRL } from '@/lib/finance-money';
 
 const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api/ai`;
 const button = 'rounded-lg border border-slate-700 px-3 py-2 text-xs hover:bg-slate-800 disabled:opacity-40';
@@ -52,12 +53,21 @@ const labels = { amount: 'Valor (R$)', category: 'Categoria', description: 'Desc
 const statusLabels = { pending: 'Aguardando confirmação', executed: 'Executada', cancelled: 'Cancelada', expired: 'Expirada', failed: 'Falhou' };
 const factLabels = { get_today_tasks: 'Tarefas de hoje', get_tasks: 'Tarefas', get_study_progress: 'Estudos', get_finance_summary: 'Finanças', get_budget_status: 'Orçamentos', get_workout_progress: 'Treinos', get_active_workout: 'Planos de treino', get_nutrition_today: 'Nutrição de hoje', get_habits: 'Hábitos', get_goals: 'Metas', get_calendar: 'Agenda', get_daily_plan: 'Plano do dia', get_weekly_review: 'Revisão semanal', total: 'Total', completed: 'Concluídas', completed_today: 'Concluído hoje', income: 'Receitas', expense: 'Despesas', balance: 'Saldo', date: 'Data', start: 'Início', end: 'Fim', items: 'Itens', title: 'Título', name: 'Nome', priority: 'Prioridade', minutes: 'Minutos', sessions: 'Sessões', total_study_time_minutes: 'Tempo estudado (min)', blocks: 'Blocos', start_minute: 'Início (min)', end_minute: 'Fim (min)', duration_minutes: 'Duração (min)', unscheduled: 'Sem horário disponível', reason: 'Motivo', progress: 'Progresso', deadline: 'Prazo', total_calories: 'Calorias', total_protein: 'Proteínas', total_carbs: 'Carboidratos', total_fat: 'Gorduras', remaining_minutes: 'Minutos disponíveis' };
 
+Object.assign(factLabels, { get_finance_state: 'Estado financeiro', simulate_finances: 'Cenário financeiro', compare_debt_strategies: 'Estratégias de dívida', get_life_state: 'Estado integrado', baseline: 'Fluxo original', scenario: 'Cenário', state: 'Dados consultados', read_only: 'Somente leitura' });
+
+function FinancialFacts({ value }) {
+  if (value.version === 'finance-state/1') return <div className="space-y-2"><p>{value.as_of} · {value.timezone}</p><p>Receitas registradas: {formatBRL(value.income)}</p><p>Despesas registradas: {formatBRL(value.expense)}</p><p>Saldo dos registros, não bancário: {formatBRL(value.recorded_net)}</p><p>Saldo bancário: {formatBRL(value.bank_balance)}</p>{value.warnings?.map(w => <p key={w}>{w}</p>)}{value.insights?.slice(0, 3).map((i, index) => <p key={index}>{i.title} · {i.method}</p>)}<Link className="inline-flex min-h-11 items-center text-sky-300 underline" to="/finance">Ver fluxo e cenários financeiros</Link></div>;
+  if (value.version === 'finance-forecast/1') return <div className="space-y-2"><p>Projeção até {value.end} · somente registros e hipóteses declaradas</p>{value.months?.slice(0, 3).map(m => <p key={m.month}>{m.month.slice(0, 7)} · renda futura registrada {formatBRL(m.recorded_future_income)} · despesas previstas {formatBRL(m.estimated_expense)} · variação {formatBRL(m.net_change)}{m.scenario_balance !== null ? ` · saldo do cenário ${formatBRL(m.scenario_balance)}` : ''}</p>)}<Link className="inline-flex min-h-11 items-center text-sky-300 underline" to="/finance">Conferir projeção completa</Link></div>;
+  return <div className="space-y-2"><p>Comparação hipotética de dívidas</p>{value.results?.map(r => <p key={r.strategy}>{({ snowball: 'Bola de neve', avalanche: 'Avalanche', custom: 'Personalizada' })[r.strategy]} · prazo {r.payoff_months === null ? 'não calculado / não quitado' : `${r.payoff_months} meses`} · juros {formatBRL(r.total_interest)} · restante {formatBRL(r.remaining)}</p>)}{value.assumptions?.map(a => <p key={a}>{a}</p>)}</div>;
+}
+
 function FactValue({ value, depth = 0 }) {
   if (value === null || value === undefined) return <span>Não informado</span>;
   if (typeof value !== 'object') return <span>{typeof value === 'boolean' ? (value ? 'Sim' : 'Não') : String(value)}</span>;
+  if (['finance-state/1', 'finance-forecast/1', 'debt-model/1'].includes(value.version)) return <FinancialFacts value={value} />;
   if (depth > 4) return <span>Detalhes disponíveis no módulo.</span>;
   if (Array.isArray(value)) return value.length ? <ul className="space-y-2 list-none">{value.slice(0, 15).map((v, i) => <li key={i} className="rounded bg-slate-900/70 p-2"><FactValue value={v} depth={depth + 1} /></li>)}</ul> : <span>Nenhum registro neste período.</span>;
-  return <dl className="space-y-1">{Object.entries(value).filter(([k]) => !k.endsWith('_id') && !['preview', 'truncated', 'duration_estimated'].includes(k)).map(([k, v]) => <div key={k}><dt className="text-slate-400">{factLabels[k] || k.replaceAll('_', ' ')}</dt><dd className="break-words"><FactValue value={v} depth={depth + 1} /></dd></div>)}</dl>;
+  return <dl className="space-y-1">{Object.entries(value).filter(([k]) => !k.endsWith('_id') && !['preview', 'truncated', 'duration_estimated', 'fingerprint', 'version'].includes(k)).map(([k, v]) => <div key={k}><dt className="text-slate-400">{factLabels[k] || k.replaceAll('_', ' ')}</dt><dd className="break-words"><FactValue value={v} depth={depth + 1} /></dd></div>)}</dl>;
 }
 
 function ActionCard({ action }) {

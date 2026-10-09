@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal
+from decimal import Decimal
+from finance_contracts import FinanceScenario,DebtScenario
 from pydantic import Field
 from ai.types import StrictModel
 
@@ -20,7 +22,7 @@ class TaskArgs(StrictModel):
 
 
 class ExpenseArgs(StrictModel):
-    amount: float = Field(gt=0, le=1000000000, allow_inf_nan=False)
+    amount: Decimal = Field(gt=0,le=1000000000,decimal_places=2,max_digits=12,allow_inf_nan=False)
     category: str = Field(min_length=1, max_length=100)
     description: str = Field(default='', max_length=500)
     date: date
@@ -54,6 +56,7 @@ class Tool:
 
 
 READS = {
+    'get_finance_state':'Estado financeiro factual, fluxo previsto sem renda inventada, orçamentos e insights; saldo registrado não é bancário',
     'get_life_state': 'Estado unificado factual dos oito módulos, disponibilidade e restrições; sem alterações',
     'get_daily_plan': 'Plano de hoje e próximo passo calculados por regras, sem alterar tarefas',
     'get_weekly_review': 'Revisão semanal comparada aos mesmos dias da semana anterior',
@@ -66,6 +69,8 @@ READS = {
     'get_goals': 'Metas e progresso atual', 'get_dashboard_summary': 'Resumo dos módulos', 'get_upcoming_deadlines': 'Prazos das metas',
 }
 TOOLS = {name: Tool(name, description, EmptyArgs, 'read', name) for name, description in READS.items()}
+TOOLS['simulate_finances']=Tool('simulate_finances','Cenário financeiro somente leitura; acréscimos mensais, saldo inicial declarado e antecipações integrais sem desconto presumido',FinanceScenario,'read','simulate_finances')
+TOOLS['compare_debt_strategies']=Tool('compare_debt_strategies','Comparar hipóteses de dívidas declaradas; taxas ausentes não geram prazo ou juros inventados',DebtScenario,'read','compare_debt_strategies')
 for name, description, schema in (
     ('create_task', 'Criar uma tarefa; exige confirmação', TaskArgs),
     ('record_expense', 'Registrar uma despesa; exige confirmação', ExpenseArgs),

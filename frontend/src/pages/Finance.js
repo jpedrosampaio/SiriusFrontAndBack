@@ -16,6 +16,7 @@ import axios from "axios";
 import { toast } from "sonner";
 
 import ExportButtons from "@/components/ExportButtons";
+import FinanceIntelligence from '@/components/FinanceIntelligence';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -31,7 +32,7 @@ export default function Finance() {
     const next = new URLSearchParams(quickParams); next.delete('create'); setQuickParams(next, { replace: true });
   }, [quickParams, setQuickParams]);
 
-  const [, setUser] = useState(null);
+  const [user, setUser] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [creditCards, setCreditCards] = useState([]);
@@ -342,8 +343,8 @@ export default function Finance() {
         category: newBudget.category,
         month: newBudget.month,
         budget_type: newBudget.budget_type,
-        limit: newBudget.budget_type === "fixed" ? parseFloat(newBudget.limit) : 0,
-        percentage: newBudget.budget_type === "percentage" ? parseFloat(newBudget.percentage) : null
+        limit: newBudget.budget_type === "fixed" ? newBudget.limit : '0.00',
+        percentage: newBudget.budget_type === "percentage" ? newBudget.percentage : null
       };
       await axios.post(`${API}/budgets`, budgetData, { withCredentials: true });
       toast.success("Orçamento criado!");
@@ -535,6 +536,7 @@ export default function Finance() {
             </div>
           </div>
 
+          {user?.user_id && <FinanceIntelligence key={user.user_id} userId={user.user_id} refreshKey={stats} />}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <Card className="bg-[#0A0A0A] border-[#27272A] p-6">
               <div className="flex items-center justify-between mb-2">
@@ -941,8 +943,8 @@ export default function Finance() {
                   </Card>
                 ) : (
                   budgets.map((budget) => {
-                    const percentage = (budget.spent / budget.limit) * 100;
-                    const isOver = percentage > 100;
+                    const percentage = budget.limit > 0 ? (budget.spent / budget.limit) * 100 : 0;
+                    const isOver = budget.limit !== null && budget.spent > budget.limit;
                     return (
                       <Card key={budget.budget_id} className={`bg-[#0A0A0A] border-[#27272A] p-6 ${isOver ? 'border-[#FF3B30]' : ''}`}>
                         {isOver && (
@@ -959,7 +961,7 @@ export default function Finance() {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-[#A1A1AA]">Limite</span>
-                            <span>R$ {(budget.limit ?? 0).toFixed(2)}</span>
+                            <span>{budget.limit === null ? 'Sem base de renda' : `R$ ${(budget.limit ?? 0).toFixed(2)}`}</span>
                           </div>
                           <div className="h-2 bg-[#27272A] rounded-full overflow-hidden mt-3">
                             <div className={`h-full ${isOver ? 'bg-[#FF3B30]' : 'bg-[#007AFF]'}`} style={{ width: `${Math.min(percentage, 100)}%` }} />
@@ -1223,7 +1225,7 @@ export default function Finance() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <Card className="bg-[#0A0A0A] border-[#27272A] p-4">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[#A1A1AA] uppercase text-xs">Receita Estimada</span>
+                      <span className="text-[#A1A1AA] uppercase text-xs">Receita registrada no mês</span>
                       <TrendingUp className="w-4 h-4 text-[#39FF14]" />
                     </div>
                     <p className="font-data text-xl text-[#39FF14]">R$ {(projectionSummary.estimated_income ?? 0).toFixed(2)}</p>

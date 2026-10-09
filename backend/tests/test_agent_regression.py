@@ -45,7 +45,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
 
     def test_tool_arguments_cannot_supply_user_or_negative_money(self):
         valid = {'amount': 48, 'category': 'Alimentação', 'date': '2026-09-26'}
-        self.assertEqual(validate_call('record_expense', valid)['amount'], 48)
+        self.assertEqual(validate_call('record_expense', valid)['amount'], '48')
         for args in (valid | {'user_id': 'bob'}, valid | {'amount': -48}, valid | {'amount': float('nan')}, valid | {'date': '2026-99-99'}):
             with self.assertRaises(ValueError): validate_call('record_expense', args)
         with self.assertRaises(ValueError): validate_call('delete_all', {})
@@ -61,7 +61,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         notebooks = [{'notebook_id': 'mine', 'name': 'Direito Constitucional'}]
         calls = simple_proposals(message, notebooks)
         self.assertEqual([c.name for c in calls], ['record_expense', 'record_study_session'])
-        self.assertEqual(calls[0].arguments['amount'], 48)
+        self.assertEqual(calls[0].arguments['amount'], '48')
         self.assertEqual(calls[1].arguments['notebook_id'], 'mine')
         self.assertEqual(simple_proposals('Exemplo: ' + message, notebooks), [])
         self.assertEqual(len(simple_proposals(message, [])), 1)

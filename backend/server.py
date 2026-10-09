@@ -2635,6 +2635,8 @@ from services.finance_routes import router as finance_router, configure_ai as co
 from services.finance_export import router as finance_export_router
 configure_finance_ai(call_llm)
 api_router.include_router(finance_router)
+from services.finance_intelligence_routes import router as finance_intelligence_router
+api_router.include_router(finance_intelligence_router)
 api_router.include_router(finance_export_router)
 
 # Include router AFTER all endpoints are defined

@@ -60,11 +60,11 @@ async def projection_summary(session,user,month):
         categories[category] = categories.get(category,ZERO)+amount
         totals['fixed_expenses' if fixed else 'installment_expenses' if kind=='installment' else 'manual_expenses'] += amount
         count += n
-    current = local_today(user.timezone).replace(day=1)
-    income = (await FinanceRepository(session).period_totals(user.id,current,shift_month(current,1)))['income']
+    income = (await FinanceRepository(session).period_totals(user.id,month,shift_month(month,1)))['income']
     total = sum(totals.values(),ZERO)
     return {'month':month.strftime('%Y-%m'),'total_projected_expenses':total,**totals,'categories_totals':categories,
-        'estimated_income':income,'estimated_balance':income-total,'projections_count':count}
+        'estimated_income':income,'estimated_balance':income-total,'projections_count':count,
+        'income_basis':'Receita registrada no próprio mês; sem repetição de salário passado.'}
 
 
 async def charge(session,user,card_id,args):

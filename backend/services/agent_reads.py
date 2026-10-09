@@ -96,12 +96,20 @@ async def read(name, user_id):
             income, expense = (totals.get(key, Decimal('0.00')) for key in ('income', 'expense'))
             return {'start': start.isoformat(), 'end': day.isoformat(), 'income': income, 'expense': expense, 'balance': income-expense}
         if name == 'get_budget_status':
+            from services.finance_intelligence import budget_policy
+            month_income=await session.scalar(select(func.coalesce(func.sum(FinancialTransaction.amount),0)).where(
+                FinancialTransaction.user_id==uid,FinancialTransaction.type=='income',FinancialTransaction.date.between(start,day)))
             spent = select(FinancialTransaction.category, func.sum(FinancialTransaction.amount).label('amount')).where(
                 FinancialTransaction.user_id == uid, FinancialTransaction.type == 'expense', FinancialTransaction.date.between(start, day)
             ).group_by(FinancialTransaction.category).subquery()
             rows = (await session.execute(select(Budget, func.coalesce(spent.c.amount, 0)).outerjoin(spent, spent.c.category == Budget.category)
                 .where(Budget.user_id == uid, Budget.month == start).order_by(Budget.created_at, Budget.id).limit(30))).all()
-            return [{'budget_id': str(row.id), 'category': row.category, 'amount': row.limit, 'limit': row.limit, 'spent': amount} for row, amount in rows]
+            result=[]
+            for row,amount in rows:
+                limit,kind,percent,basis=budget_policy(row,user.preferences,month_income)
+                result.append({'budget_id':str(row.id),'category':row.category,'amount':limit,'limit':limit,'spent':amount,
+                    'budget_type':kind,'percentage':percent,'basis':basis})
+            return result
         if name == 'get_study_progress':
             minutes = select(func.coalesce(func.sum(StudySession.duration_minutes), 0)).where(StudySession.user_id == uid,
                 StudySession.notebook_id == Notebook.id, StudySession.completed.is_(True)).correlate(Notebook).scalar_subquery()
