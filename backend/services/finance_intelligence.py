@@ -125,14 +125,14 @@ class FinanceEngine:
             # Closed old bills do not need history hydration; they still cover their invoice aggregate.
             for card,month,amount in (await s.execute(select(MonthlyBill.card_id,MonthlyBill.month,func.sum(MonthlyBill.amount)).where(
                 MonthlyBill.user_id==user.id,MonthlyBill.month<first,MonthlyBill.paid.is_(True),MonthlyBill.card_id.is_not(None),
-                MonthlyBill.projection_id.is_not(None))
+                (MonthlyBill.projection_id.is_not(None))|(MonthlyBill.source=='invoice_coverage'))
                 .where(tuple_(MonthlyBill.card_id,MonthlyBill.month).in_(invoice_keys))
                 .group_by(MonthlyBill.card_id,MonthlyBill.month))).all():represented[(card,month)]=represented.get((card,month),ZERO)+amount
             invoice_by={(i.card_id,i.month):i for i in invoices};card_by={c.id:c for c in cards};by_projection={b.projection_id:b for b in bills if b.projection_id}
             projection_by={p.id:p for p in projections}
             obligations=[];warnings=['Saldo dos registros não é saldo bancário. Taxas externas e valores financeiros de metas não estão cadastrados.']
             def add(row,kind):
-                covered=not isinstance(row,MonthlyBill) or row.projection_id is not None
+                covered=not isinstance(row,MonthlyBill) or row.projection_id is not None or row.source=='invoice_coverage'
                 invoice=invoice_by.get((row.card_id,row.month)) if row.card_id and covered else None
                 paid=isinstance(row,MonthlyBill) and (row.paid or row.id in paid_bill_ids)
                 if row.card_id and covered:

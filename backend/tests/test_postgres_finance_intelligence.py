@@ -156,6 +156,25 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(o['source_id'],o['amount']) for o in state['upcoming_bills']],[('bill:'+str(self.bill.id),'200.00')])
         self.assertEqual(state['forecast']['months'][1]['estimated_expense'],'200.00')
 
+    async def test_new_charge_reopens_paid_invoice_without_reviving_prior_coverage(self):
+        async with unit_of_work() as s:
+            invoice=await s.scalar(select(Invoice).where(Invoice.user_id==self.uid,Invoice.card_id==self.card_id,Invoice.month==self.next))
+            invoice.paid=True
+        before=await self.counts()
+        with patch('services.finance.local_today',return_value=self.day):
+            body={'amount':'50.00','description':'New after invoice payment','category':'x','payment_type':'vista','start_month':'next'}
+            first=self.ok(await self.http.post('/api/credit-cards/'+str(self.card_id)+'/charge',json=body,headers={'Idempotency-Key':'reopen-invoice'}))
+            replay=self.ok(await self.http.post('/api/credit-cards/'+str(self.card_id)+'/charge',json=body,headers={'Idempotency-Key':'reopen-invoice'}))
+            self.assertEqual(first['transaction_id'],replay['transaction_id']);self.assertTrue(replay['replayed'])
+        self.assertEqual((await self.counts())[0],before[0])
+        state=await self.state();self.assertEqual(sum((Decimal(o['amount']) for o in state['upcoming_bills']),Decimal('0')),Decimal('50.00'))
+        async with unit_of_work() as s:
+            invoice=await s.scalar(select(Invoice).where(Invoice.user_id==self.uid,Invoice.card_id==self.card_id,Invoice.month==self.next))
+            self.assertFalse(invoice.paid);self.assertEqual(invoice.amount,Decimal('350.00'))
+            self.assertTrue((await s.get(MonthlyBill,self.bill.id)).paid)
+        self.ok(await self.http.get('/api/finance/monthly-bills',params={'month':str(self.next)[:7]}))
+        state=await self.state();self.assertEqual(state['forecast']['months'][1]['estimated_expense'],'50.00')
+
     async def test_future_ledger_entries_do_not_change_current_budget_basis(self):
         from ai.core import Core
         # Pin all readers to the same account-local date, including at month end.
