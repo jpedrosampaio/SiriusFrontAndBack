@@ -151,8 +151,10 @@ def exercise_state(key, name, group, rows):
             alerts.append({'code': 'recorded_decline', 'reason': 'O volume registrado diminuiu em três execuções comparáveis. Confira os registros e a adequação do plano; isso não é um diagnóstico.', 'evidence_dates': [r['date'] for r in recent]})
     prescribed = sum(r['prescribed_sets'] for r in rows)
     recorded = sum(r['recorded_sets'] for r in rows)
-    if len(rows) >= 3 and prescribed and recorded / prescribed < .5:
-        alerts.append({'code': 'low_set_adherence', 'reason': 'Menos de metade das séries prescritas possui detalhes registrados em pelo menos três execuções. Isso mede cobertura dos registros, não frequência planejada.', 'evidence_dates': [r['date'] for r in rows[-3:]]})
+    recent_prescribed = sum(r['prescribed_sets'] for r in rows[-3:])
+    recent_recorded = sum(r['recorded_sets'] for r in rows[-3:])
+    if len(rows) >= 3 and recent_prescribed and recent_recorded / recent_prescribed < .5:
+        alerts.append({'code': 'low_set_adherence', 'reason': f'Nas três últimas execuções, {recent_recorded}/{recent_prescribed} séries prescritas possuem detalhes registrados (menos de metade). Isso mede cobertura dos registros, não frequência planejada.', 'evidence_dates': [r['date'] for r in rows[-3:]]})
     rpes = [value for r in rows for value in r['rpes']]
     known = sum((r['known_volume'] for r in rows), Decimal(0))
     history = [{**{k: wire(v) if k in ('known_volume', 'volume') else v for k, v in r.items() if k not in ('valid', 'rpes', 'actual')},

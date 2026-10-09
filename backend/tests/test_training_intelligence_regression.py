@@ -123,3 +123,13 @@ class TrainingRegression(unittest.TestCase):
         ex = state([older, prior, unknown]).exercises[0]
         self.assertIsNone(ex.progressions[0].suggested_weight)
         self.assertEqual(ex.progressions[0].action, 'insufficient_data')
+
+    def test_low_coverage_alert_uses_exactly_the_cited_executions(self):
+        older = [log(delta, count=0) for delta in range(20, 10, -1)]
+        recent = [log(7), log(4), log()]
+        ex = state(older + recent).exercises[0]
+        self.assertNotIn('low_set_adherence', {a.code for a in ex.alerts})
+        recent = [log(7, count=1), log(4, count=1), log(count=1)]
+        alert = next(a for a in state([log(20)] + recent).exercises[0].alerts if a.code == 'low_set_adherence')
+        self.assertEqual(alert.evidence_dates, [date.fromisoformat(r['date']) for r in recent])
+        self.assertIn('3/9', alert.reason)
