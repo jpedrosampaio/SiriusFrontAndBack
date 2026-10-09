@@ -4,7 +4,8 @@ from datetime import timedelta
 from uuid import UUID
 from unittest.mock import patch
 from sqlalchemy import select, func, event, update
-from db.models.health import WorkoutLog, WorkoutSet, WorkoutSession, WorkoutPlan, SessionExercise
+from db.models.health import WorkoutLog, WorkoutSet, WorkoutSession, WorkoutPlan, WorkoutDay, SessionExercise
+from services.workout_origin import snapshot
 from db.models.identity import User, ActivityReceipt
 from db.engine import get_engine
 from db.session import unit_of_work
@@ -50,7 +51,9 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
     async def session_log(self, delta=0, day_index=0):
         from datetime import datetime, timezone
         async with unit_of_work() as session:
+            origin = await session.scalar(select(WorkoutDay).where(WorkoutDay.plan_id == UUID(self.pid), WorkoutDay.position == day_index))
             row = WorkoutSession(user_id=self.uid, plan_id=UUID(self.pid), plan_name='Factual', day_index=day_index,
+                feedback=snapshot(self.pid, origin.id, day_index),
                 status='completed', started_at=datetime.now(timezone.utc)-timedelta(days=delta, minutes=30),
                 completed_at=datetime.now(timezone.utc)-timedelta(days=delta), total_duration_seconds=1800)
             session.add(row); await session.flush()
@@ -204,3 +207,36 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
         # Serializer opt-in does not change the legacy logs API contract.
         logs = self.ok(await self.http.get('/api/workouts'))
         self.assertTrue(all('day_index' not in row for row in logs))
+
+    async def test_replaced_days_never_reuse_old_ordinal_history(self):
+        await self.session_log(10); await self.session_log(7)
+        before = self.ok(await self.http.get('/api/workouts/next-loads', params={'plan_id': self.pid}))
+        self.assertEqual(before['suggestions'][0]['next_weight'], 20.5)
+        old_id = before['suggestions'][0]['day_id']
+        updated = dict(self.plan)
+        updated['days'][0]['day_label'] = 'B'
+        self.ok(await self.http.patch('/api/workout-plans/' + self.pid, json=updated))
+        after = self.ok(await self.http.get('/api/workouts/next-loads', params={'plan_id': self.pid}))
+        self.assertNotEqual(after['suggestions'][0]['day_id'], old_id)
+        self.assertIsNone(after['suggestions'][0]['next_weight'])
+        self.assertEqual((await self.state())['completed_workouts'], 2)
+        await self.session_log(3)
+        one = self.ok(await self.http.get('/api/workouts/next-loads', params={'plan_id': self.pid}))
+        self.assertIsNone(one['suggestions'][0]['next_weight'])
+        await self.session_log()
+        two = self.ok(await self.http.get('/api/workouts/next-loads', params={'plan_id': self.pid}))
+        self.assertEqual(two['suggestions'][0]['next_weight'], 20.5)
+        self.assertEqual((await self.state())['completed_workouts'], 4)
+
+    async def test_session_origin_survives_completion_and_replay_without_public_metadata(self):
+        started = self.ok(await self.http.post('/api/workout-sessions/start', json={'plan_id': self.pid, 'day_index': 0}))
+        self.assertIsNotNone(started['day_id']); self.assertIsNone(started['feedback'])
+        path = '/api/workout-sessions/' + started['session_id']
+        first = self.ok(await self.http.post(path + '/complete', json={'difficulty': 3, 'notes': 'real'}))
+        replay = self.ok(await self.http.post(path + '/complete', json={'difficulty': 3, 'notes': 'real'}))
+        self.assertTrue(replay['replayed'])
+        self.assertNotIn('_training_origin_v1', first['feedback'])
+        history = self.ok(await self.http.get('/api/workout-sessions'))
+        self.assertEqual(history[0]['day_id'], started['day_id'])
+        self.assertEqual(history[0]['feedback']['notes'], 'real')
+        self.assertNotIn('_training_origin_v1', history[0]['feedback'])

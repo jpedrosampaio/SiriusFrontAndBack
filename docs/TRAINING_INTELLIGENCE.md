@@ -18,6 +18,8 @@ Substituições são propostas a partir dos próprios planos: objetivo explicita
 
 ## Validação e publicação
 
+A origem estável do dia é registrada pelo servidor no JSON existente da sessão (`_training_origin_v1`), sem migration, e preservada ao concluir/repetir a conclusão. Essa chave não aparece no feedback público. Sessões anteriores sem origem continuam contribuindo para histórico, volume e recordes, mas não justificam progressão numérica. Recriar, editar, reordenar ou arquivar uma ficha invalida as comparações dos dias antigos. O consumidor de sugestões verifica plano, UUID do dia, índice e grupo muscular; nunca escolhe apenas pelo nome do exercício.
+
 `GET /api/workouts/intelligence/state?days=90` aceita janelas de 7–365 dias. `POST /api/workouts/intelligence/substitutions` recebe somente plano/dia/índice de exercício, valida ownership e é somente leitura. Ambos usam snapshot repeatable-read/read-only. O endpoint existente `next-loads` conserva seu formato, mas exige a evidência conservadora do motor e prescrição atual compatível.
 
 Leituras limitadas a 300 logs, 2.000 exercícios e 10.000 séries; listas de exercícios a 200 identidades e histórico resumido às últimas 20 execuções por identidade. A truncagem é declarada. Substituições leem metadados de até 20 planos recentes mais o plano selecionado, até 1.000 candidatos, retornando no máximo 10. Não carregam tutoriais de todos os planos. O Agent recebe 20 exercícios, seus recordes principais, 20 grupos e 12 semanas, com flags de truncagem; não carrega o histórico detalhado. Life State usa um agregado de 28 dias e enriquece justificativas dos candidatos do Global Planner existente, sem alterar prioridade/duração ou compromissos.

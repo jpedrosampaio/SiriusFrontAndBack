@@ -70,13 +70,14 @@ async def next_loads(request: Request,plan_id: UUID | None=None):
         plan=await HealthRepository(session).plan(uid,plan_id) if plan_id else None
         if plan is None:return {'suggestions':[]}
         document=plan_json(plan)
+        day_ids=[day.id for day in plan.days]
         state=await load_state(session,uid,local_today(user['timezone']),user['timezone'],plan_id=plan.id)
     by_key={(normalized(ex.name),normalized(ex.muscle_group)):ex for ex in state.exercises}
     suggestions=[]
     for day_index,day in enumerate(document['days']):
         for ex in day['exercises']:
             previous=by_key.get((normalized(ex['name']),normalized(ex['muscle_group'])))
-            progress=next((p for p in previous.progressions if p.plan_id==plan.id and p.day_index==day_index),None) if previous else None
+            progress=next((p for p in previous.progressions if p.plan_id==plan.id and p.day_index==day_index and p.day_id==day_ids[day_index]),None) if previous else None
             # A historical recommendation must also match the currently displayed prescription.
             matches=progress and progress.prescribed_sets==ex['sets'] and str(progress.target_reps)==str(ex['reps'])
             prescribed=decimal(ex['weight'])
@@ -84,6 +85,7 @@ async def next_loads(request: Request,plan_id: UUID | None=None):
                 matches=False
             suggested=progress.suggested_weight if progress and matches else None
             suggestions.append({'name':ex['name'],'day_label':day['day_label'],'sets':ex['sets'],'reps':ex['reps'],
+                'day_index':day_index,'day_id':str(day_ids[day_index]),'muscle_group':ex['muscle_group'],
                 'current_weight':ex['weight'],'next_weight':float(suggested) if suggested is not None else None,
                 'reason':progress.reason if progress and matches else 'Dados comparáveis insuficientes para esta prescrição.',
                 'progress_possible':bool(suggested),'automatic':False})

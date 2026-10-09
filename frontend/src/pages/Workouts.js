@@ -276,7 +276,7 @@ export default function Workouts() {
   const loadData = useCallback(async () => {
     try {
       const [userRes, workoutsRes, plansRes] = await Promise.all([
-        getCurrentUser(), axios.get(`${API}/workouts`), cachedGet('/workout-plans').then(data => ({ data })),
+        getCurrentUser().then(result => { setUser(result.data); return result; }), axios.get(`${API}/workouts`), cachedGet('/workout-plans').then(data => ({ data })),
       ]);
       setUser(userRes.data);
       if (userRes.data.health_condition) setAiGenForm(prev => ({ ...prev, health_condition: userRes.data.health_condition }));

@@ -32,6 +32,10 @@ class Progression(Contract):
     evidence_dates: list[date] = Field(default_factory=list)
     plan_id: UUID | None = None
     day_index: int | None = None
+    day_id: UUID | None = None
+    origin_current: bool = False
+    day_label: str | None = None
+    plan_name: str | None = None
     prescribed_sets: int | None = None
     target_reps: str | None = None
     automatic: Literal[False] = False
@@ -42,6 +46,10 @@ class ExecutionHistory(Contract):
     log_id: UUID
     plan_id: UUID | None
     day_index: int | None
+    day_id: UUID | None
+    origin_current: bool
+    day_label: str | None
+    plan_name: str | None
     prescribed_sets: int
     target_reps: str
     recorded_sets: int

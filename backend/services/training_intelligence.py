@@ -64,6 +64,8 @@ def execution(log, ex):
     complete = bool(sets) and len(sets) == ex['sets'] and len(valid) == len(sets) and missing == 0
     return {'date': log['date'], 'log_id': str(log['log_id']), 'plan_id': str(log['plan_id']) if log['plan_id'] else None,
         'day_index': log.get('day_index'),
+        'day_id': log.get('day_id'), 'origin_current': log.get('origin_current', False),
+        'day_label': log.get('day_label'), 'plan_name': log.get('plan_name') or log.get('name'),
         'prescribed_sets': ex['sets'], 'target_reps': ex['reps'], 'recorded_sets': len(sets),
         'legacy_sets_without_details': missing, 'known_volume': known, 'volume': known if complete else None,
         'valid': valid, 'rpes': rpes, 'actual': sets}
@@ -74,16 +76,18 @@ def progression(rows):
     if not rows:
         return base
     latest = rows[-1]
-    context = {k: latest[k] for k in ('plan_id', 'day_index', 'prescribed_sets', 'target_reps')}
+    context = {k: latest[k] for k in ('plan_id', 'day_index', 'day_id', 'origin_current', 'day_label', 'plan_name', 'prescribed_sets', 'target_reps')}
     return context | progression_for_day(rows)
 
 
 def progression_for_day(rows):
     base = {'action': 'insufficient_data', 'reason': 'São necessárias duas execuções comparáveis do mesmo dia da ficha, com séries, cargas, repetições e RPE registrados.'}
     last = rows[-1]
-    if last['day_index'] is None or not last['plan_id']:
+    if last['day_index'] is None or not last['plan_id'] or not last['day_id']:
         return base | {'reason': 'O dia de origem da ficha não foi registrado. Cargas, volume e recordes são analisáveis; progressão específica não é comprovável.'}
-    rows = [r for r in rows if (r['plan_id'], r['day_index']) == (last['plan_id'], last['day_index'])]
+    if not last['origin_current']:
+        return base | {'reason': 'A ficha foi alterada/arquivada ou não possui identidade estável do dia. Histórico preservado; novas execuções comparáveis são necessárias.'}
+    rows = [r for r in rows if r['origin_current'] and (r['plan_id'], r['day_id'], r['day_index']) == (last['plan_id'], last['day_id'], last['day_index'])]
     if len(rows) < 2:
         return base
     before, last = rows[-2:]
@@ -133,7 +137,8 @@ def exercise_state(key, name, group, rows):
     if len(rows) >= 2:
         before, last = rows[-2:]
         comparable = (before['plan_id'] and before['plan_id'] == last['plan_id'] and before['date'] != last['date']
-            and before['day_index'] is not None and before['day_index'] == last['day_index'])
+            and before['day_id'] is not None and before['day_id'] == last['day_id']
+            and before['origin_current'] and last['origin_current'])
         if comparable and before['volume'] and last['volume'] is not None and last['volume'] > before['volume'] * Decimal('1.3'):
             alerts.append({'code': 'volume_jump', 'reason': 'O volume registrado aumentou mais de 30% entre as duas últimas execuções. Confira séries, repetições e cargas.', 'evidence_dates': [before['date'], last['date']]})
         if comparable and before['valid'] and last['valid']:
@@ -143,7 +148,7 @@ def exercise_state(key, name, group, rows):
     if len(rows) >= 3:
         recent = rows[-3:]
         if (len({r['plan_id'] for r in recent}) == 1 and recent[0]['plan_id']
-            and recent[0]['day_index'] is not None and len({r['day_index'] for r in recent}) == 1
+            and recent[0]['day_id'] is not None and len({r['day_id'] for r in recent}) == 1 and all(r['origin_current'] for r in recent)
             and len({r['date'] for r in recent}) == 3
             and len({(r['prescribed_sets'], r['target_reps']) for r in recent}) == 1
             and all(r['volume'] is not None and r['recorded_sets'] == r['prescribed_sets'] for r in recent)
@@ -163,8 +168,8 @@ def exercise_state(key, name, group, rows):
     contexts, unknown_positions, positions = {}, {}, {}
     for position, row in enumerate(rows):
         positions[id(row)] = position
-        if row['plan_id'] and row['day_index'] is not None:
-            contexts.setdefault((row['plan_id'], row['day_index']), []).append(row)
+        if row['plan_id'] and row['day_id'] is not None:
+            contexts.setdefault((row['plan_id'], row['day_id']), []).append(row)
         elif row['plan_id']:
             unknown_positions[row['plan_id']] = position
     proposals = []
@@ -265,6 +270,18 @@ async def load_state(session, uid, day, zone, days=90, plan_id=None):
         chosen.append(row); ex_total += ex_count; set_total += set_count
     rows = chosen
     logs = await serialize_logs(session, uid, rows, include_session_origin=True)
+    day_ids = [UUID(l['day_id']) for l in logs if l.get('day_id')]
+    current = {}
+    if day_ids:
+        values = (await session.execute(select(WorkoutDay.id, WorkoutDay.plan_id, WorkoutDay.position, WorkoutDay.label, WorkoutPlan.name)
+            .join(WorkoutPlan,(WorkoutPlan.id==WorkoutDay.plan_id)&(WorkoutPlan.user_id==WorkoutDay.user_id))
+            .where(WorkoutDay.user_id==uid,WorkoutDay.id.in_(day_ids),WorkoutPlan.archived_at.is_(None)))).all()
+        current = {str(r.id):r for r in values}
+    for log in logs:
+        origin = current.get(log.get('day_id'))
+        log['origin_current'] = bool(origin and str(origin.plan_id)==str(log['plan_id']) and origin.position==log['day_index'])
+        log['day_label'] = origin.label if log['origin_current'] else None
+        log['plan_name'] = origin.name if log['origin_current'] else log['name']
     return build_state(logs, day=day, start=start, zone=zone, count=count, truncated=count > len(rows))
 
 

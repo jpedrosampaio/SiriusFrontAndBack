@@ -6,6 +6,19 @@ const path = require('node:path');
 const context = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/lib/workout-session.js'), 'utf8').replaceAll('export ', ''), context);
 
+test('load suggestions require the same stable day, account plan and muscle group', () => {
+  const session = { plan_id: 'plan', day_index: 0, day_id: 'day-B' };
+  const exercise = { name: 'Supino', muscle_group: 'Peito' };
+  const wrong = { ...exercise, day_index: 0, day_id: 'day-A', next_weight: 99 };
+  const correct = { ...exercise, day_index: 0, day_id: 'day-B', next_weight: 22.5 };
+  const loads = { plan_id: 'plan', suggestions: [wrong, correct] };
+  assert.equal(context.nextLoadForExercise(session, exercise, loads), correct);
+  for (const changed of [{ day_id: undefined }, { day_index: 1 }, { plan_id: 'other' }]) {
+    assert.equal(context.nextLoadForExercise({ ...session, ...changed }, exercise, loads), undefined);
+  }
+  assert.equal(context.nextLoadForExercise(session, { ...exercise, muscle_group: 'Outro' }, loads), undefined);
+});
+
 test('summary counts confirmed series and excludes unknown volume instead of claiming zero', () => {
   const session = { exercises: [{ completed: true, sets_data: [{ weight: '42.5', reps: 12, completed: true }, { weight: 40, reps: 10, completed: true }, { weight: 100, reps: 20, completed: false }] }] };
   assert.equal(context.workoutSummary(session).volume, 910);

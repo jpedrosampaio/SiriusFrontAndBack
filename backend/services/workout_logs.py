@@ -15,6 +15,7 @@ from services.workout_session_routes import SetData
 from services.workouts import exercise_json
 from services.planning import apply_xp,streaks
 from services.time import local_today
+from services.workout_origin import day_identity
 
 router=APIRouter()
 
@@ -60,9 +61,9 @@ async def serialize_logs(session,uid,rows,*,include_session_origin=False):
         .order_by(WorkoutLogExercise.position))).all()
     by_log={}
     for ex in manual:by_log.setdefault(ex.log_id,[]).append(ex)
-    origin={s.id:s.day_index for s in sessions}
+    origin={s.id:{'day_index':s.day_index,'day_id':day_identity(s)} for s in sessions}
     return [{**log_json(row,by_session.get(row.session_id,[]) if row.session_id else by_log.get(row.id,[])),
-        **({'day_index':origin.get(row.session_id)} if include_session_origin else {})} for row in rows]
+        **(origin.get(row.session_id,{'day_index':None,'day_id':None}) if include_session_origin else {})} for row in rows]
 
 
 async def add_log(session,user,body,xp):

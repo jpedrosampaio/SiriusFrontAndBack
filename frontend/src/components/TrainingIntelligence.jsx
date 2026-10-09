@@ -54,8 +54,7 @@ export default function TrainingIntelligence({ userId, plans }) {
   const [days, setDays] = useState(90), [reload, setReload] = useState(0), [state, setState] = useState(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState('');
   const sourceLabel = progress => {
-    const plan = plans.find(p => p.plan_id === progress.plan_id);
-    return `${plan?.name || 'Ficha histórica'} · ${plan?.days?.[progress.day_index]?.day_label || `Dia da ficha ${progress.day_index + 1}`}`;
+    return `${progress.plan_name || 'Ficha histórica'} · ${progress.origin_current ? progress.day_label || `Dia da ficha ${progress.day_index + 1}` : 'Origem histórica; comparação indisponível'}`;
   };
   useEffect(() => {
     let timer;
@@ -103,7 +102,7 @@ export default function TrainingIntelligence({ userId, plans }) {
           <p>{ex.progression.reason}</p><p className="text-xs text-slate-400">{ex.progression.evidence_dates.join(' · ')}</p>
         </div>
         {ex.progressions?.length > 1 && <details className="text-sm"><summary className="cursor-pointer min-h-11">Progressão por dia da ficha</summary>
-          {ex.progressions.map(p => <div className="mb-3 space-y-1" key={`${p.plan_id}:${p.day_index}`}><p className="font-medium break-words">{sourceLabel(p)}</p>
+          {ex.progressions.map(p => <div className="mb-3 space-y-1" key={`${p.plan_id}:${p.day_id}:${p.day_index}`}><p className="font-medium break-words">{sourceLabel(p)}</p>
             {p.suggested_weight != null && <p>Proposta: {number(p.current_weight)} → {number(p.suggested_weight)} kg</p>}<p>{p.reason}</p>
           </div>)}
         </details>}
