@@ -6,7 +6,7 @@ from uuid import UUID
 import json
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, func, update
 from db.activity import run_activity
 from db.session import unit_of_work
@@ -14,6 +14,8 @@ from db.repositories.finance import FinanceRepository, money
 from db.models.finance import FinancialTransaction, Category, Budget, CreditCard, CardPurchase, Invoice, Projection, MonthlyBill
 from services.auth_routes import account
 from services.core_writes import CoreWrites
+from db.models.identity import User
+from services.finance_intelligence import budget_policy
 from services.time import local_today
 from services.finance import (DEFAULT_CATEGORIES, ZERO, wire, public, owned, month_date, shift_month,
     projection_summary, charge, create_projection, bills, toggle_bill, remove_projection)
@@ -49,6 +51,15 @@ class BudgetBody(BaseModel):
     category: str = Field(min_length=1,max_length=100)
     month: str
     limit: Decimal = Field(ge=0,le=1000000000,max_digits=12,decimal_places=2)
+    budget_type:Literal['fixed','percentage']='fixed'
+    percentage:Decimal|None=Field(default=None,gt=0,le=100,decimal_places=2)
+
+    @model_validator(mode='after')
+    def consistent(self):
+        if self.budget_type=='percentage' and (self.percentage is None or self.limit!=0):
+            raise ValueError('Percentual exige percentage e limit=0')
+        if self.budget_type=='fixed' and self.percentage is not None:raise ValueError('Limite fixo não usa percentage')
+        return self
 
 
 class CategoryBody(BaseModel):
@@ -142,14 +153,26 @@ async def budgets(request: Request, month: str | None = None):
     async with unit_of_work() as session:
         rows=(await session.scalars(query.order_by(Budget.month,Budget.category))).all()
         if not rows: return []
+        profile=await session.get(User,uid)
+        day=local_today(profile.timezone)
         month_bucket=func.date_trunc('month',FinancialTransaction.date)
         grouped=(await session.execute(select(FinancialTransaction.category,
             month_bucket,func.sum(FinancialTransaction.amount)).where(
-            FinancialTransaction.user_id==uid,FinancialTransaction.type=='expense',
+            FinancialTransaction.user_id==uid,FinancialTransaction.type=='expense',FinancialTransaction.date<=day,
             FinancialTransaction.date>=min(r.month for r in rows),FinancialTransaction.date<shift_month(max(r.month for r in rows),1))
             .group_by(FinancialTransaction.category,month_bucket))).all()
         spent={(category,month.date()):amount for category,month,amount in grouped}
-        return [{**public(row),'spent':wire(spent.get((row.category,row.month),ZERO))} for row in rows]
+        income_rows=(await session.execute(select(month_bucket,func.sum(FinancialTransaction.amount)).where(
+            FinancialTransaction.user_id==uid,FinancialTransaction.type=='income',FinancialTransaction.date<=day,FinancialTransaction.date>=min(r.month for r in rows),
+            FinancialTransaction.date<shift_month(max(r.month for r in rows),1)).group_by(month_bucket))).all()
+        incomes={month.date():amount for month,amount in income_rows}
+        result=[]
+        for row in rows:
+            income=incomes.get(row.month,ZERO)
+            limit,kind,percent,basis=budget_policy(row,profile.preferences,income)
+            result.append({**public(row),'limit':wire(limit),'budget_type':kind,'percentage':wire(percent),'basis':basis,
+                'spent':wire(spent.get((row.category,row.month),ZERO))})
+        return result
 
 
 @router.post('/budgets')
@@ -160,7 +183,12 @@ async def budget_create(request: Request, body: BudgetBody):
         if existing: raise HTTPException(400,'Budget already exists for this category and month')
         row=Budget(user_id=user.id,category=body.category,month=month,limit=money(body.limit))
         session.add(row); await session.flush()
-        return {**public(row),'spent':0}
+        if body.budget_type=='percentage':
+            prefs=dict(user.preferences or {});raw=prefs.get('finance_budget_policies',{})
+            policies=dict(raw) if isinstance(raw,dict) else {}
+            policies[str(row.id)]={'budget_type':'percentage','percentage':str(body.percentage)}
+            prefs['finance_budget_policies']=policies;user.preferences=prefs
+        return {**public(row),'spent':0,'budget_type':body.budget_type,'percentage':wire(body.percentage)}
     return await mutate(request,['budget',body.model_dump(mode='json')],apply)
 
 
@@ -337,9 +365,9 @@ async def bill_toggle(request: Request,bill_id: UUID,paid: bool | None = None):
 async def bill_delete(request: Request,bill_id: UUID):
     async def apply(session,user):
         row=await owned(session,MonthlyBill,user.id,bill_id)
-        await session.execute(update(FinancialTransaction).where(FinancialTransaction.user_id==user.id,
-            FinancialTransaction.bill_id==bill_id).values(bill_id=None))
-        await session.delete(row)
+        # Retain the original links and paid evidence; deleted bills cannot be
+        # imported again or turn their settled projection into a new obligation.
+        row.source='deleted'
         return {'message':'Conta removida'}
     return await mutate(request,['bill_delete',str(bill_id)],apply)
 

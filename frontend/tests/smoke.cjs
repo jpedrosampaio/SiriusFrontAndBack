@@ -40,6 +40,7 @@ const fixtures = {
   '/api/study/programs/demo/edital-verticalizado': { disciplinas: disciplines },
   '/api/study/programs/demo/cronograma': { program, notebooks: disciplines, estrategia: {}, cronograma: ['Segunda-feira', 'Terça-feira', 'Quarta-feira'].map((day_label, i) => ({ day: i, day_label, total_minutes: 90, blocos: [{ schedule_id: `sc${i}`, notebook_id: `nb${i}`, start_time: '19:00', end_time: '20:30', disciplina_nome: disciplines[i].nome, tipo_estudo: 'Teoria e questões' }] })) },
   '/api/study/streak': { current_streak: 5, best_streak: 12 },
+  '/api/finance/intelligence/state': { version: 'finance-state/1', as_of: '2026-10-08', timezone: 'America/Sao_Paulo', income: '0.00', expense: '0.00', recorded_net: '0.00', bank_balance: null, complete: true, fingerprint: 'a'.repeat(64), upcoming_bills: [], budgets: [], recurring_commitments: [], debts: [], goals: [], insights: [], warnings: [], forecast: { version: 'finance-forecast/1', end: '2027-03-31', months: [{ month: '2026-10-01', recorded_future_income: '0.00', recorded_future_expense: '0.00', estimated_expense: '0.00', scenario_income: '0.00', scenario_expense: '0.00', net_change: '0.00', cumulative_change: '0.00', scenario_balance: null }], assumptions: ['Synthetic recorded sources only'] } },
   '/api/study/stats': {}, '/api/study/questions/stats': {}, '/api/study/focus/stats': {},
   '/api/workout-stats': { total_workouts: 3, total_duration_minutes: 150, total_calories: 840, total_xp_earned: 90 },
   '/api/workout-stats/detailed': null, '/api/body-measurements/latest': null,
@@ -139,6 +140,7 @@ const server = http.createServer((req, res) => {
         if (name === 'dashboard') console.log('DASHBOARD_SYNTHETIC ' + JSON.stringify({ width, headingMs, requests: [...requests] }));
         if (name === 'syllabus') await page.locator('details summary').first().click();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+        assert.notEqual(await page.locator('h1, h2').first().innerText(), 'Erro na página', `${name} must render its actual module, not an error boundary`);
         console.log(JSON.stringify({ name, width, overflow, title: await page.locator('h1, h2').first().innerText() }));
         await page.screenshot({ path: path.join(output, `${name}-${width}.png`), fullPage: name === 'syllabus' });
         if (overflow) console.log(await page.evaluate(() => Array.from(document.querySelectorAll('body *')).filter(e => e.getBoundingClientRect().right > innerWidth + 2).slice(0, 10).map(e => ({ tag: e.tagName, cls: e.className }))));

@@ -159,7 +159,7 @@ async def finance(session, uid, day, zone):
     totals=dict((await session.execute(select(FinancialTransaction.type,func.sum(FinancialTransaction.amount)).where(
         FinancialTransaction.user_id==uid,FinancialTransaction.date.between(start,day)).group_by(FinancialTransaction.type))).all())
     bills=(await session.execute(select(func.count(),func.coalesce(func.sum(MonthlyBill.amount),0)).where(
-        MonthlyBill.user_id==uid,MonthlyBill.month==start,MonthlyBill.paid.is_(False)))).one()
+        MonthlyBill.user_id==uid,MonthlyBill.month==start,MonthlyBill.paid.is_(False),MonthlyBill.source!='deleted'))).one()
     budgets=await session.scalar(select(func.count()).select_from(Budget).where(Budget.user_id==uid,Budget.month==start))
     income,expense=(totals.get(k,Decimal('0.00')) for k in ('income','expense'))
     state=DomainState(domain='finance',facts={'period_start':str(start),'period_end':str(day),'income':str(income),
@@ -167,7 +167,7 @@ async def finance(session, uid, day, zone):
         'unpaid_monthly_amount':str(bills[1]),'budgets':budgets,'due_day_known':False},
         warnings=['Contas mensais sem vencimento diário não viram urgência inventada.'])
     first=await session.scalar(select(MonthlyBill).where(MonthlyBill.user_id==uid,MonthlyBill.month==start,
-        MonthlyBill.paid.is_(False)).order_by(MonthlyBill.id).limit(1))
+        MonthlyBill.paid.is_(False),MonthlyBill.source!='deleted').order_by(MonthlyBill.id).limit(1))
     if first:
         state.candidates.append(candidate('finance',first,day,'Revisar contas pendentes do mês',None,'/finance',priority='low',
             reasons=[f'{bills[0]} conta(s) não paga(s) registrada(s) no mês. Vencimento diário desconhecido.']))

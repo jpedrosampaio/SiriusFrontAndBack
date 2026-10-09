@@ -60,11 +60,40 @@ async def projection_summary(session,user,month):
         categories[category] = categories.get(category,ZERO)+amount
         totals['fixed_expenses' if fixed else 'installment_expenses' if kind=='installment' else 'manual_expenses'] += amount
         count += n
-    current = local_today(user.timezone).replace(day=1)
-    income = (await FinanceRepository(session).period_totals(user.id,current,shift_month(current,1)))['income']
+    income = (await FinanceRepository(session).period_totals(user.id,month,shift_month(month,1)))['income']
     total = sum(totals.values(),ZERO)
     return {'month':month.strftime('%Y-%m'),'total_projected_expenses':total,**totals,'categories_totals':categories,
-        'estimated_income':income,'estimated_balance':income-total,'projections_count':count}
+        'estimated_income':income,'estimated_balance':income-total,'projections_count':count,
+        'income_basis':'Receita registrada no próprio mês; sem repetição de salário passado.'}
+
+
+async def preserve_paid_invoice(session,user,invoice):
+    """Freeze explicit paid-flag coverage before adding a new charge; no ledger write."""
+    rows=list((await session.scalars(select(Projection).where(Projection.user_id==user.id,
+        Projection.card_id==invoice.card_id,Projection.month==invoice.month).limit(1001))).all())
+    if len(rows)>1000:raise HTTPException(409,'Fatura excede o limite seguro de fontes; nenhuma compra foi aplicada.')
+    bills=list((await session.scalars(select(MonthlyBill).where(MonthlyBill.user_id==user.id,
+        MonthlyBill.card_id==invoice.card_id,MonthlyBill.month==invoice.month,
+        (MonthlyBill.projection_id.is_not(None))|(MonthlyBill.source=='invoice_coverage')).limit(1001))).all())
+    if len(bills)>1000:raise HTTPException(409,'Fatura excede o limite seguro de fontes; nenhuma compra foi aplicada.')
+    by_projection={bill.projection_id:bill for bill in bills if bill.projection_id}
+    for projection in rows:
+        bill=by_projection.get(projection.id)
+        if bill is None:
+            bill=MonthlyBill(user_id=user.id,month=invoice.month,description=projection.description,amount=projection.amount,
+                category=projection.category,card_id=invoice.card_id,projection_id=projection.id,source='projection')
+            session.add(bill);bills.append(bill)
+        bill.paid=True
+    posted=await session.scalar(select(func.coalesce(func.sum(FinancialTransaction.amount),0))
+        .join(CardPurchase,(CardPurchase.id==FinancialTransaction.purchase_id)&(CardPurchase.user_id==FinancialTransaction.user_id))
+        .where(FinancialTransaction.user_id==user.id,FinancialTransaction.type=='expense',FinancialTransaction.bill_id.is_(None),
+            CardPurchase.card_id==invoice.card_id,FinancialTransaction.date>=invoice.month,
+            FinancialTransaction.date<shift_month(invoice.month,1)))
+    residual=max(ZERO,invoice.amount-posted-sum((bill.amount for bill in bills),ZERO))
+    if residual:
+        session.add(MonthlyBill(user_id=user.id,month=invoice.month,description='Cobertura residual da fatura marcada paga',
+            amount=residual,category='cartão',card_id=invoice.card_id,source='invoice_coverage',paid=True))
+    invoice.paid=False
 
 
 async def charge(session,user,card_id,args):
@@ -83,6 +112,8 @@ async def charge(session,user,card_id,args):
     session.add(purchase); await session.flush()
     for index,part in enumerate(parts):
         month = shift_month(first,index)
+        invoice = await session.scalar(select(Invoice).where(Invoice.user_id==user.id,Invoice.card_id==card.id,Invoice.month==month))
+        if invoice and invoice.paid:await preserve_paid_invoice(session,user,invoice)
         description = f"{args['description'] or ''} (Cartão: {card.name})" + (f' - Parcela {index+1}/{installments}' if installments>1 else '')
         if index==0 and args['start_month']=='current':
             session.add(FinancialTransaction(id=purchase.id,user_id=user.id,type='expense',amount=part,
@@ -91,7 +122,6 @@ async def charge(session,user,card_id,args):
             session.add(Projection(user_id=user.id,month=month,description=description,amount=part,
                 category=args['category'],projection_type='installment',purchase_id=purchase.id,
                 installment_number=index+1,total_installments=installments,card_id=card.id))
-        invoice = await session.scalar(select(Invoice).where(Invoice.user_id==user.id,Invoice.card_id==card.id,Invoice.month==month))
         if invoice: invoice.amount += part
         else: session.add(Invoice(user_id=user.id,card_id=card.id,month=month,amount=part))
     await session.flush()
@@ -118,14 +148,16 @@ async def bills(session,user,month):
     # Preserve import-on-first-view behavior under the same user transaction lock.
     rows = list((await session.scalars(select(MonthlyBill).where(MonthlyBill.user_id==user.id,MonthlyBill.month==month)
         .order_by(MonthlyBill.created_at,MonthlyBill.id))).all())
-    if not rows:
-        projections = (await session.scalars(select(Projection).where(Projection.user_id==user.id,Projection.month==month))).all()
-        for row in projections:
-            bill = MonthlyBill(user_id=user.id,month=month,description=row.description,amount=row.amount,category=row.category,
-                source='projection',projection_id=row.id,card_id=row.card_id,
-                installment_info=f'{row.installment_number}/{row.total_installments}' if row.installment_number else None)
-            session.add(bill); rows.append(bill)
-        await session.flush()
+    imported={row.projection_id for row in rows if row.projection_id}
+    projections = (await session.scalars(select(Projection).where(Projection.user_id==user.id,Projection.month==month,
+        Projection.id.not_in(imported)))).all()
+    for row in projections:
+        bill = MonthlyBill(user_id=user.id,month=month,description=row.description,amount=row.amount,category=row.category,
+            source='projection',projection_id=row.id,card_id=row.card_id,
+            installment_info=f'{row.installment_number}/{row.total_installments}' if row.installment_number else None)
+        session.add(bill); rows.append(bill)
+    await session.flush()
+    rows=[row for row in rows if row.source!='deleted']
     total = sum((r.amount for r in rows),ZERO)
     paid = sum((r.amount for r in rows if r.paid),ZERO)
     return wire({'month':month.strftime('%Y-%m'),'bills':[public(r) for r in rows], 'total':total,
@@ -134,6 +166,7 @@ async def bills(session,user,month):
 
 async def toggle_bill(session,user,bill_id,paid=None):
     bill = await owned(session,MonthlyBill,user.id,bill_id)
+    if bill.source=='deleted':raise HTTPException(404,'Conta removida.')
     target = not bill.paid if paid is None else paid
     if target != bill.paid:
         bill.paid = target

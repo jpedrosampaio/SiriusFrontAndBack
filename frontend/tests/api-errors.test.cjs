@@ -17,7 +17,7 @@ async function loadClient({ offline = false, pathname = "/studies" } = {}) {
   const context = vm.createContext({
     axios: { interceptors: {
       request: { use(resolve, reject) { handlers.request = resolve; } },
-      response: { use(resolve, reject) { handlers.reject = reject; } },
+      response: { use(resolve, reject) { handlers.resolve = resolve; handlers.reject = reject; } },
     }},
     OFFLINE_MODE: offline, OFFLINE_USER: {}, OFFLINE_DEMO_DATA: {},
     getApiErrorMessage, process: { env: {} }, Event,
@@ -38,6 +38,19 @@ async function loadClient({ offline = false, pathname = "/studies" } = {}) {
   vm.runInContext(executable, context, { filename: "api.js" });
   return { ...handlers, events, storage, location };
 }
+
+test("financial previews do not invalidate state; actual mutations do", async () => {
+  const client = await loadClient();
+  for (const endpoint of ['simulate', 'compare-debts']) {
+    client.resolve({ config: { method: 'post', url: `https://sirius-api.test/api/finance/intelligence/${endpoint}` } });
+  }
+  client.resolve({ config: { method: 'post', url: '/api/projections/insights?month=2026-10' } });
+  assert.equal(client.events.length, 0);
+  client.resolve({ config: { method: 'post', url: '/api/budgets' } });
+  client.resolve({ config: { method: 'delete', url: '/api/finance/monthly-bills/owned' } });
+  client.resolve({ config: { method: 'get', url: '/api/finance/monthly-bills?month=2026-10' } });
+  assert.deepEqual(client.events.map(event => event.type), ['sirius-data-changed', 'sirius-data-changed', 'sirius-data-changed']);
+});
 
 test("plain server messages remain readable", async () => {
   const { getApiErrorMessage } = await helper;
