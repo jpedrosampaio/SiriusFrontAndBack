@@ -1,7 +1,7 @@
 import os
 import asyncio
 import unittest
-from uuid import UUID
+from uuid import UUID,uuid4
 from datetime import timedelta,datetime,time
 from zoneinfo import ZoneInfo
 from unittest.mock import patch
@@ -36,7 +36,7 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
     async def preview(self,body):
         from services.nutrition_plan_dto import PlanBody
         from services.nutrition_previews import create_preview
-        result=await create_preview(str(self.uid),PlanBody.model_validate(body),'a'*64)
+        result=await create_preview(str(self.uid),PlanBody.model_validate(body),uuid4().hex+uuid4().hex)
         return {'preview_id':result['preview_id'],'plan':result['preview']}
 
     async def counts(self):
@@ -204,3 +204,20 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('consumed_digest',receipt.result)
             self.assertEqual((await session.get(User,self.uid)).xp,10)
         self.ok(await self.http.post(path,json=retry,headers={'Idempotency-Key':'rollback-preview'}))
+
+    async def test_expired_upload_renewal_and_full_digest_collision_guard(self):
+        from services.nutrition_plan_dto import PlanBody
+        from services.nutrition_previews import create_preview,existing_preview
+        raw=PlanBody.model_validate({'name':'Upload','days':[{'meals':[{'name':'Food','foods':[{'name':'Arroz','calories':100}]}]}]})
+        upload_digest='a'*64
+        preview=await create_preview(str(self.uid),raw,upload_digest)
+        async with unit_of_work() as session:
+            receipt=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==self.uid,ActivityReceipt.request_key==preview['preview_id']))
+            receipt.result={**receipt.result,'expires_at':'2020-01-01T00:00:00+00:00'}
+        self.assertIsNone(await existing_preview(str(self.uid),upload_digest))
+        renewed=await create_preview(str(self.uid),raw,upload_digest)
+        self.assertEqual(renewed['preview_id'],preview['preview_id']);self.assertNotEqual(renewed['expires_at'],'2020-01-01T00:00:00+00:00')
+        from fastapi import HTTPException
+        with self.assertRaises(HTTPException) as error:await create_preview(str(self.uid),raw,'a'*32+'b'*32)
+        self.assertEqual(error.exception.status_code,409)
+        self.assertEqual((await self.counts())[:3],[0,0,0])

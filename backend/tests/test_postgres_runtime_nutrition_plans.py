@@ -23,6 +23,7 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
         async def authenticate(authorization=None,**kwargs):return SimpleNamespace(user_id=str(self.bob if authorization=='Bearer bob' else self.uid))
         self.plan_ai=AsyncMock(return_value=SimpleNamespace(text=json.dumps(self.generated())))
         extra=[patch('services.nutrition_plans.account',account),patch('services.nutrition_shopping.account',account),
+            patch('services.nutrition_intelligence_routes.account',account),
             patch('services.nutrition_generation_routes.get_current_user',authenticate),
             patch('services.nutrition_generation_routes.get_user_api_key',AsyncMock(return_value='configured')),
             patch('services.nutrition_generation_routes.request_gemini',self.plan_ai)]
@@ -81,8 +82,17 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
         paths=[]
         async def upload(path,uid):paths.append(path);return SimpleNamespace(uri='test://file')
         with patch('services.study_material_routes._upload',upload),patch('services.study_material_routes._part',return_value={}):
-            rows=[self.ok(await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')},headers={'Idempotency-Key':'import-nutrition-001'})) for _ in range(2)]
+            previews=[self.ok(await self.http.post('/api/nutrition/import-plan'+flag,files={'file':('plan.pdf',b'%PDF fake','application/pdf')})) for flag in ('','?preview=false','?preview=true')]
+        self.assertEqual(len({p['preview_id'] for p in previews}),1);self.plan_ai.assert_awaited_once()
+        self.assertTrue(all(p['requires_confirmation'] for p in previews))
+        async with unit_of_work() as session:
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(NutritionPlan).where(NutritionPlan.user_id==self.uid)),0)
+        body={'preview_id':previews[0]['preview_id'],'plan':previews[0]['preview']}
+        rows=[self.ok(await self.http.post('/api/nutrition/intelligence/confirm-plan',json=body,headers={'Idempotency-Key':f'confirm-file-{i}'})) for i in range(2)]
         self.assertEqual(rows[0]['plan']['plan_id'],rows[1]['plan']['plan_id']);self.assertEqual(rows[0]['meals_created'],0)
+        repeat=self.ok(await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')}))
+        self.assertTrue(repeat['already_confirmed']);self.assertEqual(repeat['xp_earned'],0);self.plan_ai.assert_awaited_once()
         self.assertTrue(paths);self.assertTrue(all(not Path(path).exists() for path in paths))
         goals=self.ok(await self.http.get('/api/nutrition/goals'));self.assertIsNone(goals['goal_id'])
         meals=self.ok(await self.http.get('/api/nutrition/meals'));self.assertEqual(meals,[])
@@ -102,8 +112,10 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
 
     async def test_import_failure_rolls_back_all_sql_and_xp(self):
         self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Imported','daily_calories':2200,'meals':[self.planned_meal()]}))
-        with patch('services.study_material_routes.upload_part',AsyncMock(return_value={})),             patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})),             patch('services.nutrition_plans.plan_json',side_effect=RuntimeError('after flush')):
-            with self.assertRaises(RuntimeError):await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')})
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})):
+            preview=self.ok(await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')}))
+        with patch('services.nutrition_plans.plan_json',side_effect=RuntimeError('after flush')):
+            with self.assertRaises(RuntimeError):await self.http.post('/api/nutrition/intelligence/confirm-plan',json={'preview_id':preview['preview_id'],'plan':preview['preview']},headers={'Idempotency-Key':'failed-confirm-file'})
         async with unit_of_work() as session:
             for model in (NutritionPlan,PlannedMeal,PlannedFood,Meal,MealItem):
                 self.assertEqual(await session.scalar(select(func.count()).select_from(model).where(model.user_id==self.uid)),0)

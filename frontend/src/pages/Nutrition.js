@@ -424,6 +424,7 @@ export default function Nutrition() {
         headers: { "Content-Type": "multipart/form-data" },
         timeout: 120000
       });
+      if(res.data.already_confirmed){toast.success('Este documento já foi confirmado. O plano existente foi preservado, sem XP adicional.');setShowImportDialog(false);fetchMealPlans();return;}
       if(res.data.preview && res.data.preview_id){importPreviewId.current=res.data.preview_id;setImportPreview(res.data.preview);return;}
       if (res.data.success) {
         toast.success(`Plano importado! ${res.data.meals_created} refeições criadas. +${res.data.xp_earned} XP`);

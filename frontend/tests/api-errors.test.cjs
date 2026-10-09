@@ -183,7 +183,7 @@ test("credential injection is unaffected by the error formatter", async () => {
 
 test("nutrition scenarios and import previews are readonly; confirmed actions invalidate", async () => {
   const client = await loadClient();
-  for (const url of ['/api/nutrition/intelligence/alternatives', '/api/nutrition/import-plan?preview=true']) {
+  for (const url of ['/api/nutrition/intelligence/alternatives', '/api/nutrition/import-plan', '/api/nutrition/import-plan?preview=true', '/api/nutrition/import-plan?preview=false']) {
     client.resolve({ config: { method: 'post', url } });
   }
   assert.equal(client.events.length, 0);

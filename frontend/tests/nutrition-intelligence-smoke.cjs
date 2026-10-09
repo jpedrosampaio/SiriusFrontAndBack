@@ -47,7 +47,7 @@ const server=http.createServer((req,res)=>{
         data={meal_id:'new-once',replayed:true};
       }
       if(p==='/api/nutrition/import-plan'){
-        assert.equal(url.searchParams.get('preview'),'true');data={preview_id:'nutrition-preview-'+ 'a'.repeat(32),preview:imported,saved:false,requires_confirmation:true};
+        assert.equal(url.searchParams.get('preview'),'true');data=plans?{already_confirmed:true,requires_confirmation:false,xp_earned:0,plan:{plan_id:'new-plan'}}:{preview_id:'nutrition-preview-'+ 'a'.repeat(32),preview:imported,saved:false,requires_confirmation:true};
       }
       if(p==='/api/nutrition/intelligence/confirm-plan'){
         plans++;assert.ok(request.headers()['idempotency-key']);assert.equal(request.postDataJSON().preview_id,'nutrition-preview-'+ 'a'.repeat(32));assert.equal(request.postDataJSON().plan.days[0].meals[0].calories,125);assert.equal(request.postDataJSON().plan.days[0].meals[0].foods[0].calories,125);
@@ -84,6 +84,10 @@ const server=http.createServer((req,res)=>{
     await dialog.getByLabel('Arroz · Energia (kcal)',{exact:true}).fill('125');
     await dialog.getByRole('button',{name:'Confirmar plano revisado'}).click();
     await dialog.waitFor({state:'hidden'});assert.equal(plans,1);
+    await page.getByTestId('import-meal-plan-btn').click();
+    await page.locator('#import-file-input').setInputFiles({name:'fake.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF synthetic')});
+    await page.getByTestId('import-plan-submit-btn').click();
+    await dialog.waitFor({state:'hidden'});assert.equal(plans,1,'confirmed document must reuse its existing plan');
     assert.equal(writes.filter(p=>p==='/api/nutrition/meals').length,0);
     assert.equal(writes.some(p=>p.startsWith('/api/finance/')||p.startsWith('/api/calendar')),false);
     const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1);

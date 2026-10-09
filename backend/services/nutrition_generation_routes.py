@@ -61,7 +61,7 @@ async def generate_meal_plan(request: Request, session_token: Optional[str]=Cook
         raise HTTPException(status_code=500, detail=f'Erro ao gerar plano alimentar: {str(e)[:100]}')
 
 @api_router.post('/nutrition/import-plan')
-async def import_meal_plan(request: Request, file: UploadFile=File(...), session_token: Optional[str]=Cookie(None), preview: bool=False):
+async def import_meal_plan(request: Request, file: UploadFile=File(...), session_token: Optional[str]=Cookie(None)):
     """Import a meal plan from PDF or image file using AI extraction"""
     auth_header = request.headers.get('Authorization')
     user = await get_current_user(authorization=auth_header, session_token=session_token)
@@ -71,6 +71,10 @@ async def import_meal_plan(request: Request, file: UploadFile=File(...), session
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail='Formato não suportado. Envie PDF, JPG, PNG ou WEBP.')
     content = await read_upload(file)
+    from services.nutrition_previews import existing_preview,create_preview
+    upload_digest=hashlib.sha256(content).hexdigest()
+    previous=await existing_preview(user.user_id,upload_digest)
+    if previous:return previous
     part = await upload_part(content, file.filename, file.content_type, user.user_id)
     try:
         prompt = 'Analise este plano alimentar/dieta e extraia TODAS as refeições em formato JSON estruturado.\n\nPara cada refeição, extraia:\n- meal_type: "breakfast" (café da manhã), "lunch" (almoço), "dinner" (jantar), "snack" (lanche)\n- name: nome da refeição\n- time: horário sugerido (ex: "07:00")\n- foods: lista de alimentos com quantidade\n- calories: calorias estimadas (número)\n- protein: proteína em gramas (número)\n- carbs: carboidratos em gramas (número)\n- fat: gordura em gramas (número)\n- fiber: fibra em gramas (número, opcional)\n- notes: observações adicionais\n\nTambém extraia informações gerais do plano:\n- plan_name: nome do plano\n- goal: objetivo (emagrecimento, hipertrofia, saúde, etc.)\n- daily_calories: meta calórica diária total\n- daily_protein: meta de proteína diária\n- daily_carbs: meta de carboidratos diária\n- daily_fat: meta de gordura diária\n- restrictions: restrições alimentares mencionadas\n- tips: dicas do nutricionista\n\nResponda APENAS com JSON válido neste formato:\n{\n  "plan_name": "Nome do Plano",\n  "goal": "objetivo",\n  "daily_calories": 2000,\n  "daily_protein": 150,\n  "daily_carbs": 200,\n  "daily_fat": 70,\n  "restrictions": ["restrição 1"],\n  "tips": ["dica 1", "dica 2"],\n  "meals": [\n    {\n      "meal_type": "breakfast",\n      "name": "Café da Manhã",\n      "time": "07:00",\n      "foods": [{"name": "Ovos mexidos", "quantity": "3 unidades", "calories": 210}],\n      "calories": 350,\n      "protein": 25,\n      "carbs": 30,\n      "fat": 15,\n      "notes": ""\n    }\n  ]\n}\n\nIMPORTANTE: Retorne APENAS o JSON, sem markdown, sem ```json.'
@@ -84,10 +88,8 @@ async def import_meal_plan(request: Request, file: UploadFile=File(...), session
             response_text = response_text[4:].strip()
         plan_data = json.loads(response_text)
         validated = validate_ai_plan(plan_data, 'imported', {}, file.filename)
-        if preview:
-            from services.nutrition_previews import create_preview
-            return await create_preview(user.user_id,validated,hashlib.sha256(content).hexdigest())
-        return await save_plan(user.user_id, validated, 'imported', request.headers.get('Idempotency-Key'), ['import-meal-plan', hashlib.sha256(content).hexdigest()])
+        # Query flags cannot bypass owned preview/confirmation, including legacy preview=false.
+        return await create_preview(user.user_id,validated,upload_digest)
     except HTTPException:
         raise
     except (json.JSONDecodeError, TypeError):
