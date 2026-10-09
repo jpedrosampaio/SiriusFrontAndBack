@@ -1,5 +1,7 @@
 # Arquitetura de IA
 
+> Registro histórico anterior à migração PostgreSQL. Referências a Mongo/Atlas e ao CI antigo não descrevem o runtime atual. Consulte [HANDOFF](../HANDOFF.md) e o [mapa de contexto](DEVELOPMENT_CONTEXT.md) antes de aplicar procedimentos; o conteúdo original abaixo é preservado para consulta dirigida.
+
 ```mermaid
 flowchart TD
   UI[Chat flutuante / Chat / Configurações] --> API[Rotas autenticadas]

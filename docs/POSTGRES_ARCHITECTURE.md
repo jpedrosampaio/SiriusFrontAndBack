@@ -1,5 +1,7 @@
 # PostgreSQL — runtime da branch feat/postgres-neon
 
+> Auditoria histórica da migração original; preserve os contratos úteis, mas o status da antiga branch, Render e gates de publicação abaixo não são o estado atual. Consulte [HANDOFF](../HANDOFF.md) e [PRODUCTION_MIGRATIONS](PRODUCTION_MIGRATIONS.md) para publicação e procedimento protegido vigente.
+
 PR #21, base `e2b1bfd60c225d22329b9a28ac0daf3b4e8ee702`. O runtime agora funciona exclusivamente com PostgreSQL. O inventário passou de 669 chamadas Mongo diretas para zero, incluindo os acessos dinâmicos de sincronização móvel. Motor, PyMongo, GridFS, criação de collections/índices no startup e o snapshot legado server_partial.py foram removidos. Não há dual-write, emulação de collections ou importação de dados antigos.
 
 Isso descreve o código da branch, não uma troca já realizada em produção. O merge e a publicação dependem da configuração e das migrations no Neon/Render. Sem essa verificação, a versão publicada permanece intacta.

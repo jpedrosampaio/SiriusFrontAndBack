@@ -1,5 +1,7 @@
 # Sirius Agent
 
+> Registro histórico da implementação original do Agent. Mongo/Atlas, Render e partes do planejamento foram substituídos; não use estes detalhes como estado atual. Consulte [HANDOFF](../HANDOFF.md), [Life State/Global Planner](LIFE_STATE_GLOBAL_PLANNER.md) e o [mapa de contexto](DEVELOPMENT_CONTEXT.md); os fluxos antigos abaixo são preservados como referência.
+
 O assistente flutuante e `/chat` usam o mesmo histórico no MongoDB e a mesma seleção de conversa na aba do navegador. `/assistant/settings` reúne provedores, memórias, perfil, sugestões, fontes, plano diário, revisão semanal e ações pendentes.
 
 ## Fluxos disponíveis
