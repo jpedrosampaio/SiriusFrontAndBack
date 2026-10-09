@@ -9,6 +9,7 @@ import {
   CheckSquare, TrendingUp, BookOpen, Dumbbell, Apple, Circle
 } from "lucide-react";
 import axios from "axios";
+import GlobalPlanner from '@/components/GlobalPlanner';
 import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -35,7 +36,7 @@ function getFirstDayOfMonth(year, month) {
 }
 
 export default function CalendarPage() {
-  const [, setUser] = useState(null);
+  const [user, setUser] = useState(null);
   const [events, setEvents] = useState([]);
   const [, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -141,6 +142,7 @@ export default function CalendarPage() {
             <p className="text-[#A1A1AA]">Visualização unificada de todas as suas atividades</p>
           </div>
 
+          {user?.user_id && <GlobalPlanner key={user.user_id} userId={user.user_id} onAccepted={fetchEvents} />}
           {/* Filters */}
           <div className="flex gap-2 overflow-x-auto pb-2 mb-6">
             {Object.entries(TYPE_CONFIG).map(([key, cfg]) => {

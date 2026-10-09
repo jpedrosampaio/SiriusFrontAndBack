@@ -2623,6 +2623,8 @@ from services.auth_routes import router as auth_router
 api_router.include_router(auth_router)
 from services.planning_routes import router as planning_router
 api_router.include_router(planning_router)
+from services.life_routes import router as life_router
+api_router.include_router(life_router)
 from services.goals_routes import router as goals_router
 api_router.include_router(goals_router)
 from services.studies_catalog_routes import router as studies_catalog_router

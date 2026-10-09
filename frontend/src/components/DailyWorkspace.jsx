@@ -30,16 +30,18 @@ export default function DailyWorkspace() {
     {daily.isPending && <p role="status" className="text-sm text-slate-400">Consultando sua agenda e prioridades…</p>}
     {daily.isError && <p role="alert" className="text-sm text-amber-300">Não foi possível atualizar seu dia. {daily.data ? 'A última prévia continua visível.' : 'Tente reorganizar novamente.'}</p>}
     {plan && <>
-      <p className="text-sm text-sky-200">Disponibilidade estimada hoje: {duration(plan.available_minutes ?? plan.remaining_minutes)}</p>
-      <p className="text-xs text-slate-400">Tarefas flexíveis: tempo restante entre 08h e 18h, descontando compromissos e tarefas com horário. Início arredondado para cinco minutos. Horários definidos são preservados; duração ausente é estimada em 30 min.</p>
-      {plan.conflicts?.length > 0 && <p role="alert" className="text-sm text-amber-300">Conflito de horário: {plan.conflicts.length} sobreposição(ões). Confira os itens na agenda; nenhum foi movido.</p>}
+      <p className="text-sm text-sky-200">{plan.version === 'global-planner/1' ? 'Tempo livre declarado restante' : 'Disponibilidade estimada hoje'}: {duration(plan.available_minutes ?? plan.remaining_minutes)}</p>
+      <p className="text-xs text-slate-400">{plan.version === 'global-planner/1' ? 'Atividades dos módulos competem pelos intervalos que você declarou no Calendário. Prazos, prioridades informadas e datas protegidas orientam a ordem. Compromissos fixos permanecem nos horários registrados; durações desconhecidas exigem sua estimativa.' : 'Tarefas flexíveis: tempo restante entre 08h e 18h, descontando compromissos e tarefas com horário. Início arredondado para cinco minutos. Horários definidos são preservados; duração ausente é estimada em 30 min.'}</p>
+      {(plan.warnings || []).map(w => <p role="alert" className="text-sm text-amber-300" key={w}>{w}</p>)}
+      {plan.conflicts?.length > 0 && <p role="alert" className="text-sm text-amber-300">Conflito de horário: {plan.conflicts_truncated ? 'ao menos ' : ''}{plan.conflicts.length} sobreposição(ões). Confira os itens na agenda; nenhum foi movido.</p>}
       <ol className="space-y-2">{items.map(item => <li key={item.key} className="rounded-lg bg-slate-900/70 p-3 text-sm">
-        <span className="text-xs text-sky-300">{clock(item.start_minute)}–{clock(item.end_minute)} · {item.kind === 'commitment' ? 'Compromisso' : item.kind === 'fixed_task' ? 'Horário definido' : 'Sugestão do Sirius'}</span>
+        <span className="text-xs text-sky-300">{item.civil_time_ambiguous ? `${item.elapsed_minutes} min reais · mudança de horário; confira a agenda` : `${clock(item.start_minute)}–${clock(item.end_minute)}`} · {item.kind === 'commitment' ? 'Compromisso' : item.kind === 'fixed_task' ? 'Horário definido' : 'Sugestão do Sirius'}</span>
         {item.past_due && <p className="text-xs text-amber-300">Não concluído · horário já passou</p>}
         <p className="mt-1 break-words">{item.title}</p>{item.kind !== 'commitment' && <p className="text-xs text-slate-400">{item.duration_minutes} min{item.duration_estimated ? ' · duração estimada' : ''}</p>}
+        {item.link && <Link to={item.link} className="inline-flex min-h-11 items-center text-sky-300 underline">Abrir atividade</Link>}
       </li>)}</ol>
       {!items.length && <p className="text-sm text-slate-400">{plan.unscheduled?.length ? 'Não há espaço na janela restante para estas tarefas.' : 'Nenhuma tarefa ou compromisso registrado para hoje.'} <Link to="/tasks" className="underline">Organizar prioridades</Link></p>}
-      {plan.unscheduled?.length > 0 && <p className="text-sm text-amber-200">{plan.unscheduled.length} tarefa(s) não couberam nos horários livres.</p>}
+      {plan.unscheduled?.length > 0 && <p className="text-sm text-amber-200">{plan.unscheduled.length} atividade(s) aguardam horário ou duração informada.</p>}
       <p className="text-xs text-slate-400">Prévia determinística: nenhum horário ou tarefa foi alterado.</p>
       <Link to="/calendar" className="inline-block text-xs text-sky-300 underline">Conferir minha agenda</Link>
     </>}

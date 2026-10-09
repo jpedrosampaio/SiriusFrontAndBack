@@ -1,5 +1,5 @@
 """Calendar projection: owner/date predicates run in SQL before serialization."""
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone as utc_timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, func
 from db.session import unit_of_work
@@ -56,10 +56,17 @@ async def calendar_events(user_id, start, end, timezone):
         first = datetime.combine(start,time(),tzinfo=zone)
         last = datetime.combine(end+timedelta(days=1),time(),tzinfo=zone)
         commitments = (await session.scalars(select(CalendarEvent).where(CalendarEvent.user_id == user_id,
-            CalendarEvent.start_at >= first, CalendarEvent.start_at < last))).all()
+            CalendarEvent.end_at > first, CalendarEvent.start_at < last))).all()
         for row in commitments:
-            local = row.start_at.astimezone(zone)
-            events.append({'id':str(row.id),'date':local.date().isoformat(),'title':f'{local:%H:%M} · {row.title}',
-                'type':'commitment','completed':False,'duration_minutes':int((row.end_at-row.start_at).total_seconds()/60),
-                'link':'/assistant/settings'})
+            cursor=max(row.start_at.astimezone(utc_timezone.utc),first.astimezone(utc_timezone.utc))
+            finish=min(row.end_at.astimezone(utc_timezone.utc),last.astimezone(utc_timezone.utc))
+            while cursor<finish:
+                local=cursor.astimezone(zone)
+                midnight=datetime.combine(local.date()+timedelta(days=1),time(),tzinfo=zone)
+                segment_end=min(midnight.astimezone(utc_timezone.utc),finish)
+                events.append({'id':str(row.id)+'_'+local.date().isoformat(),'date':local.date().isoformat(),
+                    'title':f'{local:%H:%M} · {row.title}','type':'commitment','completed':False,
+                    'duration_minutes':int((segment_end-cursor).total_seconds()/60),
+                    'link':(row.details or {}).get('link','/assistant/settings'),'source_type':row.source_type})
+                cursor=segment_end
     return {'events':sorted(events,key=lambda e:(e['date'],e['id'])),'start':start.isoformat(),'end':end.isoformat()}
