@@ -18,6 +18,8 @@ Substituições são propostas a partir dos próprios planos: objetivo explicita
 
 ## Validação e publicação
 
+Fase publicada pelo [PR39](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/39), com evidências finais e limitações no [registro de publicação](history/PHASE_10_PUBLICATION.md). Consulte o HANDOFF para o estado atual e a autorização vigente.
+
 A origem estável do dia é registrada pelo servidor no JSON existente da sessão (`_training_origin_v1`), sem migration, e preservada ao concluir/repetir a conclusão. Essa chave não aparece no feedback público. Sessões anteriores sem origem continuam contribuindo para histórico, volume e recordes, mas não justificam progressão numérica. Recriar, editar, reordenar ou arquivar uma ficha invalida as comparações dos dias antigos. O consumidor de sugestões verifica plano, UUID do dia, índice e grupo muscular; nunca escolhe apenas pelo nome do exercício.
 
 `GET /api/workouts/intelligence/state?days=90` aceita janelas de 7–365 dias. `POST /api/workouts/intelligence/substitutions` recebe somente plano/dia/índice de exercício, valida ownership e é somente leitura. Ambos usam snapshot repeatable-read/read-only. O endpoint existente `next-loads` conserva seu formato, mas exige a evidência conservadora do motor e prescrição atual compatível.
