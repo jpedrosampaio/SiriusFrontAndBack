@@ -61,7 +61,7 @@ def execution(log, ex):
             rpes.append(float(rpe))
     # Flags can be legacy/manual; the actual rows are the evidence.
     missing = max(0, ex['sets_completed'] - len(sets))
-    complete = bool(sets) and len(valid) == len(sets) and missing == 0
+    complete = bool(sets) and len(sets) == ex['sets'] and len(valid) == len(sets) and missing == 0
     return {'date': log['date'], 'log_id': str(log['log_id']), 'plan_id': str(log['plan_id']) if log['plan_id'] else None,
         'day_index': log.get('day_index'),
         'prescribed_sets': ex['sets'], 'target_reps': ex['reps'], 'recorded_sets': len(sets),

@@ -93,6 +93,9 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
         self.ok(await self.http.post(path + '/complete', json={}))
         state = await self.state(); self.assertEqual(state['completed_workouts'], 1)
         self.assertEqual(next(e for e in state['exercises'] if e['name'] == 'Supino')['recorded_sets'], 1)
+        partial = next(e for e in state['exercises'] if e['name'] == 'Supino')
+        self.assertIsNone(partial['volume']); self.assertEqual(partial['known_volume'], '200.000')
+        self.assertFalse(any(r['kind'] == 'max_volume' for r in partial['records']))
         row = self.ok(await self.http.get('/api/workouts'))[0]
         self.ok(await self.http.delete('/api/workouts/' + row['log_id']))
         self.assertEqual((await self.state())['completed_workouts'], 0)

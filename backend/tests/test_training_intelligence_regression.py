@@ -52,6 +52,12 @@ class TrainingRegression(unittest.TestCase):
         legacy = state([old]).exercises[0]
         self.assertIsNone(legacy.volume); self.assertEqual(legacy.recorded_sets, 0)
         self.assertEqual(legacy.records, [])
+        for recorded in (1, 2):
+            partial = state([log(count=recorded)]).exercises[0]
+            self.assertIsNone(partial.volume)
+            self.assertEqual(partial.known_volume, str(240 * recorded))
+            self.assertFalse(any(r.kind == 'max_volume' for r in partial.records))
+            self.assertIsNone(state([log(count=recorded)]).muscle_groups[0].volume)
 
     def test_records_are_deterministic_and_equivalent_reps_are_separate(self):
         rows = [log(7, weight='30', reps=8), log(5, weight='20', reps=12), log(1, weight='30', reps=8)]
