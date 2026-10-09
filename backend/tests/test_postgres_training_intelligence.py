@@ -150,7 +150,7 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
             async with unit_of_work() as writer:
                 await writer.execute(update(WorkoutSet).where(WorkoutSet.user_id == uid).values(weight=99))
             return await serialize_logs(session, uid, rows)
-        with patch('services.training_intelligence.serialize_logs', concurrent_change):
+        with patch('services.workout_logs.serialize_logs', concurrent_change):
             snapshot = await self.state()
         self.assertEqual(snapshot['exercises'][0]['records'][0]['value'], '20.000')
         refreshed = await self.state()

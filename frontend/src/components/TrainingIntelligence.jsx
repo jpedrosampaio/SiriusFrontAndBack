@@ -61,6 +61,8 @@ export default function TrainingIntelligence({ userId, plans }) {
   }, [userId]);
   useEffect(() => {
     const controller = new AbortController(); setState(null); setError(''); setLoading(true);
+    // The parent resolves the account asynchronously; do not read under an unknown UI identity.
+    if (!userId) return () => controller.abort();
     axios.get(`${API}/state`, { params: { days }, signal: controller.signal, timeout: 20000 }).then(({ data }) => {
       if (!data || !Array.isArray(data.exercises) || !Array.isArray(data.muscle_groups) || !Array.isArray(data.weekly_frequency) || !Array.isArray(data.limitations)) throw new Error('A análise retornou dados incompletos.');
       if (!controller.signal.aborted) setState(data);

@@ -10,7 +10,6 @@ from sqlalchemy import select, func, text
 from db.models.health import WorkoutLog, WorkoutPlan, WorkoutDay, PlanExercise, WorkoutSet, SessionExercise, WorkoutLogExercise
 from db.models.identity import User
 from db.session import unit_of_work
-from services.workout_logs import serialize_logs
 from services.time import local_today
 from training_contracts import TrainingState, SubstitutionArgs, SubstitutionResult
 
@@ -207,6 +206,7 @@ def build_state(logs, *, day, start, zone, count, truncated=False):
 
 
 async def load_state(session, uid, day, zone, days=90, plan_id=None):
+    from services.workout_logs import serialize_logs
     start = day - timedelta(days=days - 1)
     where = (WorkoutLog.user_id == uid, WorkoutLog.completed.is_(True), WorkoutLog.date >= start, WorkoutLog.date <= day)
     if plan_id is not None:
