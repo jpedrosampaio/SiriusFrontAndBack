@@ -92,13 +92,20 @@ class FinanceEngine:
             for month,kind,amount in (await s.execute(select(bucket,FinancialTransaction.type,func.sum(FinancialTransaction.amount)).where(
                 FinancialTransaction.user_id==user.id,FinancialTransaction.date>day,FinancialTransaction.date<end).group_by(bucket,FinancialTransaction.type))).all():
                 future.setdefault(month.date(),{})[kind]=amount
-            projections=list((await s.scalars(select(Projection).where(Projection.user_id==user.id,
-                Projection.month>=first,Projection.month<end).order_by(Projection.month,Projection.id).limit(LIMIT+1))).all())
+            imported=select(MonthlyBill.id).where(MonthlyBill.user_id==user.id,MonthlyBill.projection_id==Projection.id).exists()
+            paid_invoice=select(Invoice.id).where(Invoice.user_id==user.id,Invoice.card_id==Projection.card_id,
+                Invoice.month==Projection.month,Invoice.paid.is_(True)).exists()
+            projections=list((await s.scalars(select(Projection).where(Projection.user_id==user.id,Projection.month<end,
+                (Projection.month>=first)|(~imported & ~paid_invoice))
+                .order_by(Projection.month,Projection.id).limit(LIMIT+1))).all())
             bills=list((await s.scalars(select(MonthlyBill).where(MonthlyBill.user_id==user.id,
                 MonthlyBill.month<end,(MonthlyBill.month>=first)|MonthlyBill.paid.is_(False))
                 .order_by(MonthlyBill.month,MonthlyBill.id).limit(LIMIT+1))).all())
+            pending_invoice_bill=select(MonthlyBill.id).where(MonthlyBill.user_id==user.id,MonthlyBill.card_id==Invoice.card_id,
+                MonthlyBill.month==Invoice.month,MonthlyBill.paid.is_(False)).exists()
             invoices=list((await s.scalars(select(Invoice).where(Invoice.user_id==user.id,Invoice.month<end,
-                (Invoice.month>=first)|Invoice.paid.is_(False)).order_by(Invoice.month,Invoice.id).limit(LIMIT+1))).all())
+                (Invoice.month>=first)|Invoice.paid.is_(False)|pending_invoice_bill)
+                .order_by(Invoice.month,Invoice.id).limit(LIMIT+1))).all())
             cards=list((await s.scalars(select(CreditCard).where(CreditCard.user_id==user.id).order_by(CreditCard.id).limit(201))).all())
             budgets=list((await s.scalars(select(Budget).where(Budget.user_id==user.id,Budget.month==first).order_by(Budget.id).limit(201))).all())
             goals=list((await s.scalars(select(Goal).where(Goal.user_id==user.id,Goal.archived_at.is_(None))

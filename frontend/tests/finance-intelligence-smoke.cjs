@@ -5,7 +5,7 @@ const server=http.createServer((req,res)=>{let file=path.join(root,new URL(req.u
 (async()=>{await new Promise(r=>server.listen(4184,'127.0.0.1',r));const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{})});try{
 for(const width of [1440,1024,768,390,320]){
  const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'});await context.addInitScript(()=>localStorage.setItem('sirius_onboarding_complete','true'));
- let simulations=0,comparisons=0,stateReads=0;const errors=[],unexpectedWrites=[];
+ let simulations=0,comparisons=0,stateReads=0,billReads=0;const errors=[],unexpectedWrites=[];
  const row={month:'2026-10-01',recorded_future_income:'0.00',recorded_future_expense:'0.00',estimated_expense:'100.00',scenario_income:'0.00',scenario_expense:'0.00',net_change:'-100.00',cumulative_change:'-100.00',scenario_balance:null};
  const forecast={months:[row],assumptions:['Only known recorded sources'],end:'2027-03-31'};
  const state={as_of:'2026-10-08',timezone:'America/Sao_Paulo',income:'1000.00',expense:'100.10',recorded_net:'899.90',complete:true,fingerprint:'a'.repeat(64),warnings:[],budgets:[],goals:[],debts:[],insights:[],upcoming_bills:[],forecast};
@@ -25,6 +25,7 @@ for(const width of [1440,1024,768,390,320]){
   }
   if(p==='/api/finance/stats')return respond(r,{total_income:1000,total_expense:100.1,balance:899.9,by_category:{}});
   if(p==='/api/finance/trend')return respond(r,{trend:[],summary:{}});
+  if(p==='/api/finance/monthly-bills'){billReads++;return respond(r,{bills:[],total:0,total_paid:0,total_pending:0,count:0,paid_count:0});}
   if(p==='/api/projections/summary')return respond(r,{categories_totals:{},fixed_expenses:0,installment_expenses:0,manual_expenses:0,total_projected_expenses:0,estimated_income:0,estimated_balance:0});
   return respond(r,[]);
  });
@@ -40,6 +41,9 @@ for(const width of [1440,1024,768,390,320]){
  await panel.getByRole('tab',{name:'Dívidas',exact:true}).click();await panel.getByLabel('Nome',{exact:true}).fill('Declarada');await panel.getByLabel('Principal declarado',{exact:true}).fill('100.10');await panel.getByLabel('Valor mensal disponível no modelo',{exact:true}).fill('20.00');
  await panel.getByRole('button',{name:'Comparar estratégias sem gravar'}).click();await panel.getByRole('region',{name:'Resultado das estratégias de dívida'}).waitFor();assert.equal(await panel.getByText('Taxas incompletas: prazo e juros não calculados',{exact:true}).count(),3);
  assert.deepEqual(unexpectedWrites,[]);assert.deepEqual(errors,[]);assert.equal(simulations,2);assert.equal(comparisons,1);assert.equal(stateReads,2);
+ state.recorded_net='699.90';state.expense='300.10';
+ await page.getByRole('tab',{name:'Contas do Mês',exact:true}).click();
+ await panel.getByText('R$ 699,90',{exact:true}).waitFor().catch(async error=>{console.error({billReads,stateReads,errors});throw error;});assert.equal(stateReads,3);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
  await panel.getByRole('tab',{name:'Fluxo previsto',exact:true}).click();await panel.getByRole('heading',{name:'Inteligência financeira',exact:true}).scrollIntoViewIfNeeded();fs.mkdirSync('test-results',{recursive:true});await page.screenshot({path:`test-results/finance-intelligence-${width}.png`});
  console.log(JSON.stringify({width,decimalStrings:true,unknownRates:true,readonlyScenarios:true,retryPreservesInputs:true,overflow:false}));await context.close();

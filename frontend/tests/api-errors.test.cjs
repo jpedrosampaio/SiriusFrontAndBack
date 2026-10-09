@@ -44,10 +44,12 @@ test("financial previews do not invalidate state; actual mutations do", async ()
   for (const endpoint of ['simulate', 'compare-debts']) {
     client.resolve({ config: { method: 'post', url: `https://sirius-api.test/api/finance/intelligence/${endpoint}` } });
   }
+  client.resolve({ config: { method: 'post', url: '/api/projections/insights?month=2026-10' } });
   assert.equal(client.events.length, 0);
   client.resolve({ config: { method: 'post', url: '/api/budgets' } });
   client.resolve({ config: { method: 'delete', url: '/api/finance/monthly-bills/owned' } });
-  assert.deepEqual(client.events.map(event => event.type), ['sirius-data-changed', 'sirius-data-changed']);
+  client.resolve({ config: { method: 'get', url: '/api/finance/monthly-bills?month=2026-10' } });
+  assert.deepEqual(client.events.map(event => event.type), ['sirius-data-changed', 'sirius-data-changed', 'sirius-data-changed']);
 });
 
 test("plain server messages remain readable", async () => {

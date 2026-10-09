@@ -668,12 +668,12 @@ export default function Finance() {
             />
           </div>
 
-          <Tabs defaultValue="transactions" className="w-full">
+          <Tabs defaultValue="transactions" className="w-full" onValueChange={value => { if (value === 'bills') fetchMonthlyBills(); }}>
             <TabsList className="bg-[#0A0A0A] border-[#27272A] overflow-x-auto flex-nowrap w-full justify-start md:justify-center">
               <TabsTrigger value="transactions">Transações</TabsTrigger>
               <TabsTrigger value="budgets">Orçamentos</TabsTrigger>
               <TabsTrigger value="cards">Cartões</TabsTrigger>
-              <TabsTrigger value="bills" onClick={() => fetchMonthlyBills()}>Contas do Mês</TabsTrigger>
+              <TabsTrigger value="bills">Contas do Mês</TabsTrigger>
               <TabsTrigger value="projections">Projeção</TabsTrigger>
               <TabsTrigger value="finance_chat">Sirius</TabsTrigger>
               <TabsTrigger value="categories">Categorias</TabsTrigger>

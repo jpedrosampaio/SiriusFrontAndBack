@@ -103,6 +103,21 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
         result=self.ok(await self.http.get('/api/projections/summary',params={'month':month}))
         self.assertEqual(result['estimated_income'],0)
 
+    async def test_overdue_unimported_sources_survive_without_resurrecting_paid_history(self):
+        prior=shift_month(self.first,-1)
+        async with unit_of_work() as s:
+            unpaid=Projection(user_id=self.uid,month=prior,description='Unimported overdue',amount=Decimal('23.45'),category='old')
+            closed=Projection(user_id=self.uid,month=prior,description='Already paid history',amount=Decimal('60.00'),category='old')
+            card_closed=Projection(user_id=self.uid,month=prior,description='Paid invoice history',amount=Decimal('50.00'),category='old',card_id=self.card_id)
+            s.add_all([unpaid,closed,card_closed]);await s.flush()
+            s.add_all([MonthlyBill(user_id=self.uid,month=prior,description=closed.description,amount=closed.amount,category='old',projection_id=closed.id,paid=True),
+                MonthlyBill(user_id=self.uid,month=prior,description='Divergent unpaid flag on paid invoice',amount=Decimal('50.00'),category='old',card_id=self.card_id),
+                Invoice(user_id=self.uid,card_id=self.card_id,month=prior,amount=Decimal('50.00'),paid=True)])
+        before=await self.counts();state=await self.state();self.assertEqual(before,await self.counts())
+        old=[o for o in state['upcoming_bills'] if o['month']==str(prior)]
+        self.assertEqual([(o['source_id'],o['amount']) for o in old],[('projection:'+str(unpaid.id),'23.45')])
+        self.assertEqual(state['forecast']['months'][0]['estimated_expense'],'23.45')
+
     async def test_future_ledger_entries_do_not_change_current_budget_basis(self):
         from ai.core import Core
         # Pin all readers to the same account-local date, including at month end.
