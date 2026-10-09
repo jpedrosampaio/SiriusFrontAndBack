@@ -52,6 +52,19 @@ test("financial previews do not invalidate state; actual mutations do", async ()
   assert.deepEqual(client.events.map(event => event.type), ['sirius-data-changed', 'sirius-data-changed', 'sirius-data-changed']);
 });
 
+test("training substitutions are read-only while set and session writes still invalidate", async () => {
+  const client = await loadClient({ pathname: '/workouts' });
+  client.resolve({ config: { method: 'post', url: 'https://sirius-api.test/api/workouts/intelligence/substitutions' } });
+  client.resolve({ config: { method: 'post', url: '/api/workouts/intelligence/substitutions?source=plan' } });
+  assert.equal(client.events.length, 0);
+  for (const config of [
+    { method: 'patch', url: '/api/workout-sessions/owned/exercise/0' },
+    { method: 'post', url: '/api/workout-sessions/owned/complete' },
+    { method: 'delete', url: '/api/workouts/owned' },
+  ]) client.resolve({ config });
+  assert.deepEqual(client.events.map(event => event.type), ['sirius-data-changed', 'sirius-data-changed', 'sirius-data-changed']);
+});
+
 test("plain server messages remain readable", async () => {
   const { getApiErrorMessage } = await helper;
   assert.equal(getApiErrorMessage({ response: { data: { detail: "  Email already registered  " } } }),
