@@ -10,7 +10,7 @@ from services.auth_routes import account
 from services.nutrition_intelligence import NutritionEngine, normalize
 from services.nutrition_evidence import number
 from nutrition_contracts import NutritionState, MealScenario, MealAlternatives, NutritionPreferences, RepeatMeal
-from services.nutrition_plan_dto import PlanBody
+from services.nutrition_plan_dto import ConfirmPlan
 
 router = APIRouter(prefix='/nutrition/intelligence')
 
@@ -33,7 +33,7 @@ async def record_source(request: Request, kind: str, identity: UUID, body: Repea
             items=(await session.scalars(select(PlannedFood).where(PlannedFood.user_id==owner.id,PlannedFood.meal_id==identity).order_by(PlannedFood.position).limit(301))).all()
             if len(items)>300:raise HTTPException(409,'Limite de alimentos excedido.')
             data=[{'name':f.name,'quantity':float(body.portions),'unit':(f.quantity+' '+f.unit).strip() or 'porcao',
-                **{k:getattr(f,k) for k in MACROS},'nutrition_evidence':{'source':'estimated','known_macros':[k for k in MACROS if getattr(f,k)>0],'basis':'per_unit','portion_label':f.quantity}} for f in items]
+                **{k:getattr(f,k) for k in MACROS},'nutrition_evidence':f.nutrition_evidence or {'source':'estimated','known_macros':[k for k in MACROS if getattr(f,k)>0],'basis':'per_unit','portion_label':f.quantity}} for f in items]
             meal_type=body.meal_type or source.meal_type
         else:
             source=await session.scalar(select(Recipe).where(Recipe.user_id==owner.id,Recipe.id==identity))
@@ -54,12 +54,13 @@ async def record_source(request: Request, kind: str, identity: UUID, body: Repea
 
 
 @router.post('/confirm-plan')
-async def confirm_plan(request: Request, body: PlanBody):
+async def confirm_plan(request: Request, body: ConfirmPlan):
     from services.nutrition_plans import save_plan
     user=await account(request)
     if not request.headers.get('Idempotency-Key'):
         raise HTTPException(400,'Confirmação exige chave de idempotência.')
-    return await save_plan(user['user_id'],body,'imported',request.headers['Idempotency-Key'],['nutrition-confirm-import',body.model_dump(mode='json')])
+    return await save_plan(user['user_id'],body.plan,'imported',request.headers['Idempotency-Key'],
+        ['nutrition-confirm-import',body.model_dump(mode='json')],preview_id=body.preview_id)
 
 
 @router.get('/state', response_model=NutritionState)

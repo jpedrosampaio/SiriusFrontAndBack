@@ -75,7 +75,7 @@ async def load_templates(session, owner, day):
         templates.append(template)
         # Old positive composition is a stored estimate; old zero cannot prove a known zero.
         by[meal.id]=[{'name':f.name,'quantity':1,'unit':(f.quantity+' '+f.unit).strip() or 'porcao',
-            **{k:getattr(f,k) for k in MACROS},'nutrition_evidence':{'source':'estimated',
+            **{k:getattr(f,k) for k in MACROS},'nutrition_evidence':f.nutrition_evidence or {'source':'estimated',
                 'known_macros':[k for k in MACROS if getattr(f,k)>0],'basis':'per_unit','portion_label':f.quantity}} for f in planned_foods if f.meal_id==meal.id]
     recipes=(await session.scalars(select(Recipe).where(Recipe.user_id==owner.id).order_by(Recipe.created_at.desc(),Recipe.id).limit(101))).all()
     ingredients=(await session.scalars(select(RecipeIngredient).where(RecipeIngredient.user_id==owner.id,RecipeIngredient.recipe_id.in_([r.id for r in recipes[:100]])).limit(2001))).all() if recipes else []

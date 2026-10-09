@@ -25,7 +25,8 @@ def plan_options():
 def meal_json(row):
     values={key:getattr(row,key) for key in PlannedMealBody.model_fields if key!='foods'}
     values['total_calories']=row.calories
-    values['foods']=[{key:getattr(food,key) for key in PlannedFoodBody.model_fields} for food in row.foods]
+    values['foods']=[{**{key:getattr(food,key) for key in PlannedFoodBody.model_fields if key!='known_macros'},
+        'known_macros':(food.nutrition_evidence or {}).get('known_macros')} for food in row.foods]
     return values
 
 
@@ -43,15 +44,22 @@ def plan_json(row):
         'shopping_list':[{key:getattr(item,key) for key in ShoppingEntry.model_fields} for item in row.shopping_items]})
 
 
-async def save_plan(uid,body,kind,key,fingerprint):
+async def save_plan(uid,body,kind,key,fingerprint,*,preview_id=None):
     async def apply(session,owner):
+        preview=None
+        if preview_id:
+            from services.nutrition_previews import validate_preview
+            preview,confirmation_digest,replayed=await validate_preview(session,owner,preview_id,body)
+            if replayed:return replayed
         row=NutritionPlan(user_id=owner.id,kind=kind,**body.model_dump(exclude={'days','shopping_items'}))
         row.days=[]
         for position,day in enumerate(body.days):
             day_row=NutritionPlanDay(user_id=owner.id,position=position,**day.model_dump(exclude={'meals'}));day_row.meals=[]
             for index,meal in enumerate(day.meals):
                 meal_row=PlannedMeal(user_id=owner.id,position=index,**meal.model_dump(exclude={'foods'}))
-                meal_row.foods=[PlannedFood(user_id=owner.id,position=i,**food.model_dump()) for i,food in enumerate(meal.foods)]
+                meal_row.foods=[PlannedFood(user_id=owner.id,position=i,**food.model_dump(exclude={'known_macros'}),
+                    nutrition_evidence={'source':'registered' if kind=='diet' else 'estimated',
+                        'known_macros':food.known_macros or [],'basis':'per_unit','portion_label':food.quantity}) for i,food in enumerate(meal.foods)]
                 day_row.meals.append(meal_row)
             row.days.append(day_row)
         row.shopping_items=[PlanShoppingItem(user_id=owner.id,position=i,**item.model_dump()) for i,item in enumerate(body.shopping_items)]
@@ -63,6 +71,8 @@ async def save_plan(uid,body,kind,key,fingerprint):
         if kind=='diet':return plan_json(row)
         result={'success':True,'plan':plan_json(row),'xp_earned':xp}
         if kind=='imported':result.update(meals_created=created,goals_updated=False)
+        if preview:
+            preview.result={**preview.result,'consumed_digest':confirmation_digest,'saved_result':result}
         return result
     return await run_activity(UUID(uid),key,fingerprint,apply)
 

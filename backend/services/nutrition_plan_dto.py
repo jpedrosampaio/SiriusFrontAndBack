@@ -16,6 +16,13 @@ class PlannedFoodBody(IngredientBody):
     protein: Nonnegative=0
     carbs: Nonnegative=0
     fat: Nonnegative=0
+    known_macros: list[Literal['calories','protein','carbs','fat']] | None=Field(default=None,max_length=4)
+    @model_validator(mode='before')
+    @classmethod
+    def supplied_macros(cls,data):
+        if isinstance(data,dict) and data.get('known_macros') is None:
+            return {**data,'known_macros':[key for key in ('calories','protein','carbs','fat') if key in data]}
+        return data
 
 class PlannedMealBody(BaseModel):
     name: str=Field(min_length=1,max_length=300)
@@ -87,3 +94,7 @@ class DietBody(BaseModel):
     def valid_dates(self):
         if self.end_date and self.end_date<self.start_date:raise ValueError('Invalid date range')
         return self
+
+class ConfirmPlan(BaseModel):
+    preview_id: str=Field(pattern=r'^nutrition-preview-[a-f0-9]{32}$')
+    plan: PlanBody

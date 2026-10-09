@@ -85,8 +85,8 @@ async def import_meal_plan(request: Request, file: UploadFile=File(...), session
         plan_data = json.loads(response_text)
         validated = validate_ai_plan(plan_data, 'imported', {}, file.filename)
         if preview:
-            return {'preview':validated.model_dump(mode='json'),'composition_source':'estimated_from_ai',
-                'requires_confirmation':True,'saved':False}
+            from services.nutrition_previews import create_preview
+            return await create_preview(user.user_id,validated,hashlib.sha256(content).hexdigest())
         return await save_plan(user.user_id, validated, 'imported', request.headers.get('Idempotency-Key'), ['import-meal-plan', hashlib.sha256(content).hexdigest()])
     except HTTPException:
         raise

@@ -47,10 +47,10 @@ const server=http.createServer((req,res)=>{
         data={meal_id:'new-once',replayed:true};
       }
       if(p==='/api/nutrition/import-plan'){
-        assert.equal(url.searchParams.get('preview'),'true');data={preview:imported,saved:false,requires_confirmation:true};
+        assert.equal(url.searchParams.get('preview'),'true');data={preview_id:'nutrition-preview-'+ 'a'.repeat(32),preview:imported,saved:false,requires_confirmation:true};
       }
       if(p==='/api/nutrition/intelligence/confirm-plan'){
-        plans++;assert.ok(request.headers()['idempotency-key']);assert.equal(request.postDataJSON().days[0].meals[0].calories,125);assert.equal(request.postDataJSON().days[0].meals[0].foods[0].calories,125);
+        plans++;assert.ok(request.headers()['idempotency-key']);assert.equal(request.postDataJSON().preview_id,'nutrition-preview-'+ 'a'.repeat(32));assert.equal(request.postDataJSON().plan.days[0].meals[0].calories,125);assert.equal(request.postDataJSON().plan.days[0].meals[0].foods[0].calories,125);
         data={success:true,plan:{plan_id:'new-plan'},xp_earned:10,meals_created:0};
       }
       await fulfill(route,data);

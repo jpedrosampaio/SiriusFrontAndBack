@@ -10,7 +10,7 @@ from db.models.health import Meal,MealItem,NutritionGoal,NutritionPlan,Recipe,Re
 from db.models.planning import CalendarEvent
 from db.models.finance import Budget,FinancialTransaction
 from decimal import Decimal
-from db.models.identity import User
+from db.models.identity import User,ActivityReceipt
 from db.session import unit_of_work
 from services.time import local_today
 from ai.core import Core
@@ -32,6 +32,12 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
             'foods':[{'name':'Arroz','unit':'porcao','quantity':1,'calories':100,'protein':2,'carbs':20,'fat':0,'estimated':True}],**changes}))
 
     async def state(self,**kwargs):return self.ok(await self.http.get('/api/nutrition/intelligence/state',**kwargs))
+
+    async def preview(self,body):
+        from services.nutrition_plan_dto import PlanBody
+        from services.nutrition_previews import create_preview
+        result=await create_preview(str(self.uid),PlanBody.model_validate(body),'a'*64)
+        return {'preview_id':result['preview_id'],'plan':result['preview']}
 
     async def counts(self):
         async with unit_of_work() as session:
@@ -86,7 +92,7 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.http.put('/api/nutrition/intelligence/preferences',json=foreign,headers={'Authorization':'Bearer bob'})).status_code,404)
 
     async def test_confirm_plan_does_not_record_consumption_or_configure_goals(self):
-        body={'name':'Reviewed','daily_calories':2200,'days':[{'meals':[{'name':'Arroz','meal_type':'lunch','foods':[{'name':'Arroz','quantity':'100','unit':'g','calories':100,'protein':2,'carbs':20}]}]}]}
+        body=await self.preview({'name':'Reviewed','daily_calories':2200,'days':[{'meals':[{'name':'Arroz','meal_type':'lunch','foods':[{'name':'Arroz','quantity':'100','unit':'g','calories':100,'protein':2,'carbs':20,'fat':0}]}]}]})
         results=[self.ok(await self.http.post('/api/nutrition/intelligence/confirm-plan',json=body,headers={'Idempotency-Key':'review-once'})) for _ in range(2)]
         self.assertEqual(results[0]['plan']['plan_id'],results[1]['plan']['plan_id'])
         self.assertEqual((await self.counts())[:3],[0,0,0])
@@ -95,6 +101,7 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
         response=self.ok(await self.http.post('/api/nutrition/intelligence/templates/planned/'+candidate['template_id']+'/record',json={'date':str(self.today)},headers={'Idempotency-Key':'eat-plan'}))
         self.assertEqual(response['foods'][0]['quantity'],1)
         state=await self.state();self.assertEqual(state['consumed']['calories']['estimated'],'100.000')
+        self.assertEqual(state['consumed']['fat']['total'],'0.000')
         self.assertEqual(state['planned'][0]['status'],'recorded')
 
     async def test_same_key_different_provenance_is_conflict(self):
@@ -156,7 +163,7 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
                 CalendarEvent(user_id=self.bob,title='Foreign appointment',start_at=start,end_at=start+timedelta(hours=1))])
             await session.flush();eid=event.id
         plan={'name':'Dated plan','start_date':str(self.today),'days':[{'meals':[{'name':'Own lunch','meal_type':'lunch','foods':[{'name':'Arroz','quantity':'100','unit':'g','calories':100}]}]}]}
-        self.ok(await self.http.post('/api/nutrition/intelligence/confirm-plan',json=plan,headers={'Idempotency-Key':'dated-plan'}))
+        self.ok(await self.http.post('/api/nutrition/intelligence/confirm-plan',json=await self.preview(plan),headers={'Idempotency-Key':'dated-plan'}))
         before=await self.counts();data=await self.state()
         self.assertEqual([e['title'] for e in data['routine_context']],['Fixed appointment'])
         self.assertTrue(data['routine_context'][0]['fixed']);self.assertEqual(data['training_context'][0]['recorded_minutes'],40)
@@ -167,3 +174,33 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(projection.candidates),1)
             event=await session.get(CalendarEvent,eid);self.assertEqual(event.start_at,start)
         self.assertEqual(await self.counts(),before)
+
+    async def test_preview_receipt_ownership_structure_expiry_and_one_reward(self):
+        raw={'name':'Preview','days':[{'meals':[{'name':'Food','foods':[{'name':'Arroz','calories':100,'fat':0}]}]}]}
+        path='/api/nutrition/intelligence/confirm-plan';body=await self.preview(raw)
+        self.assertEqual((await self.http.post(path,json=raw,headers={'Idempotency-Key':'unbound-body'})).status_code,422)
+        self.assertEqual((await self.http.post(path,json=body,headers={'Authorization':'Bearer bob','Idempotency-Key':'foreign-preview'})).status_code,404)
+        results=await asyncio.gather(*(self.http.post(path,json=body,headers={'Idempotency-Key':f'confirm-preview-{i}'}) for i in range(5)))
+        self.assertEqual(len({self.ok(r)['plan']['plan_id'] for r in results}),1)
+        async with unit_of_work() as session:
+            self.assertEqual((await session.get(User,self.uid)).xp,10)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(NutritionPlan).where(NutritionPlan.user_id==self.uid)),1)
+        body['plan']['name']='Changed after confirmation'
+        self.assertEqual((await self.http.post(path,json=body,headers={'Idempotency-Key':'changed-preview'})).status_code,409)
+        fresh=await self.preview(raw)
+        fresh['plan']['days'][0]['meals'][0]['foods'].append({'name':'Injected food'})
+        self.assertEqual((await self.http.post(path,json=fresh,headers={'Idempotency-Key':'injected-preview'})).status_code,409)
+        expired=await self.preview(raw)
+        async with unit_of_work() as session:
+            receipt=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==self.uid,ActivityReceipt.request_key==expired['preview_id']))
+            receipt.result={**receipt.result,'expires_at':'2020-01-01T00:00:00+00:00'}
+        self.assertEqual((await self.http.post(path,json=expired,headers={'Idempotency-Key':'expired-preview'})).status_code,409)
+        retry=await self.preview(raw)
+        with patch('services.nutrition_plans.plan_json',side_effect=RuntimeError('after plan flush')):
+            with self.assertRaises(RuntimeError):
+                await self.http.post(path,json=retry,headers={'Idempotency-Key':'rollback-preview'})
+        async with unit_of_work() as session:
+            receipt=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==self.uid,ActivityReceipt.request_key==retry['preview_id']))
+            self.assertNotIn('consumed_digest',receipt.result)
+            self.assertEqual((await session.get(User,self.uid)).xp,10)
+        self.ok(await self.http.post(path,json=retry,headers={'Idempotency-Key':'rollback-preview'}))

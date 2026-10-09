@@ -358,6 +358,7 @@ class PlannedFood(Identity, Owned, Base):
     protein: Mapped[float]
     carbs: Mapped[float]
     fat: Mapped[float]
+    nutrition_evidence: Mapped[dict | None] = mapped_column(JSONB)
     __table_args__ = (UniqueConstraint('user_id','meal_id','position'),
         ForeignKeyConstraint(['user_id','meal_id'],['planned_meals.user_id','planned_meals.id'],ondelete='CASCADE'))
 

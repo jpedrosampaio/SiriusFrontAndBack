@@ -39,6 +39,7 @@ const mealTypeLabels = {
 export default function Nutrition() {
   const activityRequests=useRef(createActivityRequests());
   const [importPreview,setImportPreview]=useState(null);
+  const importPreviewId=useRef(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(getLocalDateStr());
@@ -423,7 +424,7 @@ export default function Nutrition() {
         headers: { "Content-Type": "multipart/form-data" },
         timeout: 120000
       });
-      if(res.data.preview){setImportPreview(res.data.preview);return;}
+      if(res.data.preview && res.data.preview_id){importPreviewId.current=res.data.preview_id;setImportPreview(res.data.preview);return;}
       if (res.data.success) {
         toast.success(`Plano importado! ${res.data.meals_created} refeições criadas. +${res.data.xp_earned} XP`);
         setShowImportDialog(false);
@@ -439,12 +440,13 @@ export default function Nutrition() {
   };
 
   const handleConfirmImport=async()=>{
-    if(!importPreview)return;
-    const key=activityRequests.current.begin('import',JSON.stringify(importPreview));if(!key)return;
+    if(!importPreview || !importPreviewId.current)return;
+    const body={preview_id:importPreviewId.current,plan:importPreview};
+    const key=activityRequests.current.begin('import',JSON.stringify(body));if(!key)return;
     setImportingPlan(true);let succeeded=false;
     try{
-      await axios.post(`${API}/nutrition/intelligence/confirm-plan`,importPreview,{headers:{'Idempotency-Key':key}});
-      succeeded=true;setImportPreview(null);setShowImportDialog(false);setImportFile(null);fetchMealPlans();fetchData();toast.success('Plano revisado e salvo. Nenhum consumo foi registrado.');
+      await axios.post(`${API}/nutrition/intelligence/confirm-plan`,body,{headers:{'Idempotency-Key':key}});
+      succeeded=true;importPreviewId.current=null;setImportPreview(null);setShowImportDialog(false);setImportFile(null);fetchMealPlans();fetchData();toast.success('Plano revisado e salvo. Nenhum consumo foi registrado.');
     }catch(e){toast.error(getApiErrorMessage(e,'Não foi possível confirmar o plano.'));}
     finally{activityRequests.current.finish('import',succeeded);setImportingPlan(false);}
   };
@@ -1162,7 +1164,7 @@ export default function Nutrition() {
                           type="file"
                           accept=".pdf,.jpg,.jpeg,.png,.webp"
                           className="hidden"
-                          onChange={(e) => {setImportFile(e.target.files[0] || null);setImportPreview(null);}}
+                          onChange={(e) => {setImportFile(e.target.files[0] || null);setImportPreview(null);importPreviewId.current=null;}}
                         />
                         {importFile ? (
                           <div>
@@ -1192,9 +1194,9 @@ export default function Nutrition() {
                         {importPreview.days.map((day,di)=><details key={di} open><summary>{day.day_label || `Dia ${di+1}`}</summary>{day.meals.map((meal,mi)=><div key={mi} className="space-y-2 py-2 border-b border-white/10">
                           <p className="font-medium">{meal.name} · composição estimada</p>
                           {meal.foods.map((food,fi)=><label className="block text-xs" key={fi}>{food.name} · quantidade estimada<Input value={food.quantity} onChange={e=>setImportPreview({...importPreview,days:importPreview.days.map((d,i)=>i!==di?d:{...d,meals:d.meals.map((m,j)=>j!==mi?m:{...m,foods:m.foods.map((f,k)=>k!==fi?f:{...f,quantity:e.target.value})})})})}/></label>)}
-                          {meal.foods.map((food,fi)=><div className="grid grid-cols-2 gap-2" key={fi}>{[['calories','Energia (kcal)'],['protein','Proteína (g)'],['carbs','Carboidratos (g)'],['fat','Gordura (g)']].map(([field,label])=><label className="text-xs" key={field}>{food.name} · {label} na porção declarada<Input aria-label={`${food.name} · ${label}`} type="number" min="0" value={food[field]} onChange={e=>setImportPreview({...importPreview,days:importPreview.days.map((d,i)=>i!==di?d:{...d,meals:d.meals.map((m,j)=>{
+                          {meal.foods.map((food,fi)=><div className="grid grid-cols-2 gap-2" key={fi}>{[['calories','Energia (kcal)'],['protein','Proteína (g)'],['carbs','Carboidratos (g)'],['fat','Gordura (g)']].map(([field,label])=><label className="text-xs" key={field}>{food.name} · {label} na porção declarada<Input aria-label={`${food.name} · ${label}`} type="number" min="0" value={food.known_macros?.includes(field)?food[field]:''} onChange={e=>setImportPreview({...importPreview,days:importPreview.days.map((d,i)=>i!==di?d:{...d,meals:d.meals.map((m,j)=>{
                             if(j!==mi)return m;
-                            const foods=m.foods.map((f,k)=>k!==fi?f:{...f,[field]:Number(e.target.value)});
+                            const foods=m.foods.map((f,k)=>k!==fi?f:{...f,[field]:Number(e.target.value),known_macros:e.target.value===''?(f.known_macros || []).filter(x=>x!==field):[...new Set([...(f.known_macros || []),field])]});
                             return {...m,foods,[field]:foods.reduce((total,f)=>total+Number(f[field] || 0),0)};
                           })})})}/></label>)}</div>)}
                           <p className="text-xs text-slate-400">Valores editados por alimento na porção declarada; o registro reutiliza essa composição. Zeros antigos sem fonte permanecem desconhecidos.</p>
