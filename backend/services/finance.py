@@ -118,14 +118,15 @@ async def bills(session,user,month):
     # Preserve import-on-first-view behavior under the same user transaction lock.
     rows = list((await session.scalars(select(MonthlyBill).where(MonthlyBill.user_id==user.id,MonthlyBill.month==month)
         .order_by(MonthlyBill.created_at,MonthlyBill.id))).all())
-    if not rows:
-        projections = (await session.scalars(select(Projection).where(Projection.user_id==user.id,Projection.month==month))).all()
-        for row in projections:
-            bill = MonthlyBill(user_id=user.id,month=month,description=row.description,amount=row.amount,category=row.category,
-                source='projection',projection_id=row.id,card_id=row.card_id,
-                installment_info=f'{row.installment_number}/{row.total_installments}' if row.installment_number else None)
-            session.add(bill); rows.append(bill)
-        await session.flush()
+    imported={row.projection_id for row in rows if row.projection_id}
+    projections = (await session.scalars(select(Projection).where(Projection.user_id==user.id,Projection.month==month,
+        Projection.id.not_in(imported)))).all()
+    for row in projections:
+        bill = MonthlyBill(user_id=user.id,month=month,description=row.description,amount=row.amount,category=row.category,
+            source='projection',projection_id=row.id,card_id=row.card_id,
+            installment_info=f'{row.installment_number}/{row.total_installments}' if row.installment_number else None)
+        session.add(bill); rows.append(bill)
+    await session.flush()
     rows=[row for row in rows if row.source!='deleted']
     total = sum((r.amount for r in rows),ZERO)
     paid = sum((r.amount for r in rows if r.paid),ZERO)

@@ -111,7 +111,7 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
             card_closed=Projection(user_id=self.uid,month=prior,description='Paid invoice history',amount=Decimal('50.00'),category='old',card_id=self.card_id)
             s.add_all([unpaid,closed,card_closed]);await s.flush()
             s.add_all([MonthlyBill(user_id=self.uid,month=prior,description=closed.description,amount=closed.amount,category='old',projection_id=closed.id,paid=True),
-                MonthlyBill(user_id=self.uid,month=prior,description='Divergent unpaid flag on paid invoice',amount=Decimal('50.00'),category='old',card_id=self.card_id),
+                MonthlyBill(user_id=self.uid,month=prior,description='Divergent unpaid flag on paid invoice',amount=Decimal('50.00'),category='old',card_id=self.card_id,projection_id=card_closed.id),
                 Invoice(user_id=self.uid,card_id=self.card_id,month=prior,amount=Decimal('50.00'),paid=True)])
         before=await self.counts();state=await self.state();self.assertEqual(before,await self.counts())
         old=[o for o in state['upcoming_bills'] if o['month']==str(prior)]
@@ -137,6 +137,24 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(visible['bills'],[]);self.assertEqual(after,await self.counts())
         state=await self.state();self.assertFalse(any(o['month']==str(prior) for o in state['upcoming_bills']))
         self.assertEqual((await self.http.patch('/api/finance/monthly-bills/'+str(bill_id)+'/toggle')).status_code,404)
+        async with unit_of_work() as s:
+            later=Projection(user_id=self.uid,month=prior,description='New obligation after deletion',amount=Decimal('12.34'),category='old')
+            s.add(later);await s.flush()
+        for _ in range(2):
+            visible=self.ok(await self.http.get('/api/finance/monthly-bills',params={'month':str(prior)[:7]}))
+            self.assertEqual([(b['description'],b['amount']) for b in visible['bills']],[('New obligation after deletion',12.34)])
+        async with unit_of_work() as s:
+            self.assertEqual(await s.scalar(select(func.count()).select_from(MonthlyBill).where(MonthlyBill.user_id==self.uid,MonthlyBill.projection_id==later.id)),1)
+
+    async def test_unlinked_bill_is_not_covered_by_paid_invoice(self):
+        self.ok(await self.http.delete('/api/projections/'+str(self.projection.id)))
+        async with unit_of_work() as s:
+            bill=await s.get(MonthlyBill,self.bill.id);self.assertIsNone(bill.projection_id)
+            invoice=await s.scalar(select(Invoice).where(Invoice.user_id==self.uid,Invoice.card_id==self.card_id,Invoice.month==self.next))
+            self.assertEqual(invoice.amount,Decimal('100.00'));invoice.paid=True
+        state=await self.state()
+        self.assertEqual([(o['source_id'],o['amount']) for o in state['upcoming_bills']],[('bill:'+str(self.bill.id),'200.00')])
+        self.assertEqual(state['forecast']['months'][1]['estimated_expense'],'200.00')
 
     async def test_future_ledger_entries_do_not_change_current_budget_basis(self):
         from ai.core import Core
