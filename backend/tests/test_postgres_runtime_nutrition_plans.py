@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch,AsyncMock
 from sqlalchemy import select,func
-from db.models.health import NutritionPlan,NutritionPlanDay,PlannedMeal,PlannedFood,Meal,MealItem,ShoppingList,ShoppingItem
+from db.models.health import NutritionPlan,NutritionPlanDay,PlannedMeal,PlannedFood,Meal,MealItem,NutritionGoal,ShoppingList,ShoppingItem
 from db.models.identity import User
 from db.session import unit_of_work
 import test_postgres_runtime_recipes as setup
@@ -23,6 +23,7 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
         async def authenticate(authorization=None,**kwargs):return SimpleNamespace(user_id=str(self.bob if authorization=='Bearer bob' else self.uid))
         self.plan_ai=AsyncMock(return_value=SimpleNamespace(text=json.dumps(self.generated())))
         extra=[patch('services.nutrition_plans.account',account),patch('services.nutrition_shopping.account',account),
+            patch('services.nutrition_intelligence_routes.account',account),
             patch('services.nutrition_generation_routes.get_current_user',authenticate),
             patch('services.nutrition_generation_routes.get_user_api_key',AsyncMock(return_value='configured')),
             patch('services.nutrition_generation_routes.request_gemini',self.plan_ai)]
@@ -75,26 +76,77 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.ok(await self.http.get('/api/nutrition/shopping-lists'))),1)
         self.assertEqual((await self.http.post('/api/nutrition/shopping-list/generate',json=body)).status_code,404)
 
-    async def test_import_updates_correct_goals_and_meal_totals_once_and_cleans_file(self):
+    async def test_import_preserves_plan_without_fabricating_consumption_and_cleans_file(self):
         self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Imported','daily_calories':2200,'daily_protein':130,
             'meals':[self.planned_meal()]}))
         paths=[]
         async def upload(path,uid):paths.append(path);return SimpleNamespace(uri='test://file')
         with patch('services.study_material_routes._upload',upload),patch('services.study_material_routes._part',return_value={}):
-            rows=[self.ok(await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')},headers={'Idempotency-Key':'import-nutrition-001'})) for _ in range(2)]
-        self.assertEqual(rows[0]['plan']['plan_id'],rows[1]['plan']['plan_id']);self.assertEqual(rows[0]['meals_created'],1)
+            previews=[self.ok(await self.http.post('/api/nutrition/import-plan'+flag,files={'file':('plan.pdf',b'%PDF fake','application/pdf')})) for flag in ('','?preview=false','?preview=true')]
+        self.assertEqual(len({p['preview_id'] for p in previews}),1);self.plan_ai.assert_awaited_once()
+        self.assertTrue(all(p['requires_confirmation'] for p in previews))
+        async with unit_of_work() as session:
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(NutritionPlan).where(NutritionPlan.user_id==self.uid)),0)
+        body={'preview_id':previews[0]['preview_id'],'plan':previews[0]['preview']}
+        rows=[self.ok(await self.http.post('/api/nutrition/intelligence/confirm-plan',json=body,headers={'Idempotency-Key':f'confirm-file-{i}'})) for i in range(2)]
+        self.assertEqual(rows[0]['plan']['plan_id'],rows[1]['plan']['plan_id']);self.assertEqual(rows[0]['meals_created'],0)
+        repeat=self.ok(await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')}))
+        self.assertTrue(repeat['already_confirmed']);self.assertEqual(repeat['xp_earned'],0);self.plan_ai.assert_awaited_once()
         self.assertTrue(paths);self.assertTrue(all(not Path(path).exists() for path in paths))
-        goals=self.ok(await self.http.get('/api/nutrition/goals'));self.assertEqual(goals['daily_calories'],2200);self.assertEqual(goals['daily_protein'],130)
-        meals=self.ok(await self.http.get('/api/nutrition/meals'));self.assertEqual(len(meals),1);self.assertEqual(meals[0]['total_protein'],25)
-        stats=self.ok(await self.http.get('/api/nutrition/stats'));self.assertEqual(stats['consumed']['calories'],350);self.assertEqual(stats['consumed']['protein'],25)
+        goals=self.ok(await self.http.get('/api/nutrition/goals'));self.assertIsNone(goals['goal_id'])
+        meals=self.ok(await self.http.get('/api/nutrition/meals'));self.assertEqual(meals,[])
+        self.assertEqual(rows[0]['plan']['meals'][0]['protein'],25)
+        stats=self.ok(await self.http.get('/api/nutrition/stats'));self.assertEqual(stats['consumed']['calories'],0);self.assertEqual(stats['consumed']['protein'],0)
         async with unit_of_work() as session:self.assertEqual((await session.get(User,self.uid)).xp,10)
+
+    async def test_import_preview_never_saves_records_or_xp(self):
+        self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Preview','meals':[self.planned_meal()]}))
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})),patch('services.nutrition_generation_routes.save_plan',AsyncMock()) as save:
+            result=self.ok(await self.http.post('/api/nutrition/import-plan?preview=true',files={'file':('plan.png',b'fake','image/png')}))
+        self.assertTrue(result['requires_confirmation']);self.assertFalse(result['saved']);save.assert_not_awaited()
+        async with unit_of_work() as session:
+            for model in (NutritionPlan,Meal,NutritionGoal):
+                self.assertEqual(await session.scalar(select(func.count()).select_from(model).where(model.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+
+    async def test_concurrent_same_upload_has_one_external_analysis_and_retries_reuse(self):
+        entered=asyncio.Event();release=asyncio.Event()
+        async def analyze(**kwargs):
+            entered.set();await release.wait()
+            return SimpleNamespace(text=json.dumps({'plan_name':'Concurrent','meals':[self.planned_meal()]}))
+        self.plan_ai.side_effect=analyze
+        async def send():return await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF same-concurrent','application/pdf')})
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})) as upload:
+            first=asyncio.create_task(send())
+            try:
+                await asyncio.wait_for(entered.wait(),5)
+                duplicates=await asyncio.gather(*(send() for _ in range(4)))
+                self.assertTrue(all(r.status_code==409 and r.headers['Retry-After']=='2' for r in duplicates))
+            finally:release.set()
+            result=self.ok(await first);retry=self.ok(await send())
+        self.assertEqual(result['preview_id'],retry['preview_id']);self.plan_ai.assert_awaited_once();upload.assert_awaited_once()
+
+    async def test_cancelled_analysis_releases_digest_lock_for_retry(self):
+        entered=asyncio.Event()
+        async def analyze(**kwargs):entered.set();await asyncio.Event().wait()
+        self.plan_ai.side_effect=analyze
+        async def send():return await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF cancel-lock','application/pdf')})
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})):
+            task=asyncio.create_task(send());await asyncio.wait_for(entered.wait(),5);task.cancel()
+            with self.assertRaises(asyncio.CancelledError):await task
+            self.plan_ai.side_effect=None
+            self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Retry','meals':[self.planned_meal()]}))
+            self.assertTrue(self.ok(await send())['requires_confirmation'])
 
     async def test_import_failure_rolls_back_all_sql_and_xp(self):
         self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Imported','daily_calories':2200,'meals':[self.planned_meal()]}))
-        with patch('services.study_material_routes.upload_part',AsyncMock(return_value={})),             patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})),             patch('services.nutrition_plans.plan_json',side_effect=RuntimeError('after flush')):
-            with self.assertRaises(RuntimeError):await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')})
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})):
+            preview=self.ok(await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')}))
+        with patch('services.nutrition_plans.plan_json',side_effect=RuntimeError('after flush')):
+            with self.assertRaises(RuntimeError):await self.http.post('/api/nutrition/intelligence/confirm-plan',json={'preview_id':preview['preview_id'],'plan':preview['preview']},headers={'Idempotency-Key':'failed-confirm-file'})
         async with unit_of_work() as session:
             for model in (NutritionPlan,PlannedMeal,PlannedFood,Meal,MealItem):
                 self.assertEqual(await session.scalar(select(func.count()).select_from(model).where(model.user_id==self.uid)),0)
             self.assertEqual((await session.get(User,self.uid)).xp,0)
-        self.assertEqual(self.ok(await self.http.get('/api/nutrition/goals'))['daily_calories'],2000)
+        self.assertIsNone(self.ok(await self.http.get('/api/nutrition/goals'))['daily_calories'])

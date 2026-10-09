@@ -71,22 +71,28 @@ async def import_meal_plan(request: Request, file: UploadFile=File(...), session
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail='Formato não suportado. Envie PDF, JPG, PNG ou WEBP.')
     content = await read_upload(file)
-    part = await upload_part(content, file.filename, file.content_type, user.user_id)
-    try:
-        prompt = 'Analise este plano alimentar/dieta e extraia TODAS as refeições em formato JSON estruturado.\n\nPara cada refeição, extraia:\n- meal_type: "breakfast" (café da manhã), "lunch" (almoço), "dinner" (jantar), "snack" (lanche)\n- name: nome da refeição\n- time: horário sugerido (ex: "07:00")\n- foods: lista de alimentos com quantidade\n- calories: calorias estimadas (número)\n- protein: proteína em gramas (número)\n- carbs: carboidratos em gramas (número)\n- fat: gordura em gramas (número)\n- fiber: fibra em gramas (número, opcional)\n- notes: observações adicionais\n\nTambém extraia informações gerais do plano:\n- plan_name: nome do plano\n- goal: objetivo (emagrecimento, hipertrofia, saúde, etc.)\n- daily_calories: meta calórica diária total\n- daily_protein: meta de proteína diária\n- daily_carbs: meta de carboidratos diária\n- daily_fat: meta de gordura diária\n- restrictions: restrições alimentares mencionadas\n- tips: dicas do nutricionista\n\nResponda APENAS com JSON válido neste formato:\n{\n  "plan_name": "Nome do Plano",\n  "goal": "objetivo",\n  "daily_calories": 2000,\n  "daily_protein": 150,\n  "daily_carbs": 200,\n  "daily_fat": 70,\n  "restrictions": ["restrição 1"],\n  "tips": ["dica 1", "dica 2"],\n  "meals": [\n    {\n      "meal_type": "breakfast",\n      "name": "Café da Manhã",\n      "time": "07:00",\n      "foods": [{"name": "Ovos mexidos", "quantity": "3 unidades", "calories": 210}],\n      "calories": 350,\n      "protein": 25,\n      "carbs": 30,\n      "fat": 15,\n      "notes": ""\n    }\n  ]\n}\n\nIMPORTANTE: Retorne APENAS o JSON, sem markdown, sem ```json.'
-        response = await request_gemini(task='nutrition_generation', contents=[part, prompt], config=dict(system_instruction='Você é um nutricionista especialista. Extraia com precisão todas as informações do plano alimentar.'), user_id=user.user_id)
-        response_text = response.text.strip()
-        if response_text.startswith('```'):
-            response_text = response_text.split('\n', 1)[1] if '\n' in response_text else response_text[3:]
-        if response_text.endswith('```'):
-            response_text = response_text[:-3].strip()
-        if response_text.startswith('json'):
-            response_text = response_text[4:].strip()
-        plan_data = json.loads(response_text)
-        validated = validate_ai_plan(plan_data, 'imported', {}, file.filename)
-        return await save_plan(user.user_id, validated, 'imported', request.headers.get('Idempotency-Key'), ['import-meal-plan', hashlib.sha256(content).hexdigest()])
-    except HTTPException:
-        raise
-    except (json.JSONDecodeError, TypeError):
-        raise HTTPException(502, 'A IA retornou um plano alimentar inválido.')
+    from services.nutrition_previews import existing_preview,create_preview,upload_analysis
+    upload_digest=hashlib.sha256(content).hexdigest()
+    async with upload_analysis(user.user_id,upload_digest) as analysis_session:
+        previous=await existing_preview(user.user_id,upload_digest,session=analysis_session)
+        if previous:return previous
+        part = await upload_part(content, file.filename, file.content_type, user.user_id)
+        try:
+            prompt = 'Analise este plano alimentar/dieta e extraia TODAS as refeições em formato JSON estruturado.\n\nPara cada refeição, extraia:\n- meal_type: "breakfast" (café da manhã), "lunch" (almoço), "dinner" (jantar), "snack" (lanche)\n- name: nome da refeição\n- time: horário sugerido (ex: "07:00")\n- foods: lista de alimentos com quantidade\n- calories: calorias estimadas (número)\n- protein: proteína em gramas (número)\n- carbs: carboidratos em gramas (número)\n- fat: gordura em gramas (número)\n- fiber: fibra em gramas (número, opcional)\n- notes: observações adicionais\n\nTambém extraia informações gerais do plano:\n- plan_name: nome do plano\n- goal: objetivo (emagrecimento, hipertrofia, saúde, etc.)\n- daily_calories: meta calórica diária total\n- daily_protein: meta de proteína diária\n- daily_carbs: meta de carboidratos diária\n- daily_fat: meta de gordura diária\n- restrictions: restrições alimentares mencionadas\n- tips: dicas do nutricionista\n\nResponda APENAS com JSON válido neste formato:\n{\n  "plan_name": "Nome do Plano",\n  "goal": "objetivo",\n  "daily_calories": 2000,\n  "daily_protein": 150,\n  "daily_carbs": 200,\n  "daily_fat": 70,\n  "restrictions": ["restrição 1"],\n  "tips": ["dica 1", "dica 2"],\n  "meals": [\n    {\n      "meal_type": "breakfast",\n      "name": "Café da Manhã",\n      "time": "07:00",\n      "foods": [{"name": "Ovos mexidos", "quantity": "3 unidades", "calories": 210}],\n      "calories": 350,\n      "protein": 25,\n      "carbs": 30,\n      "fat": 15,\n      "notes": ""\n    }\n  ]\n}\n\nIMPORTANTE: Retorne APENAS o JSON, sem markdown, sem ```json.'
+            response = await request_gemini(task='nutrition_generation', contents=[part, prompt], config=dict(system_instruction='Você é um nutricionista especialista. Extraia com precisão todas as informações do plano alimentar.'), user_id=user.user_id)
+            response_text = response.text.strip()
+            if response_text.startswith('```'):
+                response_text = response_text.split('\n', 1)[1] if '\n' in response_text else response_text[3:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3].strip()
+            if response_text.startswith('json'):
+                response_text = response_text[4:].strip()
+            plan_data = json.loads(response_text)
+            validated = validate_ai_plan(plan_data, 'imported', {}, file.filename)
+            # Query flags cannot bypass owned preview/confirmation, including legacy preview=false.
+            return await create_preview(user.user_id,validated,upload_digest,session=analysis_session)
+        except HTTPException:
+            raise
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(502, 'A IA retornou um plano alimentar inválido.')
 

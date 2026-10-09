@@ -19,7 +19,6 @@ from db.models.files import FileRecord, EditalAnalysis
 from db.repositories.planning import PlanningRepository
 from db.session import unit_of_work
 from services.time import local_today
-from services.nutrition_data import period, MACROS
 
 
 async def user_day(user_id):
@@ -152,8 +151,9 @@ async def read(name, user_id):
                 WorkoutLog.user_id == uid, WorkoutLog.completed.is_(True), WorkoutLog.date.between(start, day)))).one()
             return {'sessions': count, 'minutes': minutes}
         if name == 'get_nutrition_today':
-            meals, _, _ = await period(session, uid, day, day)
-            return {'total_'+key: meals.get(day, {}).get(key, 0) for key in MACROS}
+            from services.nutrition_intelligence import load_state
+            state=await load_state(session,user,day,include_context=False)
+            return {'total_'+key:float(value.total) if value.total is not None else None for key,value in state.consumed.items()}
         if name == 'get_calendar':
             zone = ZoneInfo(user.timezone)
             lower = datetime.combine(day, datetime.min.time(), zone)

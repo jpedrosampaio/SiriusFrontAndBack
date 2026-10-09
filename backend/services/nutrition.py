@@ -1,6 +1,6 @@
 """Normalized meals, hydration and nutrition targets; SQL period aggregates."""
-from datetime import date as Date,timedelta
-from typing import Annotated
+from datetime import date as Date,timedelta,datetime,timezone
+from typing import Annotated,Literal
 from uuid import UUID
 from fastapi import APIRouter,Request,Query,HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -24,6 +24,9 @@ class Food(BaseModel):
     protein: Nonnegative=0
     carbs: Nonnegative=0
     fat: Nonnegative=0
+    estimated: bool=False
+    portion_label: str=Field(default='',max_length=300)
+    known_macros: list[Literal['calories','protein','carbs','fat']] | None=Field(default=None,max_length=4)
 
 class MealBody(BaseModel):
     name: str=Field(min_length=1,max_length=300)
@@ -37,11 +40,15 @@ class MealBody(BaseModel):
 
 
 def meal_json(row):
-    foods=[{key:getattr(item,key) for key in Food.model_fields} for item in row.items]
-    totals={key:getattr(row,'reported_'+key) if getattr(row,'reported_'+key) is not None else sum(food[key]*food['quantity'] for food in foods) for key in MACROS}
+    from services.nutrition_evidence import number
+    foods=[{**{key:getattr(item,key) for key in Food.model_fields if key not in ('estimated','portion_label','known_macros')},
+        'estimated':(item.nutrition_evidence or {}).get('source')=='estimated',
+        'portion_label':(item.nutrition_evidence or {}).get('portion_label',''),
+        'nutrition_evidence':item.nutrition_evidence} for item in row.items]
+    totals={key:number(getattr(row,'reported_'+key)) if getattr(row,'reported_'+key) is not None else sum((number(food[key])*number(food['quantity']) for food in foods),number(0)) for key in MACROS}
     return jsonable_encoder({'meal_id':row.id,'user_id':row.user_id,'name':row.name,'meal_type':row.meal_type,
         'date':row.date,'notes':row.notes,'created_at':row.created_at,'foods':foods,
-        **{'total_'+key:int(value) if key=='calories' else round(value,1) for key,value in totals.items()}})
+        **{'total_'+key:float(round(value,3)) for key,value in totals.items()}})
 
 
 def water_json(row):
@@ -61,37 +68,49 @@ async def meals(request: Request,date: Date | None=None):
 @router.post('/meals')
 async def create_meal(request: Request,body: MealBody):
     user=await account(request)
+    from services.nutrition_evidence import evidence
     async def apply(session,owner):
         row=Meal(user_id=owner.id,**body.model_dump(exclude={'foods'}))
-        row.items=[MealItem(user_id=owner.id,position=i,**food.model_dump()) for i,food in enumerate(body.foods)]
+        row.items=[MealItem(user_id=owner.id,position=i,nutrition_evidence=evidence(food),**food.model_dump(exclude={'estimated','portion_label','known_macros'})) for i,food in enumerate(body.foods)]
         session.add(row);await session.flush();return meal_json(row)
-    return await run_activity(UUID(user['user_id']),request.headers.get('Idempotency-Key'),['meal',body.model_dump(mode='json')],apply)
+    return await run_activity(UUID(user['user_id']),request.headers.get('Idempotency-Key'),['meal',body.model_dump(mode='json'),[evidence(f) for f in body.foods]],apply)
 
 
 @router.delete('/meals/{meal_id}')
 async def delete_meal(request: Request,meal_id: UUID):
     user=await account(request)
-    async with unit_of_work() as session:
-        result=await session.execute(delete(Meal).where(Meal.user_id==UUID(user['user_id']),Meal.id==meal_id))
+    async def apply(session,owner):
+        result=await session.execute(delete(Meal).where(Meal.user_id==owner.id,Meal.id==meal_id))
         if not result.rowcount:raise HTTPException(404,'Meal not found')
-    return {'message':'Meal deleted'}
+        prefs=(owner.preferences or {}).get('nutrition_intelligence')
+        if isinstance(prefs,dict):
+            owner.preferences={**owner.preferences,'nutrition_intelligence':{**prefs,
+                'favorite_meals':[v for v in prefs.get('favorite_meals',[]) if v!=str(meal_id)]}}
+        return {'message':'Meal deleted'}
+    return await run_activity(UUID(user['user_id']),request.headers.get('Idempotency-Key'),['nutrition-delete',str(meal_id)],apply)
 
 
 async def goals_write(request,body=None):
     user=await account(request)
+    if body is None or not body.model_fields_set:raise HTTPException(422,'Informe ao menos uma meta explícita.')
     async def apply(session,owner):
         row=await session.scalar(select(NutritionGoal).where(NutritionGoal.user_id==owner.id))
         if row is None:
             row=NutritionGoal(user_id=owner.id,**(body or GoalBody()).model_dump());session.add(row)
         elif body:
-            for key,value in body.model_dump().items():setattr(row,key,value)
+            for key,value in body.model_dump(exclude_unset=True).items():setattr(row,key,value)
+        row.confirmed_at=datetime.now(timezone.utc)
+        row.confirmed_fields=sorted(set(row.confirmed_fields or []) | set(body.model_fields_set if body else []))
         await session.flush();await session.refresh(row);return goal_json(row)
     return await run_activity(UUID(user['user_id']),request.headers.get('Idempotency-Key') if body else None,
-        ['nutrition-goals',body.model_dump() if body else None],apply)
+        ['nutrition-goals',body.model_dump(exclude_unset=True) if body else None],apply)
 
 
 @router.get('/goals')
-async def goals(request: Request):return await goals_write(request)
+async def goals(request: Request):
+    user=await account(request)
+    async with unit_of_work() as session:
+        return goal_json(await session.scalar(select(NutritionGoal).where(NutritionGoal.user_id==UUID(user['user_id']))))
 
 
 @router.put('/goals')
@@ -121,10 +140,13 @@ async def add_water(request: Request,amount_ml: int=Query(gt=0),date: Date | Non
 @router.get('/stats')
 async def stats(request: Request,date: Date | None=None):
     user=await account(request);day=date or local_today(user['timezone'])
-    async with unit_of_work() as session:meals,water,goals=await period(session,UUID(user['user_id']),day,day)
-    values=meals.get(day,{});consumed={key:round(values.get(key,0),1) for key in MACROS};consumed['water_ml']=water.get(day,0)
-    remaining={key:round(goals['daily_'+key]-consumed[key],1) for key in MACROS};remaining['water_ml']=goals['water_goal_ml']-consumed['water_ml']
-    return {'date':day.isoformat(),'consumed':consumed,'goals':goals,'meals_count':values.get('meals_count',0),'remaining':remaining}
+    from services.nutrition_intelligence import NutritionEngine
+    state=await NutritionEngine().get_state(user['user_id'],day,include_context=False)
+    goals=state.goals or goal_json(None)
+    consumed={key:float(state.consumed[key].total) if state.consumed[key].total is not None else None for key in MACROS};consumed['water_ml']=state.water_ml
+    remaining={key:float(value) if value is not None else None for key,value in state.remaining.items()}
+    remaining['water_ml']=max(0,goals['water_goal_ml']-state.water_ml) if 'water_goal_ml' in goals.get('confirmed_fields',[]) else None
+    return {'date':day.isoformat(),'consumed':consumed,'consumed_details':{k:v.model_dump() for k,v in state.consumed.items()},'goals':goals,'meals_count':len(state.meals),'remaining':remaining}
 
 
 @router.get('/weekly-trend')

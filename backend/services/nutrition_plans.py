@@ -25,7 +25,8 @@ def plan_options():
 def meal_json(row):
     values={key:getattr(row,key) for key in PlannedMealBody.model_fields if key!='foods'}
     values['total_calories']=row.calories
-    values['foods']=[{key:getattr(food,key) for key in PlannedFoodBody.model_fields} for food in row.foods]
+    values['foods']=[{**{key:getattr(food,key) for key in PlannedFoodBody.model_fields if key!='known_macros'},
+        'known_macros':(food.nutrition_evidence or {}).get('known_macros')} for food in row.foods]
     return values
 
 
@@ -43,39 +44,35 @@ def plan_json(row):
         'shopping_list':[{key:getattr(item,key) for key in ShoppingEntry.model_fields} for item in row.shopping_items]})
 
 
-async def save_plan(uid,body,kind,key,fingerprint):
+async def save_plan(uid,body,kind,key,fingerprint,*,preview_id=None):
     async def apply(session,owner):
+        preview=None
+        if preview_id:
+            from services.nutrition_previews import validate_preview
+            preview,confirmation_digest,replayed=await validate_preview(session,owner,preview_id,body)
+            if replayed:return replayed
         row=NutritionPlan(user_id=owner.id,kind=kind,**body.model_dump(exclude={'days','shopping_items'}))
         row.days=[]
         for position,day in enumerate(body.days):
             day_row=NutritionPlanDay(user_id=owner.id,position=position,**day.model_dump(exclude={'meals'}));day_row.meals=[]
             for index,meal in enumerate(day.meals):
                 meal_row=PlannedMeal(user_id=owner.id,position=index,**meal.model_dump(exclude={'foods'}))
-                meal_row.foods=[PlannedFood(user_id=owner.id,position=i,**food.model_dump()) for i,food in enumerate(meal.foods)]
+                meal_row.foods=[PlannedFood(user_id=owner.id,position=i,**food.model_dump(exclude={'known_macros'}),
+                    nutrition_evidence={'source':'registered' if kind=='diet' else 'estimated',
+                        'known_macros':food.known_macros or [],'basis':'per_unit','portion_label':food.quantity}) for i,food in enumerate(meal.foods)]
                 day_row.meals.append(meal_row)
             row.days.append(day_row)
         row.shopping_items=[PlanShoppingItem(user_id=owner.id,position=i,**item.model_dump()) for i,item in enumerate(body.shopping_items)]
         session.add(row)
         created=0
-        if kind=='imported':
-            for day in body.days:
-                for meal in day.meals:
-                    recorded=Meal(user_id=owner.id,name=meal.name,meal_type=meal.meal_type,date=local_today(owner.timezone),notes=meal.notes,
-                        **{'reported_'+key:getattr(meal,key) for key in MACROS})
-                    # Imported macros describe the stated portion (e.g. 3 eggs), not a per-unit multiplier.
-                    recorded.items=[MealItem(user_id=owner.id,position=i,name=f.name,quantity=1,unit=(f.quantity+' '+f.unit).strip(),
-                        **{key:getattr(f,key) for key in MACROS}) for i,f in enumerate(meal.foods)]
-                    session.add(recorded);created+=1
-            if body.daily_calories>0:
-                goals=await session.scalar(select(NutritionGoal).where(NutritionGoal.user_id==owner.id))
-                if goals is None:goals=NutritionGoal(user_id=owner.id);session.add(goals)
-                goals.daily_calories=round(body.daily_calories)
-                for key in ('protein','carbs','fat'):setattr(goals,'daily_'+key,getattr(body,'daily_'+key))
+        # A plan is not evidence of consumption or confirmation of personal targets.
         xp=10 if kind=='imported' else 5 if kind=='generated' else 0
         apply_xp(owner,xp);await session.flush()
         if kind=='diet':return plan_json(row)
         result={'success':True,'plan':plan_json(row),'xp_earned':xp}
-        if kind=='imported':result.update(meals_created=created,goals_updated=body.daily_calories>0)
+        if kind=='imported':result.update(meals_created=created,goals_updated=False)
+        if preview:
+            preview.result={**preview.result,'consumed_digest':confirmation_digest,'saved_result':result}
         return result
     return await run_activity(UUID(uid),key,fingerprint,apply)
 
