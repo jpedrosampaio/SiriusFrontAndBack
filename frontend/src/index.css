@@ -314,3 +314,12 @@ html {
         transition-duration: 0.01ms !important;
     }
 }
+
+@media (max-width: 600px) {
+    [data-sonner-toaster].sirius-toaster {
+        width: calc(100% - var(--mobile-offset-left) - var(--mobile-offset-right));
+    }
+    [data-sonner-toaster].sirius-toaster [data-sonner-toast] {
+        width: 100%;
+    }
+}

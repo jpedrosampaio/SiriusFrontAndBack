@@ -177,6 +177,7 @@ class Meal(Identity, Owned, Timestamps, Base):
     reported_protein: Mapped[float | None]
     reported_carbs: Mapped[float | None]
     reported_fat: Mapped[float | None]
+    source_reference: Mapped[dict | None] = mapped_column(JSONB)
     items: Mapped[list['MealItem']] = relationship(passive_deletes=True,order_by='MealItem.position')
     __table_args__ = (UniqueConstraint('user_id','id'),Index('ix_meals_owner_date','user_id','date'))
 
@@ -192,6 +193,7 @@ class MealItem(Identity, Owned, Base):
     protein: Mapped[float]
     carbs: Mapped[float]
     fat: Mapped[float]
+    nutrition_evidence: Mapped[dict | None] = mapped_column(JSONB)
     __table_args__ = (ForeignKeyConstraint(['user_id','meal_id'],['meals.user_id','meals.id'],ondelete='CASCADE'),
         UniqueConstraint('user_id','meal_id','position'),CheckConstraint('quantity >= 0 AND calories >= 0',name='quantities'))
 
@@ -205,6 +207,8 @@ class WaterLog(Identity, Owned, Timestamps, Base):
 
 class NutritionGoal(Identity, Owned, Timestamps, Base):
     __tablename__ = 'nutrition_goals'
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_fields: Mapped[list[str] | None] = mapped_column(JSONB)
     daily_calories: Mapped[int] = mapped_column(default=2000)
     daily_protein: Mapped[float] = mapped_column(default=150)
     daily_carbs: Mapped[float] = mapped_column(default=250)

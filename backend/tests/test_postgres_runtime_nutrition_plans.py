@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch,AsyncMock
 from sqlalchemy import select,func
-from db.models.health import NutritionPlan,NutritionPlanDay,PlannedMeal,PlannedFood,Meal,MealItem,ShoppingList,ShoppingItem
+from db.models.health import NutritionPlan,NutritionPlanDay,PlannedMeal,PlannedFood,Meal,MealItem,NutritionGoal,ShoppingList,ShoppingItem
 from db.models.identity import User
 from db.session import unit_of_work
 import test_postgres_runtime_recipes as setup
@@ -75,19 +75,30 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.ok(await self.http.get('/api/nutrition/shopping-lists'))),1)
         self.assertEqual((await self.http.post('/api/nutrition/shopping-list/generate',json=body)).status_code,404)
 
-    async def test_import_updates_correct_goals_and_meal_totals_once_and_cleans_file(self):
+    async def test_import_preserves_plan_without_fabricating_consumption_and_cleans_file(self):
         self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Imported','daily_calories':2200,'daily_protein':130,
             'meals':[self.planned_meal()]}))
         paths=[]
         async def upload(path,uid):paths.append(path);return SimpleNamespace(uri='test://file')
         with patch('services.study_material_routes._upload',upload),patch('services.study_material_routes._part',return_value={}):
             rows=[self.ok(await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF fake','application/pdf')},headers={'Idempotency-Key':'import-nutrition-001'})) for _ in range(2)]
-        self.assertEqual(rows[0]['plan']['plan_id'],rows[1]['plan']['plan_id']);self.assertEqual(rows[0]['meals_created'],1)
+        self.assertEqual(rows[0]['plan']['plan_id'],rows[1]['plan']['plan_id']);self.assertEqual(rows[0]['meals_created'],0)
         self.assertTrue(paths);self.assertTrue(all(not Path(path).exists() for path in paths))
-        goals=self.ok(await self.http.get('/api/nutrition/goals'));self.assertEqual(goals['daily_calories'],2200);self.assertEqual(goals['daily_protein'],130)
-        meals=self.ok(await self.http.get('/api/nutrition/meals'));self.assertEqual(len(meals),1);self.assertEqual(meals[0]['total_protein'],25)
-        stats=self.ok(await self.http.get('/api/nutrition/stats'));self.assertEqual(stats['consumed']['calories'],350);self.assertEqual(stats['consumed']['protein'],25)
+        goals=self.ok(await self.http.get('/api/nutrition/goals'));self.assertIsNone(goals['goal_id'])
+        meals=self.ok(await self.http.get('/api/nutrition/meals'));self.assertEqual(meals,[])
+        self.assertEqual(rows[0]['plan']['meals'][0]['protein'],25)
+        stats=self.ok(await self.http.get('/api/nutrition/stats'));self.assertEqual(stats['consumed']['calories'],0);self.assertEqual(stats['consumed']['protein'],0)
         async with unit_of_work() as session:self.assertEqual((await session.get(User,self.uid)).xp,10)
+
+    async def test_import_preview_never_saves_records_or_xp(self):
+        self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Preview','meals':[self.planned_meal()]}))
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})),patch('services.nutrition_generation_routes.save_plan',AsyncMock()) as save:
+            result=self.ok(await self.http.post('/api/nutrition/import-plan?preview=true',files={'file':('plan.png',b'fake','image/png')}))
+        self.assertTrue(result['requires_confirmation']);self.assertFalse(result['saved']);save.assert_not_awaited()
+        async with unit_of_work() as session:
+            for model in (NutritionPlan,Meal,NutritionGoal):
+                self.assertEqual(await session.scalar(select(func.count()).select_from(model).where(model.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
 
     async def test_import_failure_rolls_back_all_sql_and_xp(self):
         self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Imported','daily_calories':2200,'meals':[self.planned_meal()]}))
@@ -97,4 +108,4 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
             for model in (NutritionPlan,PlannedMeal,PlannedFood,Meal,MealItem):
                 self.assertEqual(await session.scalar(select(func.count()).select_from(model).where(model.user_id==self.uid)),0)
             self.assertEqual((await session.get(User,self.uid)).xp,0)
-        self.assertEqual(self.ok(await self.http.get('/api/nutrition/goals'))['daily_calories'],2000)
+        self.assertIsNone(self.ok(await self.http.get('/api/nutrition/goals'))['daily_calories'])

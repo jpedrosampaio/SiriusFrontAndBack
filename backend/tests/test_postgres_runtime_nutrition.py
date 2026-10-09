@@ -28,9 +28,9 @@ class RuntimeNutrition(unittest.IsolatedAsyncioTestCase):
     async def test_meals_replay_ownership_totals_and_delete_cascade(self):
         values=[self.ok(r) for r in await asyncio.gather(*(self.http.post('/api/nutrition/meals',json=self.meal(),headers={'Idempotency-Key':'nutrition-meal-001'}) for _ in range(6)))]
         self.assertEqual(len({v['meal_id'] for v in values}),1)
-        row=values[0];self.assertEqual(row['total_calories'],251);self.assertEqual(row['total_protein'],25)
+        row=values[0];self.assertEqual(row['total_calories'],251.25);self.assertEqual(row['total_protein'],25)
         stats=self.ok(await self.http.get('/api/nutrition/stats'))
-        self.assertEqual(stats['consumed']['calories'],251);self.assertEqual(stats['meals_count'],1)
+        self.assertEqual(stats['consumed']['calories'],251.25);self.assertEqual(stats['meals_count'],1)
         foreign={'Authorization':'Bearer bob'}
         self.assertEqual(self.ok(await self.http.get('/api/nutrition/meals',headers=foreign)),[])
         self.assertEqual((await self.http.delete('/api/nutrition/meals/'+row['meal_id'],headers=foreign)).status_code,404)
@@ -41,15 +41,17 @@ class RuntimeNutrition(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):await self.http.post('/api/nutrition/meals',json=self.meal())
         self.assertEqual(self.ok(await self.http.get('/api/nutrition/meals')),[])
 
-    async def test_goals_concurrent_defaults_update_and_empty_states(self):
-        stats=self.ok(await self.http.get('/api/nutrition/stats'));self.assertEqual(stats['remaining']['water_ml'],2000)
+    async def test_goals_reads_never_create_defaults_and_explicit_update(self):
+        stats=self.ok(await self.http.get('/api/nutrition/stats'));self.assertIsNone(stats['remaining']['water_ml'])
         self.assertEqual(stats['meals_count'],0)
         rows=[self.ok(r) for r in await asyncio.gather(*(self.http.get('/api/nutrition/goals') for _ in range(5)))]
-        self.assertEqual(len({r['goal_id'] for r in rows}),1)
+        self.assertTrue(all(r['goal_id'] is None for r in rows))
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(NutritionGoal).where(NutritionGoal.user_id==self.uid)),0)
         row=self.ok(await self.http.put('/api/nutrition/goals',json={'daily_calories':2400,'water_goal_ml':3000}))
         self.assertEqual(row['daily_calories'],2400)
         self.assertEqual((await self.http.put('/api/nutrition/goals',json={'water_goal_ml':0})).status_code,422)
-        self.assertEqual(self.ok(await self.http.get('/api/nutrition/goals',headers={'Authorization':'Bearer bob'}))['daily_calories'],2000)
+        self.assertIsNone(self.ok(await self.http.get('/api/nutrition/goals',headers={'Authorization':'Bearer bob'}))['daily_calories'])
         trend=self.ok(await self.http.get('/api/nutrition/weekly-trend'));self.assertEqual(len(trend['daily']),7)
         self.assertEqual(trend['averages']['dias_registrados'],0)
 

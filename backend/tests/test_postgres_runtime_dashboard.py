@@ -43,7 +43,7 @@ class RuntimeDashboard(unittest.IsolatedAsyncioTestCase):
     async def test_empty_dashboard_contract(self):
         values=self.ok(await self.http.get('/api/stats/dashboard'))
         self.assertEqual(values['goals_avg_progress'],0);self.assertEqual(values['balance'],0)
-        self.assertEqual(values['nutrition_stats']['calories_goal'],2000)
+        self.assertIsNone(values['nutrition_stats']['calories_goal'])
         self.assertEqual(values['simulado_stats']['accuracy_rate'],0)
         self.assertEqual(values['study_stats']['current_streak'],0)
         self.assertEqual(values['suggestions'],[])

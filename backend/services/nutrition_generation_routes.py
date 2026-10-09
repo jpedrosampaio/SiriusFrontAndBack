@@ -61,7 +61,7 @@ async def generate_meal_plan(request: Request, session_token: Optional[str]=Cook
         raise HTTPException(status_code=500, detail=f'Erro ao gerar plano alimentar: {str(e)[:100]}')
 
 @api_router.post('/nutrition/import-plan')
-async def import_meal_plan(request: Request, file: UploadFile=File(...), session_token: Optional[str]=Cookie(None)):
+async def import_meal_plan(request: Request, file: UploadFile=File(...), session_token: Optional[str]=Cookie(None), preview: bool=False):
     """Import a meal plan from PDF or image file using AI extraction"""
     auth_header = request.headers.get('Authorization')
     user = await get_current_user(authorization=auth_header, session_token=session_token)
@@ -84,6 +84,9 @@ async def import_meal_plan(request: Request, file: UploadFile=File(...), session
             response_text = response_text[4:].strip()
         plan_data = json.loads(response_text)
         validated = validate_ai_plan(plan_data, 'imported', {}, file.filename)
+        if preview:
+            return {'preview':validated.model_dump(mode='json'),'composition_source':'estimated_from_ai',
+                'requires_confirmation':True,'saved':False}
         return await save_plan(user.user_id, validated, 'imported', request.headers.get('Idempotency-Key'), ['import-meal-plan', hashlib.sha256(content).hexdigest()])
     except HTTPException:
         raise
