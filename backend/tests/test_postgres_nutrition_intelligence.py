@@ -221,3 +221,34 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as error:await create_preview(str(self.uid),raw,'a'*32+'b'*32)
         self.assertEqual(error.exception.status_code,409)
         self.assertEqual((await self.counts())[:3],[0,0,0])
+
+    async def test_recorded_itemless_meal_is_unknown_not_an_empty_day(self):
+        self.assertEqual((await self.http.put('/api/nutrition/goals',json={})).status_code,422)
+        self.assertIsNone((await self.state())['goals'])
+        self.ok(await self.http.put('/api/nutrition/goals',json={'daily_calories':200}))
+        self.assertEqual((await self.state())['remaining']['calories'],'200.000')
+        await self.add(foods=[])
+        state=await self.state()
+        for value in state['consumed'].values():self.assertIsNone(value['total']);self.assertEqual(value['unknown_items'],1)
+        self.assertIsNone(state['remaining']['calories']);self.assertIsNone(state['meals'][0]['macros']['calories']['total'])
+        self.assertIsNone(self.ok(await self.http.get('/api/nutrition/stats'))['consumed']['calories'])
+
+    async def test_diet_recurs_through_inclusive_end_and_recording_is_per_day(self):
+        async def account(request):return {'user_id':str(self.uid),'timezone':'America/Sao_Paulo'}
+        start=self.today-timedelta(days=1);end=self.today+timedelta(days=2)
+        body={'name':'Recurring diet','diet_type':'balanced','start_date':str(start),'end_date':str(end),
+            'meals_plan':[{'name':'Lunch','meal_type':'lunch','foods':[{'name':'Arroz','quantity':'100','unit':'g','calories':100,'fat':0}]}]}
+        with patch('services.nutrition_plans.account',account):self.ok(await self.http.post('/api/nutrition/diets',json=body))
+        state=await self.state();planned=state['planned'][0]
+        self.assertEqual(planned['date'],str(self.today));self.assertTrue(planned['date_confirmed'])
+        self.assertEqual(len((await self.state(params={'date':str(end)}))['planned']),1)
+        for day in (start-timedelta(days=1),end+timedelta(days=1)):
+            self.assertEqual((await self.state(params={'date':str(day)}))['planned'],[])
+        self.ok(await self.http.post('/api/nutrition/intelligence/templates/planned/'+planned['planned_meal_id']+'/record',
+            json={'date':str(self.today)},headers={'Idempotency-Key':'recurring-diet'}))
+        self.assertEqual((await self.state())['planned'][0]['status'],'recorded')
+        tomorrow=await self.state(params={'date':str(self.today+timedelta(days=1))})
+        self.assertEqual(tomorrow['planned'][0]['status'],'planned')
+        from services.life_adapters import nutrition
+        async with unit_of_work() as session:
+            self.assertEqual(len((await nutrition(session,self.uid,end,'America/Sao_Paulo')).candidates),1)

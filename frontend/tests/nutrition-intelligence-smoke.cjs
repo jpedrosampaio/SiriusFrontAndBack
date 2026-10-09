@@ -14,7 +14,7 @@ const server=http.createServer((req,res)=>{
   try{for(const width of [1440,1024,768,390,320]){
     const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'});
     await context.addInitScript(()=>localStorage.setItem('sirius_onboarding_complete','true'));
-    const errors=[],writes=[],keys=[];let reads=0,previews=0,repeats=0,committed=0,plans=0,lost=true,failPreview=true;
+    const errors=[],writes=[],keys=[];let reads=0,previews=0,repeats=0,committed=0,plans=0,lost=true,failPreview=true,importBusy=true;
     const macros=Object.fromEntries([['calories',100],['protein',2],['carbs',20],['fat',0]].map(([key,n])=>[key,{registered:'0',estimated:String(n),legacy_unverified:'0',known_total:String(n),total:String(n),unknown_items:0,unit:key==='calories'?'kcal':'g'}]));
     const prefs={favorite_meals:[],available_foods:null,excluded_foods:[],budget:null,budget_period:'weekly',prices:[]};
     const state={date:'2026-10-09',timezone:'America/Sao_Paulo',consumed:{...macros,protein:{...macros.protein,total:null,unknown_items:1}},remaining:{calories:null,protein:null,carbs:null,fat:null},goals:null,water_ml:0,consistency:{recorded_days:1,days:28},meals:[{meal_id:'meal-own',name:'Arroz registrado',meal_type:'lunch',foods:[{}]}],planned:[],training_context:[],routine_context:[],preferences:prefs,limitations:['Dados antigos desconhecidos não justificam metas.'],truncated:false};
@@ -47,6 +47,7 @@ const server=http.createServer((req,res)=>{
         data={meal_id:'new-once',replayed:true};
       }
       if(p==='/api/nutrition/import-plan'){
+        if(importBusy){importBusy=false;return fulfill(route,{detail:'Documento em análise. Aguarde e tente novamente.'},409);}
         assert.equal(url.searchParams.get('preview'),'true');data=plans?{already_confirmed:true,requires_confirmation:false,xp_earned:0,plan:{plan_id:'new-plan'}}:{preview_id:'nutrition-preview-'+ 'a'.repeat(32),preview:imported,saved:false,requires_confirmation:true};
       }
       if(p==='/api/nutrition/intelligence/confirm-plan'){
@@ -79,6 +80,8 @@ const server=http.createServer((req,res)=>{
     await page.getByTestId('import-meal-plan-btn').click();
     const dialog=page.getByRole('dialog');
     await page.locator('#import-file-input').setInputFiles({name:'fake.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF synthetic')});
+    await page.getByTestId('import-plan-submit-btn').click();
+    await page.getByText('Documento em análise. Aguarde e tente novamente.',{exact:true}).waitFor();
     await page.getByTestId('import-plan-submit-btn').click();
     await dialog.getByText('Revisar estimativas antes de salvar').waitFor();assert.equal(plans,0);
     await dialog.getByLabel('Arroz · Energia (kcal)',{exact:true}).fill('125');

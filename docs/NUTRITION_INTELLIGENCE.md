@@ -28,6 +28,8 @@ The existing PDF/photo import now opens an editable preview backed by an owned u
 
 Every import request is preview-only, including absent or legacy `preview=false` flags. Identical file bytes reuse the owned upload receipt before another AI/upload call; confirmed documents return the existing plan with no additional XP. Expired unconsumed receipts can be renewed only by analyzing the upload again, under the same owner lock. The receipt validates the full upload hash, not just its shortened request-key prefix. No historical imports are rewritten or deduplicated retrospectively.
 
+An owner/digest PostgreSQL transaction advisory lock precedes external upload/analysis across workers. A concurrent identical upload returns 409 with Retry-After; retry reuses the resulting receipt without another AI call. The analysis keeps one connection and acquires the user row lock only for the final receipt write; other modules are not held behind an owner lock during AI work. Cancellation/failure rolls back the transaction and releases the digest lock. A recorded itemless meal is unknown composition, unlike an empty date. Existing diets repeat within their inclusive start/end dates; generated/imported day-position plans remain one-off dated days.
+
 ## Performance, safety and verification
 
 State and scenario reads use owned read-only repeatable snapshots. The daily projection loads only that day's meals; historical template detail, plan, recipe and routine reads have explicit limits and expose partial coverage or reject unsafe totals. Life State reuses the same projection without rereading training/calendar domains. Receipt transactions serialize confirmed writes and guard lost-response retries; namespace updates preserve unrelated preferences.

@@ -9,11 +9,11 @@ MACROS=('calories','protein','carbs','fat')
 
 
 class GoalBody(BaseModel):
-    daily_calories: int=Field(default=2000,gt=0)
+    daily_calories: int=Field(default=2000,gt=0,le=1000000000)
     daily_protein: Nonnegative=150
     daily_carbs: Nonnegative=250
     daily_fat: Nonnegative=65
-    water_goal_ml: int=Field(default=2000,gt=0)
+    water_goal_ml: int=Field(default=2000,gt=0,le=1000000000)
 
 def goal_json(row):
     if row is None:return {'goal_id':None,'configured':False,'confirmed_fields':[],'origin':'missing',**{key:None for key in GoalBody.model_fields}}

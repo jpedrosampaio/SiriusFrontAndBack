@@ -117,6 +117,7 @@ export default function NutritionIntelligence({ userId, date, onRecorded }) {
       {result && <div className="space-y-3">
         {!result.candidates.length && <p>Nenhuma alternativa comprovável com os filtros atuais. Revise dados, preços e disponibilidade.</p>}
         {result.candidates.map(c => <article className="rounded-lg bg-white/5 p-3 space-y-2" key={c.template_id}><h4 className="font-semibold break-words">{c.name}</h4>
+          <p className="text-sm break-words">Fator comparado: {c.portions} · {(c.foods || []).map(f=>`${f.name}: ${show(f.quantity)} ${f.unit}`).join(' · ')}</p>
           <p className="text-xs text-amber-200">Composição: {c.composition_source === 'estimated' ? 'estimada, sujeita a revisão' : 'dados registrados ou origem antiga não verificada'}</p>
           <p className="text-sm">{Object.entries(labels).map(([k,label])=>`${label}: ${show(c.macros[k].total)} ${c.macros[k].unit}`).join(' · ')} · Custo: {show(c.cost)} {c.currency} ({c.cost_source === 'known' ? 'conhecido' : c.cost_source === 'estimated' ? 'estimado' : 'incompleto'})</p>
           <p className="text-xs text-slate-400 break-words">{c.reason}</p><div className="flex flex-wrap gap-2">{(!c.template_kind || c.template_kind==='meal') && <Button disabled={busy} variant="outline" onClick={() => savePreferences({ ...prefs, favorite_meals: c.favorite ? prefs.favorite_meals.filter(id => id !== c.template_id) : [...new Set([...prefs.favorite_meals, c.template_id])] })}>{c.favorite ? 'Remover favorita' : 'Favoritar'}</Button>}

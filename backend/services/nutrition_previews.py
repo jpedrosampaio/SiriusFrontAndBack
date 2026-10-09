@@ -1,11 +1,12 @@
 """Owned upload receipts: no plan/meal/target/XP writes until one confirmation."""
 import hashlib
 import json
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select,text
 from db.activity import run_activity
 from db.models.identity import ActivityReceipt
 from db.session import unit_of_work
@@ -15,7 +16,16 @@ def digest(value):
     return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
-async def create_preview(user_id,plan,upload_digest):
+@asynccontextmanager
+async def upload_analysis(user_id,upload_digest):
+    key=int.from_bytes(hashlib.sha256(f'nutrition-import:{UUID(str(user_id))}:{upload_digest}'.encode()).digest()[:8],'big',signed=True)
+    async with unit_of_work() as session:
+        if not await session.scalar(text('SELECT pg_try_advisory_xact_lock(:key)'),{'key':key}):
+            raise HTTPException(409,'Este documento já está sendo analisado. Aguarde e tente novamente para reutilizar a prévia.',headers={'Retry-After':'2'})
+        yield session
+
+
+async def create_preview(user_id,plan,upload_digest,*,session=None):
     key='nutrition-preview-'+upload_digest[:32]
     async def apply(session,owner):
         previous=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==owner.id,ActivityReceipt.request_key==key))
@@ -30,6 +40,11 @@ async def create_preview(user_id,plan,upload_digest):
         if previous:previous.result=result
         else:session.add(ActivityReceipt(user_id=owner.id,request_key=key,fingerprint=digest(['nutrition-upload-preview',upload_digest]),result=result))
         return preview_response(result)
+    if session is not None:
+        from db.repositories.identity import IdentityRepository
+        owner=await IdentityRepository(session).by_id(UUID(str(user_id)),lock=True)
+        if owner is None:raise HTTPException(404,'Usuário não encontrado.')
+        result=await apply(session,owner);await session.flush();return result
     return await run_activity(UUID(str(user_id)),None,['nutrition-upload-preview',upload_digest],apply)
 
 
@@ -40,14 +55,16 @@ def preview_response(result):
     return public
 
 
-async def existing_preview(user_id,upload_digest):
-    async with unit_of_work() as session:
+async def existing_preview(user_id,upload_digest,*,session=None):
+    async def read(session):
         receipt=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==UUID(str(user_id)),
             ActivityReceipt.request_key=='nutrition-preview-'+upload_digest[:32]))
         if receipt and receipt.result.get('kind')=='nutrition_upload_preview' and receipt.result.get('upload_digest')==upload_digest and (receipt.result.get('consumed_digest') or
                 datetime.fromisoformat(receipt.result['expires_at'])>=datetime.now(timezone.utc)):
             return preview_response(receipt.result)
-    return None
+        return None
+    if session is not None:return await read(session)
+    async with unit_of_work() as session:return await read(session)
 
 
 def immutable_shape(plan):

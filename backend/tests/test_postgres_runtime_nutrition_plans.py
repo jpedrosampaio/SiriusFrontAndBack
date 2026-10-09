@@ -110,6 +110,35 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await session.scalar(select(func.count()).select_from(model).where(model.user_id==self.uid)),0)
             self.assertEqual((await session.get(User,self.uid)).xp,0)
 
+    async def test_concurrent_same_upload_has_one_external_analysis_and_retries_reuse(self):
+        entered=asyncio.Event();release=asyncio.Event()
+        async def analyze(**kwargs):
+            entered.set();await release.wait()
+            return SimpleNamespace(text=json.dumps({'plan_name':'Concurrent','meals':[self.planned_meal()]}))
+        self.plan_ai.side_effect=analyze
+        async def send():return await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF same-concurrent','application/pdf')})
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})) as upload:
+            first=asyncio.create_task(send())
+            try:
+                await asyncio.wait_for(entered.wait(),5)
+                duplicates=await asyncio.gather(*(send() for _ in range(4)))
+                self.assertTrue(all(r.status_code==409 and r.headers['Retry-After']=='2' for r in duplicates))
+            finally:release.set()
+            result=self.ok(await first);retry=self.ok(await send())
+        self.assertEqual(result['preview_id'],retry['preview_id']);self.plan_ai.assert_awaited_once();upload.assert_awaited_once()
+
+    async def test_cancelled_analysis_releases_digest_lock_for_retry(self):
+        entered=asyncio.Event()
+        async def analyze(**kwargs):entered.set();await asyncio.Event().wait()
+        self.plan_ai.side_effect=analyze
+        async def send():return await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',b'%PDF cancel-lock','application/pdf')})
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})):
+            task=asyncio.create_task(send());await asyncio.wait_for(entered.wait(),5);task.cancel()
+            with self.assertRaises(asyncio.CancelledError):await task
+            self.plan_ai.side_effect=None
+            self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Retry','meals':[self.planned_meal()]}))
+            self.assertTrue(self.ok(await send())['requires_confirmation'])
+
     async def test_import_failure_rolls_back_all_sql_and_xp(self):
         self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Imported','daily_calories':2200,'meals':[self.planned_meal()]}))
         with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})):

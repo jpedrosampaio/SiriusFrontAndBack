@@ -104,6 +104,8 @@ async def repeat(request: Request, meal_id: UUID, body: RepeatMeal):
             .order_by(MealItem.position).limit(301))).all()
         if not items or len(items) > 300:
             raise HTTPException(409, 'Template sem alimentos reutilizáveis ou acima do limite.')
+        if any(number(f.quantity)*body.portions>1000000000 for f in items):
+            raise HTTPException(409,'Quantidade da porção excede o limite seguro de registro.')
         row = Meal(user_id=owner.id, name=original.name, meal_type=original.meal_type, date=body.date, notes=original.notes,
             source_reference={'template_meal_id': str(original.id), 'portions': str(body.portions)})
         row.items = [MealItem(user_id=owner.id, position=i, name=f.name, quantity=float(number(f.quantity) * body.portions),

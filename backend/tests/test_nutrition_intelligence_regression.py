@@ -35,6 +35,19 @@ class NutritionRegression(unittest.TestCase):
     def test_empty_day_has_recorded_zero_without_creating_targets(self):
         self.assertEqual(project([])['calories']['total'],'0.000')
 
+    def test_large_legacy_values_and_nonfinite_composition_remain_unknown(self):
+        legacy=project([food(quantity='1e30',nutrition_evidence=None)])
+        self.assertIsNone(legacy['calories']['total'])
+        self.assertEqual(Decimal(legacy['calories']['legacy_unverified']),Decimal('1e32'))
+        malformed=project([food(calories='Infinity')])
+        self.assertIsNone(malformed['calories']['total']);self.assertEqual(malformed['calories']['unknown_items'],1)
+
+    def test_goal_integer_limits_prevent_database_overflow(self):
+        from services.nutrition_data import GoalBody
+        from pydantic import ValidationError
+        for field in ('daily_calories','water_goal_ml'):
+            with self.assertRaises(ValidationError):GoalBody.model_validate({field:10**30})
+
     def alternatives(self,prefs,scenario,foods=None):
         rows=[SimpleNamespace(id=uuid4(),name='Almoço',meal_type='lunch'),SimpleNamespace(id=uuid4(),name='Jantar',meal_type='dinner')]
         data={rows[0].id:[food()],rows[1].id:[food(name='Feijão')]}

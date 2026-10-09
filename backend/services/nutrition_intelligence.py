@@ -105,12 +105,13 @@ async def load_state(session, owner, day, *, include_context=True):
         foods[item.meal_id].append(food_json(item))
     all_foods = []
     # Imported historical meal-level totals have no item-level provenance.
+    projected_foods={}
     for row in today:
         if any(getattr(row, 'reported_' + k) is not None for k in MACROS):
-            all_foods.append({'quantity': 1, 'nutrition_evidence': None,
-                **{k: getattr(row, 'reported_' + k) or 0 for k in MACROS}})
+            projected_foods[row.id]=[{'quantity':1,'nutrition_evidence':None,**{k:getattr(row,'reported_'+k) or 0 for k in MACROS}}]
         else:
-            all_foods.extend(foods[row.id])
+            projected_foods[row.id]=foods[row.id] or [{'quantity':1,'nutrition_evidence':{'source':'unknown','known_macros':[]},**{k:0 for k in MACROS}}]
+        all_foods.extend(projected_foods[row.id])
     consumed = project(all_foods)
     target = await session.scalar(select(NutritionGoal).where(NutritionGoal.user_id == uid))
     from services.nutrition_data import goal_json
@@ -128,7 +129,9 @@ async def load_state(session, owner, day, *, include_context=True):
         .order_by(NutritionPlan.id, NutritionPlanDay.position, PlannedMeal.position).limit(LIMIT + 1))).all()
     planned = []
     for meal, plan_day, plan in planned_rows[:LIMIT]:
-        due = plan.start_date + timedelta(days=plan_day.position) if plan.start_date else None
+        if plan.kind=='diet' and plan.start_date and day<plan.start_date:
+            continue
+        due = (day if plan.kind=='diet' else plan.start_date + timedelta(days=plan_day.position)) if plan.start_date else None
         if due != day and due is not None:
             continue
         if plan.end_date and day > plan.end_date:
@@ -162,7 +165,7 @@ async def load_state(session, owner, day, *, include_context=True):
         limitations.append('Limite de detalhes atingido; cobertura parcial explicitamente indicada.')
     return NutritionState(date=day, timezone=owner.timezone, consumed=consumed, goals=goals, remaining=remaining,
         meals=[{'meal_id': str(r.id), 'name': r.name, 'meal_type': r.meal_type, 'foods': foods[r.id],
-            'macros': project(foods[r.id]), 'source_reference': r.source_reference} for r in today], water_ml=water,
+            'macros': project(projected_foods[r.id]), 'source_reference': r.source_reference} for r in today], water_ml=water,
         routine_context=routine,consistency={'start': str(start), 'end': str(day), 'recorded_days': len(grouped), 'days': 28,
             'meals': sum(n for _, n in grouped)}, planned=planned, training_context=training,
         preferences=preferences(owner).model_dump(mode='json'), limitations=limitations, truncated=partial)

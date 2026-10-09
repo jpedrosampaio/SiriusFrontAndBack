@@ -92,6 +92,7 @@ async def delete_meal(request: Request,meal_id: UUID):
 
 async def goals_write(request,body=None):
     user=await account(request)
+    if body is None or not body.model_fields_set:raise HTTPException(422,'Informe ao menos uma meta explícita.')
     async def apply(session,owner):
         row=await session.scalar(select(NutritionGoal).where(NutritionGoal.user_id==owner.id))
         if row is None:
