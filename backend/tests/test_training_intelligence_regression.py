@@ -14,7 +14,7 @@ PLAN = str(uuid4())
 
 
 def log(delta=0, *, weight='20', reps=12, rpe=8, count=3, target='8-12', group='Peito'):
-    return {'log_id': str(uuid4()), 'plan_id': PLAN, 'date': str(DAY - timedelta(days=delta)), 'created_at': f'2026-10-08T10:{delta:02d}:00Z',
+    return {'log_id': str(uuid4()), 'plan_id': PLAN, 'day_index': 0, 'date': str(DAY - timedelta(days=delta)), 'created_at': f'2026-10-08T10:{delta:02d}:00Z',
         'duration_minutes': 30, 'exercises_completed': [{'name': 'Supino', 'muscle_group': group, 'sets': 3, 'sets_completed': count,
         'reps': target, 'weight': '999', 'completed': True, 'sets_data': [{'weight': weight, 'reps': reps, 'rpe': rpe, 'completed': True} for _ in range(count)]}]}
 
@@ -107,3 +107,19 @@ class TrainingRegression(unittest.TestCase):
         second['exercises_completed'][0]['name'] = 'A|B'
         self.assertEqual(len({e.key for e in state([first, second]).exercises}), 2)
         self.assertEqual(state([log(5, weight='0.001'), log(weight='0.001')]).exercises[0].progression.action, 'maintain')
+
+    def test_progression_never_borrows_other_days_or_unknown_manual_origins(self):
+        a, b, recent_a = log(7), log(3), log()
+        b['day_index'] = 1
+        self.assertIsNone(state([a, b]).exercises[0].progression.suggested_weight)
+        ex = state([a, b, recent_a]).exercises[0]
+        contexts = {p.day_index: p for p in ex.progressions}
+        self.assertEqual(contexts[0].suggested_weight, '20.500')
+        self.assertIsNone(contexts[1].suggested_weight)
+        for row in (a, b): row.pop('day_index')
+        self.assertIsNone(state([a, b]).exercises[0].progression.suggested_weight)
+        older, prior, unknown = log(10), log(5), log()
+        unknown.pop('day_index')
+        ex = state([older, prior, unknown]).exercises[0]
+        self.assertIsNone(ex.progressions[0].suggested_weight)
+        self.assertEqual(ex.progressions[0].action, 'insufficient_data')

@@ -50,7 +50,7 @@ def log_json(row,exercises):
     return jsonable_encoder(result)
 
 
-async def serialize_logs(session,uid,rows):
+async def serialize_logs(session,uid,rows,*,include_session_origin=False):
     sessions=(await session.scalars(select(WorkoutSession).where(WorkoutSession.user_id==uid,
         WorkoutSession.id.in_([r.session_id for r in rows if r.session_id])).options(
             selectinload(WorkoutSession.exercises).selectinload(SessionExercise.actual_sets)))).all()
@@ -60,7 +60,9 @@ async def serialize_logs(session,uid,rows):
         .order_by(WorkoutLogExercise.position))).all()
     by_log={}
     for ex in manual:by_log.setdefault(ex.log_id,[]).append(ex)
-    return [log_json(row,by_session.get(row.session_id,[]) if row.session_id else by_log.get(row.id,[])) for row in rows]
+    origin={s.id:s.day_index for s in sessions}
+    return [{**log_json(row,by_session.get(row.session_id,[]) if row.session_id else by_log.get(row.id,[])),
+        **({'day_index':origin.get(row.session_id)} if include_session_origin else {})} for row in rows]
 
 
 async def add_log(session,user,body,xp):

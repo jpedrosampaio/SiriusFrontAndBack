@@ -30,6 +30,10 @@ class Progression(Contract):
     current_weight: str | None = None
     suggested_weight: str | None = None
     evidence_dates: list[date] = Field(default_factory=list)
+    plan_id: UUID | None = None
+    day_index: int | None = None
+    prescribed_sets: int | None = None
+    target_reps: str | None = None
     automatic: Literal[False] = False
 
 
@@ -37,6 +41,7 @@ class ExecutionHistory(Contract):
     date: date
     log_id: UUID
     plan_id: UUID | None
+    day_index: int | None
     prescribed_sets: int
     target_reps: str
     recorded_sets: int
@@ -73,6 +78,7 @@ class ExerciseState(Contract):
     average_rpe: float | None
     records: list[TrainingRecord]
     progression: Progression
+    progressions: list[Progression]
     alerts: list[TrainingAlert]
     history: list[ExecutionHistory]
 

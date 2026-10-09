@@ -4,7 +4,7 @@ from datetime import timedelta
 from uuid import UUID
 from unittest.mock import patch
 from sqlalchemy import select, func, event, update
-from db.models.health import WorkoutLog, WorkoutSet, WorkoutSession, WorkoutPlan
+from db.models.health import WorkoutLog, WorkoutSet, WorkoutSession, WorkoutPlan, SessionExercise
 from db.models.identity import User, ActivityReceipt
 from db.engine import get_engine
 from db.session import unit_of_work
@@ -47,6 +47,20 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
     async def state(self, **kwargs):
         return self.ok(await self.http.get('/api/workouts/intelligence/state', **kwargs))
 
+    async def session_log(self, delta=0, day_index=0):
+        from datetime import datetime, timezone
+        async with unit_of_work() as session:
+            row = WorkoutSession(user_id=self.uid, plan_id=UUID(self.pid), plan_name='Factual', day_index=day_index,
+                status='completed', started_at=datetime.now(timezone.utc)-timedelta(days=delta, minutes=30),
+                completed_at=datetime.now(timezone.utc)-timedelta(days=delta), total_duration_seconds=1800)
+            session.add(row); await session.flush()
+            ex = SessionExercise(user_id=self.uid, session_id=row.id, position=0, name='Supino', muscle_group='Peito',
+                sets=3, reps='8-12', weight='20', completed=True, sets_completed=3)
+            session.add(ex); await session.flush()
+            session.add_all([WorkoutSet(user_id=self.uid, exercise_id=ex.id, position=i, weight=20, reps=12, rpe=8, completed=True) for i in range(3)])
+            session.add(WorkoutLog(user_id=self.uid, session_id=row.id, plan_id=UUID(self.pid), activity_type='weightlifting',
+                name='Factual', date=self.day-timedelta(days=delta), duration_minutes=30, completed=True))
+
     async def counts(self):
         async with unit_of_work() as session:
             values = [await session.scalar(select(func.count()).select_from(model).where(model.user_id == self.uid)) for model in (WorkoutLog, WorkoutSet, WorkoutSession, ActivityReceipt)]
@@ -59,7 +73,8 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
         await self.add(owner=self.bob, weight='999')
         before = await self.counts(); state = await self.state()
         self.assertEqual(state['completed_workouts'], 2); self.assertEqual(state['set_adherence'], 100)
-        self.assertEqual(state['exercises'][0]['progression']['suggested_weight'], '20.500')
+        self.assertIsNone(state['exercises'][0]['progression']['suggested_weight'])
+        self.assertIsNone(state['exercises'][0]['progression']['day_index'])
         self.assertEqual(state['exercises'][0]['volume'], '1440.000')
         self.assertEqual((await self.state(headers={'Authorization': 'Bearer bob'}))['exercises'][0]['records'][0]['value'], '999.000')
         for _ in range(2):
@@ -110,7 +125,7 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
             facts = await life_facts(session, self.uid, self.day)
             self.assertEqual(facts['completed_workouts'], 2)
         loads = self.ok(await self.http.get('/api/workouts/next-loads', params={'plan_id': self.pid}))
-        self.assertEqual(loads['suggestions'][0]['next_weight'], 20.5)
+        self.assertIsNone(loads['suggestions'][0]['next_weight'])
         async with unit_of_work() as session:
             (await session.get(User, self.uid)).timezone = 'Pacific/Kiritimati'
         state = await self.state(); self.assertEqual(state['timezone'], 'Pacific/Kiritimati')
@@ -127,7 +142,7 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.http.post('/api/workouts/intelligence/substitutions', json={'plan_id': self.pid, 'day_index': 0, 'exercise_index': 0})).status_code, 401)
 
     async def test_child_budget_discloses_partial_coverage_without_loading_sets(self):
-        await self.add(5); await self.add()
+        await self.session_log(5); await self.session_log()
         before = await self.counts()
         with patch('services.training_intelligence.SET_BUDGET', 2):
             state = await self.state()
@@ -136,7 +151,9 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(state['set_adherence']); self.assertEqual(before, await self.counts())
 
     async def test_prescription_changes_do_not_reuse_old_load_suggestions(self):
-        await self.add(5); await self.add()
+        await self.session_log(5); await self.session_log()
+        before = self.ok(await self.http.get('/api/workouts/next-loads', params={'plan_id': self.pid}))
+        self.assertEqual(before['suggestions'][0]['next_weight'], 20.5)
         updated = dict(self.plan)
         updated['days'][0]['exercises'][0]['reps'] = '20'
         self.ok(await self.http.patch('/api/workout-plans/' + self.pid, json=updated))
@@ -146,10 +163,10 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
     async def test_read_snapshot_survives_concurrent_set_change(self):
         await self.add(5); await self.add()
         from services.workout_logs import serialize_logs
-        async def concurrent_change(session, uid, rows):
+        async def concurrent_change(session, uid, rows, **kwargs):
             async with unit_of_work() as writer:
                 await writer.execute(update(WorkoutSet).where(WorkoutSet.user_id == uid).values(weight=99))
-            return await serialize_logs(session, uid, rows)
+            return await serialize_logs(session, uid, rows, **kwargs)
         with patch('services.workout_logs.serialize_logs', concurrent_change):
             snapshot = await self.state()
         self.assertEqual(snapshot['exercises'][0]['records'][0]['value'], '20.000')
@@ -168,3 +185,19 @@ class TrainingIntelligence(unittest.IsolatedAsyncioTestCase):
         self.ok(await self.http.delete('/api/workout-plans/' + self.pid))
         self.assertEqual((await self.state())['completed_workouts'], 1)
         self.assertEqual((await self.http.post('/api/workouts/intelligence/substitutions', json=body)).status_code, 404)
+
+    async def test_next_loads_require_two_executions_of_the_requested_workout_day(self):
+        # Same Supino prescription in two separate days of one plan.
+        updated = dict(self.plan)
+        updated['days'].append({'day_label': 'B', 'exercises': [dict(updated['days'][0]['exercises'][0])]})
+        self.ok(await self.http.patch('/api/workout-plans/' + self.pid, json=updated))
+        await self.session_log(7, 0); await self.session_log(3, 1)
+        loads = self.ok(await self.http.get('/api/workouts/next-loads', params={'plan_id': self.pid}))
+        self.assertTrue(all(s['next_weight'] is None for s in loads['suggestions']))
+        await self.session_log(0, 0)
+        loads = self.ok(await self.http.get('/api/workouts/next-loads', params={'plan_id': self.pid}))
+        self.assertEqual(loads['suggestions'][0]['next_weight'], 20.5)
+        self.assertIsNone(loads['suggestions'][-1]['next_weight'])
+        # Serializer opt-in does not change the legacy logs API contract.
+        logs = self.ok(await self.http.get('/api/workouts'))
+        self.assertTrue(all('day_index' not in row for row in logs))

@@ -63,6 +63,7 @@ def execution(log, ex):
     missing = max(0, ex['sets_completed'] - len(sets))
     complete = bool(sets) and len(valid) == len(sets) and missing == 0
     return {'date': log['date'], 'log_id': str(log['log_id']), 'plan_id': str(log['plan_id']) if log['plan_id'] else None,
+        'day_index': log.get('day_index'),
         'prescribed_sets': ex['sets'], 'target_reps': ex['reps'], 'recorded_sets': len(sets),
         'legacy_sets_without_details': missing, 'known_volume': known, 'volume': known if complete else None,
         'valid': valid, 'rpes': rpes, 'actual': sets}
@@ -70,6 +71,19 @@ def execution(log, ex):
 
 def progression(rows):
     base = {'action': 'insufficient_data', 'reason': 'São necessárias duas execuções comparáveis com séries, cargas, repetições e RPE registrados.'}
+    if not rows:
+        return base
+    latest = rows[-1]
+    context = {k: latest[k] for k in ('plan_id', 'day_index', 'prescribed_sets', 'target_reps')}
+    return context | progression_for_day(rows)
+
+
+def progression_for_day(rows):
+    base = {'action': 'insufficient_data', 'reason': 'São necessárias duas execuções comparáveis do mesmo dia da ficha, com séries, cargas, repetições e RPE registrados.'}
+    last = rows[-1]
+    if last['day_index'] is None or not last['plan_id']:
+        return base | {'reason': 'O dia de origem da ficha não foi registrado. Cargas, volume e recordes são analisáveis; progressão específica não é comprovável.'}
+    rows = [r for r in rows if (r['plan_id'], r['day_index']) == (last['plan_id'], last['day_index'])]
     if len(rows) < 2:
         return base
     before, last = rows[-2:]
@@ -118,7 +132,8 @@ def exercise_state(key, name, group, rows):
     alerts = []
     if len(rows) >= 2:
         before, last = rows[-2:]
-        comparable = before['plan_id'] and before['plan_id'] == last['plan_id'] and before['date'] != last['date']
+        comparable = (before['plan_id'] and before['plan_id'] == last['plan_id'] and before['date'] != last['date']
+            and before['day_index'] is not None and before['day_index'] == last['day_index'])
         if comparable and before['volume'] and last['volume'] is not None and last['volume'] > before['volume'] * Decimal('1.3'):
             alerts.append({'code': 'volume_jump', 'reason': 'O volume registrado aumentou mais de 30% entre as duas últimas execuções. Confira séries, repetições e cargas.', 'evidence_dates': [before['date'], last['date']]})
         if comparable and before['valid'] and last['valid']:
@@ -128,6 +143,7 @@ def exercise_state(key, name, group, rows):
     if len(rows) >= 3:
         recent = rows[-3:]
         if (len({r['plan_id'] for r in recent}) == 1 and recent[0]['plan_id']
+            and recent[0]['day_index'] is not None and len({r['day_index'] for r in recent}) == 1
             and len({r['date'] for r in recent}) == 3
             and len({(r['prescribed_sets'], r['target_reps']) for r in recent}) == 1
             and all(r['volume'] is not None and r['recorded_sets'] == r['prescribed_sets'] for r in recent)
@@ -142,10 +158,24 @@ def exercise_state(key, name, group, rows):
     history = [{**{k: wire(v) if k in ('known_volume', 'volume') else v for k, v in r.items() if k not in ('valid', 'rpes', 'actual')},
         'max_load': wire(max((w for w, _ in r['valid']), default=None)),
         'average_rpe': round(sum(r['rpes']) / len(r['rpes']), 2) if r['rpes'] else None} for r in rows[-20:]]
+    contexts, unknown_positions, positions = {}, {}, {}
+    for position, row in enumerate(rows):
+        positions[id(row)] = position
+        if row['plan_id'] and row['day_index'] is not None:
+            contexts.setdefault((row['plan_id'], row['day_index']), []).append(row)
+        elif row['plan_id']:
+            unknown_positions[row['plan_id']] = position
+    proposals = []
+    for (plan_id, _), values in contexts.items():
+        proposal = progression(values)
+        if unknown_positions.get(plan_id, -1) > positions[id(values[-1])]:
+            proposal.update(action='insufficient_data', suggested_weight=None,
+                reason='Há um registro mais recente deste exercício/plano sem dia de origem. Registre uma nova execução identificada antes de avaliar aumento.')
+        proposals.append(proposal)
     return {'key': key, 'name': name, 'muscle_group': group or None, 'executions': len(rows), 'recorded_sets': recorded,
         'prescribed_sets': prescribed, 'known_volume': wire(known), 'volume': wire(known) if len(complete) == len(rows) else None,
         'rpe_samples': len(rpes), 'average_rpe': round(sum(rpes) / len(rpes), 2) if rpes else None,
-        'records': records, 'progression': progression(rows), 'alerts': alerts, 'history': history}
+        'records': records, 'progression': progression(rows), 'progressions': proposals, 'alerts': alerts, 'history': history}
 
 
 def build_state(logs, *, day, start, zone, count, truncated=False):
@@ -232,7 +262,7 @@ async def load_state(session, uid, day, zone, days=90, plan_id=None):
             break
         chosen.append(row); ex_total += ex_count; set_total += set_count
     rows = chosen
-    logs = await serialize_logs(session, uid, rows)
+    logs = await serialize_logs(session, uid, rows, include_session_origin=True)
     return build_state(logs, day=day, start=start, zone=zone, count=count, truncated=count > len(rows))
 
 
@@ -311,7 +341,7 @@ async def substitutions(user_id, args: SubstitutionArgs):
 
 def agent_context(state):
     data = state.model_dump(mode='json')
-    data['exercises'] = [{**{k: v for k, v in e.items() if k not in ('history', 'records')},
+    data['exercises'] = [{**{k: v for k, v in e.items() if k not in ('history', 'records', 'progressions')},
         'records': [r for r in e['records'] if r['kind'] != 'load_at_reps']} for e in data['exercises'][:20]]
     data['agent_exercises_truncated'] = len(state.exercises) > 20
     data['agent_groups_truncated'] = len(data['muscle_groups']) > 20

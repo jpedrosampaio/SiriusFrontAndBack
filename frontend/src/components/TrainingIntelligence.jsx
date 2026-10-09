@@ -53,6 +53,10 @@ function Alternatives({ userId, plans }) {
 export default function TrainingIntelligence({ userId, plans }) {
   const [days, setDays] = useState(90), [reload, setReload] = useState(0), [state, setState] = useState(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState('');
+  const sourceLabel = progress => {
+    const plan = plans.find(p => p.plan_id === progress.plan_id);
+    return `${plan?.name || 'Ficha histórica'} · ${plan?.days?.[progress.day_index]?.day_label || `Dia da ficha ${progress.day_index + 1}`}`;
+  };
   useEffect(() => {
     let timer;
     const refresh = () => { clearTimeout(timer); timer = setTimeout(() => setReload(n => n + 1), 100); };
@@ -94,9 +98,15 @@ export default function TrainingIntelligence({ userId, plans }) {
         <dl className="grid grid-cols-2 gap-3 text-sm"><div><dt className="text-slate-400">Volume registrado</dt><dd>{ex.volume == null ? 'Incompleto' : `${number(ex.volume)} kg × reps`}</dd>{ex.volume == null && <dd className="text-xs">Subtotal conhecido: {number(ex.known_volume)} kg × reps</dd>}</div><div><dt className="text-slate-400">RPE médio registrado</dt><dd>{number(ex.average_rpe)} · {ex.rpe_samples} amostras</dd></div></dl>
         <div className={`rounded-lg p-3 text-sm ${ex.progression.action === 'review_increase' ? 'bg-emerald-500/10' : 'bg-white/5'}`}>
           <h4 className="font-medium">{ex.progression.action === 'review_increase' ? 'Aumento para avaliar' : ex.progression.action === 'maintain' ? 'Manter referência' : 'Mais registros necessários'}</h4>
+          {ex.progression.day_index != null && <p className="text-xs text-slate-400 break-words">{sourceLabel(ex.progression)}</p>}
           {ex.progression.suggested_weight != null && <p className="text-emerald-300">{number(ex.progression.current_weight)} → {number(ex.progression.suggested_weight)} kg · proposta, sem aplicação automática</p>}
           <p>{ex.progression.reason}</p><p className="text-xs text-slate-400">{ex.progression.evidence_dates.join(' · ')}</p>
         </div>
+        {ex.progressions?.length > 1 && <details className="text-sm"><summary className="cursor-pointer min-h-11">Progressão por dia da ficha</summary>
+          {ex.progressions.map(p => <div className="mb-3 space-y-1" key={`${p.plan_id}:${p.day_index}`}><p className="font-medium break-words">{sourceLabel(p)}</p>
+            {p.suggested_weight != null && <p>Proposta: {number(p.current_weight)} → {number(p.suggested_weight)} kg</p>}<p>{p.reason}</p>
+          </div>)}
+        </details>}
         {ex.alerts.map(a => <p className="text-sm text-amber-300" key={a.code}>{a.reason}</p>)}
         <details><summary className="min-h-11 cursor-pointer text-sm">Recordes na janela e últimas execuções</summary>
           <ul className="text-sm space-y-1">{ex.records.map((record, i) => <li key={i}>{record.kind === 'max_load' ? 'Maior carga' : record.kind === 'max_volume' ? 'Maior volume por execução' : `Maior carga para ${record.reps} reps`}: {number(record.value)} {record.kind === 'max_volume' ? 'kg × reps' : 'kg'} · {record.date}</li>)}</ul>

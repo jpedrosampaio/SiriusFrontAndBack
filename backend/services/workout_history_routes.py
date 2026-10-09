@@ -73,13 +73,12 @@ async def next_loads(request: Request,plan_id: UUID | None=None):
         state=await load_state(session,uid,local_today(user['timezone']),user['timezone'],plan_id=plan.id)
     by_key={(normalized(ex.name),normalized(ex.muscle_group)):ex for ex in state.exercises}
     suggestions=[]
-    for day in document['days']:
+    for day_index,day in enumerate(document['days']):
         for ex in day['exercises']:
             previous=by_key.get((normalized(ex['name']),normalized(ex['muscle_group'])))
-            progress=previous.progression if previous else None
+            progress=next((p for p in previous.progressions if p.plan_id==plan.id and p.day_index==day_index),None) if previous else None
             # A historical recommendation must also match the currently displayed prescription.
-            last=previous.history[-1] if previous and previous.history else None
-            matches=last and last.prescribed_sets==ex['sets'] and str(last.target_reps)==str(ex['reps'])
+            matches=progress and progress.prescribed_sets==ex['sets'] and str(progress.target_reps)==str(ex['reps'])
             prescribed=decimal(ex['weight'])
             if progress and prescribed is not None and progress.current_weight is not None and prescribed!=decimal(progress.current_weight):
                 matches=False
