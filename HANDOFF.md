@@ -8,11 +8,11 @@ Reference validation at this audit: that PR37 merge deployed to Northflank `6950
 
 ## Next phase and authorization
 
-Next: **Phase 10 - Training Intelligence 2.0**, following the [unchanged 14-phase master plan](docs/SIRIUS_3_MASTER_PLAN.md). **Wait for explicit owner authorization.** The current context-organization task is documentation-only and does not authorize advancing the plan. Its own CI/review/integration evidence belongs to its independent PR.
+Current: **Phase 10 - Training Intelligence 2.0**, explicitly authorized by the owner after PR #38, following the [unchanged 14-phase master plan](docs/SIRIUS_3_MASTER_PLAN.md). Implementation branch: `feat/training-intelligence-2`, base main `3e968711392364ac4858fe3981b0d29c9fcae6ca`. See the directed audit and contracts in [TRAINING_INTELLIGENCE](docs/TRAINING_INTELLIGENCE.md). Publication is pending CI, final Codex review, merge and both deploys. **Phase 11 is not authorized; wait after publishing Phase 10.**
 
 ## Migrations and blockers
 
-Schema head: `a81c9d37e502`. No pending production migration or functional publication gate for Phases 8/9. No migration in the context-organization change. The only next-phase blocker is owner authorization; future migrations use the protected workflow and mandatory approval in [PRODUCTION_MIGRATIONS](docs/PRODUCTION_MIGRATIONS.md).
+Schema head: `a81c9d37e502`. No migration proposed for Phase 10: projections reuse existing sessions, sets, logs and plans. No production database operation authorized outside the protected workflow and mandatory approval in [PRODUCTION_MIGRATIONS](docs/PRODUCTION_MIGRATIONS.md). Phase 10 completion remains subject to all publication gates.
 
 ## Decisions and continuity
 

@@ -57,10 +57,12 @@ const clone = value => JSON.parse(JSON.stringify(value));
         if (p === '/api/workout-sessions/active') return json(route, { active: active?.status === 'active', session: active });
         if (p === '/api/workout-sessions/start') {
           assert.equal(request.postDataJSON().plan_id, 'ux-plan');
-          active = { session_id: 'ux-session', plan_id: plan.plan_id, plan_name: plan.name, status: 'active', current_exercise_idx: 0, started_at: new Date(Date.now() - 61000).toISOString(), revision: 0, exercises: exercises.map(ex => ({ ...ex, sets_data: [], sets_completed: 0, completed: false })) };
+          active = { session_id: 'ux-session', plan_id: plan.plan_id, day_index: 0, day_id: 'ux-day-0', plan_name: plan.name, status: 'active', current_exercise_idx: 0, started_at: new Date(Date.now() - 61000).toISOString(), revision: 0, exercises: exercises.map(ex => ({ ...ex, sets_data: [], sets_completed: 0, completed: false })) };
           return json(route, active);
         }
-        if (p === '/api/workouts/next-loads') return json(route, { suggestions: [{ name: exerciseName, current_weight: '20', next_weight: 22.5 }] });
+        if (p === '/api/workouts/next-loads') return json(route, { plan_id: plan.plan_id, suggestions: [
+          { name: exerciseName, muscle_group: exercises[0].muscle_group, day_index: 1, day_id: 'ux-day-1', current_weight: '20', next_weight: 99 },
+          { name: exerciseName, muscle_group: exercises[0].muscle_group, day_index: 0, day_id: 'ux-day-0', current_weight: '20', next_weight: 22.5 }] });
         if (p === '/api/workouts/exercise-history') {
           if (historyFail) { historyFail = false; return json(route, { detail: 'Unavailable' }, 503); }
           return json(route, { history: url.searchParams.get('exercise_name') === exerciseName ? [{ date: '2026-10-06', sets_data: [{ weight: '20', reps: 10, completed: true, rpe: 7 }, { weight: '20', reps: 9, completed: true }] }] : [] });

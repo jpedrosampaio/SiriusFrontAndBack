@@ -5,7 +5,7 @@ import WorkoutTutorial from '@/components/WorkoutTutorial';
 import WorkoutComparison from '@/components/WorkoutComparison';
 import { readSaved, writeSaved } from '@/lib/session-storage';
 import { getApiErrorMessage } from '@/lib/api-errors';
-import { setDefaults, validateSet, workoutSummary, sessionTime } from '@/lib/workout-session';
+import { setDefaults, validateSet, workoutSummary, sessionTime, nextLoadForExercise } from '@/lib/workout-session';
 import { ArrowRight, Check, Dumbbell, Loader2, Timer } from 'lucide-react';
 import './WorkoutSession.css';
 
@@ -81,7 +81,7 @@ export default function WorkoutSession({ session, userId, elapsed, saving, onSav
   const progress = workoutSummary(session);
   const next = session.exercises.findIndex((ex, idx) => idx > index && !ex.completed);
   const nextPending = next >= 0 ? next : session.exercises.findIndex((ex, idx) => idx !== index && !ex.completed);
-  const suggestion = nextLoads?.suggestions?.find?.(item => item.name === exercise?.name);
+  const suggestion = nextLoadForExercise(session, exercise, nextLoads);
   const pending = saving || !!attempt;
   useWorkoutWakeLock(session.status === 'active');
   const revealKeyboardEntry = useCallback(() => {

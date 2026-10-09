@@ -1,6 +1,8 @@
 export function summarizeSets(exercise) {
-  const sets = (exercise?.sets_data || []).filter(s => Number.isFinite(Number(s.weight)) && Number(s.weight) >= 0 && Number.isFinite(Number(s.reps)) && Number(s.reps) > 0);
-  if (!sets.length) return null;
+  const sets = (exercise?.sets_data || []).filter(s => s.completed === true);
+  const known = value => value != null && typeof value !== 'boolean' && String(value).trim() !== '' && Number.isFinite(Number(value));
+  // An empty load is unknown, not zero; do not compare a partial subtotal as complete volume.
+  if (!sets.length || !sets.every(s => known(s.weight) && Number(s.weight) >= 0 && known(s.reps) && Number(s.reps) > 0)) return null;
   const effort = sets.filter(s => Number(s.rpe) >= 1 && Number(s.rpe) <= 10);
   return { sets: sets.length, reps: sets.reduce((n, s) => n + Number(s.reps), 0),
     volume: sets.reduce((n, s) => n + Number(s.weight) * Number(s.reps), 0),

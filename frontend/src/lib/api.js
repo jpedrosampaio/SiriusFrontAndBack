@@ -68,9 +68,10 @@ axios.interceptors.response.use(
     const isChatTransport = /\/ai\/(chat|cancel\/)/.test(response.config?.url || '');
     const url = response.config?.url || '';
     const isFinancialPreview = /\/finance\/intelligence\/(simulate|compare-debts)(?:\?|$)/.test(url) || /\/projections\/insights(?:\?|$)/.test(url);
+    const isTrainingPreview = /\/workouts\/intelligence\/substitutions(?:\?|$)/.test(url);
     // Legacy bills GET materializes projections on first view; it is a mutation.
     const importsBills = /\/finance\/monthly-bills(?:\?|$)/.test(url) && response.config?.method === 'get';
-    if (!isChatTransport && !isFinancialPreview && (importsBills || !['get', 'head', 'options'].includes(response.config?.method || 'get'))) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
+    if (!isChatTransport && !isFinancialPreview && !isTrainingPreview && (importsBills || !['get', 'head', 'options'].includes(response.config?.method || 'get'))) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
     return response;
   },
   (error) => {

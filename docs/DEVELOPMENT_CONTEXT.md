@@ -25,7 +25,7 @@ Base auditada: `main` em `280dcd73d688d3f34ab3cb9a5deedb83a278e4c7`. Não havia 
 | Tutor e conhecimento | [SIRIUS_TUTOR](SIRIUS_TUTOR.md), código atual em `backend/ai/` e serviços de estudo |
 | Vida integrada, tarefas, agenda, hábitos, metas | [LIFE_STATE_GLOBAL_PLANNER](LIFE_STATE_GLOBAL_PLANNER.md), [OPERATIONAL_PLANNING](OPERATIONAL_PLANNING.md), `backend/services/life_adapters.py`, `backend/ai/planning.py` |
 | Financeiro | [FINANCE_INTELLIGENCE](FINANCE_INTELLIGENCE.md), contratos/rotas e integrações financeiras atuais |
-| Treinos | [WORKOUT_SESSION_UX2](WORKOUT_SESSION_UX2.md), [WORKOUT_YOUTUBE](WORKOUT_YOUTUBE.md), `backend/services/workout_*`, componentes/páginas de treino |
+| Treinos | [TRAINING_INTELLIGENCE](TRAINING_INTELLIGENCE.md), [WORKOUT_SESSION_UX2](WORKOUT_SESSION_UX2.md), [WORKOUT_YOUTUBE](WORKOUT_YOUTUBE.md), `backend/training_contracts.py`, `backend/services/training_intelligence*`, `backend/services/workout_*`, componentes/páginas de treino |
 | Nutrição | `backend/services/nutrition*`, modelos, rotas/componentes atuais e integrações com Life State/Agent |
 | Agent e IA compartilhada | `backend/ai/registry.py`, `core.py`, `agent.py`, `backend/services/core_writes.py`, [shared-assistant](shared-assistant.md), documentos dos motores envolvidos |
 | Persistência e migrations | [POSTGRES_ARCHITECTURE](POSTGRES_ARCHITECTURE.md), [DATA_MODEL](DATA_MODEL.md), [PRODUCTION_MIGRATIONS](PRODUCTION_MIGRATIONS.md), modelos/revisões Alembic atuais |

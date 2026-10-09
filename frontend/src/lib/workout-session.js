@@ -34,6 +34,13 @@ export function validateSet(values) {
   return { reps, weight, rpe, completed: true };
 }
 
+export function nextLoadForExercise(session, exercise, nextLoads) {
+  if (!session?.day_id || !session.plan_id || !Number.isInteger(session.day_index) || nextLoads?.plan_id !== session.plan_id) return undefined;
+  const normalize = value => String(value || '').trim().toLocaleLowerCase();
+  return nextLoads.suggestions?.find(item => item.day_id === session.day_id && item.day_index === session.day_index
+    && normalize(item.name) === normalize(exercise?.name) && normalize(item.muscle_group) === normalize(exercise?.muscle_group));
+}
+
 export function sessionTime(seconds) {
   const value = Math.max(0, Math.floor(seconds || 0));
   const m = Math.floor(value / 60), s = String(value % 60).padStart(2, '0');

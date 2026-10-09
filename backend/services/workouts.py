@@ -6,6 +6,7 @@ from db.models.health import SessionExercise
 from db.repositories.health import HealthRepository
 from services.planning import apply_xp
 from services.time import local_today
+from services.workout_origin import snapshot, day_identity, public_feedback, ORIGIN_KEY
 
 
 def exercise_json(ex):
@@ -20,7 +21,8 @@ def session_json(row):
     return jsonable_encoder({'session_id':row.id,'user_id':row.user_id,'plan_id':row.plan_id,'plan_name':row.plan_name,
         'status':row.status,'started_at':row.started_at,'completed_at':row.completed_at,'total_duration_seconds':row.total_duration_seconds,
         'current_exercise_idx':row.current_exercise_idx,'rest_timer_seconds':row.rest_timer_seconds,'revision':row.revision,
-        'feedback':row.feedback,'day_index':row.day_index,'exercises':[exercise_json(ex) for ex in row.exercises]})
+        'feedback':public_feedback(row),'day_index':row.day_index,'day_id':day_identity(row),
+        'exercises':[exercise_json(ex) for ex in row.exercises]})
 
 
 async def start_session(user_id, plan_id, day_index=0, rest_timer_seconds=60, request_key=None):
@@ -35,7 +37,8 @@ async def start_session(user_id, plan_id, day_index=0, rest_timer_seconds=60, re
             raise HTTPException(422,'Dia de treino inválido.')
         day = plan.days[day_index]
         row = repo.add_session(user_id=user.id,plan_id=plan.id,plan_name=f'{plan.name} - {day.label}',
-            day_index=day_index,started_at=datetime.now(timezone.utc),rest_timer_seconds=rest_timer_seconds)
+            day_index=day_index,started_at=datetime.now(timezone.utc),rest_timer_seconds=rest_timer_seconds,
+            feedback=snapshot(plan.id,day.id,day_index))
         await session.flush()
         for ex in day.exercises:
             session.add(SessionExercise(user_id=user.id,session_id=row.id,position=ex.position,
@@ -58,7 +61,9 @@ async def complete_session(user_id, session_id, body, request_key=None):
         feedback = {'difficulty':body.get('difficulty',3),'feeling':body.get('feeling',''),'notes':body.get('notes',''),
             'completed_exercises':completed_count,'total_exercises':len(row.exercises)}
         xp = 10+completed_count*2+(seconds//900)*5
-        row.status,row.completed_at,row.total_duration_seconds,row.feedback = 'completed',now,seconds,feedback
+        origin = row.feedback.get(ORIGIN_KEY) if isinstance(row.feedback, dict) else None
+        stored_feedback = {**feedback, ORIGIN_KEY:origin} if origin is not None else feedback
+        row.status,row.completed_at,row.total_duration_seconds,row.feedback = 'completed',now,seconds,stored_feedback
         minutes = max(1,seconds//60)
         repo.add_log(user_id=user.id,session_id=row.id,plan_id=row.plan_id,activity_type='weightlifting',
             name=row.plan_name,duration_minutes=minutes,calories=minutes*6,notes=feedback['notes'],xp_earned=xp,

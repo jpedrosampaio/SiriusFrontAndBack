@@ -31,6 +31,7 @@ import { toast } from "sonner";
 
 const WorkoutsStatsTab = lazy(() => import('@/components/tabs/WorkoutsStatsTab'));
 const WorkoutsEvolutionTab = lazy(() => import('@/components/tabs/WorkoutsEvolutionTab'));
+const TrainingIntelligence = lazy(() => import('@/components/TrainingIntelligence'));
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
@@ -275,7 +276,7 @@ export default function Workouts() {
   const loadData = useCallback(async () => {
     try {
       const [userRes, workoutsRes, plansRes] = await Promise.all([
-        getCurrentUser(), axios.get(`${API}/workouts`), cachedGet('/workout-plans').then(data => ({ data })),
+        getCurrentUser().then(result => { setUser(result.data); return result; }), axios.get(`${API}/workouts`), cachedGet('/workout-plans').then(data => ({ data })),
       ]);
       setUser(userRes.data);
       if (userRes.data.health_condition) setAiGenForm(prev => ({ ...prev, health_condition: userRes.data.health_condition }));
@@ -2054,6 +2055,7 @@ export default function Workouts() {
               <TabsTrigger value="evolution" className="data-[state=active]:bg-[#27272A]">
                 <Scale className="w-4 h-4 mr-2" /> Evolução
               </TabsTrigger>
+              <TabsTrigger value="intelligence" className="data-[state=active]:bg-[#27272A]">Inteligência</TabsTrigger>
               <TabsTrigger value="history" className="data-[state=active]:bg-[#27272A]">
                 <Calendar className="w-4 h-4 mr-2" /> Histórico
               </TabsTrigger>
@@ -2411,6 +2413,12 @@ export default function Workouts() {
             <TabsContent value="evolution">
 <Suspense fallback={<p role="status">Carregando...</p>}><WorkoutsEvolutionTab openMeasurement={openMeasurement} setOpenMeasurement={setOpenMeasurement} handlePdfUpload={handlePdfUpload} uploadingPdf={uploadingPdf} pdfAnalysis={pdfAnalysis} newMeasurement={newMeasurement} setNewMeasurement={setNewMeasurement} handleCreateMeasurement={handleCreateMeasurement} latestMeasurement={latestMeasurement} loadRecommendations={loadRecommendations} loadingRecommendations={loadingRecommendations} recommendations={recommendations} measurements={measurements} exerciseFilter={exerciseFilter} setExerciseFilter={setExerciseFilter} setExerciseEvoData={setExerciseEvoData} fetchExerciseEvolution={fetchExerciseEvolution} evoLoading={evoLoading} evoError={evoError} exerciseEvoData={exerciseEvoData} /></Suspense>
 </TabsContent>
+
+            <TabsContent value="intelligence">
+              <Suspense fallback={<p role="status">Carregando análise…</p>}>
+                <TrainingIntelligence userId={user?.user_id} plans={plans} />
+              </Suspense>
+            </TabsContent>
 
             <TabsContent value="history">
               <div className="space-y-4">
