@@ -1,5 +1,9 @@
 # Finance Intelligence 2.0
 
+## Published status
+
+Phase 9 is published through PR #36, merge `9b7b9cdadcae13d617fbf1ff7ec2a2ecd1729d7e`, reviewed head `aeb956ac998c41144d370a89d0450d5aa3f6d18c`. All four exact-head CI checks passed; Codex review 6072254909 was clean after nine P2 corrections. Northflank deployment 6950631575 and Vercel Production deployment 6950670574 succeeded on that exact merge. Read-only production live/ready/frontend/assets returned 200; all three financial routes are published and unauthenticated state is protected with 401. No migration or production test writes. See HANDOFF.md for timestamps and current operational state.
+
 ## Pre-edit audit
 
 Phase 9 starts from published main9804e21a7532538f7b5035c300c424a4ed1cd580 (Phase8 PR35). FinancialTransaction, Budget, CreditCard, CardPurchase, Invoice, Projection and MonthlyBill already use SQL Numeric/Decimal and owned transaction locks. Keep these ledgers, receipts and endpoints. MonthlyBill has a month, not a daily due date; CreditCard has an explicit configured due day. Fixed projections already materialize thirteen months and repeats already materialize each installment: do not expand them a second time.
@@ -42,4 +46,4 @@ At most1000 projection/bill/invoice details per source,200 cards/budgets/categor
 
 Agent shares one financial snapshot between prefetched context and degraded reads. New read tools: get_finance_state, simulate_finances, compare_debt_strategies. Existing expense proposals now validate Decimal precision and keep literal monetary strings; actual writes still require confirmation. Provider-free real SQL regression verifies one snapshot and no writes/actions. The chat presents financial facts and scenario summaries with human labels and module links rather than internal metadata.
 
-Local validation snapshot:246 full PostgreSQL tests passed before two additional charge/Agent integration cases;150 pure regressions/security5 and frontend52 unit/lint/build/new five-width financial smoke passed. Full13 browser suites and exact-head remote CI/review remain pending. Schema check reports no new upgrade operations. Final published state will be recorded in HANDOFF and PR metadata after deployment.
+Final exact-head CI validation: 253 PostgreSQL tests plus six mocked YouTube cases; backend/security and migration-safety suites; 53 frontend unit tests, lint, production build and all 13 browser suites in five widths (320/390/768/1024/1440 px). Source lifecycle, ownership, idempotency, bounded queries, stale/foreign scenarios, no scenario writes, provider-free Agent snapshot reuse, unknown rates, exact cents and preservation of existing modules are covered. Schema check reports no new upgrade operations. Production validation is read-only and recorded above and in HANDOFF/PR metadata.
