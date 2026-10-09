@@ -66,7 +66,8 @@ axios.interceptors.request.use(
 axios.interceptors.response.use(
   (response) => {
     const isChatTransport = /\/ai\/(chat|cancel\/)/.test(response.config?.url || '');
-    if (!isChatTransport && !['get', 'head', 'options'].includes(response.config?.method || 'get')) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
+    const isFinancialPreview = /\/finance\/intelligence\/(simulate|compare-debts)(?:\?|$)/.test(response.config?.url || '');
+    if (!isChatTransport && !isFinancialPreview && !['get', 'head', 'options'].includes(response.config?.method || 'get')) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
     return response;
   },
   (error) => {

@@ -24,6 +24,7 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await fixtures.RuntimeFinance.asyncSetUp(self)
         self.day=datetime.now(ZoneInfo('America/Sao_Paulo')).date();self.first=self.day.replace(day=1);self.next=shift_month(self.first,1)
+        self.local_day=patch('services.finance_routes.local_today',return_value=self.day);self.local_day.start()
         async def account(request):return {'user_id':str(self.bob if request.headers.get('Authorization')=='Bearer bob' else self.uid),'timezone':'America/Sao_Paulo'}
         self.auth_intel=patch('services.finance_intelligence_routes.account',account);self.auth_intel.start()
         self.card_id=UUID(await self.card())
@@ -42,7 +43,7 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
             await s.flush()
 
     async def asyncTearDown(self):
-        self.auth_intel.stop();await fixtures.RuntimeFinance.asyncTearDown(self)
+        self.auth_intel.stop();self.local_day.stop();await fixtures.RuntimeFinance.asyncTearDown(self)
 
     async def state(self,**params):return self.ok(await self.http.get('/api/finance/intelligence/state',params=params))
 
@@ -92,7 +93,7 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
         state=await self.state();actual=next(b for b in state['budgets'] if b['category']=='other');self.assertEqual(actual['effective_limit'],'100.00')
         future={**body,'month':str(self.next)[:7],'category':'future-unknown'}
         self.ok(await self.http.post('/api/budgets',json=future))
-        rows=self.ok(await self.http.get('/api/budgets',params={'month':str(self.next)[:7]}));self.assertEqual(rows[0]['limit'],5.56)
+        rows=self.ok(await self.http.get('/api/budgets',params={'month':str(self.next)[:7]}));self.assertIsNone(rows[0]['limit'])
         empty={**body,'month':str(shift_month(self.first,2))[:7],'category':'empty-base'};self.ok(await self.http.post('/api/budgets',json=empty))
         self.assertIsNone(self.ok(await self.http.get('/api/budgets',params={'month':empty['month']}))[0]['limit'])
         self.assertEqual((await self.http.post('/api/budgets',json=body|{'category':'invalid','percentage':'100.01'})).status_code,422)
@@ -101,6 +102,28 @@ class FinanceIntelligence(unittest.IsolatedAsyncioTestCase):
         month=str(shift_month(self.first,2))[:7]
         result=self.ok(await self.http.get('/api/projections/summary',params={'month':month}))
         self.assertEqual(result['estimated_income'],0)
+
+    async def test_future_ledger_entries_do_not_change_current_budget_basis(self):
+        from ai.core import Core
+        # Pin all readers to the same account-local date, including at month end.
+        day=self.first+timedelta(days=5)
+        async with unit_of_work() as s:
+            rows=(await s.scalars(select(FinancialTransaction).where(FinancialTransaction.user_id==self.uid,
+                FinancialTransaction.date==self.day))).all()
+            for row in rows:row.date=day
+            s.add_all([FinancialTransaction(user_id=self.uid,type='income',amount=Decimal('2000.00'),category='salary',date=day+timedelta(days=1)),
+                FinancialTransaction(user_id=self.uid,type='expense',amount=Decimal('300.00'),category='food',date=day+timedelta(days=1))])
+            budget=await s.scalar(select(Budget).where(Budget.user_id==self.uid,Budget.category=='food'))
+            user=await s.get(User,self.uid);user.preferences={'finance_budget_policies':{str(budget.id):{'budget_type':'percentage','percentage':'10.00'}}}
+        at=datetime.combine(day,datetime.min.time(),tzinfo=ZoneInfo('America/Sao_Paulo'))+timedelta(hours=12)
+        with patch('services.finance_routes.local_today',return_value=day),patch('services.agent_reads.local_today',return_value=day):
+            legacy=self.ok(await self.http.get('/api/budgets',params={'month':str(self.first)[:7]}))[0]
+            agent=(await Core().read('get_budget_status',str(self.uid)))[0]
+        state=await FinanceEngine().get_state(self.uid,now=at)
+        self.assertEqual(Decimal(str(legacy['limit'])),Decimal('100.00'));self.assertEqual(Decimal(str(legacy['spent'])),Decimal('100.10'))
+        self.assertEqual(agent['limit'],Decimal('100.00'));self.assertEqual(agent['spent'],Decimal('100.10'))
+        self.assertEqual(state.budgets[0].effective_limit,Decimal('100.00'));self.assertEqual(state.budgets[0].spent,Decimal('100.10'))
+        self.assertEqual(state.forecast.months[0].recorded_future_income,Decimal('2000.00'))
 
     async def test_card_due_day_clamps_and_truncation_disables_forecast(self):
         async with unit_of_work() as s:

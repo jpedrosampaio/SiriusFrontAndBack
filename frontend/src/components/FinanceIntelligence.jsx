@@ -25,13 +25,19 @@ function ForecastCards({ forecast }) {
     </dl></article>)}</div>{forecast.months.length > 1 && <Button className="min-h-11" variant="outline" onClick={() => setExpanded(!expanded)}>{expanded ? 'Recolher meses' : `Ver todos os ${forecast.months.length} meses`}</Button>}<details className="text-xs text-slate-400"><summary className="cursor-pointer min-h-11">Premissas do cálculo</summary>{forecast.assumptions.map(a => <p className="mb-2" key={a}>{a}</p>)}</details></div>;
 }
 
-export default function FinanceIntelligence({ userId, refreshKey }) {
+export default function FinanceIntelligence({ userId }) {
   const [state, setState] = useState(null), [view, setView] = useState('flow'), [months, setMonths] = useState(6), [reload, setReload] = useState(0);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState(''), [income, setIncome] = useState(''), [expense, setExpense] = useState(''), [offset, setOffset] = useState(0);
   const [paymentId, setPaymentId] = useState(''), [paymentDate, setPaymentDate] = useState(''), [simulation, setSimulation] = useState(null);
   const [debts, setDebts] = useState(() => [newDebt(1)]), [monthlyPayment, setMonthlyPayment] = useState(''), [debtMonths, setDebtMonths] = useState(120), [comparison, setComparison] = useState(null);
   const generation = useRef(0), locked = useRef(false);
+  useEffect(() => {
+    let timer;
+    const refresh = () => { clearTimeout(timer); timer = setTimeout(() => setReload(value => value + 1), 100); };
+    window.addEventListener('sirius-data-changed', refresh);
+    return () => { clearTimeout(timer); window.removeEventListener('sirius-data-changed', refresh); };
+  }, [userId]);
   useEffect(() => {
     setDebts([newDebt(1)]); setOpening(''); setIncome(''); setExpense(''); setMonthlyPayment('');
   }, [userId]);
@@ -44,7 +50,7 @@ export default function FinanceIntelligence({ userId, refreshKey }) {
     }).catch(e => { if (!controller.signal.aborted && generation.current === gen) setError(getApiErrorMessage(e, 'Não foi possível consultar os registros financeiros.')); })
       .finally(() => { if (generation.current === gen) setLoading(false); });
     return () => { controller.abort(); generation.current = gen + 1; };
-  }, [userId, months, reload, refreshKey]);
+  }, [userId, months, reload]);
   const run = async kind => {
     if (locked.current || !state) return;
     locked.current = true; setBusy(true); setError(''); const gen = generation.current;

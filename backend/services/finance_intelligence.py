@@ -37,7 +37,7 @@ def budget_policy(row,preferences,income):
         percent=Decimal(str(raw.get('percentage')))
         if not percent.is_finite() or not 0<percent<=100:raise ValueError()
     except (ValueError,DecimalException):return None,'percentage',None,'Percentual inválido; configure novamente.'
-    return (cents(income*percent/100) if income>0 else None),'percentage',percent,'Percentual da renda registrada no próprio mês; sem renda registrada, limite indeterminado.'
+    return (cents(income*percent/100) if income>0 else None),'percentage',percent,'Percentual da renda registrada no próprio mês até a data local da consulta; sem renda registrada, limite indeterminado.'
 
 
 def build_forecast(day,months,future,obligations,scenario=None):

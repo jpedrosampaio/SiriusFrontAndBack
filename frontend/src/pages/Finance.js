@@ -536,7 +536,7 @@ export default function Finance() {
             </div>
           </div>
 
-          {user?.user_id && <FinanceIntelligence key={user.user_id} userId={user.user_id} refreshKey={stats} />}
+          {user?.user_id && <FinanceIntelligence key={user.user_id} userId={user.user_id} />}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <Card className="bg-[#0A0A0A] border-[#27272A] p-6">
               <div className="flex items-center justify-between mb-2">

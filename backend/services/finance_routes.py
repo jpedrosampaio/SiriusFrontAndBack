@@ -153,18 +153,19 @@ async def budgets(request: Request, month: str | None = None):
     async with unit_of_work() as session:
         rows=(await session.scalars(query.order_by(Budget.month,Budget.category))).all()
         if not rows: return []
+        profile=await session.get(User,uid)
+        day=local_today(profile.timezone)
         month_bucket=func.date_trunc('month',FinancialTransaction.date)
         grouped=(await session.execute(select(FinancialTransaction.category,
             month_bucket,func.sum(FinancialTransaction.amount)).where(
-            FinancialTransaction.user_id==uid,FinancialTransaction.type=='expense',
+            FinancialTransaction.user_id==uid,FinancialTransaction.type=='expense',FinancialTransaction.date<=day,
             FinancialTransaction.date>=min(r.month for r in rows),FinancialTransaction.date<shift_month(max(r.month for r in rows),1))
             .group_by(FinancialTransaction.category,month_bucket))).all()
         spent={(category,month.date()):amount for category,month,amount in grouped}
         income_rows=(await session.execute(select(month_bucket,func.sum(FinancialTransaction.amount)).where(
-            FinancialTransaction.user_id==uid,FinancialTransaction.type=='income',FinancialTransaction.date>=min(r.month for r in rows),
+            FinancialTransaction.user_id==uid,FinancialTransaction.type=='income',FinancialTransaction.date<=day,FinancialTransaction.date>=min(r.month for r in rows),
             FinancialTransaction.date<shift_month(max(r.month for r in rows),1)).group_by(month_bucket))).all()
         incomes={month.date():amount for month,amount in income_rows}
-        profile=await session.get(User,uid)
         result=[]
         for row in rows:
             income=incomes.get(row.month,ZERO)
