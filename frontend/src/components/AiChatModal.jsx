@@ -47,7 +47,7 @@ function MessageAvatar({ role }) {
   );
 }
 
-export default function AiChatModal({ open, onClose, context = {} }) {
+export default function AiChatModal({ open, onClose, onRestoreFocus, context = {} }) {
   const location = useLocation();
   const assistant = useAssistant(location.pathname, open, context);
   const { messages, sending, error, send, refresh } = assistant;
@@ -93,7 +93,7 @@ export default function AiChatModal({ open, onClose, context = {} }) {
           <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[80] backdrop-blur-sm" />
           <Dialog.Content id="sirius-assistant-panel" className="sirius-assistant-panel" style={viewport || undefined}
             onOpenAutoFocus={e => { e.preventDefault(); document.getElementById('sirius-assistant-close')?.focus(); }}
-            onCloseAutoFocus={e => e.preventDefault()} aria-describedby="sirius-assistant-description">
+            onCloseAutoFocus={e => { e.preventDefault(); onRestoreFocus?.(); }} aria-describedby="sirius-assistant-description">
           <div className="relative px-4 py-3.5 border-b border-[#27272A] shrink-0 bg-gradient-to-r from-[#0D0D0D] to-[#0A0A0A]">
             <div className="absolute inset-0 bg-gradient-to-r from-[#FFD700]/5 to-transparent pointer-events-none" />
             <div className="flex items-center justify-between relative">

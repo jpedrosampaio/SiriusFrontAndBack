@@ -18,6 +18,7 @@ export default function CommandPalette({ mode, onClose }) {
   const [query, setQuery] = useState(''), [results, setResults] = useState([]), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const [groups,setGroups]=useState([]),[domain,setDomain]=useState('');
   const paging=useRef(null),epoch=useRef(0);
+  const returnFocus=useRef(null);
   const navigate = useNavigate();
   useEffect(() => { setQuery(''); setResults([]); setGroups([]); setDomain(''); setError(''); }, [mode]);
   useEffect(() => {
@@ -44,7 +45,9 @@ export default function CommandPalette({ mode, onClose }) {
   const ask=r=>{onClose();openSirius({intent:'explain',...(entity[r.type]?{[entity[r.type]]:r.id}:{}),draft:`Explique este registro: ${r.title}`});};
   const select = link => { onClose(); if (link.startsWith('sirius:')) { setTimeout(() => openSirius({ draft: link.slice(7) }), 0); } else navigate(link); };
   const visible = actions.filter(([name]) => name.toLocaleLowerCase('pt-BR').includes(query.toLocaleLowerCase('pt-BR')));
-  return <Dialog open={Boolean(mode)} onOpenChange={open => { if (!open) onClose(); }}><DialogContent className="sirius-command-dialog">
+  return <Dialog open={Boolean(mode)} onOpenChange={open => { if (!open) onClose(); }}><DialogContent className="sirius-command-dialog"
+    onOpenAutoFocus={() => { returnFocus.current=document.activeElement; }}
+    onCloseAutoFocus={event => { event.preventDefault(); requestAnimationFrame(() => returnFocus.current?.focus()); }}>
     <DialogTitle>{mode === 'add' ? 'O que deseja adicionar?' : 'Buscar e fazer'}</DialogTitle>
     <DialogDescription>Encontre seus registros ou escolha uma ação. Use as setas e Enter.</DialogDescription>
     <Command shouldFilter={false} label="Buscar registros e ações">
