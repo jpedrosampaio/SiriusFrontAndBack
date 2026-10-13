@@ -37,21 +37,13 @@ async def emit(user_id,event,source,version='1',session=None):
 
 
 async def claim(user_id=None):
-    now=datetime.now(timezone.utc)
-    async with unit_of_work() as session:
-        statement=select(Event).where(or_(Event.status=='pending', (Event.status=='processing') & (Event.lease_until<=now)))
-        if user_id is not None:statement=statement.where(Event.user_id==identity(user_id))
-        row=await session.scalar(statement.order_by(Event.created_at,Event.id).limit(1).with_for_update(skip_locked=True))
-        if row is None:return None
-        row.status,row.lease_token,row.lease_until='processing',uuid4(),now+timedelta(minutes=2)
-        return {'event_id':str(row.id),'user_id':str(row.user_id),'type':row.event_type,'lease_token':str(row.lease_token)}
+    from services.event_queue import claim as durable_claim
+    return await durable_claim(user_id)
 
 
 async def finish(event):
-    async with unit_of_work() as session:
-        result=await session.execute(update(Event).where(Event.user_id==identity(event['user_id']),Event.id==identity(event['event_id']),
-            Event.status=='processing',Event.lease_token==identity(event['lease_token'])).values(status='processed',lease_until=None,lease_token=None))
-        return result.rowcount==1
+    from services.event_queue import finish as durable_finish
+    return await durable_finish(event)
 
 
 async def local_now(user_id):

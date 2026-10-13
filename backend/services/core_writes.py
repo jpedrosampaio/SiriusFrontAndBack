@@ -58,6 +58,9 @@ class CoreWrites:
         else:
             raise HTTPException(422,'Ação indisponível.')
         result['created_at'] = datetime.now(timezone.utc).isoformat()
-        session.add(Event(user_id=user.id,event_type=event,payload={'result':result}))
+        if event in ('finance.expense.created','study.session.completed'):
+            from services.event_producers import emit_record
+            await emit_record(session,user,'transaction' if event=='finance.expense.created' else 'study_session',row)
+        else:session.add(Event(user_id=user.id,event_type=event,payload={'result':result}))
         await session.flush()
         return result

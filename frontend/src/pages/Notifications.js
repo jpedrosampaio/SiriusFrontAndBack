@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/api";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, lazy, Suspense } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const AutomationConsole = lazy(() => import('@/components/AutomationConsole'));
 
 const CATEGORIES = [
   { value: "hydration", label: "Hidratação", color: "#00BFFF" },
@@ -370,8 +371,10 @@ export default function Notifications() {
             <TabsList className="bg-[#0A0A0A] border border-[#27272A] mb-6 overflow-x-auto flex-nowrap w-full justify-start md:justify-center">
               <TabsTrigger value="active" className="data-[state=active]:bg-[#27272A]"><Bell className="w-4 h-4 mr-2" /> Ativos</TabsTrigger>
               <TabsTrigger value="templates" className="data-[state=active]:bg-[#27272A]"><Settings className="w-4 h-4 mr-2" /> Templates</TabsTrigger>
+              <TabsTrigger value="automations" className="data-[state=active]:bg-[#27272A]">Automações</TabsTrigger>
             </TabsList>
 
+            <TabsContent value="automations">{activeTab==='automations'&&user?.user_id&&<Suspense fallback={<p role="status">Carregando automações…</p>}><AutomationConsole key={user.user_id}/></Suspense>}</TabsContent>
             <TabsContent value="active">
               <div className="grid gap-4">
                 {notifications.length === 0 ? (

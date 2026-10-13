@@ -2646,6 +2646,9 @@ api_router.include_router(finance_export_router)
 # Include router AFTER all endpoints are defined
 from services.notifications import router as notifications_router
 api_router.include_router(notifications_router)
+from services.event_routes import router as automation_router, reports as automation_reports
+api_router.include_router(automation_router)
+api_router.include_router(automation_reports)
 from services.telegram import router as telegram_router
 api_router.include_router(telegram_router)
 from services.mobile_sync import router as mobile_sync_router

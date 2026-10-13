@@ -2,6 +2,7 @@
 from typing import Literal
 from pydantic import Field
 from ai.types import StrictModel
+from event_contracts import AutomationPolicy
 
 
 class Preferences(StrictModel):
@@ -11,6 +12,7 @@ class Preferences(StrictModel):
     quiet_end: int = Field(default=8, ge=0, le=23)
     daily_cap: int = Field(default=3, ge=0, le=10)
     blocked_tools: list[str] = Field(default_factory=list, max_length=30)
+    event_automation: AutomationPolicy = Field(default_factory=AutomationPolicy)
 
 
 def autonomy(tool, prefs):

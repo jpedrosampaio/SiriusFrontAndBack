@@ -26,6 +26,13 @@ class Core:
 
     async def read(self, name, user_id, arguments=None):
         from services.agent_reads import read
+        if name in ('get_daily_briefing','get_night_review','get_weekly_coach'):
+            from services.event_reports import briefing
+            report=await briefing(user_id,mode={'get_daily_briefing':'morning','get_night_review':'night','get_weekly_coach':'weekly'}[name])
+            return report.model_dump(mode='json')
+        if name=='get_automation_state':
+            from services.event_routes import state
+            return await state(__import__('uuid').UUID(str(user_id)))
         if name in ('get_nutrition_state','get_nutrition_today','suggest_meals'):
             from services.nutrition_intelligence import NutritionEngine,agent_context
             from nutrition_contracts import MealScenario

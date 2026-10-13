@@ -39,7 +39,7 @@ async def attempts(session,uid,zone,*,program_id=None,notebook_id=None,topic_id=
     return [attempt_json(*row,zone) for row in rows]
 
 
-async def latest_reviews(session,uid,*,program_id=None,due=None,limit=1000):
+async def latest_reviews(session,uid,*,program_id=None,due=None,limit=1000,after_id=None,review_id=None):
     latest=select(ReviewEvent).where(ReviewEvent.user_id==uid).distinct(ReviewEvent.topic_id)
     latest=latest.order_by(ReviewEvent.topic_id,ReviewEvent.reviewed_at.desc(),ReviewEvent.id.desc()).subquery()
     query=select(latest.c.id,latest.c.next_review,latest.c.result,StudyTopic,Notebook).join(StudyTopic,
@@ -48,7 +48,10 @@ async def latest_reviews(session,uid,*,program_id=None,due=None,limit=1000):
     query=query.where(Notebook.archived_at.is_(None),StudyTopic.archived_at.is_(None))
     if program_id: query=query.where(Notebook.program_id==program_id)
     if due: query=query.where(latest.c.next_review<=due)
-    rows=(await session.execute(query.order_by(latest.c.next_review,latest.c.id).limit(limit))).all()
+    if after_id: query=query.where(latest.c.id>after_id)
+    if review_id: query=query.where(latest.c.id==review_id)
+    ordering=(latest.c.id,) if after_id is not None else (latest.c.next_review,latest.c.id)
+    rows=(await session.execute(query.order_by(*ordering).limit(limit))).all()
     return [{'review_id':str(identity),'notebook_id':str(nb.id),'program_id':str(nb.program_id) if nb.program_id else None,
         'topic_key':topic.topic_key,'title':topic.name,'due_date':day.isoformat() if day else None,
         'reason':reason if reason!='practice' else 'Revisão sugerida a partir da prática registrada.'} for identity,day,reason,topic,nb in rows]

@@ -75,10 +75,10 @@ def build_forecast(day,months,future,obligations,scenario=None):
 
 
 class FinanceEngine:
-    async def get_state(self,user_id,*,months=6,now=None):
+    async def get_state(self,user_id,*,months=6,now=None,session=None):
         if type(months) is not int or not 1<=months<=12:raise HTTPException(422,'Horizonte entre 1 e 12 meses.')
-        async with unit_of_work() as s:
-            await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
+        async with unit_of_work(session=session) as s:
+            if session is None:await s.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
             user=await s.get(User,UUID(str(user_id)))
             if user is None:raise HTTPException(404,'Conta não encontrada.')
             instant=now or datetime.now(timezone.utc)

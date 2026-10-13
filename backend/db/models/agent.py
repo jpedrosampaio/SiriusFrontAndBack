@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from uuid import UUID
-from sqlalchemy import CheckConstraint, DateTime, ForeignKeyConstraint, Index, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKeyConstraint, Index, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -101,8 +101,40 @@ class Event(Identity, Owned, Base):
     status: Mapped[str] = mapped_column(default='pending')
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_token: Mapped[UUID | None]
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    attempts: Mapped[int] = mapped_column(default=0, server_default='0')
+    last_error: Mapped[str | None]
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    __table_args__ = (UniqueConstraint('user_id','dedup_key'), Index('ix_events_status_lease','status','lease_until'), Index('ix_events_owner_created','user_id','created_at'))
+    __table_args__ = (UniqueConstraint('user_id','dedup_key'), UniqueConstraint('user_id','id'),
+        CheckConstraint('attempts >= 0 AND attempts <= 8', name='attempts'),
+        Index('ix_events_status_lease','status','lease_until'), Index('ix_events_owner_created','user_id','created_at'),
+        Index('ix_events_available','status','available_at','created_at'))
+
+
+class EventDelivery(Identity, Owned, Base):
+    """Transport outbox, not a second copy of module facts."""
+    __tablename__ = 'ai_event_deliveries'
+    event_id: Mapped[UUID]
+    channel: Mapped[str]
+    status: Mapped[str] = mapped_column(default='pending')
+    attempts: Mapped[int] = mapped_column(default=0, server_default='0')
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    lease_token: Mapped[UUID | None]
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    provider_receipt: Mapped[str | None]
+    last_error: Mapped[str | None]
+    recipient_link_id: Mapped[UUID | None]
+    recipient_chat_id: Mapped[int | None] = mapped_column(BigInteger)
+    history: Mapped[list] = mapped_column(JSONB, default=list, server_default='[]')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint('user_id','event_id','channel'),
+        ForeignKeyConstraint(['user_id','event_id'], ['ai_events.user_id','ai_events.id'], ondelete='CASCADE'),
+        CheckConstraint("channel IN ('in_app','telegram')", name='channel'),
+        CheckConstraint("status IN ('pending','processing','available','delivered','failed','cancelled','uncertain')", name='status'),
+        CheckConstraint('attempts >= 0 AND attempts <= 8', name='attempts'),
+        Index('ix_event_delivery_available','status','available_at','created_at'))
 
 
 class Insight(Identity, Owned, Timestamps, Base):
