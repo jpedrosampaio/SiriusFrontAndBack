@@ -23,7 +23,11 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
       if(p==='/api/automations/events')data={items:[event,{event_id:'report-own',event_type:'brief.daily',title:'Resumo anterior registrado',status:'processed',attempts:1,created_at:'2026-10-12T12:00:00Z',candidate:{facts:{...report,version:'event-briefing/2'},reasons:['Resumo dos registros próprios.']},deliveries:[]}],next_cursor:null};
       if(p==='/api/automations/telegram-replies')data={items:[reply],next_cursor:null};
       if(p.startsWith('/api/automations/telegram-replies/')){assert.ok(request.headers()['idempotency-key']);assert.equal(request.postDataJSON().accept_duplicate_risk,true);replyAccepted=true;reply.status='pending';reply.retry_allowed=false;data=reply;}
-      if(p==='/api/dashboard/daily-briefing')data={...report,mode:url.searchParams.get('mode')};
+      if(p==='/api/dashboard/daily-briefing'){
+        // Exercise an asynchronous mode change while historical evidence stays visible.
+        if(url.searchParams.get('mode')==='weekly')await new Promise(resolve=>setTimeout(resolve,150));
+        data={...report,mode:url.searchParams.get('mode')};
+      }
       if(p==='/api/automations/policy'){
         saves++;keys.push(request.headers()['idempotency-key']);assert.ok(keys.at(-1));
         Object.assign(state,{enabled:request.postDataJSON().enabled,daily_cap:request.postDataJSON().daily_cap,policy:request.postDataJSON().policy});
@@ -47,7 +51,12 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
     await panel.getByRole('button',{name:'Salvar automações'}).click();await panel.getByRole('alert').getByText('Resposta perdida; retome com a mesma chave').waitFor();
     await panel.getByRole('button',{name:'Salvar automações'}).click();await panel.getByText('Preferências salvas.').waitFor();
     assert.equal(saves,2);assert.equal(new Set(keys).size,1);assert.equal(state.policy.quiet_start,'22:30');
-    await panel.getByLabel('Período do resumo').selectOption('weekly');const activeReport=panel.getByRole('article',{name:'Resumo integrado'}).first();await activeReport.waitFor();
+    const [weekly]=await Promise.all([
+      page.waitForResponse(r=>{const u=new URL(r.url());return u.pathname==='/api/dashboard/daily-briefing'&&u.searchParams.get('mode')==='weekly'&&r.status()===200;}),
+      panel.getByLabel('Período do resumo').selectOption('weekly'),
+    ]);
+    assert.equal((await weekly.json()).mode,'weekly');
+    const reports=panel.getByRole('article',{name:'Resumo integrado'});await reports.nth(1).waitFor();const activeReport=reports.first();
     assert.equal(await panel.getByRole('article',{name:'Resumo integrado'}).count(),2,'current report and historical evidence are viewable');
     await activeReport.getByText('Fontes e limites do resumo').click();await activeReport.getByText('Modelos atuais não são snapshots históricos.').waitFor();
     await panel.getByRole('button',{name:'Marcar como lido'}).click();await panel.getByText('Sirius · Recebimento confirmado',{exact:false}).waitFor();
