@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getApiErrorMessage } from '@/lib/api-errors';
+import WhyDetails from './WhyDetails';
 
 const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api/life`;
 const labels = { preparation: 'Preparação', finance: 'Finanças', training: 'Treinos', nutrition: 'Nutrição', tasks: 'Tarefas', calendar: 'Agenda', habits: 'Hábitos', goals: 'Metas' };
@@ -85,7 +86,7 @@ export default function GlobalPlanner({ userId, onAccepted }) {
     {plan && <div role="region" className="space-y-3" aria-label="Resultado da simulação"><h3 className="font-medium">Distribuição proposta · {plan.available_minutes} min livres</h3><p className="text-xs text-slate-400">Compromissos fixos permanecem nos horários registrados. Nada foi alterado.</p>
       {plan.conflicts.length > 0 && <p className="text-amber-200 text-sm">{plan.conflicts_truncated ? 'Ao menos ' : ''}{plan.conflicts.length} conflito(s) entre horários fixos. Revise-os manualmente.</p>}
       {plan.constraints.map(c => <p key={c.id} className="text-sm text-slate-400 break-words">{c.civil_time_ambiguous ? `${c.elapsed_minutes} min reais · mudança de horário; confira a agenda` : `${clock(c.start_minute)}–${clock(c.end_minute)}`} · {c.title} · fixo</p>)}
-      {plan.blocks.map(b => <div key={b.candidate_id} className="rounded-xl border border-sky-400/20 p-3"><p className="text-sm font-medium break-words">{clock(b.start_minute)}–{clock(b.end_minute)} · {b.title}</p><p className="text-xs text-slate-400 my-2">{b.reason} {b.duration_estimated ? 'Duração estimada por você.' : ''}</p><Link className="text-sm text-sky-300 underline inline-flex min-h-11 items-center" to={b.link}>Abrir {labels[b.domain]}</Link></div>)}
+      {plan.blocks.map(b => <div key={b.candidate_id} className="rounded-xl border border-sky-400/20 p-3"><p className="text-sm font-medium break-words">{clock(b.start_minute)}–{clock(b.end_minute)} · {b.title}</p><p className="text-xs text-slate-400 my-2">{b.reason} {b.duration_estimated ? 'Duração estimada por você.' : ''}</p><WhyDetails why={{source:'global-planner/1',evidence:b.reasons||[b.reason],constraints:['Disponibilidade declarada; compromissos fixos preservados.'],limitations:plan.warnings||[]}}/><Link className="text-sm text-sky-300 underline inline-flex min-h-11 items-center" to={b.link}>Abrir {labels[b.domain]}</Link></div>)}
       {plan.unscheduled.map(b => <p className="text-sm text-amber-200 break-words" key={b.candidate_id}>{b.title}: {b.reason}</p>)}
       <Button className="min-h-11 w-full sm:w-auto" disabled={busy || !plan.planning_safe || !plan.blocks.length} onClick={() => run('accept', { scenario: plan.scenario, fingerprint: plan.fingerprint, blocks: plan.blocks, confirmed: true })}>Confirmar estes horários na agenda</Button>
     </div>}

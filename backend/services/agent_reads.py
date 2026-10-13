@@ -14,7 +14,8 @@ from db.models.planning import Habit, HabitCheck, Goal, CalendarEvent
 from db.models.finance import FinancialTransaction, Budget
 from db.models.studies import Notebook, StudyProgram, StudyTopic, StudySession, QuestionAttempt, ReviewEvent, StudyPlan, StudyPlanEntry
 from db.study_attempts import answered_attempt
-from db.models.health import WorkoutPlan, WorkoutDay, WorkoutLog
+from db.models.health import WorkoutPlan, WorkoutDay, WorkoutLog, PlanExercise
+from db.models.exams import Question
 from db.models.files import FileRecord, EditalAnalysis
 from db.repositories.planning import PlanningRepository
 from db.session import unit_of_work
@@ -43,6 +44,11 @@ async def page_context(user_id, raw):
             ('notebook', Notebook, 'notebook_id', Notebook.name),
             ('analysis', EditalAnalysis, 'analysis_id', EditalAnalysis.filename),
             ('attachment', FileRecord, 'attachment_id', FileRecord.filename),
+            ('question', Question, 'question_id', func.left(Question.statement,400)),
+            ('attempt', QuestionAttempt, 'attempt_id', QuestionAttempt.error_cause),
+            ('exercise', PlanExercise, 'exercise_id', PlanExercise.name),
+            ('transaction', FinancialTransaction, 'transaction_id', FinancialTransaction.description),
+            ('event', CalendarEvent, 'event_id', CalendarEvent.title),
         ):
             value = context.get(field) or next(iter(query.get(parameter, [])), None)
             try:
@@ -51,18 +57,57 @@ async def page_context(user_id, raw):
                 continue
             if identity is None:
                 continue
-            statement = select(model.id, title).where(model.user_id == uid, model.id == identity)
+            statement = select(model.id, func.left(title,400)).where(model.user_id == uid, model.id == identity)
+            if model is PlanExercise:
+                statement=statement.join(WorkoutDay,(WorkoutDay.id==PlanExercise.day_id)&(WorkoutDay.user_id==uid)).join(
+                    WorkoutPlan,(WorkoutPlan.id==WorkoutDay.plan_id)&(WorkoutPlan.user_id==uid)&WorkoutPlan.archived_at.is_(None))
+            if model is Question:
+                statement=statement.where(Question.notebook_id.is_(None)|select(Notebook.id).where(
+                    Notebook.id==Question.notebook_id,Notebook.user_id==uid,Notebook.archived_at.is_(None)).exists())
+            if model is QuestionAttempt:
+                statement=statement.where(QuestionAttempt.notebook_id.is_(None)|select(Notebook.id).where(
+                    Notebook.id==QuestionAttempt.notebook_id,Notebook.user_id==uid,Notebook.archived_at.is_(None)).exists())
             if hasattr(model, 'archived_at'):
                 statement = statement.where(model.archived_at.is_(None))
             row = (await session.execute(statement)).first()
-            if row:
+            if row and len(selected)<4:
                 selected[parameter] = {field: str(row[0]), 'name' if parameter in ('program', 'notebook') else 'title': row[1]}
+                if parameter=='transaction':
+                    tx=await session.scalar(select(FinancialTransaction).where(FinancialTransaction.user_id==uid,FinancialTransaction.id==identity))
+                    selected[parameter].update(amount=str(tx.amount),category=tx.category,date=str(tx.date),type=tx.type)
+                elif parameter=='question':
+                    attempt=await session.scalar(select(QuestionAttempt).where(QuestionAttempt.user_id==uid,
+                        QuestionAttempt.question_id==identity,QuestionAttempt.notebook_id.is_(None)|select(Notebook.id).where(
+                            Notebook.id==QuestionAttempt.notebook_id,Notebook.user_id==uid,Notebook.archived_at.is_(None)).exists()
+                        ).order_by(QuestionAttempt.answered_at.desc(),QuestionAttempt.id.desc()).limit(1))
+                    if attempt:
+                        selected[parameter]['latest_attempt']={'answer':(attempt.answer or '')[:100],
+                            'correct':attempt.correct,'total':attempt.total,'error_cause':attempt.error_cause,
+                            'answered_at':attempt.answered_at.isoformat()}
+                        question=await session.scalar(select(Question).where(Question.user_id==uid,Question.id==identity))
+                        selected[parameter].update(correct_answer=question.correct_answer,explanation=(question.explanation or '')[:600],
+                            source=question.source,limitation='Explicação cadastrada; origem não é automaticamente uma fonte oficial.')
+                elif parameter=='attempt':
+                    attempt=await session.scalar(select(QuestionAttempt).where(QuestionAttempt.user_id==uid,QuestionAttempt.id==identity))
+                    selected[parameter].update(answer=(attempt.answer or '')[:100],correct=attempt.correct,total=attempt.total,
+                        error_cause=attempt.error_cause,answered_at=attempt.answered_at.isoformat())
+                elif parameter=='exercise':
+                    group=await session.scalar(select(PlanExercise.muscle_group).where(PlanExercise.user_id==uid,PlanExercise.id==identity))
+                    selected[parameter]['muscle_group']=group
+                elif parameter=='analysis':
+                    analysis=await session.scalar(select(EditalAnalysis).where(EditalAnalysis.user_id==uid,EditalAnalysis.id==identity))
+                    selected[parameter].update(revision=analysis.revision,status=analysis.status,
+                        reviewed_at=analysis.reviewed_at.isoformat() if analysis.reviewed_at else None,
+                        limitation='Revisões desta análise não comprovam alterações entre documentos sem fontes comparáveis.')
         key = context.get('topic_key') or next(iter(query.get('topic', [])), None)
         if 'notebook' in selected and isinstance(key, str) and re.fullmatch(r'\d+(?:_\d+)?', key):
             title = await session.scalar(select(StudyTopic.name).where(StudyTopic.user_id == uid,
                 StudyTopic.notebook_id == UUID(selected['notebook']['notebook_id']), StudyTopic.topic_key == key, StudyTopic.archived_at.is_(None)))
             if title is not None:
                 selected['topic'] = {'key': key, 'title': title}
+    intent=context.get('intent')
+    if intent in ('explain','compare','review','plan','next_action'):
+        selected['intent']=intent
     return selected
 
 

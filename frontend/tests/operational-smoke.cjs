@@ -30,6 +30,7 @@ const waitFor=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise
    }
    if(p.includes('/toggle/')){posts.push(route);return;}
    if(p==='/api/auth/me')return fulfill(route,user);
+   if(p==='/api/command/home')return fulfill(route,{date:'2026-10-07',timezone:'America/Sao_Paulo',next_action:null,today:[],today_count:0,attention:[],attention_count:0,areas:[],warnings:[]});
    if(p==='/api/dashboard/panels')return fulfill(route,{panels:{daily:{summary:{score:empty||zero?0:35,greeting:'Hello',progress_summary:'Summary'},raw_data:empty?{}:zero?{tasks_pending:20}:{tasks_done:7,tasks_pending:13}}},errors:[]});
    if(p==='/api/ai/daily')return fulfill(route,{commitments:[],plan:{date:'2026-10-07',available_minutes:180,conflicts:[{}],blocks:[{task_id:'wake',title:'Acordar',kind:'fixed_task',start_minute:390,end_minute:420,past_due:true,duration_minutes:30,duration_estimated:true},{task_id:'study',title:'Study after midday',kind:'flexible_task',start_minute:900,end_minute:945,duration_minutes:45}],unscheduled:[]}});
    if(p==='/api/tasks'&&method==='POST'){
@@ -61,11 +62,12 @@ const waitFor=async fn=>{for(let i=0;i<100;i++){if(fn())return;await new Promise
   assert.equal(await page.getByLabel('Conversas recentes').locator('option[value="other"]').count(),1);
   assert.equal(counts['/api/ai/conversation'],1);assert.equal(counts['/api/ai/conversations'],1);
   await page.goto('http://127.0.0.1:4175/dashboard');
+  await page.getByRole('button',{name:'Painel detalhado',exact:true}).click();
   await page.getByText('35%',{exact:true}).waitFor();await page.getByText('Horário definido',{exact:false}).waitFor();
   await page.getByText('Não concluído · horário já passou',{exact:true}).waitFor();
   await page.getByText('Conflito de horário:',{exact:false}).waitFor();
-  empty=true;await page.reload();await page.getByText('Sem itens planejados',{exact:true}).waitFor();
-  empty=false;zero=true;await page.reload();await page.getByLabel('Progresso do dia').getByText('0%',{exact:true}).waitFor();
+  empty=true;await page.reload();await page.getByRole('button',{name:'Painel detalhado',exact:true}).click();await page.getByText('Sem itens planejados',{exact:true}).waitFor();
+  empty=false;zero=true;await page.reload();await page.getByRole('button',{name:'Painel detalhado',exact:true}).click();await page.getByLabel('Progresso do dia').getByText('0%',{exact:true}).waitFor();
   assert.equal(await page.getByText('Sem itens planejados',{exact:true}).count(),0);
   await page.goto('http://127.0.0.1:4175/tasks');await page.getByTestId('tasks-create-btn').click();
   await page.getByTestId('task-title-input').fill('Acordar');await page.getByLabel('Horário (opcional)',{exact:true}).fill('06:30');

@@ -2588,6 +2588,10 @@ from services import dashboard
 api_router.include_router(dashboard.router)
 from services import global_search
 api_router.include_router(global_search.router)
+from services import command_routes
+api_router.include_router(command_routes.router)
+from services import command_export
+api_router.include_router(command_export.router)
 from services import dashboard_panels,daily_briefing
 daily_briefing.configure(call_llm)
 api_router.include_router(dashboard_panels.router)
@@ -2663,6 +2667,7 @@ app.add_middleware(
     allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Export-Next-Cursor", "X-Export-Version", "Content-Disposition"],
 )
 
 logging.basicConfig(

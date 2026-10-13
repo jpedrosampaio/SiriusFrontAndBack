@@ -1,7 +1,7 @@
 """Explicit preview/apply boundary; no AI, payment, completion or XP writes."""
 from datetime import datetime, time, timedelta
 from datetime import timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import Field
@@ -12,6 +12,7 @@ from services.life_state import snapshot, collect, daily, preview
 from db.activity import run_activity
 from db.models.health import WorkoutPlan
 from db.models.planning import CalendarEvent
+from services.command_audit import record, calendar_snapshot
 
 router=APIRouter(prefix='/life')
 
@@ -40,8 +41,14 @@ async def availability(request:Request,body:Availability):
             row=await session.scalar(select(WorkoutPlan.id).where(WorkoutPlan.user_id==user.id,
                 WorkoutPlan.id==body.training_plan_id,WorkoutPlan.archived_at.is_(None)))
             if row is None:raise HTTPException(404,'Plano de treino não encontrado.')
-        prefs=dict(user.preferences or {});prefs['life_availability']=body.model_dump(mode='json');user.preferences=prefs
-        return {'availability':body.model_dump(mode='json')}
+        prefs=dict(user.preferences or {});before=prefs.get('life_availability')
+        revision=str(uuid4());prefs['life_availability_revision']=revision
+        prefs['life_availability']=body.model_dump(mode='json');user.preferences=prefs
+        audit_id=await record(session,user.id,event='life.availability',action='update',entity_type='availability',
+            evidence=['Disponibilidade declarada e confirmada pelo proprietário.'],
+            constraints=['Compromissos fixos e planos existentes preservados.'],
+            before={'availability':before},after={'availability':prefs['life_availability'],'revision':revision},undo_kind='availability')
+        return {'availability':body.model_dump(mode='json'),'audit_id':audit_id}
     return await run_activity(UUID(user['user_id']),key,['life_availability',body.model_dump(mode='json')],apply)
 
 
@@ -66,14 +73,19 @@ async def accept(request:Request,body:Accept):
         if body.scenario.windows is not None:raise HTTPException(422,'Salve a disponibilidade real antes de confirmar este cenário.')
         if [b.model_dump(mode='json') for b in body.blocks]!=plan['blocks']:raise HTTPException(409,'O plano mudou ou foi editado. Simule novamente.')
         midnight=datetime.combine(current.date,time(),ZoneInfo(current.timezone))
-        saved=[]
+        saved=[];snapshots=[]
         for block in plan['blocks']:
             row=CalendarEvent(user_id=user.id,title=block['title'],start_at=midnight+timedelta(minutes=block['start_minute']),
                 end_at=midnight+timedelta(minutes=block['end_minute']),source_type='global_plan',source_id=UUID(block['source_id']),
                 details={'candidate_id':block['candidate_id'],'domain':block['domain'],'link':block['link'],
                     'duration_origin':block['duration_origin'],'reasons':block['reasons'],'version':'global-planner/1'})
             session.add(row);await session.flush();saved.append(str(row.id))
-        return {'event_ids':saved,'date':str(current.date),'xp_earned':0,'fixed_moved':False}
+            snapshots.append(calendar_snapshot(row))
+        audit_id=await record(session,user.id,event='life.plan.accepted',action='allocate',entity_type='calendar',
+            evidence=['Prévia determinística confirmada com fingerprint '+current.fingerprint],
+            constraints=['Compromissos fixos preservados; disponibilidade real declarada.'],
+            limitations=current.warnings,after={'allocations':snapshots},undo_kind='allocations' if saved else None)
+        return {'event_ids':saved,'date':str(current.date),'xp_earned':0,'fixed_moved':False,'audit_id':audit_id}
     return await run_activity(UUID(user['user_id']),key,['global_plan',body.model_dump(mode='json')],apply)
 
 
@@ -88,6 +100,10 @@ async def release(request:Request,event_id:UUID,confirmed:bool=False):
         if row is None:raise HTTPException(404,'Alocação flexível não encontrada.')
         if row.start_at<=datetime.now(timezone.utc):raise HTTPException(409,'Horários iniciados permanecem no histórico.')
         # Fixed commitments are never selected; original domain records are untouched.
+        await record(session,user.id,event='life.allocation.released',action='release',entity_type='calendar',entity_id=row.id,
+            evidence=['Liberação de horário flexível futuro confirmada pelo proprietário.'],
+            constraints=['Compromissos fixos e registros dos módulos preservados.'],before=calendar_snapshot(row),
+            limitations=['Não restaura automaticamente um horário que pode ter sido ocupado depois.'])
         await session.delete(row)
         return {'released_event_id':str(event_id),'xp_earned':0,'fixed_moved':False}
     return await run_activity(UUID(user['user_id']),key,['release_global_allocation',str(event_id)],apply)

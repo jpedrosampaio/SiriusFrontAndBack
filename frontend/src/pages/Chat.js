@@ -1,6 +1,7 @@
 import AssistantDelivery from '@/components/AssistantDelivery';
 import { AgentToolbar, AgentMessageDetails, VoiceInput, AgentAttachment } from '@/components/AgentControls';
 import { useAssistant } from '@/hooks/useAssistant';
+import { useSearchParams } from 'react-router-dom';
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef } from "react";
 import { Card } from "@/components/ui/card";
@@ -20,6 +21,16 @@ const API = `${BACKEND_URL}/api`;
 export default function Chat() {
   const [, setUser] = useState(null);
   const assistant = useAssistant('/chat');
+  const [searchParams] = useSearchParams();
+  const selectedConversation = searchParams.get('conversation');
+  const { selectConversation, conversationId } = assistant;
+  const openedConversation = useRef(null);
+  useEffect(() => {
+    if (selectedConversation && /^[a-f0-9-]{36}$/i.test(selectedConversation) && openedConversation.current !== selectedConversation) {
+      openedConversation.current = selectedConversation;
+      if (selectedConversation !== conversationId) selectConversation(selectedConversation);
+    }
+  }, [selectedConversation,selectConversation,conversationId]);
   const { messages, sending: loading, error, send, refresh } = assistant;
   const [content, setContent] = useState("");
   const [archive, setArchive] = useState(null);

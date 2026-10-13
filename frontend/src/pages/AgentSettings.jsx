@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { getCurrentUser } from '@/lib/api';
 import { getApiErrorMessage } from '@/lib/api-errors';
+import CommandTools from '@/components/CommandTools';
 
 const API = `${process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000'}/api/ai`;
 const control = 'rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm min-w-0';
@@ -11,13 +12,12 @@ const panel = 'rounded-2xl border border-slate-800 bg-slate-950/60 p-4 md:p-6 sp
 
 export default function AgentSettings() {
   const [, setUser] = useState(null), [status, setStatus] = useState(null), [prefs, setPrefs] = useState(null);
-  const [memory, setMemory] = useState([]), [content, setContent] = useState(''), [category, setCategory] = useState('preference');
+  const [showMemory,setShowMemory] = useState(true);
   const [keys, setKeys] = useState({ gemini: '', groq: '' }), [error, setError] = useState(''), [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
-  const [editing, setEditing] = useState(null);
   const [sources, setSources] = useState({ editais: [], notebooks: [] });
   const load = useCallback(async () => {
-    const [s, p, m] = await Promise.all([axios.get(`${API}/status`), axios.get(`${API}/preferences`), axios.get(`${API}/memory`)]);
-    setStatus(s.data); setPrefs(p.data); setMemory(m.data);
+    const [s, p] = await Promise.all([axios.get(`${API}/status`), axios.get(`${API}/preferences`)]);
+    setStatus(s.data); setPrefs(p.data);
     const docs = await axios.get(`${API}/rag/sources`); setSources(docs.data);
   }, []);
   useEffect(() => { getCurrentUser().then(r => setUser(r.data)).catch(() => {}); load().catch(e => setError(getApiErrorMessage(e, 'Não foi possível carregar as configurações.'))); }, [load]);
@@ -36,7 +36,7 @@ export default function AgentSettings() {
         {status && <p className="text-xs text-slate-400">Requisições internas hoje: {status.internal_requests_today}/{status.internal_daily_limit}. Busca documental: {status.capabilities.rag === 'lexical' ? 'por palavras e referências de página' : 'desabilitada'}.</p>}
       </section>
       <section className={panel}><h2 className="text-lg font-medium">Autonomia e sugestões</h2>{prefs && <><label className="block text-sm">Perfil <select className={`${control} ml-2`} value={prefs.profile} onChange={e => setPrefs({ ...prefs, profile: e.target.value })}><option value="conservative">Conservador</option><option value="balanced">Equilibrado</option><option value="proactive">Proativo</option></select></label><p className="text-sm text-slate-400">Todos os perfis exigem sua confirmação para alterar dados. O perfil proativo pode oferecer sugestões, sem executar pagamentos ou exclusões.</p><label className="block text-sm"><input type="checkbox" checked={prefs.automations} onChange={e => setPrefs({ ...prefs, automations: e.target.checked })} /> Receber sugestões automáticas</label><div className="flex flex-wrap gap-3"><label className="text-sm">Silêncio das <input className={`${control} w-16`} type="number" min="0" max="23" value={prefs.quiet_start} onChange={e => setPrefs({ ...prefs, quiet_start: Number(e.target.value) })} /></label><label className="text-sm">até <input className={`${control} w-16`} type="number" min="0" max="23" value={prefs.quiet_end} onChange={e => setPrefs({ ...prefs, quiet_end: Number(e.target.value) })} /></label></div><p className="text-xs text-slate-500">{status?.flags.dry_run ? 'Automações em simulação: não enviam notificações nem executam ações.' : 'Sugestões ativadas; alterações continuam exigindo confirmação.'}</p><button className={button} disabled={busy} onClick={() => run(() => axios.put(`${API}/preferences`, prefs))}>Salvar preferências</button></>}</section>
-      <section className={panel}><h2 className="text-lg font-medium">O que Sirius lembra</h2><p className="text-sm text-slate-400">Somente informações que você salvar aqui. Ao remover, o mesmo conteúdo fica bloqueado para não ser lembrado novamente.</p><label className="sr-only" htmlFor="memory-category">Tipo de memória</label><select id="memory-category" className={control} value={category} onChange={e => setCategory(e.target.value)}><option value="preference">Preferência</option><option value="rule">Regra pessoal</option><option value="goal">Objetivo</option><option value="context">Contexto</option></select><textarea aria-label="Informação para lembrar" className={`${control} w-full`} maxLength={1000} value={content} onChange={e => setContent(e.target.value)} placeholder="Ex.: prefiro estudar no início da manhã" /><button className={button} disabled={busy || !content.trim()} onClick={() => run(async () => { await axios[editing ? 'put' : 'post'](`${API}/memory${editing ? `/${editing}` : ''}`, { category, content }); setContent(''); setEditing(null); })}>{editing ? 'Salvar edição' : 'Adicionar memória'}</button>{memory.map(m => <div key={m.memory_id} className="border-t border-slate-800 pt-3"><p className="text-sm break-words">{m.content}</p><div className="flex gap-3 mt-2"><button className="text-xs text-sky-400" onClick={() => { setEditing(m.memory_id); setContent(m.content); setCategory(m.category); }}>Editar</button><button className="text-xs text-rose-300" disabled={busy} onClick={() => run(() => axios.delete(`${API}/memory/${m.memory_id}`))}>Remover e bloquear</button></div></div>)}</section>
+      {showMemory ? <CommandTools initialTab="memory" onClose={() => setShowMemory(false)} /> : <button className={button} onClick={() => setShowMemory(true)}>Memória explícita</button>}
       <section className={panel}><h2 className="text-lg font-medium">Fontes para consulta</h2><p className="text-sm text-slate-400">Inclua editais e anotações na busca do assistente. Reindexe as anotações após editá-las. Tarefas e finanças são consultadas diretamente nos módulos.</p>{[['editais', 'analysis_id', 'pdf_filename'], ['notebooks', 'notebook_id', 'name']].map(([kind, id, title]) => <div key={kind}>{(sources[kind] || []).map(source => <div key={source[id]} className="flex flex-wrap justify-between gap-2 items-center border-t border-slate-800 py-3"><span className="text-sm break-words">{source[title] || source.title || 'Documento'}</span><button className={button} disabled={busy} onClick={() => run(() => axios.post(`${API}/rag/${kind}/${source[id]}`))}>Atualizar busca</button></div>)}</div>)}</section>
     </div>
   </main></div>;
