@@ -13,6 +13,21 @@ from ai.types import AIResult
 
 
 class CommandContext(unittest.IsolatedAsyncioTestCase):
+    async def test_blocked_study_tool_never_eagerly_reads_or_reaches_provider(self):
+        core=SimpleNamespace(page_context=AsyncMock(return_value={}),read=AsyncMock(return_value=[{'name':'Private syllabus'}]))
+        credentials=SimpleNamespace(get=AsyncMock(return_value={'groq':'mock-only'}))
+        memory=SimpleNamespace(list=AsyncMock(return_value=[]))
+        actions=SimpleNamespace(preferences=AsyncMock(return_value=Preferences(blocked_tools=['get_study_progress'])))
+        router=SimpleNamespace(settings=SimpleNamespace(rag=False),generate=AsyncMock(return_value=AIResult(data=AgentPlan(reply='Mock response',calls=[]),provider='mock',model='fake')))
+        agent=SiriusAgent(core,router,credentials,actions,memory,None)
+        body=SimpleNamespace(page='/studies',message='Quero estudar neste caderno',page_context='{}',conversation_id='test',request_id='test')
+        await agent.respond('owned',body,json.dumps({'history':[]}))
+        core.read.assert_not_awaited()
+        prompt=json.loads(router.generate.await_args.kwargs['prompt'])
+        self.assertNotIn('owned_notebooks',prompt['context'])
+        self.assertNotIn('Private syllabus',str(prompt))
+        self.assertNotIn('get_study_progress',router.generate.await_args.kwargs['system'])
+
     def test_limits_preserve_complete_facts_and_disclose_omissions(self):
         raw={'date':'2026-10-13','selection':{'exercise':{'title':'Supino'}},'large_history':['x'*500]*1000,'finance':{'amount':'0.30','bank_balance':None}}
         result=bounded_context(raw,3000)

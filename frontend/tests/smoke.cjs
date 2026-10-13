@@ -165,6 +165,9 @@ const server = http.createServer((req, res) => {
           assert.equal(actionConfirmations, 1, 'confirmation must submit once');
           await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'sirius_session_token' })));
           await page.getByText('Conversa sintética desta conta', { exact: true }).waitFor({ state: 'hidden' });
+          await close.waitFor({ state: 'hidden' });
+          await launcher.waitFor({ state: 'visible' });
+          await launcher.click(); await close.waitFor();
           const box = await close.boundingBox(); assert.ok(box.x >= 0 && box.x + box.width <= width);
           await page.getByLabel('Mensagem para o assistente').fill('Como organizar meus estudos?');
           await page.screenshot({ path: path.join(output, `assistant-${width}.png`) });

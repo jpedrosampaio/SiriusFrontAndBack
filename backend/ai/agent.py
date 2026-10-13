@@ -155,7 +155,7 @@ class SiriusAgent:
             consulted['get_finance_state']=await self.core.read('get_finance_state',user_id)
             context['finance_state']=consulted['get_finance_state']
             if isinstance(context['finance_state'],dict):context['date']=context['finance_state'].get('as_of',context['date'])
-        if any(w in body.message.casefold() for w in ('estud', 'caderno')):
+        if 'get_study_progress' not in blocked and any(w in body.message.casefold() for w in ('estud', 'caderno')):
             context['owned_notebooks'] = await self.core.read('get_study_progress', user_id)
         # Client page context is deliberately not an authority for IDs or ownership.
         selected = context['selection']
