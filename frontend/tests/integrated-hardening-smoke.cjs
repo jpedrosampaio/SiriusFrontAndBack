@@ -126,7 +126,13 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
       await page.getByRole('heading', { name: 'Seu próximo passo, Bob', exact: true }).waitFor();
       lastStage = `cross-tab logout ${width}`;
       await otherTab.evaluate(() => localStorage.removeItem('sirius_session_token'));
-      await page.waitForURL('**/login');
+      // The 401 interceptor and route guard can both redirect. Waiting for a
+      // particular document's load event races its replacement; verify the
+      // actual settled login UI and session boundary instead.
+      await page.getByTestId('login-email-input').waitFor();
+      await page.waitForFunction(() => location.pathname === '/login' && localStorage.getItem('sirius_session_token') === null);
+      assert.equal(new URL(page.url()).pathname, '/login');
+      assert.equal(await page.getByRole('heading', { name: 'Seu próximo passo, Bob', exact: true }).count(), 0);
       assert.equal(await page.getByText('Alice private memory', { exact: true }).count(), 0);
       const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
       assert(!/user-scalable\s*=\s*(?:no|0)|maximum-scale\s*=\s*1(?:\s|,|$)/i.test(viewport), 'Mobile zoom must remain available');
