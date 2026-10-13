@@ -53,3 +53,18 @@ class RuntimeRecipes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.ok(await self.http.get('/api/nutrition/recipes')),[])
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(RecipeIngredient).where(RecipeIngredient.user_id==self.uid)),0)
+
+    async def test_generated_zero_is_known_and_omitted_recipe_macro_stays_unknown(self):
+        self.ai.return_value=SimpleNamespace(text=json.dumps({**self.data,'carbs_per_serving':0}))
+        recipe=self.ok(await self.http.post('/api/nutrition/recipes/suggest',json={}))
+        self.assertEqual(recipe['carbs_per_serving'],0);self.assertIsNone(recipe['fat_per_serving'])
+        self.assertEqual(recipe['macro_evidence']['carbs']['total'],'0.000')
+        async def account(request):return {'user_id':str(self.uid),'timezone':'America/Sao_Paulo'}
+        with patch('services.nutrition_intelligence_routes.account',account):
+            alternatives=self.ok(await self.http.post('/api/nutrition/intelligence/alternatives',json={'template_kind':'recipe','template_id':recipe['recipe_id'],'meal_type':'lunch'}))
+            self.assertEqual(alternatives['candidates'][0]['macros']['carbs']['total'],'0.000')
+            meal=self.ok(await self.http.post('/api/nutrition/intelligence/templates/recipe/'+recipe['recipe_id']+'/record',
+                json={'date':str(self.today),'meal_type':'lunch'},headers={'Idempotency-Key':'zero-recipe-record'}))
+            self.assertEqual(meal['total_carbs'],0);self.assertIsNone(meal['total_fat'])
+            stats=self.ok(await self.http.get('/api/nutrition/stats'))
+            self.assertEqual(stats['consumed']['carbs'],0);self.assertIsNone(stats['consumed']['fat'])

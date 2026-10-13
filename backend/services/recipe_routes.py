@@ -38,8 +38,12 @@ class RecipeBody(BaseModel):
 
 
 def recipe_json(row):
+    from services.nutrition_evidence import project,recipe_food
     values={key:getattr(row,key) for key in RecipeBody.model_fields if key!='ingredients'}
     values['ingredients']=[{key:getattr(item,key) for key in IngredientBody.model_fields} for item in row.ingredients]
+    macros=project([recipe_food(row)])
+    values.update({key+'_per_serving':float(value['total']) if value['total'] is not None else None for key,value in macros.items()})
+    values.update(nutrition_evidence=row.nutrition_evidence,macro_evidence=macros)
     return jsonable_encoder({'recipe_id':row.id,'user_id':row.user_id,'created_at':row.created_at,'ai_generated':row.ai_generated,**values})
 
 
@@ -52,7 +56,9 @@ async def save_recipe(uid,data,key,preferences):
     try:body=RecipeBody.model_validate(data)
     except ValidationError:raise HTTPException(502,'A IA retornou uma receita inválida. Tente novamente.')
     async def apply(session,owner):
-        row=Recipe(user_id=owner.id,**body.model_dump(exclude={'ingredients'}))
+        from services.nutrition_evidence import MACROS
+        row=Recipe(user_id=owner.id,nutrition_evidence={'source':'estimated','known_macros':[k for k in MACROS if k+'_per_serving' in body.model_fields_set],
+            'basis':'per_unit','portion_label':'Uma porção da receita'},**body.model_dump(exclude={'ingredients'}))
         row.ingredients=[RecipeIngredient(user_id=owner.id,position=i,**item.model_dump()) for i,item in enumerate(body.ingredients)]
         session.add(row);await session.flush();return recipe_json(row)
     return await run_activity(UUID(uid),key,['recipe-suggestion',preferences],apply)

@@ -30,12 +30,13 @@ class RuntimeExports(unittest.IsolatedAsyncioTestCase):
         query={'start':self.today.isoformat(),'end':self.today.isoformat()}
         response=await self.http.get('/api/export/nutrition/excel',params=query);self.assertEqual(response.status_code,200,response.text)
         sheet=load_workbook(BytesIO(response.content)).active
-        self.assertEqual(sheet.max_row,1006);self.assertEqual(sheet['C2'].value,350);self.assertEqual(sheet['D2'].value,25)
+        self.assertEqual(sheet.max_row,1006);self.assertEqual(sheet['C2'].value,'Desconhecido');self.assertEqual(sheet['D2'].value,'Desconhecido')
         self.assertEqual(sheet['B2'].data_type,'s')
         foreign=await self.http.get('/api/export/nutrition/excel',params=query,headers={'Authorization':'Bearer bob'})
         self.assertEqual(load_workbook(BytesIO(foreign.content)).active.max_row,2)
         future=(self.today+timedelta(days=1)).isoformat()
         pdf=await self.http.get('/api/export/nutrition/pdf',params={'start':future});self.assertEqual(pdf.status_code,200);self.assertTrue(pdf.content.startswith(b'%PDF'))
+        populated=await self.http.get('/api/export/nutrition/pdf',params=query);self.assertEqual(populated.status_code,200);self.assertTrue(populated.content.startswith(b'%PDF'))
         self.assertEqual((await self.http.get('/api/export/nutrition/excel',params={'start':future,'end':self.today.isoformat()})).status_code,422)
 
     async def test_study_export_sessions_counts_and_pdf(self):

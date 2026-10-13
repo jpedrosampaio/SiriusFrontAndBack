@@ -26,6 +26,12 @@ class Core:
 
     async def read(self, name, user_id, arguments=None):
         from services.agent_reads import read
+        if name in ('get_nutrition_state','get_nutrition_today','suggest_meals'):
+            from services.nutrition_intelligence import NutritionEngine,agent_context
+            from nutrition_contracts import MealScenario
+            if name=='suggest_meals':return (await NutritionEngine().alternatives(user_id,MealScenario.model_validate(arguments or {}))).model_dump(mode='json')
+            state=await NutritionEngine().get_state(user_id)
+            return agent_context(state) | ({'total_'+k:float(v.total) if v.total is not None else None for k,v in state.consumed.items()} if name=='get_nutrition_today' else {})
         if name in ('get_training_state','get_exercise_substitutions'):
             from services.training_intelligence import TrainingEngine,agent_context,substitutions
             from training_contracts import SubstitutionArgs

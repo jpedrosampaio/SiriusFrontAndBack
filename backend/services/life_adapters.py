@@ -201,15 +201,25 @@ async def training(session, uid, day, zone, *, now=None):
 
 
 async def nutrition(session, uid, day, zone):
-    meals,water,goals=await period(session,uid,day,day)
-    state=DomainState(domain='nutrition',facts={'consumed':meals.get(day,{}),'water_ml':water.get(day,0),
-        'targets':{k:v for k,v in goals.items() if k.startswith('daily_') or k=='water_goal_ml'},
-        'target_origin':'recorded' if goals.get('goal_id') else 'existing_default'},
-        warnings=['Metas nutricionais não definem horário nem necessidade clínica.'])
-    if goals.get('goal_id') and not meals.get(day):
+    from db.models.identity import User
+    from services.nutrition_intelligence import load_state
+    projection=await load_state(session,await session.get(User,uid),day,include_context=False)
+    goals=projection.goals or {}
+    state=DomainState(domain='nutrition',facts={'consumed':{k:v.model_dump() for k,v in projection.consumed.items()},
+        'water_ml':projection.water_ml,'targets':goals,'remaining':projection.remaining,
+        'consistency':projection.consistency,'target_origin':goals.get('origin','missing'),
+        'planned':projection.planned[:20]},truncated=projection.truncated or len(projection.planned)>20,
+        warnings=projection.limitations)
+    if goals.get('configured') and not projection.meals:
         state.candidates.append(candidate('nutrition',SimpleNamespace(id=UUID(goals['goal_id'])),day,
             'Conferir registros de alimentação',None,'/nutrition',priority='low',
             reasons=['Meta nutricional cadastrada e nenhuma refeição registrada na data. Não é orientação clínica.']))
+    for meal in projection.planned[:20]:
+        if meal['date_confirmed'] and meal['status']=='planned':
+            state.candidates.append(candidate('nutrition',SimpleNamespace(id=UUID(meal['planned_meal_id'])),day,
+                'Preparar ou revisar: '+meal['name'],None,'/nutrition',priority='low',
+                reasons=['Refeição do plano ativo com data cadastrada; consumo ainda não registrado.',
+                    'Duração e flexibilidade não confirmadas; inclusão na agenda exige seleção no Global Planner.']))
     return state
 
 

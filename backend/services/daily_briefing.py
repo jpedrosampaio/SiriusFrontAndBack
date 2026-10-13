@@ -4,7 +4,7 @@ import logging
 from datetime import datetime,timezone,timedelta
 from types import SimpleNamespace
 from uuid import UUID
-from fastapi import APIRouter,Request
+from fastapi import APIRouter,Request,HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel,Field,ValidationError
 from sqlalchemy import select,func
@@ -45,6 +45,11 @@ def public(row):
 def fresh(row):return row is not None and row.updated_at>=datetime.now(timezone.utc)-timedelta(hours=4)
 
 
+def nutrition_facts(values):
+    calories=values.get('calories',0)
+    return values.get('meals_count',0),round(calories) if calories is not None else None
+
+
 async def cached_summary(uid,day):
     async with unit_of_work() as session:
         row=await session.scalar(select(DailySummary).where(DailySummary.user_id==UUID(uid),DailySummary.date==day))
@@ -70,7 +75,11 @@ async def summary_context(uid,day):
 async def save_summary(uid,day,result):
     async def apply(session,owner):
         row=await session.scalar(select(DailySummary).where(DailySummary.user_id==owner.id,DailySummary.date==day))
-        if fresh(row):return public(row)
+        meals,_,_=await period(session,owner.id,day,day)
+        incoming=nutrition_facts(result['raw_data'])
+        if nutrition_facts(meals.get(day,{}))!=incoming:
+            raise HTTPException(409,'Os registros alimentares mudaram durante a análise. Atualize o resumo.')
+        if fresh(row) and (row.meals_count,row.calories)==incoming:return public(row)
         values={**result['summary'],**result['raw_data']}
         if row is None:row=DailySummary(user_id=owner.id,date=day,**values);session.add(row)
         else:
@@ -88,6 +97,10 @@ async def get_daily_summary(request: Request):
     cached=await cached_summary(user.user_id,day)
     if cached:
         async with unit_of_work() as session:
+            nutrition,_,_=await period(session,UUID(user.user_id),day,day)
+        if nutrition_facts(cached['raw_data'])!=nutrition_facts(nutrition.get(day,{})):cached=None
+    if cached:
+        async with unit_of_work() as session:
             repo=PlanningRepository(session)
             tasks=await repo.tasks_on_date(UUID(user.user_id),day)
             habits=await repo.habits_with_dates(UUID(user.user_id))
@@ -98,8 +111,9 @@ async def get_daily_summary(request: Request):
         cached['summary']['score']=progress_score(cached['raw_data'])
         return cached
     pending_tasks,done_tasks,habits_pending,habits_done,study_minutes,study_count,meal_count,total_calories,workout_count=await summary_context(user.user_id,day)
-    raw = {'tasks_pending':len(pending_tasks),'tasks_done':len(done_tasks),'habits_pending':len(habits_pending),'habits_done':len(habits_done),'study_minutes':study_minutes,'meals_count':meal_count,'calories':round(total_calories),'workouts_count':workout_count}
-    context = f"Dados do dia ({today_str}) do usuário {user.name}:\n- Rank: {user.rank} | XP: {user.xp}\n- Tarefas pendentes: {len(pending_tasks)} ({', '.join((t['title'] for t in pending_tasks[:5]))})\n- Tarefas concluídas: {len(done_tasks)}\n- Hábitos pendentes: {len(habits_pending)} ({', '.join((h['name'] for h in habits_pending[:5]))})\n- Hábitos concluídos: {len(habits_done)}\n- Estudo: {study_minutes} minutos em {study_count} sessões\n- Refeições: {meal_count} registradas, {total_calories:.0f} kcal total\n- Treinos: {workout_count} realizados"
+    raw = {'tasks_pending':len(pending_tasks),'tasks_done':len(done_tasks),'habits_pending':len(habits_pending),'habits_done':len(habits_done),'study_minutes':study_minutes,'meals_count':meal_count,'calories':round(total_calories) if total_calories is not None else None,'workouts_count':workout_count}
+    calorie_label=f'{total_calories:.0f} kcal total' if total_calories is not None else 'total desconhecido (composi\u00e7\u00e3o incompleta)'
+    context = f"Dados do dia ({today_str}) do usuário {user.name}:\n- Rank: {user.rank} | XP: {user.xp}\n- Tarefas pendentes: {len(pending_tasks)} ({', '.join((t['title'] for t in pending_tasks[:5]))})\n- Tarefas concluídas: {len(done_tasks)}\n- Hábitos pendentes: {len(habits_pending)} ({', '.join((h['name'] for h in habits_pending[:5]))})\n- Hábitos concluídos: {len(habits_done)}\n- Estudo: {study_minutes} minutos em {study_count} sessões\n- Refeições: {meal_count} registradas, {calorie_label}\n- Treinos: {workout_count} realizados"
     prompt = f'{context}\n\nGere um resumo diário motivacional e prático em PORTUGUÊS. Responda em JSON com greeting, progress_summary, pending_items (lista), motivation e priority_action. Não calcule score; o progresso é calculado pelo sistema.'
     summary_data = None
     try:
@@ -122,6 +136,6 @@ async def get_daily_summary(request: Request):
         score = round(done_items / max(total_items, 1) * 100)
         summary_data = {'greeting': f'Bom dia, {user.name}! Seu rank atual é {user.rank}.', 'progress_summary': f"Você já concluiu {len(done_tasks)} tarefas e {len(habits_done)} hábitos hoje. {('Estudou ' + str(study_minutes) + ' min. ' if study_minutes else '')}{('Treinou! ' if workout_count else '')}{('Registrou ' + str(meal_count) + ' refeições.' if meal_count else '')}", 'pending_items': [t['title'] for t in pending_tasks[:5]] + [h['name'] for h in habits_pending[:5]], 'motivation': 'Disciplina é o que te move quando a motivação falta. Continue!', 'priority_action': pending_tasks[0]['title'] if pending_tasks else habits_pending[0]['name'] if habits_pending else 'Dia limpo! Descanse ou avance no extra.', 'score': score}
     summary_data['score']=progress_score(raw)
-    result = {'user_id': user.user_id, 'date': today_str, 'summary': summary_data, 'raw_data': {'tasks_pending': len(pending_tasks), 'tasks_done': len(done_tasks), 'habits_pending': len(habits_pending), 'habits_done': len(habits_done), 'study_minutes': study_minutes, 'meals_count': meal_count, 'calories': round(total_calories), 'workouts_count': workout_count}, 'created_at': datetime.now(timezone.utc).isoformat()}
+    result = {'user_id': user.user_id, 'date': today_str, 'summary': summary_data, 'raw_data': {'tasks_pending': len(pending_tasks), 'tasks_done': len(done_tasks), 'habits_pending': len(habits_pending), 'habits_done': len(habits_done), 'study_minutes': study_minutes, 'meals_count': meal_count, 'calories': round(total_calories) if total_calories is not None else None, 'workouts_count': workout_count}, 'created_at': datetime.now(timezone.utc).isoformat()}
     return await save_summary(user.user_id,day,result)
 

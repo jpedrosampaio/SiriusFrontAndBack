@@ -113,6 +113,10 @@ class SiriusAgent:
         context = {'date': today().isoformat(), 'page': page, 'memories': remembered, 'conversation_extracts': history.get('summary_extracts', '')[-2000:]}
         context['selection'] = await self.core.page_context(user_id, body.page_context)
         consulted={}
+        if 'get_nutrition_state' not in prefs.blocked_tools and 'get_nutrition_today' not in prefs.blocked_tools and (page=='/nutrition' or any(w in body.message.casefold() for w in ('nutri','refeição','refeicoes','aliment','consumir','macros'))):
+            consulted['get_nutrition_state']=await self.core.read('get_nutrition_state',user_id)
+            context['nutrition_state']=consulted['get_nutrition_state']
+            if isinstance(context['nutrition_state'],dict):context['date']=context['nutrition_state'].get('date',context['date'])
         if 'get_training_state' not in prefs.blocked_tools and (page=='/workouts' or any(w in body.message.casefold() for w in ('treino','carga','rpe'))):
             consulted['get_training_state']=await self.core.read('get_training_state',user_id)
             context['training_state']=consulted['get_training_state']

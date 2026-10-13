@@ -425,11 +425,11 @@ export default function Dashboard() {
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-[#A1A1AA] text-sm">Calorias</span>
                         <span className="font-data text-sm">
-                          {stats.nutrition_stats?.calories_consumed || 0} / {stats.nutrition_stats?.calories_goal || 2000}
+                          {stats.nutrition_stats?.calories_consumed ?? 'Desconhecido'} / {stats.nutrition_stats?.calories_goal ?? 'Meta não configurada'}
                         </span>
                       </div>
                       <Progress 
-                        value={Math.min(((stats.nutrition_stats?.calories_consumed || 0) / (stats.nutrition_stats?.calories_goal || 2000)) * 100, 100)} 
+                        value={stats.nutrition_stats?.calories_goal > 0 ? Math.min(((stats.nutrition_stats?.calories_consumed || 0) / stats.nutrition_stats.calories_goal) * 100, 100) : 0}
                         className="h-2" 
                       />
                     </div>
@@ -437,11 +437,11 @@ export default function Dashboard() {
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-[#A1A1AA] text-sm flex items-center gap-1"><Droplets className="w-3 h-3" /> Água</span>
                         <span className="font-data text-sm text-[#00B4D8]">
-                          {((stats.nutrition_stats?.water_consumed_ml || 0) / 1000).toFixed(1)}L / {((stats.nutrition_stats?.water_goal_ml || 2000) / 1000).toFixed(1)}L
+                          {((stats.nutrition_stats?.water_consumed_ml || 0) / 1000).toFixed(1)}L / {stats.nutrition_stats?.water_goal_ml == null ? 'Meta não configurada' : `${(stats.nutrition_stats.water_goal_ml / 1000).toFixed(1)}L`}
                         </span>
                       </div>
                       <Progress 
-                        value={Math.min(((stats.nutrition_stats?.water_consumed_ml || 0) / (stats.nutrition_stats?.water_goal_ml || 2000)) * 100, 100)} 
+                        value={stats.nutrition_stats?.water_goal_ml > 0 ? Math.min(((stats.nutrition_stats?.water_consumed_ml || 0) / stats.nutrition_stats.water_goal_ml) * 100, 100) : 0}
                         className="h-2 [&>div]:bg-[#00B4D8]" 
                       />
                     </div>

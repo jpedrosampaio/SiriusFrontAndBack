@@ -54,7 +54,7 @@ class RuntimeReports(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(values['study_minutes'],8040);self.assertEqual(values['workouts'],1005)
         self.assertEqual(values['tasks_completed'],1005);self.assertEqual(values['tasks'],1005)
         self.assertEqual(values['questions_correct'],3016);self.assertEqual(values['questions_answered'],4021)
-        self.assertEqual(values['calories'],100500);self.assertEqual(values['water_ml'],201000);self.assertEqual(values['total_habits_completions'],1)
+        self.assertIsNone(values['calories']);self.assertEqual(values['water_ml'],201000);self.assertEqual(values['total_habits_completions'],1)
 
     async def test_report_snapshot_replay_download_filter_and_rollback(self):
         async with unit_of_work() as session:

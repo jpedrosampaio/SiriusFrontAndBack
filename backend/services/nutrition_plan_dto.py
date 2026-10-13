@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Literal
+from typing import Literal,Annotated
 from pydantic import BaseModel,Field,AliasChoices,field_validator,model_validator
 from services.nutrition import Nonnegative
 from services.recipe_routes import IngredientBody
@@ -16,6 +16,15 @@ class PlannedFoodBody(IngredientBody):
     protein: Nonnegative=0
     carbs: Nonnegative=0
     fat: Nonnegative=0
+    known_macros: list[Literal['calories','protein','carbs','fat']] | None=Field(default=None,max_length=4)
+    @model_validator(mode='before')
+    @classmethod
+    def supplied_macros(cls,data):
+        if isinstance(data,dict) and data.get('known_macros') is None:
+            return {**data,'known_macros':[key for key in ('calories','protein','carbs','fat') if key in data]}
+        return data
+
+SummaryValue=Annotated[float | None,Field(ge=0,le=1e15,allow_inf_nan=False)]
 
 class PlannedMealBody(BaseModel):
     name: str=Field(min_length=1,max_length=300)
@@ -23,10 +32,10 @@ class PlannedMealBody(BaseModel):
     time: str=Field(default='',max_length=20)
     preparation: str=Field(default='',max_length=20000)
     notes: str=Field(default='',max_length=20000)
-    calories: Nonnegative=Field(default=0,validation_alias=AliasChoices('calories','total_calories'))
-    protein: Nonnegative=0
-    carbs: Nonnegative=0
-    fat: Nonnegative=0
+    calories: SummaryValue=Field(default=None,validation_alias=AliasChoices('calories','total_calories'))
+    protein: SummaryValue=None
+    carbs: SummaryValue=None
+    fat: SummaryValue=None
     fiber: Nonnegative=0
     foods: list[PlannedFoodBody]=Field(default_factory=list,max_length=100)
     @model_validator(mode='before')
@@ -43,7 +52,7 @@ class PlannedMealBody(BaseModel):
 class DayBody(BaseModel):
     day_name: str=Field(default='dia1',max_length=100)
     day_label: str=Field(default='',max_length=100)
-    calories: Nonnegative=0
+    calories: SummaryValue=None
     meals: list[PlannedMealBody]=Field(min_length=1,max_length=20)
 
 class ShoppingEntry(BaseModel):
@@ -62,10 +71,10 @@ class PlanBody(BaseModel):
     start_date: date | None=None
     end_date: date | None=None
     source_filename: str | None=None
-    daily_calories: Nonnegative=0
-    daily_protein: Nonnegative=0
-    daily_carbs: Nonnegative=0
-    daily_fat: Nonnegative=0
+    daily_calories: SummaryValue=None
+    daily_protein: SummaryValue=None
+    daily_carbs: SummaryValue=None
+    daily_fat: SummaryValue=None
     daily_fiber: Nonnegative=0
     restrictions: list[str]=Field(default_factory=list,max_length=100)
     tips: list[str]=Field(default_factory=list,max_length=100)
@@ -87,3 +96,7 @@ class DietBody(BaseModel):
     def valid_dates(self):
         if self.end_date and self.end_date<self.start_date:raise ValueError('Invalid date range')
         return self
+
+class ConfirmPlan(BaseModel):
+    preview_id: str=Field(pattern=r'^nutrition-preview-[a-f0-9]{32}$')
+    plan: PlanBody

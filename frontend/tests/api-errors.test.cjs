@@ -180,3 +180,15 @@ test("credential injection is unaffected by the error formatter", async () => {
   assert.equal(config.headers.Authorization, "Bearer test-session");
   assert.equal(config.withCredentials, true);
 });
+
+test("nutrition scenarios and import previews are readonly; confirmed actions invalidate", async () => {
+  const client = await loadClient();
+  for (const url of ['/api/nutrition/intelligence/alternatives', '/api/nutrition/import-plan', '/api/nutrition/import-plan?preview=true', '/api/nutrition/import-plan?preview=false']) {
+    client.resolve({ config: { method: 'post', url } });
+  }
+  assert.equal(client.events.length, 0);
+  for (const url of ['/api/nutrition/intelligence/confirm-plan', '/api/nutrition/intelligence/templates/meal/owned/record']) {
+    client.resolve({ config: { method: 'post', url } });
+  }
+  assert.deepEqual(client.events.map(event => event.type), ['sirius-data-changed', 'sirius-data-changed']);
+});

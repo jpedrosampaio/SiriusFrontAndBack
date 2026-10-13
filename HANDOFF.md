@@ -8,11 +8,11 @@ Recheck Git/PR/deploy state at session start; the functional publication SHA is 
 
 ## Next phase and authorization
 
-Next: **Phase 11 - Nutrition Intelligence 2.0**, following the [unchanged 14-phase master plan](docs/SIRIUS_3_MASTER_PLAN.md). **Not authorized: await the owner's explicit permission before starting.** Phase 10 implementation and publication are complete; no next-phase implementation is in progress.
+Current: **Phase 11 - Nutrition Intelligence 2.0**, explicitly authorized after PR40; base main `ccf566bf38b365e0bffe1628c8b86a9e2ab4ad77`, branch `feat/nutrition-intelligence-2`. See [NUTRITION_INTELLIGENCE](docs/NUTRITION_INTELLIGENCE.md). Implementation, final CI/review, protected migration and publication are pending. **Phase 12 is not authorized; await permission after Phase 11 publication.**
 
 ## Migrations and blockers
 
-Schema head: `a81c9d37e502`. No Phase 10 migration or production test writes. Projections reuse existing sessions, sets, logs and plans; stable day provenance uses the existing session JSON column. No pending migration or technical blocker at functional publication. Production migrations remain exclusive to the protected workflow and mandatory owner approval in [PRODUCTION_MIGRATIONS](docs/PRODUCTION_MIGRATIONS.md).
+Published schema head: `a81c9d37e502`. Proposed Phase 11 migration: `c9e42a7d160b`, additive nullable nutrition provenance; not applied in production. No production test writes. Production migrations remain exclusive to the protected workflow and mandatory owner approval in [PRODUCTION_MIGRATIONS](docs/PRODUCTION_MIGRATIONS.md); merge waits for confirmed migration.
 
 ## Decisions and continuity
 

@@ -2567,6 +2567,8 @@ from services import body_measurements,health_ai_routes
 api_router.include_router(body_measurements.router)
 from services import nutrition
 api_router.include_router(nutrition.router)
+from services import nutrition_intelligence_routes
+api_router.include_router(nutrition_intelligence_routes.router)
 from services import recipe_routes,recipe_generation_routes
 recipe_generation_routes.configure(get_current_user,get_user_api_key,request_gemini)
 api_router.include_router(recipe_generation_routes.api_router)

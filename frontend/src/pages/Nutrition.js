@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/api";
 import { getApiErrorMessage } from "@/lib/api-errors";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { createActivityRequests } from '@/lib/activity-requests';
 import { getLocalDateStr } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -19,6 +20,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const NutritionIntelligence=lazy(()=>import('@/components/NutritionIntelligence'));
 
 const mealTypeIcons = {
   breakfast: Coffee,
@@ -34,7 +36,27 @@ const mealTypeLabels = {
   snack: "Lanche"
 };
 
+const macroLabel=(value,unit='')=>value==null?'Desconhecido':`${value}${unit?` ${unit}`:''}`;
+
+const reviewedPlanPreview=plan=>{
+  const keys=['calories','protein','carbs','fat'];
+  const sum=(rows,key)=>rows.length&&rows.every(row=>row[key]!=null)?rows.reduce((n,row)=>n+Number(row[key]),0):null;
+  const days=plan.days.map(day=>{
+    const meals=day.meals.map(meal=>({...meal,...Object.fromEntries(keys.map(key=>[key,
+      meal.foods.length&&meal.foods.every(food=>food.known_macros?.includes(key))?meal.foods.reduce((n,food)=>n+Number(food[key]),0):null]))}));
+    return {...day,meals,calories:sum(meals,'calories')};
+  });
+  const daily=Object.fromEntries(keys.map(key=>{
+    const totals=days.map(day=>({[key]:sum(day.meals,key)}));const total=sum(totals,key);
+    return ['daily_'+key,total==null?null:total/days.length];
+  }));
+  return {...plan,days,...daily};
+};
+
 export default function Nutrition() {
+  const activityRequests=useRef(createActivityRequests());
+  const [importPreview,setImportPreview]=useState(null);
+  const importPreviewId=useRef(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(getLocalDateStr());
@@ -104,11 +126,11 @@ export default function Nutrition() {
 
   // Goals form
   const [goalsForm, setGoalsForm] = useState({
-    daily_calories: 2000,
-    daily_protein: 150,
-    daily_carbs: 250,
-    daily_fat: 65,
-    water_goal_ml: 2000
+    daily_calories: '',
+    daily_protein: '',
+    daily_carbs: '',
+    daily_fat: '',
+    water_goal_ml: ''
   });
 
   // Recipe preferences
@@ -155,7 +177,7 @@ export default function Nutrition() {
       setMeals(Array.isArray(mealsRes.data) ? mealsRes.data : []);
       setStats(statsRes.data || null);
       setGoals(goalsRes.data || null);
-      setGoalsForm(goalsRes.data || {});
+      setGoalsForm(Object.fromEntries(['daily_calories','daily_protein','daily_carbs','daily_fat','water_goal_ml'].map(k=>[k,goalsRes.data?.[k] ?? (goalsRes.data?.origin==='legacy_unconfirmed'?goalsRes.data?.stored_unconfirmed?.[k]:'') ?? ''])));
       setWaterData(waterRes.data || { total_ml: 0, logs: [] });
       setRecipes(Array.isArray(recipesRes.data) ? recipesRes.data : []);
       setDiets(Array.isArray(dietsRes.data) ? dietsRes.data : []);
@@ -183,7 +205,7 @@ export default function Nutrition() {
     }
     setMealForm(prev => ({
       ...prev,
-      foods: [...prev.foods, { ...newFood, estimated: foodEstimated }]
+      foods: [...prev.foods, { ...newFood, estimated: foodEstimated, known_macros:foodEstimated?['calories','protein','carbs','fat']:[],portion_label:newFood.weight,unit:newFood.weight || 'porcao' }]
     }));
     setNewFood({ name: "", calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, quantity: 1, weight: "" });
     setFoodEstimated(false);
@@ -223,7 +245,8 @@ export default function Nutrition() {
                 carbs: est.carbs || 0,
                 fat: est.fat || 0,
                 fiber: est.fiber || 0,
-                estimated: true
+                estimated: true, quantity:1,unit:food.weight || 'porcao',portion_label:food.weight,
+                known_macros:['calories','protein','carbs','fat'].filter(k=>est[k]!=null && Number.isFinite(Number(est[k])))
               };
             }
             return food;
@@ -254,18 +277,21 @@ export default function Nutrition() {
       toast.error("Preencha o nome e adicione alimentos");
       return;
     }
+    const key=activityRequests.current.begin('meal',JSON.stringify({...mealForm,date:selectedDate}));if(!key)return;
+    let succeeded=false;
     try {
       await axios.post(`${API}/nutrition/meals`, {
         ...mealForm,
         date: selectedDate
-      }, { withCredentials: true });
+      }, { withCredentials: true,headers:{'Idempotency-Key':key} });
+      succeeded=true;
       toast.success("Refeição registrada!");
       setShowMealDialog(false);
       setMealForm({ name: "", meal_type: "lunch", foods: [], notes: "" });
       fetchData();
     } catch (error) {
       toast.error("Erro ao criar refeição");
-    }
+    } finally {activityRequests.current.finish('meal',succeeded);}
   };
 
   const handleDeleteMeal = async (mealId) => {
@@ -280,7 +306,9 @@ export default function Nutrition() {
 
   const handleUpdateGoals = async () => {
     try {
-      await axios.put(`${API}/nutrition/goals`, goalsForm, { withCredentials: true });
+      const body=Object.fromEntries(Object.entries(goalsForm).filter(([,v])=>v!==''&&v!=null));
+      if(!Object.keys(body).length){toast.error('Informe ao menos uma meta.');return;}
+      await axios.put(`${API}/nutrition/goals`, body, { withCredentials: true });
       toast.success("Metas atualizadas!");
       setShowGoalsDialog(false);
       fetchData();
@@ -408,11 +436,14 @@ export default function Nutrition() {
     try {
       const formData = new FormData();
       formData.append("file", importFile);
-      const res = await axios.post(`${API}/nutrition/import-plan`, formData, {
+      const res = await axios.post(`${API}/nutrition/import-plan?preview=true`, formData, {
         withCredentials: true,
         headers: { "Content-Type": "multipart/form-data" },
-        timeout: 120000
+        // Backend allows 60s for upload and 180s for analysis; leave time for receipt persistence.
+        timeout: 270000
       });
+      if(res.data.already_confirmed){toast.success('Este documento já foi confirmado. O plano existente foi preservado, sem XP adicional.');setShowImportDialog(false);fetchMealPlans();return;}
+      if(res.data.preview && res.data.preview_id){importPreviewId.current=res.data.preview_id;setImportPreview(res.data.preview);return;}
       if (res.data.success) {
         toast.success(`Plano importado! ${res.data.meals_created} refeições criadas. +${res.data.xp_earned} XP`);
         setShowImportDialog(false);
@@ -427,6 +458,19 @@ export default function Nutrition() {
     }
   };
 
+  const handleConfirmImport=async()=>{
+    if(!importPreview || !importPreviewId.current)return;
+    const body={preview_id:importPreviewId.current,plan:importPreview};
+    const key=activityRequests.current.begin('import',JSON.stringify(body));if(!key)return;
+    setImportingPlan(true);let succeeded=false;
+    try{
+      await axios.post(`${API}/nutrition/intelligence/confirm-plan`,body,{headers:{'Idempotency-Key':key}});
+      succeeded=true;importPreviewId.current=null;setImportPreview(null);setShowImportDialog(false);setImportFile(null);fetchMealPlans();fetchData();toast.success('Plano revisado e salvo. Nenhum consumo foi registrado.');
+    }catch(e){toast.error(getApiErrorMessage(e,'Não foi possível confirmar o plano.'));}
+    finally{activityRequests.current.finish('import',succeeded);setImportingPlan(false);}
+  };
+  const targetValue=key=>goals?.confirmed_fields?.includes(key)?goals[key]:null;
+
   if (loading && !user) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center">
@@ -439,7 +483,7 @@ export default function Nutrition() {
     <div className="min-h-screen bg-[#050505] text-white flex">
       
       
-      <main className="flex-1  p-4 md:p-8 pb-24 md:pb-8  md:pt-8">
+      <main className="flex-1 min-w-0 p-4 md:p-8 pb-24 md:pb-8 md:pt-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
@@ -468,34 +512,37 @@ export default function Nutrition() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="bg-[#121212] border border-[#27272A] overflow-x-auto flex-nowrap w-full justify-start md:justify-center">
             <TabsTrigger value="overview">Visão Geral</TabsTrigger>
+            <TabsTrigger value="intelligence">Inteligência</TabsTrigger>
             <TabsTrigger value="meals">Refeições</TabsTrigger>
             <TabsTrigger value="recipes">Receitas</TabsTrigger>
             <TabsTrigger value="meal_plans" onClick={fetchMealPlans}>Plano Alimentar</TabsTrigger>
             <TabsTrigger value="calculator">Calculadora</TabsTrigger>
           </TabsList>
+          <TabsContent value="intelligence"><Suspense fallback={<p>Carregando inteligência nutricional…</p>}><NutritionIntelligence key={user?.user_id} userId={user?.user_id} date={selectedDate} onRecorded={fetchData}/></Suspense></TabsContent>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
+            {!goals?.configured && <p className="text-sm text-amber-200">Metas não confirmadas. Valores antigos permanecem preservados, mas não são objetivos assumidos. Configure suas metas; na aba Inteligência, estimativas e dados desconhecidos ficam separados.</p>}
             {/* Macros Overview */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Calories */}
               <Card className="bg-[#0A0A0A] border-[#27272A]">
                 <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <Flame className="w-5 h-5 text-orange-500" />
                       <span className="font-medium">Calorias</span>
                     </div>
                     <Badge variant="outline" className="border-orange-500 text-orange-500">
-                      {stats?.consumed?.calories || 0} / {goals?.daily_calories || 2000}
+                      {stats?.consumed?.calories ?? 'Desconhecido'} / {targetValue('daily_calories') ?? 'Não configurada'}
                     </Badge>
                   </div>
                   <Progress 
-                    value={((stats?.consumed?.calories || 0) / (goals?.daily_calories || 2000)) * 100} 
+                    value={targetValue('daily_calories')?((stats?.consumed?.calories || 0)/targetValue('daily_calories'))*100:0}
                     className="h-2"
                   />
                   <p className="text-sm text-[#A1A1AA] mt-2">
-                    Restam: {stats?.remaining?.calories || 0} kcal
+                    Restam: {stats?.remaining?.calories ?? 'Não disponível'} kcal
                   </p>
                 </CardContent>
               </Card>
@@ -503,21 +550,21 @@ export default function Nutrition() {
               {/* Protein */}
               <Card className="bg-[#0A0A0A] border-[#27272A]">
                 <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <Drumstick className="w-5 h-5 text-red-500" />
                       <span className="font-medium">Proteína</span>
                     </div>
                     <Badge variant="outline" className="border-red-500 text-red-500">
-                      {stats?.consumed?.protein || 0}g / {goals?.daily_protein || 150}g
+                      {stats?.consumed?.protein ?? 'Desconhecido'}g / {targetValue('daily_protein') ?? 'Não configurada'}g
                     </Badge>
                   </div>
                   <Progress 
-                    value={((stats?.consumed?.protein || 0) / (goals?.daily_protein || 150)) * 100} 
+                    value={targetValue('daily_protein')?((stats?.consumed?.protein || 0)/targetValue('daily_protein'))*100:0}
                     className="h-2"
                   />
                   <p className="text-sm text-[#A1A1AA] mt-2">
-                    Restam: {stats?.remaining?.protein || 0}g
+                    Restam: {stats?.remaining?.protein ?? 'Não disponível'} g
                   </p>
                 </CardContent>
               </Card>
@@ -525,21 +572,21 @@ export default function Nutrition() {
               {/* Carbs */}
               <Card className="bg-[#0A0A0A] border-[#27272A]">
                 <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <Wheat className="w-5 h-5 text-yellow-500" />
                       <span className="font-medium">Carboidratos</span>
                     </div>
                     <Badge variant="outline" className="border-yellow-500 text-yellow-500">
-                      {stats?.consumed?.carbs || 0}g / {goals?.daily_carbs || 250}g
+                      {stats?.consumed?.carbs ?? 'Desconhecido'}g / {targetValue('daily_carbs') ?? 'Não configurada'}g
                     </Badge>
                   </div>
                   <Progress 
-                    value={((stats?.consumed?.carbs || 0) / (goals?.daily_carbs || 250)) * 100} 
+                    value={targetValue('daily_carbs')?((stats?.consumed?.carbs || 0)/targetValue('daily_carbs'))*100:0}
                     className="h-2"
                   />
                   <p className="text-sm text-[#A1A1AA] mt-2">
-                    Restam: {stats?.remaining?.carbs || 0}g
+                    Restam: {stats?.remaining?.carbs ?? 'Não disponível'} g
                   </p>
                 </CardContent>
               </Card>
@@ -547,21 +594,21 @@ export default function Nutrition() {
               {/* Fat */}
               <Card className="bg-[#0A0A0A] border-[#27272A]">
                 <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <Droplet className="w-5 h-5 text-purple-500" />
                       <span className="font-medium">Gordura</span>
                     </div>
                     <Badge variant="outline" className="border-purple-500 text-purple-500">
-                      {stats?.consumed?.fat || 0}g / {goals?.daily_fat || 65}g
+                      {stats?.consumed?.fat ?? 'Desconhecido'}g / {targetValue('daily_fat') ?? 'Não configurada'}g
                     </Badge>
                   </div>
                   <Progress 
-                    value={((stats?.consumed?.fat || 0) / (goals?.daily_fat || 65)) * 100} 
+                    value={targetValue('daily_fat')?((stats?.consumed?.fat || 0)/targetValue('daily_fat'))*100:0}
                     className="h-2"
                   />
                   <p className="text-sm text-[#A1A1AA] mt-2">
-                    Restam: {stats?.remaining?.fat || 0}g
+                    Restam: {stats?.remaining?.fat ?? 'Não disponível'} g
                   </p>
                 </CardContent>
               </Card>
@@ -577,12 +624,12 @@ export default function Nutrition() {
                     Hidratação
                   </CardTitle>
                   <CardDescription>
-                    {waterData.total_ml}ml de {goals?.water_goal_ml || 2000}ml
+                    {waterData.total_ml}ml · meta {targetValue('water_goal_ml') ?? 'não configurada'} ml
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Progress 
-                    value={(waterData.total_ml / (goals?.water_goal_ml || 2000)) * 100} 
+                    value={targetValue('water_goal_ml')?(waterData.total_ml/targetValue('water_goal_ml'))*100:0}
                     className="h-4 mb-4"
                   />
                   <div className="flex flex-wrap gap-2">
@@ -634,7 +681,7 @@ export default function Nutrition() {
                           <Input
                             type="number"
                             value={goalsForm.daily_calories}
-                            onChange={(e) => setGoalsForm({...goalsForm, daily_calories: Number(e.target.value)})}
+                            onChange={(e) => setGoalsForm({...goalsForm, daily_calories: e.target.value === '' ? '' : Number(e.target.value)})}
                             className="bg-[#121212] border-[#27272A]"
                           />
                         </div>
@@ -643,7 +690,7 @@ export default function Nutrition() {
                           <Input
                             type="number"
                             value={goalsForm.daily_protein}
-                            onChange={(e) => setGoalsForm({...goalsForm, daily_protein: Number(e.target.value)})}
+                            onChange={(e) => setGoalsForm({...goalsForm, daily_protein: e.target.value === '' ? '' : Number(e.target.value)})}
                             className="bg-[#121212] border-[#27272A]"
                           />
                         </div>
@@ -652,7 +699,7 @@ export default function Nutrition() {
                           <Input
                             type="number"
                             value={goalsForm.daily_carbs}
-                            onChange={(e) => setGoalsForm({...goalsForm, daily_carbs: Number(e.target.value)})}
+                            onChange={(e) => setGoalsForm({...goalsForm, daily_carbs: e.target.value === '' ? '' : Number(e.target.value)})}
                             className="bg-[#121212] border-[#27272A]"
                           />
                         </div>
@@ -661,7 +708,7 @@ export default function Nutrition() {
                           <Input
                             type="number"
                             value={goalsForm.daily_fat}
-                            onChange={(e) => setGoalsForm({...goalsForm, daily_fat: Number(e.target.value)})}
+                            onChange={(e) => setGoalsForm({...goalsForm, daily_fat: e.target.value === '' ? '' : Number(e.target.value)})}
                             className="bg-[#121212] border-[#27272A]"
                           />
                         </div>
@@ -670,7 +717,7 @@ export default function Nutrition() {
                           <Input
                             type="number"
                             value={goalsForm.water_goal_ml}
-                            onChange={(e) => setGoalsForm({...goalsForm, water_goal_ml: Number(e.target.value)})}
+                            onChange={(e) => setGoalsForm({...goalsForm, water_goal_ml: e.target.value === '' ? '' : Number(e.target.value)})}
                             className="bg-[#121212] border-[#27272A]"
                           />
                         </div>
@@ -719,10 +766,10 @@ export default function Nutrition() {
                           </div>
                           <Badge variant="outline" className="mb-2">{mealTypeLabels[meal.meal_type]}</Badge>
                           <div className="grid grid-cols-4 gap-2 text-xs text-[#A1A1AA]">
-                            <span>{meal.total_calories} kcal</span>
-                            <span>{meal.total_protein}g P</span>
-                            <span>{meal.total_carbs}g C</span>
-                            <span>{meal.total_fat}g G</span>
+                            <span>{macroLabel(meal.total_calories,'kcal')}</span>
+                            <span>{macroLabel(meal.total_protein,'g P')}</span>
+                            <span>{macroLabel(meal.total_carbs,'g C')}</span>
+                            <span>{macroLabel(meal.total_fat,'g G')}</span>
                           </div>
                         </div>
                       );
@@ -753,7 +800,7 @@ export default function Nutrition() {
                     {weeklyTrend.goals && (
                       <div className="flex justify-between text-[10px] text-[#71717A] mt-2 px-2">
                         <span>Meta: {weeklyTrend.goals.daily_calories} kcal/dia</span>
-                        <span>Média: {weeklyTrend.averages?.calorias || 0} kcal</span>
+                        <span>Média: {weeklyTrend.averages?.calorias ?? 'Desconhecida'} kcal</span>
                       </div>
                     )}
                   </CardContent>
@@ -840,7 +887,7 @@ export default function Nutrition() {
 
           {/* Meals Tab */}
           <TabsContent value="meals" className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-3">
               <h2 className="text-xl font-bold">Refeições</h2>
               <Button onClick={() => setShowMealDialog(true)} className="bg-[#007AFF]">
                 <Plus className="w-4 h-4 mr-2" />
@@ -877,19 +924,19 @@ export default function Nutrition() {
                             <div className="grid grid-cols-4 gap-4 mb-3">
                               <div className="text-center">
                                 <Flame className="w-4 h-4 mx-auto text-orange-500" />
-                                <span className="text-sm">{meal.total_calories} kcal</span>
+                                <span className="text-sm">{macroLabel(meal.total_calories,'kcal')}</span>
                               </div>
                               <div className="text-center">
                                 <Drumstick className="w-4 h-4 mx-auto text-red-500" />
-                                <span className="text-sm">{meal.total_protein}g</span>
+                                <span className="text-sm">{macroLabel(meal.total_protein,'g')}</span>
                               </div>
                               <div className="text-center">
                                 <Wheat className="w-4 h-4 mx-auto text-yellow-500" />
-                                <span className="text-sm">{meal.total_carbs}g</span>
+                                <span className="text-sm">{macroLabel(meal.total_carbs,'g')}</span>
                               </div>
                               <div className="text-center">
                                 <Droplet className="w-4 h-4 mx-auto text-purple-500" />
-                                <span className="text-sm">{meal.total_fat}g</span>
+                                <span className="text-sm">{macroLabel(meal.total_fat,'g')}</span>
                               </div>
                             </div>
                             {meal.foods?.length > 0 && (
@@ -965,19 +1012,19 @@ export default function Nutrition() {
                       </div>
                       <div className="grid grid-cols-4 gap-2 text-center text-xs">
                         <div>
-                          <span className="text-orange-500">{recipe.calories_per_serving}</span>
+                          <span className="text-orange-500">{macroLabel(recipe.calories_per_serving)}</span>
                           <span className="block text-[#A1A1AA]">kcal</span>
                         </div>
                         <div>
-                          <span className="text-red-500">{recipe.protein_per_serving}g</span>
+                          <span className="text-red-500">{macroLabel(recipe.protein_per_serving,'g')}</span>
                           <span className="block text-[#A1A1AA]">P</span>
                         </div>
                         <div>
-                          <span className="text-yellow-500">{recipe.carbs_per_serving}g</span>
+                          <span className="text-yellow-500">{macroLabel(recipe.carbs_per_serving,'g')}</span>
                           <span className="block text-[#A1A1AA]">C</span>
                         </div>
                         <div>
-                          <span className="text-purple-500">{recipe.fat_per_serving}g</span>
+                          <span className="text-purple-500">{macroLabel(recipe.fat_per_serving,'g')}</span>
                           <span className="block text-[#A1A1AA]">G</span>
                         </div>
                       </div>
@@ -1020,21 +1067,21 @@ export default function Nutrition() {
                           </div>
                           <div className="bg-[#121212] p-3 rounded-lg text-center">
                             <Target className="w-5 h-5 mx-auto mb-1 text-red-400" />
-                            <p className="text-sm font-bold">{selectedRecipe.calories_per_serving}</p>
+                            <p className="text-sm font-bold">{macroLabel(selectedRecipe.calories_per_serving)}</p>
                             <p className="text-xs text-[#A1A1AA]">kcal/porção</p>
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-3">
                           <div className="bg-red-500/10 p-3 rounded-lg text-center">
-                            <p className="text-lg font-bold text-red-400">{selectedRecipe.protein_per_serving}g</p>
+                            <p className="text-lg font-bold text-red-400">{macroLabel(selectedRecipe.protein_per_serving,'g')}</p>
                             <p className="text-xs text-[#A1A1AA]">Proteínas</p>
                           </div>
                           <div className="bg-yellow-500/10 p-3 rounded-lg text-center">
-                            <p className="text-lg font-bold text-yellow-400">{selectedRecipe.carbs_per_serving}g</p>
+                            <p className="text-lg font-bold text-yellow-400">{macroLabel(selectedRecipe.carbs_per_serving,'g')}</p>
                             <p className="text-xs text-[#A1A1AA]">Carboidratos</p>
                           </div>
                           <div className="bg-purple-500/10 p-3 rounded-lg text-center">
-                            <p className="text-lg font-bold text-purple-400">{selectedRecipe.fat_per_serving}g</p>
+                            <p className="text-lg font-bold text-purple-400">{macroLabel(selectedRecipe.fat_per_serving,'g')}</p>
                             <p className="text-xs text-[#A1A1AA]">Gorduras</p>
                           </div>
                         </div>
@@ -1108,9 +1155,9 @@ export default function Nutrition() {
           </TabsContent>
           {/* AI Meal Plan Tab */}
           <TabsContent value="meal_plans" className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-3">
               <h2 className="text-xl font-bold">Planos Alimentares com IA</h2>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {/* Import Plan Dialog */}
                 <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
                   <DialogTrigger asChild>
@@ -1118,7 +1165,7 @@ export default function Nutrition() {
                       <Upload className="w-4 h-4 mr-2" /> Importar Plano
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="bg-[#0A0A0A] border-[#27272A] text-white max-w-md">
+                  <DialogContent className="bg-[#0A0A0A] border-[#27272A] text-white max-w-md max-h-[85dvh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2"><Upload className="w-5 h-5 text-[#00F0FF]" /> Importar Plano Alimentar</DialogTitle>
                       <DialogDescription className="text-[#A1A1AA]">Envie um PDF ou foto do seu plano alimentar. A IA vai extrair as refeições automaticamente.</DialogDescription>
@@ -1136,7 +1183,7 @@ export default function Nutrition() {
                           type="file"
                           accept=".pdf,.jpg,.jpeg,.png,.webp"
                           className="hidden"
-                          onChange={(e) => setImportFile(e.target.files[0] || null)}
+                          onChange={(e) => {setImportFile(e.target.files[0] || null);setImportPreview(null);importPreviewId.current=null;}}
                         />
                         {importFile ? (
                           <div>
@@ -1156,9 +1203,25 @@ export default function Nutrition() {
                       <div className="bg-[#121212] rounded-lg p-3 border border-[#27272A]">
                         <p className="text-xs text-[#A1A1AA]">
                           <Sparkles className="w-3 h-3 inline mr-1 text-[#A855F7]" />
-                          A IA vai extrair: refeições, calorias, macros, horários e dicas do nutricionista. As refeições serão adicionadas ao dia de hoje.
+                          A IA extrai uma prévia editável. Composição e porções são estimativas; revise antes de salvar. Importar um plano não registra consumo nem agenda refeições.
                         </p>
                       </div>
+                      {importPreview && <div className="space-y-3 border border-amber-400/30 rounded-lg p-3">
+                        <h4 className="font-semibold">Revisar estimativas antes de salvar</h4>
+                        <label className="block text-sm">Nome do plano<Input value={importPreview.name} onChange={e=>setImportPreview({...importPreview,name:e.target.value})}/></label>
+                        <label className="block text-sm">Data inicial opcional<Input type="date" value={importPreview.start_date || ''} onChange={e=>setImportPreview({...importPreview,start_date:e.target.value || null})}/></label>
+                        {importPreview.days.map((day,di)=><details key={di} open><summary>{day.day_label || `Dia ${di+1}`}</summary>{day.meals.map((meal,mi)=><div key={mi} className="space-y-2 py-2 border-b border-white/10">
+                          <p className="font-medium">{meal.name} · composição estimada</p>
+                          {meal.foods.map((food,fi)=><label className="block text-xs" key={fi}>{food.name} · quantidade estimada<Input value={food.quantity} onChange={e=>setImportPreview({...importPreview,days:importPreview.days.map((d,i)=>i!==di?d:{...d,meals:d.meals.map((m,j)=>j!==mi?m:{...m,foods:m.foods.map((f,k)=>k!==fi?f:{...f,quantity:e.target.value})})})})}/></label>)}
+                          {meal.foods.map((food,fi)=><div className="grid grid-cols-2 gap-2" key={fi}>{[['calories','Energia (kcal)'],['protein','Proteína (g)'],['carbs','Carboidratos (g)'],['fat','Gordura (g)']].map(([field,label])=><label className="text-xs" key={field}>{food.name} · {label} na porção declarada<Input aria-label={`${food.name} · ${label}`} type="number" min="0" value={food.known_macros?.includes(field)?food[field]:''} onChange={e=>setImportPreview(reviewedPlanPreview({...importPreview,days:importPreview.days.map((d,i)=>i!==di?d:{...d,meals:d.meals.map((m,j)=>{
+                            if(j!==mi)return m;
+                            const foods=m.foods.map((f,k)=>k!==fi?f:{...f,[field]:Number(e.target.value),known_macros:e.target.value===''?(f.known_macros || []).filter(x=>x!==field):[...new Set([...(f.known_macros || []),field])]});
+                            return {...m,foods};
+                          })})}))}/></label>)}</div>)}
+                          <p className="text-xs text-slate-400">Valores editados por alimento na porção declarada; o registro reutiliza essa composição. Zeros antigos sem fonte permanecem desconhecidos.</p>
+                        </div>)}</details>)}
+                        <Button disabled={importingPlan} onClick={handleConfirmImport}>Confirmar plano revisado</Button>
+                      </div>}
                       <Button 
                         data-testid="import-plan-submit-btn"
                         onClick={handleImportMealPlan} 
@@ -1258,10 +1321,10 @@ export default function Nutrition() {
                           <h3 className="text-lg font-bold">{selectedMealPlan.name}</h3>
                           <p className="text-sm text-[#A1A1AA]">{selectedMealPlan.description}</p>
                           <div className="flex gap-4 mt-3 text-sm">
-                            <span className="text-[#FF9500]">{selectedMealPlan.calories_total || '---'} kcal</span>
-                            <span className="text-[#FF6B6B]">{selectedMealPlan.macros?.protein_g || 0}g P</span>
-                            <span className="text-[#FFD700]">{selectedMealPlan.macros?.carbs_g || 0}g C</span>
-                            <span className="text-[#00B4D8]">{selectedMealPlan.macros?.fat_g || 0}g G</span>
+                            <span className="text-[#FF9500]">{macroLabel(selectedMealPlan.calories_total,'kcal')}</span>
+                            <span className="text-[#FF6B6B]">{macroLabel(selectedMealPlan.macros?.protein_g,'g P')}</span>
+                            <span className="text-[#FFD700]">{macroLabel(selectedMealPlan.macros?.carbs_g,'g C')}</span>
+                            <span className="text-[#00B4D8]">{macroLabel(selectedMealPlan.macros?.fat_g,'g G')}</span>
                           </div>
                         </div>
                         <div className="flex gap-2">
@@ -1278,7 +1341,7 @@ export default function Nutrition() {
                             <div key={mIdx} className="bg-[#121212] rounded-lg p-3">
                               <div className="flex justify-between items-center mb-2">
                                 <span className="text-sm font-medium">{meal.time} - {meal.name}</span>
-                                <Badge variant="outline" className="text-[10px]">{meal.total_calories || 0} kcal</Badge>
+                                <Badge variant="outline" className="text-[10px]">{macroLabel(meal.total_calories,'kcal')}</Badge>
                               </div>
                               {meal.foods && meal.foods.map((f, fIdx) => (
                                 <div key={fIdx} className="flex justify-between text-xs text-[#A1A1AA]"><span>{f.name} ({f.quantity})</span><span>{f.calories} kcal</span></div>
@@ -1466,7 +1529,7 @@ export default function Nutrition() {
                     )}
                   </div>
                   {mealForm.foods.map((food, idx) => (
-                    <div key={idx} className={`flex items-center justify-between p-3 rounded-lg border ${food.estimated ? 'bg-[#121212] border-green-500/30' : 'bg-[#121212] border-[#27272A]'}`}>
+                    <div key={idx} className={`flex flex-wrap gap-3 items-center justify-between p-3 rounded-lg border ${food.estimated ? 'bg-[#121212] border-green-500/30' : 'bg-[#121212] border-[#27272A]'}`}>
                       <div className="flex-1">
                         <span className="font-medium">{food.name}</span>
                         {food.weight && <span className="text-xs text-[#52525B] ml-2">({food.weight})</span>}
@@ -1480,6 +1543,9 @@ export default function Nutrition() {
                         ) : (
                           <div className="text-xs text-[#71717A] mt-1 italic">Nutrientes pendentes</div>
                         )}
+                      </div>
+                      <div className="w-full grid grid-cols-2 gap-2">{[['calories','Energia (kcal)'],['protein','Proteína (g)'],['carbs','Carboidratos (g)'],['fat','Gordura (g)']].map(([field,label])=><label className="text-xs" key={field}>{label} por unidade declarada<Input type="number" min="0" step="0.1" value={food.known_macros?.includes(field)?food[field]:''} onChange={e=>setMealForm({...mealForm,foods:mealForm.foods.map((f,i)=>i!==idx?f:{...f,[field]:Number(e.target.value),known_macros:e.target.value===''?(f.known_macros || []).filter(k=>k!==field):[...new Set([...(f.known_macros || []),field])]})})}/></label>)}
+                        <label className="col-span-2 text-xs"><input type="checkbox" checked={!food.estimated} onChange={e=>setMealForm({...mealForm,foods:mealForm.foods.map((f,i)=>i===idx?{...f,estimated:!e.target.checked}:f)})}/> Valores de rótulo/tabela informados por mim; desmarcado mantém estimativa</label>
                       </div>
                       <Button variant="ghost" size="icon" onClick={() => handleRemoveFood(idx)}>
                         <Trash2 className="w-4 h-4 text-red-500" />
@@ -1508,19 +1574,19 @@ export default function Nutrition() {
                       </div>
                       <div className="grid grid-cols-4 gap-2 text-center">
                         <div>
-                          <span className="text-lg font-bold text-[#F59E0B]">{mealForm.foods.reduce((s, f) => s + (f.calories || 0), 0)}</span>
+                          <span className="text-lg font-bold text-[#F59E0B]">{mealForm.foods.reduce((s, f) => s + (f.calories || 0) * (f.quantity ?? 1), 0)}</span>
                           <span className="text-[10px] text-[#52525B] block">kcal</span>
                         </div>
                         <div>
-                          <span className="text-lg font-bold text-red-400">{mealForm.foods.reduce((s, f) => s + (f.protein || 0), 0).toFixed(1)}</span>
+                          <span className="text-lg font-bold text-red-400">{mealForm.foods.reduce((s, f) => s + (f.protein || 0) * (f.quantity ?? 1), 0).toFixed(1)}</span>
                           <span className="text-[10px] text-[#52525B] block">Proteína (g)</span>
                         </div>
                         <div>
-                          <span className="text-lg font-bold text-blue-400">{mealForm.foods.reduce((s, f) => s + (f.carbs || 0), 0).toFixed(1)}</span>
+                          <span className="text-lg font-bold text-blue-400">{mealForm.foods.reduce((s, f) => s + (f.carbs || 0) * (f.quantity ?? 1), 0).toFixed(1)}</span>
                           <span className="text-[10px] text-[#52525B] block">Carboidratos (g)</span>
                         </div>
                         <div>
-                          <span className="text-lg font-bold text-yellow-400">{mealForm.foods.reduce((s, f) => s + (f.fat || 0), 0).toFixed(1)}</span>
+                          <span className="text-lg font-bold text-yellow-400">{mealForm.foods.reduce((s, f) => s + (f.fat || 0) * (f.quantity ?? 1), 0).toFixed(1)}</span>
                           <span className="text-[10px] text-[#52525B] block">Gordura (g)</span>
                         </div>
                       </div>
@@ -1529,7 +1595,7 @@ export default function Nutrition() {
                 </div>
               )}
 
-              <Button onClick={handleCreateMeal} className="w-full bg-[#007AFF]" disabled={mealForm.foods.length === 0 || !mealForm.foods.every(f => f.estimated || f.calories > 0)}>
+              <Button onClick={handleCreateMeal} className="w-full bg-[#007AFF]" disabled={mealForm.foods.length === 0}>
                 Salvar Refeição
               </Button>
             </div>
@@ -1608,10 +1674,10 @@ export default function Nutrition() {
                     <h3 className="text-xl font-bold text-[#00F0FF] mb-2">{suggestedRecipe.name}</h3>
                     <p className="text-[#A1A1AA] mb-4">{suggestedRecipe.description}</p>
                     <div className="grid grid-cols-4 gap-2 mb-4">
-                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Flame className="w-4 h-4 mx-auto text-orange-500" /><span className="text-sm">{suggestedRecipe.calories_per_serving} kcal</span></div>
-                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Dumbbell className="w-4 h-4 mx-auto text-red-500" /><span className="text-sm">{suggestedRecipe.protein_per_serving}g P</span></div>
-                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Zap className="w-4 h-4 mx-auto text-yellow-500" /><span className="text-sm">{suggestedRecipe.carbs_per_serving}g C</span></div>
-                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Droplet className="w-4 h-4 mx-auto text-purple-500" /><span className="text-sm">{suggestedRecipe.fat_per_serving}g G</span></div>
+                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Flame className="w-4 h-4 mx-auto text-orange-500" /><span className="text-sm">{macroLabel(suggestedRecipe.calories_per_serving,'kcal')}</span></div>
+                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Dumbbell className="w-4 h-4 mx-auto text-red-500" /><span className="text-sm">{macroLabel(suggestedRecipe.protein_per_serving,'g P')}</span></div>
+                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Zap className="w-4 h-4 mx-auto text-yellow-500" /><span className="text-sm">{macroLabel(suggestedRecipe.carbs_per_serving,'g C')}</span></div>
+                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Droplet className="w-4 h-4 mx-auto text-purple-500" /><span className="text-sm">{macroLabel(suggestedRecipe.fat_per_serving,'g G')}</span></div>
                     </div>
                     <div className="mb-4"><h4 className="font-medium mb-2">Ingredientes</h4><ul className="list-disc list-inside space-y-1 text-[#A1A1AA]">{suggestedRecipe.ingredients?.map((ing, idx) => <li key={idx}>{ing.quantity} {ing.unit} de {ing.name}</li>)}</ul></div>
                     <div className="mb-4"><h4 className="font-medium mb-2">Modo de Preparo</h4><ol className="list-decimal list-inside space-y-2 text-[#A1A1AA]">{suggestedRecipe.instructions?.map((step, idx) => <li key={idx}>{step}</li>)}</ol></div>

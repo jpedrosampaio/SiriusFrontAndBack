@@ -4,6 +4,7 @@ from typing import Literal
 from decimal import Decimal
 from finance_contracts import FinanceScenario,DebtScenario
 from training_contracts import SubstitutionArgs
+from nutrition_contracts import MealScenario
 from pydantic import Field
 from ai.types import StrictModel
 
@@ -57,6 +58,7 @@ class Tool:
 
 
 READS = {
+    'get_nutrition_state':'Estado nutricional factual: origem, metas confirmadas, refeições planejadas e registros; sem prescrição',
     'get_training_state':'Estado factual de treino: séries, cargas, RPE, recordes na janela e sugestões explicáveis, sem alterar cargas',
     'get_finance_state':'Estado financeiro factual, fluxo previsto sem renda inventada, orçamentos e insights; saldo registrado não é bancário',
     'get_life_state': 'Estado unificado factual dos oito módulos, disponibilidade e restrições; sem alterações',
@@ -71,6 +73,7 @@ READS = {
     'get_goals': 'Metas e progresso atual', 'get_dashboard_summary': 'Resumo dos módulos', 'get_upcoming_deadlines': 'Prazos das metas',
 }
 TOOLS = {name: Tool(name, description, EmptyArgs, 'read', name) for name, description in READS.items()}
+TOOLS['suggest_meals']=Tool('suggest_meals','Comparar refeições próprias e organizar propostas diárias/semanais com preferências, disponibilidade e orçamento explícito; sem registrar ou comprar',MealScenario,'read','suggest_meals')
 TOOLS['get_exercise_substitutions']=Tool('get_exercise_substitutions','Propor alternativas de exercícios dos planos próprios, conforme objetivo e grupo; movimento desconhecido fica explícito, sem alterar ficha',SubstitutionArgs,'read','get_exercise_substitutions')
 TOOLS['simulate_finances']=Tool('simulate_finances','Cenário financeiro somente leitura; acréscimos mensais, saldo inicial declarado e antecipações integrais sem desconto presumido',FinanceScenario,'read','simulate_finances')
 TOOLS['compare_debt_strategies']=Tool('compare_debt_strategies','Comparar hipóteses de dívidas declaradas; taxas ausentes não geram prazo ou juros inventados',DebtScenario,'read','compare_debt_strategies')

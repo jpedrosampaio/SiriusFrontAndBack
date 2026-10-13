@@ -19,8 +19,9 @@ async def suggest_recipe(request: Request, preferences: dict, session_token: Opt
     user = await get_current_user(authorization=auth_header, session_token=session_token)
     goals = await nutrition_goals(user.user_id)
     goal_info = ''
-    if goals:
-        goal_info = f"\nMetas nutricionais do usuário:\n- Calorias diárias: {goals.get('daily_calories', 2000)} kcal\n- Proteína: {goals.get('daily_protein', 150)}g\n- Carboidratos: {goals.get('daily_carbs', 250)}g\n- Gordura: {goals.get('daily_fat', 65)}g\n"
+    if goals.get('confirmed_fields'):
+        goal_info = '\nMetas explicitamente confirmadas (não inferir necessidades):\n' + '\n'.join(
+            f'- {key}: {goals[key]}' for key in goals['confirmed_fields'] if key.startswith('daily_'))
     diet_type = preferences.get('diet_type', '')
     meal_type = preferences.get('meal_type', '')
     ingredients = preferences.get('available_ingredients', [])
