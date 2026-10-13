@@ -46,4 +46,4 @@ Plan meal/day summaries and the mean daily totals are derived on the server from
 
 ## Delivery status
 
-Phase 11 explicitly authorized in the current session. Implementation and validation are in progress. Production migration requires the protected workflow and mandatory owner approval before merge. No production test writes or real AI calls in tests. Phase 12 is not authorized.
+Phase 11 is published and validated on 2026-10-13 UTC at functional merge `9a4008962da23ff8de3c8acbfbda96d828f6181b`. Migration `c9e42a7d160b` was applied through the protected workflow after mandatory owner approval, before merge. Both production deploys and read-only health/routes/frontend checks passed. See the [publication record](history/PHASE_11_PUBLICATION.md) for exact CI/review/migration/deployment evidence. No production test writes or real AI calls in tests. Phase 12 is not authorized.
