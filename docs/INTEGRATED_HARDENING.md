@@ -1,6 +1,6 @@
 # Sirius 3.0 - Integrated Hardening
 
-Phase 14 is authorized; this is an audit in progress, not a declaration that Sirius 3.0 is complete. Base: main `bd565c337d79b436a2b9777f2649bafa218f3762`, verified before creating `chore/sirius-3-integrated-hardening`. The original fourteen-phase plan remains byte-for-byte intact. Existing schema builds from empty disposable PostgreSQL to `f13c8a7b902d`; Alembic check reports no drift.
+Phase 14 was published and validated on 2026-10-13 UTC: [publication evidence and boundaries](history/PHASE_14_PUBLICATION.md). This audit began before implementation from main `bd565c337d79b436a2b9777f2649bafa218f3762`, using `chore/sirius-3-integrated-hardening`. The original fourteen-phase plan remains byte-for-byte intact. Existing schema builds from empty disposable PostgreSQL to unchanged `f13c8a7b902d`; Alembic check reports no drift. Contract validation is not unconditional certification of live AI quality or every production record.
 
 ## Coverage matrix before product changes
 
@@ -92,12 +92,12 @@ The audited Home remains 39 SELECTs for 10/100 tasks. Existing Preparation proje
 
 | Measure | Source-matched before | Final local snapshot | Interpretation |
 |---|---|---|---|
-| Home, 10 tasks | 39 SELECTs; 8,636 bytes; median 41.09ms | 39 SELECTs; 8,636 bytes; median 37.74ms | Same bounded query count and payload; timing is an observation, not a proven speedup |
-| Home, 100 tasks | 39 SELECTs; 8,650 bytes; median 46.58ms | 39 SELECTs; 8,650 bytes; median 40.51ms | No demonstrated N+1 growth in this fixture, not unlimited scalability |
-| Main JS | 611,506 bytes / 186,282 gzip | 612,862 bytes / 186,685 gzip | Small safety/focus increase; no bundle reduction claimed |
+| Home, 10 tasks | 39 SELECTs; 8,636 bytes; median 41.09ms | 39 SELECTs; 8,636 bytes; median 39.26ms | Same bounded query count and payload; timing is an observation, not a proven speedup |
+| Home, 100 tasks | 39 SELECTs; 8,650 bytes; median 46.58ms | 39 SELECTs; 8,650 bytes; median 39.36ms | No demonstrated N+1 growth in this fixture, not unlimited scalability |
+| Main JS | 611,506 bytes / 186,282 gzip | 612,842 bytes / 186,687 gzip | Small safety/focus increase; no bundle reduction claimed |
 | Initial Home browser requests | Existing suite records requests | 1 profile + 1 Home, plus the existing automation-state request | Shared profile remains deduplicated; closed assistant makes no generation request |
 
-Final timing measurements ran with background validation stopped. Concurrent diagnostic runs varied (roughly 44–62ms); they are not substituted for the comparable reference or represented as improvement percentages. The Home/Preparation projection logic was not changed for benchmark gains. Raw [before](benchmarks/integrated-before.json) and [after](benchmarks/integrated-after.json) artifacts preserve every measured trial, bundle and final EXPLAIN plan.
+Timing measurements ran with background validation stopped. Concurrent diagnostic runs varied (roughly 44–62ms); they are not represented as improvement percentages. The Home/Preparation projection logic was not changed for benchmark gains. Raw [before](benchmarks/integrated-before.json), [earlier functional snapshot](benchmarks/integrated-after.json) and [final measurement](benchmarks/integrated-final.json) artifacts preserve all trials and EXPLAIN plans. Final SQL timings were measured at `aad8f6f`, with unchanged Home code through reviewed `24f1891`; final bundle bytes come from the last local production build. Both source provenances are explicit in the artifact.
 
 The [client-dependency measurement](benchmarks/integrated-client-privacy.json) separately compares normalized UTF-8/LF HTML templates from the audited main and final source: 10,964 → 2,372 bytes; gzip 3,657 → 792. These are template measurements, not transferred page size or a latency percentage. The SQL/JS reference above remains valid because the final cleanup changes only the HTML template and privacy/error diagnostics, not Home queries or bundled application code.
 
@@ -134,13 +134,14 @@ Classification is **comprovado por evidência** within the stated executable-con
 | 19 | Audit | Comprovado | Owned business audit, versions, replay/ABA/stale fences, safe atomic undo and pagination |
 | 20 | Historical modules operational | Comprovado | Full PostgreSQL/runtime/regression suites, all original frontend smoke suites preserved; no resets/backfills |
 
-No essential technical defect is waived by this matrix. A failed final workflow/review/deployment invalidates publication readiness. The final release record must link final-head checks/review and merge deployments, and disclose real limitations instead of claiming unconditional acceptance.
+No essential technical defect is waived by this matrix. Final-head workflows/review and exact merge deployments passed; links and corrected failures are in the [release record](history/PHASE_14_PUBLICATION.md). The stated limitations do not become claims of unconditional acceptance.
 
 ## Local validation and review readiness
 
 - PostgreSQL: 351 tests passed in the full disposable suite; strengthened integrated A/B/Tutor/bill assertions subsequently passed all seven new cases. Empty schema upgrade and Alembic check agree on unchanged `f13c8a7b902d`.
 - Backend: syntax, 186 regressions, 5 security routes, 6 mocked YouTube tests and 12 protected-migration safety tests passed. Benchmark safety guards reject unsafe connection overrides before imports/connect.
-- Frontend: zero-warning lint, 65 unit tests and all 18 smoke suites passed after the HTML dependency/zoom cleanup. Subsequent PWA precache/RAG corrections passed focused coverage; the final build and complete smoke run are being renewed before publication.
+- Frontend: zero-warning lint, 65 unit tests, final production build and all 18 smoke suites passed with the PWA/RAG corrections at all five widths. Five additional integrated runs passed all 25 width-runs after a remote failure diagnostic was fixed to retain the original error during navigation; no assertion was removed. The final-head and post-merge complete workflows passed.
+- Publication-registration CI later exposed a logout harness race: concurrent redirects can abort a document-specific `load` wait. The corrected smoke waits for actual login UI and asserts URL, empty token and absence of personal views. The failed run and renewed PR51 gates are distinguished in the release record; production behavior and test deadlines remain unchanged.
 - Self-review covered the complete product diff, owner/parent/version/receipt boundaries, rollback/replay/concurrency, unknown evidence, provider failure, mobile focus/contrast/closing, historical compatibility, benchmark guards and plan/source integrity. No model, migration, workflow, paid service or source-history reset was introduced.
 
-These are local evidence, not a substitute for the four final-head remote workflows, final Codex review or exact merge/deployment checks. Publication is still pending.
+Local validation, all four final-head and merge workflows, clean final Codex review, exact Vercel/Northflank deployments and read-only production checks are recorded separately in [PHASE_14_PUBLICATION](history/PHASE_14_PUBLICATION.md). Production public PWA boot passed online/offline at all five widths; authenticated journeys use disposable PostgreSQL/mocked providers rather than production test writes. No Phase 15 is authorized.
