@@ -31,12 +31,15 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
         }
       });
       const page = await context.newPage(); lastPage = page;
-      const errors = [], requests = []; page.on('pageerror', error => errors.push(error.message));
+      const errors = [], requests = [], vendorRequests = []; page.on('pageerror', error => errors.push(error.message));
       let holdMemory = false, releaseMemory, memoryStarted, homeFailure = false;
       const memoryWaiting = new Promise(resolve => { memoryStarted = resolve; });
       const memoryGate = new Promise(resolve => { releaseMemory = resolve; });
       await context.route('**/*', async route => {
         const request = route.request(), url = new URL(request.url()), p = url.pathname;
+        if (/^(?:assets\.emergent\.sh|cdn\.tailwindcss\.com)$/.test(url.hostname) || url.hostname.endsWith('.posthog.com')) {
+          vendorRequests.push(url.hostname); return route.abort();
+        }
         if (!p.startsWith('/api/')) return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
         requests.push(p);
         const owner = request.headers().authorization?.replace('Bearer ', '');
@@ -119,6 +122,9 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
       await otherTab.evaluate(() => localStorage.removeItem('sirius_session_token'));
       await page.waitForURL('**/login');
       assert.equal(await page.getByText('Alice private memory', { exact: true }).count(), 0);
+      const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
+      assert(!/user-scalable\s*=\s*(?:no|0)|maximum-scale\s*=\s*1(?:\s|,|$)/i.test(viewport), 'Mobile zoom must remain available');
+      assert.deepEqual(vendorRequests, [], 'Legacy editor/telemetry scripts must not run in personal views');
       assert.deepEqual(errors, []);
       await context.close(); console.log(`Integrated hardening ${width}: passed`);
     }
