@@ -96,7 +96,7 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(paths);self.assertTrue(all(not Path(path).exists() for path in paths))
         goals=self.ok(await self.http.get('/api/nutrition/goals'));self.assertIsNone(goals['goal_id'])
         meals=self.ok(await self.http.get('/api/nutrition/meals'));self.assertEqual(meals,[])
-        self.assertEqual(rows[0]['plan']['meals'][0]['protein'],25)
+        self.assertIsNone(rows[0]['plan']['meals'][0]['protein'])
         stats=self.ok(await self.http.get('/api/nutrition/stats'));self.assertEqual(stats['consumed']['calories'],0);self.assertEqual(stats['consumed']['protein'],0)
         async with unit_of_work() as session:self.assertEqual((await session.get(User,self.uid)).xp,10)
 

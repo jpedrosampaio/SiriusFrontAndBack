@@ -19,7 +19,7 @@ const server=http.createServer((req,res)=>{
     const prefs={favorite_meals:[],available_foods:null,excluded_foods:[],budget:null,budget_period:'weekly',prices:[]};
     const state={date:'2026-10-09',timezone:'America/Sao_Paulo',consumed:{...macros,protein:{...macros.protein,total:null,unknown_items:1}},remaining:{calories:null,protein:null,carbs:null,fat:null},goals:null,water_ml:0,consistency:{recorded_days:1,days:28},meals:[{meal_id:'meal-own',name:'Arroz registrado',meal_type:'lunch',foods:[{}]}],planned:[],training_context:[],routine_context:[],preferences:prefs,limitations:['Dados antigos desconhecidos não justificam metas.'],truncated:false};
     const candidate={template_id:'meal-own',template_kind:'meal',name:'Arroz registrado',meal_type:'lunch',favorite:false,portions:'1',macros,composition_source:'estimated',cost:'2.10',cost_source:'estimated',currency:'BRL',reason:'Fonte própria; porção escolhida pela pessoa.'};
-    const imported={name:'Plano a revisar',description:'',objective:'',diet_type:'',start_date:null,end_date:null,source_filename:'fake.pdf',daily_calories:0,daily_protein:0,daily_carbs:0,daily_fat:0,daily_fiber:0,restrictions:[],tips:[],shopping_items:[],days:[{day_name:'dia1',day_label:'Dia 1',calories:100,meals:[{name:'Arroz previsto',meal_type:'lunch',time:'',calories:100,protein:2,carbs:20,fat:0,fiber:0,preparation:'',notes:'',foods:[{name:'Arroz',quantity:'100',unit:'g',calories:100,protein:2,carbs:20,fat:0}]}]}]};
+    const imported={name:'Plano a revisar',description:'',objective:'',diet_type:'',start_date:null,end_date:null,source_filename:'fake.pdf',daily_calories:0,daily_protein:0,daily_carbs:0,daily_fat:0,daily_fiber:0,restrictions:[],tips:[],shopping_items:[],days:[{day_name:'dia1',day_label:'Dia 1',calories:100,meals:[{name:'Arroz previsto',meal_type:'lunch',time:'',calories:100,protein:2,carbs:20,fat:0,fiber:0,preparation:'',notes:'',foods:[{name:'Arroz',quantity:'100',unit:'g',calories:100,protein:2,carbs:20,fat:0,known_macros:['calories','protein','carbs','fat']}]}]}]};
     const fulfill=(route,data,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(data)});
     await context.route('**/*',async route=>{
       const request=route.request(),url=new URL(request.url()),p=url.pathname;
@@ -52,7 +52,7 @@ const server=http.createServer((req,res)=>{
         assert.equal(url.searchParams.get('preview'),'true');data=plans?{already_confirmed:true,requires_confirmation:false,xp_earned:0,plan:{plan_id:'new-plan'}}:{preview_id:'nutrition-preview-'+ 'a'.repeat(32),preview:imported,saved:false,requires_confirmation:true};
       }
       if(p==='/api/nutrition/intelligence/confirm-plan'){
-        plans++;assert.ok(request.headers()['idempotency-key']);assert.equal(request.postDataJSON().preview_id,'nutrition-preview-'+ 'a'.repeat(32));assert.equal(request.postDataJSON().plan.days[0].meals[0].calories,125);assert.equal(request.postDataJSON().plan.days[0].meals[0].foods[0].calories,125);
+        plans++;assert.ok(request.headers()['idempotency-key']);assert.equal(request.postDataJSON().preview_id,'nutrition-preview-'+ 'a'.repeat(32));assert.equal(request.postDataJSON().plan.days[0].meals[0].calories,125);assert.equal(request.postDataJSON().plan.days[0].meals[0].foods[0].calories,125);assert.equal(request.postDataJSON().plan.days[0].calories,125);assert.equal(request.postDataJSON().plan.daily_calories,125);assert.equal(request.postDataJSON().plan.daily_protein,null);assert.equal(request.postDataJSON().plan.daily_fat,0);
         data={success:true,plan:{plan_id:'new-plan'},xp_earned:10,meals_created:0};
       }
       await fulfill(route,data);
@@ -89,6 +89,7 @@ const server=http.createServer((req,res)=>{
     await page.getByTestId('import-plan-submit-btn').click();
     await dialog.getByText('Revisar estimativas antes de salvar').waitFor();assert.equal(plans,0);
     await dialog.getByLabel('Arroz · Energia (kcal)',{exact:true}).fill('125');
+    await dialog.getByLabel('Arroz · Proteína (g)',{exact:true}).fill('');
     await dialog.getByRole('button',{name:'Confirmar plano revisado'}).click();
     await dialog.waitFor({state:'hidden'});assert.equal(plans,1);
     await page.getByTestId('import-meal-plan-btn').click();

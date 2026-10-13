@@ -20,9 +20,27 @@ def upgrade():
     op.alter_column('reports','protein',existing_type=sa.Float(),nullable=True)
     op.alter_column('daily_summaries','calories',existing_type=sa.Integer(),nullable=True)
 
+    op.alter_column('nutrition_plans','daily_calories',existing_type=sa.Float(),nullable=True)
+    op.alter_column('nutrition_plans','daily_protein',existing_type=sa.Float(),nullable=True)
+    op.alter_column('nutrition_plans','daily_carbs',existing_type=sa.Float(),nullable=True)
+    op.alter_column('nutrition_plans','daily_fat',existing_type=sa.Float(),nullable=True)
+    op.alter_column('nutrition_plan_days','calories',existing_type=sa.Float(),nullable=True)
+    op.alter_column('planned_meals','calories',existing_type=sa.Float(),nullable=True)
+    op.alter_column('planned_meals','protein',existing_type=sa.Float(),nullable=True)
+    op.alter_column('planned_meals','carbs',existing_type=sa.Float(),nullable=True)
+    op.alter_column('planned_meals','fat',existing_type=sa.Float(),nullable=True)
 
 def downgrade():
     # PostgreSQL rejects a downgrade if unknown snapshots exist; never invent values.
+    op.alter_column('planned_meals','fat',existing_type=sa.Float(),nullable=False)
+    op.alter_column('planned_meals','carbs',existing_type=sa.Float(),nullable=False)
+    op.alter_column('planned_meals','protein',existing_type=sa.Float(),nullable=False)
+    op.alter_column('planned_meals','calories',existing_type=sa.Float(),nullable=False)
+    op.alter_column('nutrition_plan_days','calories',existing_type=sa.Float(),nullable=False)
+    op.alter_column('nutrition_plans','daily_fat',existing_type=sa.Float(),nullable=False)
+    op.alter_column('nutrition_plans','daily_carbs',existing_type=sa.Float(),nullable=False)
+    op.alter_column('nutrition_plans','daily_protein',existing_type=sa.Float(),nullable=False)
+    op.alter_column('nutrition_plans','daily_calories',existing_type=sa.Float(),nullable=False)
     op.alter_column('daily_summaries','calories',existing_type=sa.Integer(),nullable=False)
     op.alter_column('reports','protein',existing_type=sa.Float(),nullable=False)
     op.alter_column('reports','calories',existing_type=sa.Float(),nullable=False)

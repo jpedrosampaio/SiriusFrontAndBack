@@ -45,6 +45,8 @@ def plan_json(row):
 
 
 async def save_plan(uid,body,kind,key,fingerprint,*,preview_id=None):
+    from services.nutrition_plan_evidence import reviewed_plan
+    body=reviewed_plan(body)
     async def apply(session,owner):
         preview=None
         if preview_id:
@@ -93,7 +95,8 @@ def validate_ai_plan(data,kind,options,filename=None):
                 'restrictions':data.get('restrictions',[]),'tips':data.get('tips',[]),
                 **{'daily_'+key:data.get('daily_'+key,0) for key in MACROS},
                 'days':[{'meals':data.get('meals',[])}]})
-        return body
+        from services.nutrition_plan_evidence import reviewed_plan
+        return reviewed_plan(body)
     except (ValidationError,ValueError,TypeError,AttributeError):raise HTTPException(502,'Plano alimentar incompleto ou inválido retornado pela IA.')
 
 

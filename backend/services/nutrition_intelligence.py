@@ -137,7 +137,7 @@ async def load_state(session, owner, day, *, include_context=True):
         planned.append({'planned_meal_id': str(meal.id), 'plan_id': str(plan.id), 'name': meal.name, 'meal_type': meal.meal_type,
             'date': due.isoformat() if due else None, 'time_label': meal.time, 'date_confirmed': due is not None,
             'status': 'recorded' if logged else 'planned', 'composition_source': 'estimated_or_unverified',
-            'macros': {k: wire(number(getattr(meal, k))) for k in MACROS}})
+            'macros': {k: wire(number(getattr(meal,k))) if getattr(meal,k) is not None else None for k in MACROS}})
     workouts = (await session.execute(select(WorkoutLog.id, WorkoutLog.name, WorkoutLog.date, WorkoutLog.duration_minutes)
         .where(WorkoutLog.user_id == uid, WorkoutLog.completed.is_(True), WorkoutLog.date.between(day, day + timedelta(days=6)))
         .order_by(WorkoutLog.date, WorkoutLog.id).limit(21))).all() if include_context else []

@@ -35,7 +35,8 @@ def recipe_food(row,quantity=1):
     return {'name':row.name,'quantity':quantity,'unit':'porcao',**{k:getattr(row,k+'_per_serving') for k in MACROS},'nutrition_evidence':proof}
 
 
-def project(foods):
+def project(foods,*,rounded=True):
+    encode=wire if rounded else lambda value:format(value,'f')
     result = {}
     for key in MACROS:
         buckets = {name: Decimal(0) for name in ('registered', 'estimated', 'legacy_unverified')}
@@ -54,6 +55,6 @@ def project(foods):
             else:
                 buckets[proof['source']] += amount
         total = buckets['registered'] + buckets['estimated']
-        result[key] = {**{k: wire(v) for k, v in buckets.items()}, 'known_total': wire(total),
-            'total': wire(total) if not missing else None, 'unknown_items': missing, 'unit': 'kcal' if key == 'calories' else 'g'}
+        result[key] = {**{k: encode(v) for k, v in buckets.items()}, 'known_total': encode(total),
+            'total': encode(total) if not missing else None, 'unknown_items': missing, 'unit': 'kcal' if key == 'calories' else 'g'}
     return result

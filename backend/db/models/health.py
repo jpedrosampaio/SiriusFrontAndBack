@@ -303,10 +303,10 @@ class NutritionPlan(Identity, Owned, Timestamps, Base):
     start_date: Mapped[date | None] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)
     source_filename: Mapped[str | None]
-    daily_calories: Mapped[float] = mapped_column(default=0)
-    daily_protein: Mapped[float] = mapped_column(default=0)
-    daily_carbs: Mapped[float] = mapped_column(default=0)
-    daily_fat: Mapped[float] = mapped_column(default=0)
+    daily_calories: Mapped[float | None]
+    daily_protein: Mapped[float | None]
+    daily_carbs: Mapped[float | None]
+    daily_fat: Mapped[float | None]
     daily_fiber: Mapped[float] = mapped_column(default=0)
     restrictions: Mapped[list[str]] = mapped_column(ARRAY(Text),default=list)
     tips: Mapped[list[str]] = mapped_column(ARRAY(Text),default=list)
@@ -323,7 +323,7 @@ class NutritionPlanDay(Identity, Owned, Base):
     position: Mapped[int]
     day_name: Mapped[str]
     day_label: Mapped[str]
-    calories: Mapped[float]
+    calories: Mapped[float | None]
     meals: Mapped[list['PlannedMeal']] = relationship(passive_deletes=True,order_by='PlannedMeal.position')
     __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','plan_id','position'),
         ForeignKeyConstraint(['user_id','plan_id'],['nutrition_plans.user_id','nutrition_plans.id'],ondelete='CASCADE'))
@@ -338,10 +338,10 @@ class PlannedMeal(Identity, Owned, Base):
     time: Mapped[str]
     preparation: Mapped[str] = mapped_column(Text)
     notes: Mapped[str] = mapped_column(Text)
-    calories: Mapped[float]
-    protein: Mapped[float]
-    carbs: Mapped[float]
-    fat: Mapped[float]
+    calories: Mapped[float | None]
+    protein: Mapped[float | None]
+    carbs: Mapped[float | None]
+    fat: Mapped[float | None]
     fiber: Mapped[float]
     foods: Mapped[list['PlannedFood']] = relationship(passive_deletes=True,order_by='PlannedFood.position')
     __table_args__ = (UniqueConstraint('user_id','id'),UniqueConstraint('user_id','day_id','position'),

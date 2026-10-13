@@ -42,6 +42,8 @@ The additive migration also relaxes nullability for report calories/protein and 
 
 Individual meal/recipe responses and nutrition XLSX/PDF exports use the same macro evidence: unknown values remain unknown, including itemless records and mixed legacy/new foods. Raw historical reported totals remain available separately as unverified evidence. Generated recipes preserve supplied zero macros; omitted fields and historical default zeros remain unknown.
 
+Plan meal/day summaries and the mean daily totals are derived on the server from reviewed food masks using Decimal without premature rounding. Missing composition propagates null at every level; aggregate client fields cannot override those derived facts. Nine existing plan/day/meal aggregate columns accept null, in addition to the three report/briefing columns; no historical values are rewritten. Calendar uses the same owned SQL macro expression, without loading whole food histories or extra queries.
+
 ## Delivery status
 
 Phase 11 explicitly authorized in the current session. Implementation and validation are in progress. Production migration requires the protected workflow and mandatory owner approval before merge. No production test writes or real AI calls in tests. Phase 12 is not authorized.

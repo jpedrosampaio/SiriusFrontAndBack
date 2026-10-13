@@ -44,6 +44,8 @@ async def upload_analysis(user_id,upload_digest):
 
 
 async def create_preview(user_id,plan,upload_digest,*,lease=None):
+    from services.nutrition_plan_evidence import reviewed_plan
+    plan=reviewed_plan(plan)
     key='nutrition-preview-'+upload_digest[:32]
     async def apply(session,owner):
         if lease is not None:
@@ -88,7 +90,9 @@ async def existing_preview(user_id,upload_digest,*,session=None):
 def immutable_shape(plan):
     value=deepcopy(plan)
     value.pop('name',None);value.pop('start_date',None)
+    for key in ('calories','protein','carbs','fat'):value.pop('daily_'+key,None)
     for day in value['days']:
+        day.pop('calories',None)
         for meal in day['meals']:
             for key in ('calories','protein','carbs','fat'):meal.pop(key,None)
             for food in meal['foods']:

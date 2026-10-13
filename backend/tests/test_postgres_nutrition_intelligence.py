@@ -322,6 +322,34 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
             ai.side_effect=None
             self.assertEqual(self.ok(await self.http.get('/api/dashboard/daily-summary'))['raw_data']['calories'],400)
 
+    async def test_reviewed_foods_recompute_all_plan_levels_and_preserve_unknowns(self):
+        raw={'name':'Review','daily_calories':100,'days':[{'calories':100,'meals':[{'name':'Lunch','meal_type':'lunch','calories':100,
+            'foods':[{'name':'Food','quantity':'100g','calories':100,'fat':0}]}]}]}
+        body=await self.preview(raw)
+        body['plan']['days'][0]['meals'][0]['foods'][0]['calories']=125
+        body['plan']['days'][0]['meals'][0]['calories']=999
+        body['plan']['days'][0]['calories']=999;body['plan']['daily_calories']=999
+        saved=self.ok(await self.http.post('/api/nutrition/intelligence/confirm-plan',json=body,headers={'Idempotency-Key':'recomputed-plan'}))['plan']
+        self.assertEqual(saved['daily_calories'],125);self.assertEqual(saved['days'][0]['calories'],125)
+        self.assertEqual(saved['days'][0]['meals'][0]['calories'],125)
+        self.assertEqual(saved['daily_fat'],0);self.assertIsNone(saved['daily_protein']);self.assertIsNone(saved['daily_carbs'])
+        async with unit_of_work() as session:
+            plan=await session.get(NutritionPlan,UUID(saved['plan_id']))
+            self.assertEqual(plan.daily_calories,125);self.assertIsNone(plan.daily_protein)
+        raw={'name':'Precision','days':[{'meals':[{'name':'Lunch','foods':[{'name':'Food','calories':0.3334,'protein':0,'carbs':0,'fat':0}]}]} for _ in range(3)]}
+        body=await self.preview(raw)
+        saved=self.ok(await self.http.post('/api/nutrition/intelligence/confirm-plan',json=body,headers={'Idempotency-Key':'precise-plan'}))['plan']
+        self.assertEqual(saved['daily_calories'],0.3334);self.assertEqual(saved['days'][0]['calories'],0.3334)
+
+    async def test_calendar_does_not_claim_known_subtotal_as_complete_meal(self):
+        meal=await self.add(foods=[{'name':'Known','quantity':1,'calories':100},{'name':'Unknown','quantity':1}])
+        from services.calendar import calendar_events
+        events=(await calendar_events(self.uid,self.today,self.today,'America/Sao_Paulo'))['events']
+        matching=[e for e in events if e.get('ref_id')==meal['meal_id']]
+        self.assertEqual(len(matching),1);self.assertIsNone(matching[0]['calories'])
+        foreign=(await calendar_events(self.bob,self.today,self.today,'America/Sao_Paulo'))['events']
+        self.assertFalse(any(e.get('ref_id')==meal['meal_id'] for e in foreign))
+
     async def test_expired_analysis_reservation_is_recovered_and_stale_result_rejected(self):
         from services.nutrition_previews import upload_analysis,create_preview
         from services.nutrition_plan_dto import PlanBody

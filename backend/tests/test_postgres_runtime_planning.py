@@ -265,7 +265,7 @@ class RuntimePlanning(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(events),6)
         self.assertEqual({row['type'] for row in events},{'task','habit','study','workout','meal','commitment'})
         self.assertTrue(all(row['date']=='2026-09-14' for row in events))
-        self.assertEqual(next(row for row in events if row['type']=='meal')['calories'],300)
+        self.assertIsNone(next(row for row in events if row['type']=='meal')['calories'])
         self.assertEqual(next(row for row in events if row['type']=='commitment')['title'],'22:00 · Evening')
         empty = await self.http.get('/api/calendar/events',params={'start':'2025-01-01','end':'2025-01-02'})
         self.assertEqual(empty.json()['events'],[])

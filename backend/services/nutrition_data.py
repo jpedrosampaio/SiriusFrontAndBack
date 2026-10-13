@@ -22,16 +22,17 @@ def goal_json(row):
         'stored_unconfirmed':{key:getattr(row,key) for key in GoalBody.model_fields if key not in (row.confirmed_fields or [])},
         **{key:getattr(row,key) if key in (row.confirmed_fields or []) else None for key in GoalBody.model_fields}})
 
+def meal_total_expression(key):
+    known=and_(func.count(MealItem.id)>0,
+        *[getattr(Meal,'reported_'+macro).is_(None) for macro in MACROS],
+        func.bool_and(func.coalesce(and_(MealItem.nutrition_evidence['source'].astext.in_(['registered','estimated']),
+            MealItem.nutrition_evidence['known_macros'].contains([key])),False)))
+    return case((known,func.sum(cast(getattr(MealItem,key),Numeric)*cast(MealItem.quantity,Numeric))),else_=None)
+
+
 async def period(session,uid,start,end):
     # Decimal casts before multiplication; round only for display, not per meal.
-    expressions=[]
-    for key in MACROS:
-        known=and_(func.count(MealItem.id)>0,
-            *[getattr(Meal,'reported_'+macro).is_(None) for macro in MACROS],
-            func.bool_and(func.coalesce(and_(MealItem.nutrition_evidence['source'].astext.in_(['registered','estimated']),
-                MealItem.nutrition_evidence['known_macros'].contains([key])),False)))
-        value=case((known,func.sum(cast(getattr(MealItem,key),Numeric)*cast(MealItem.quantity,Numeric))),else_=None)
-        expressions.append(value.label(key))
+    expressions=[meal_total_expression(key).label(key) for key in MACROS]
     per_meal=select(Meal.id,Meal.date,*expressions).outerjoin(MealItem,
         (MealItem.meal_id==Meal.id)&(MealItem.user_id==Meal.user_id)).where(Meal.user_id==uid,
         Meal.date>=start,Meal.date<=end).group_by(Meal.id,Meal.date).subquery()

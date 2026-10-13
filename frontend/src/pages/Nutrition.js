@@ -38,6 +38,21 @@ const mealTypeLabels = {
 
 const macroLabel=(value,unit='')=>value==null?'Desconhecido':`${value}${unit?` ${unit}`:''}`;
 
+const reviewedPlanPreview=plan=>{
+  const keys=['calories','protein','carbs','fat'];
+  const sum=(rows,key)=>rows.length&&rows.every(row=>row[key]!=null)?rows.reduce((n,row)=>n+Number(row[key]),0):null;
+  const days=plan.days.map(day=>{
+    const meals=day.meals.map(meal=>({...meal,...Object.fromEntries(keys.map(key=>[key,
+      meal.foods.length&&meal.foods.every(food=>food.known_macros?.includes(key))?meal.foods.reduce((n,food)=>n+Number(food[key]),0):null]))}));
+    return {...day,meals,calories:sum(meals,'calories')};
+  });
+  const daily=Object.fromEntries(keys.map(key=>{
+    const totals=days.map(day=>({[key]:sum(day.meals,key)}));const total=sum(totals,key);
+    return ['daily_'+key,total==null?null:total/days.length];
+  }));
+  return {...plan,days,...daily};
+};
+
 export default function Nutrition() {
   const activityRequests=useRef(createActivityRequests());
   const [importPreview,setImportPreview]=useState(null);
@@ -1197,11 +1212,11 @@ export default function Nutrition() {
                         {importPreview.days.map((day,di)=><details key={di} open><summary>{day.day_label || `Dia ${di+1}`}</summary>{day.meals.map((meal,mi)=><div key={mi} className="space-y-2 py-2 border-b border-white/10">
                           <p className="font-medium">{meal.name} · composição estimada</p>
                           {meal.foods.map((food,fi)=><label className="block text-xs" key={fi}>{food.name} · quantidade estimada<Input value={food.quantity} onChange={e=>setImportPreview({...importPreview,days:importPreview.days.map((d,i)=>i!==di?d:{...d,meals:d.meals.map((m,j)=>j!==mi?m:{...m,foods:m.foods.map((f,k)=>k!==fi?f:{...f,quantity:e.target.value})})})})}/></label>)}
-                          {meal.foods.map((food,fi)=><div className="grid grid-cols-2 gap-2" key={fi}>{[['calories','Energia (kcal)'],['protein','Proteína (g)'],['carbs','Carboidratos (g)'],['fat','Gordura (g)']].map(([field,label])=><label className="text-xs" key={field}>{food.name} · {label} na porção declarada<Input aria-label={`${food.name} · ${label}`} type="number" min="0" value={food.known_macros?.includes(field)?food[field]:''} onChange={e=>setImportPreview({...importPreview,days:importPreview.days.map((d,i)=>i!==di?d:{...d,meals:d.meals.map((m,j)=>{
+                          {meal.foods.map((food,fi)=><div className="grid grid-cols-2 gap-2" key={fi}>{[['calories','Energia (kcal)'],['protein','Proteína (g)'],['carbs','Carboidratos (g)'],['fat','Gordura (g)']].map(([field,label])=><label className="text-xs" key={field}>{food.name} · {label} na porção declarada<Input aria-label={`${food.name} · ${label}`} type="number" min="0" value={food.known_macros?.includes(field)?food[field]:''} onChange={e=>setImportPreview(reviewedPlanPreview({...importPreview,days:importPreview.days.map((d,i)=>i!==di?d:{...d,meals:d.meals.map((m,j)=>{
                             if(j!==mi)return m;
                             const foods=m.foods.map((f,k)=>k!==fi?f:{...f,[field]:Number(e.target.value),known_macros:e.target.value===''?(f.known_macros || []).filter(x=>x!==field):[...new Set([...(f.known_macros || []),field])]});
-                            return {...m,foods,[field]:foods.reduce((total,f)=>total+Number(f[field] || 0),0)};
-                          })})})}/></label>)}</div>)}
+                            return {...m,foods};
+                          })})}))}/></label>)}</div>)}
                           <p className="text-xs text-slate-400">Valores editados por alimento na porção declarada; o registro reutiliza essa composição. Zeros antigos sem fonte permanecem desconhecidos.</p>
                         </div>)}</details>)}
                         <Button disabled={importingPlan} onClick={handleConfirmImport}>Confirmar plano revisado</Button>
@@ -1305,10 +1320,10 @@ export default function Nutrition() {
                           <h3 className="text-lg font-bold">{selectedMealPlan.name}</h3>
                           <p className="text-sm text-[#A1A1AA]">{selectedMealPlan.description}</p>
                           <div className="flex gap-4 mt-3 text-sm">
-                            <span className="text-[#FF9500]">{selectedMealPlan.calories_total || '---'} kcal</span>
-                            <span className="text-[#FF6B6B]">{selectedMealPlan.macros?.protein_g || 0}g P</span>
-                            <span className="text-[#FFD700]">{selectedMealPlan.macros?.carbs_g || 0}g C</span>
-                            <span className="text-[#00B4D8]">{selectedMealPlan.macros?.fat_g || 0}g G</span>
+                            <span className="text-[#FF9500]">{macroLabel(selectedMealPlan.calories_total,'kcal')}</span>
+                            <span className="text-[#FF6B6B]">{macroLabel(selectedMealPlan.macros?.protein_g,'g P')}</span>
+                            <span className="text-[#FFD700]">{macroLabel(selectedMealPlan.macros?.carbs_g,'g C')}</span>
+                            <span className="text-[#00B4D8]">{macroLabel(selectedMealPlan.macros?.fat_g,'g G')}</span>
                           </div>
                         </div>
                         <div className="flex gap-2">
