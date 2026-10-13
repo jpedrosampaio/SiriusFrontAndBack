@@ -18,7 +18,7 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
 (async () => {
   await new Promise(resolve => server.listen(4191, '127.0.0.1', resolve));
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) });
-  let lastPage;
+  let lastPage, lastStage = 'startup';
   try {
     fs.mkdirSync('test-results/integrated-hardening', { recursive: true });
     for (const width of [320, 390, 768, 1024, 1440]) {
@@ -59,17 +59,20 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
         if (p === '/api/ai/preferences') return respond(route, { event_automation: { enabled: false } });
         return respond(route, []);
       });
+      lastStage = `initial account ${width}`;
       await page.goto('http://127.0.0.1:4191/dashboard');
       await page.getByRole('heading', { name: 'Seu próximo passo, Alice', exact: true }).waitFor();
       assert.equal(requests.filter(p => p === '/api/auth/me').length, 1, 'Profile requests must remain deduplicated');
       assert.equal(requests.filter(p => p === '/api/command/home').length, 1);
       const memoryButton = page.getByRole('button', { name: 'Memória explícita', exact: true });
+      lastStage = `account memory ${width}`;
       await memoryButton.click(); await page.getByText('Alice private memory', { exact: true }).waitFor();
       holdMemory = true;
       await page.evaluate(() => window.dispatchEvent(new Event('sirius-data-changed')));
       await Promise.race([memoryWaiting, new Promise((_, reject) => setTimeout(() => reject(new Error('Memory refresh did not start')), 10000))]);
       await page.evaluate(() => sessionStorage.setItem('sirius-conversation', 'alice-private-conversation'));
       // Real storage event from another same-origin tab, not a synthetic dispatch.
+      lastStage = `cross-tab account switch ${width}`;
       const otherTab = await context.newPage(); await otherTab.goto('http://127.0.0.1:4191/');
       await otherTab.evaluate(() => localStorage.setItem('sirius_session_token', 'bob'));
       await page.getByRole('heading', { name: 'Seu próximo passo, Bob', exact: true }).waitFor();
@@ -81,6 +84,7 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
       assert.equal(await page.evaluate(() => localStorage.getItem('sirius_session_token')), 'bob');
 
       const launcher = page.getByRole('button', { name: 'Abrir assistente Sirius', exact: true });
+      lastStage = `assistant focus ${width}`;
       await launcher.click();
       const close = page.getByRole('button', { name: 'Fechar assistente', exact: true });
       await close.waitFor(); const bounds = await close.boundingBox();
@@ -116,9 +120,11 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
       await page.screenshot({ path: `test-results/integrated-hardening/session-${width}.png`, fullPage: true });
 
       homeFailure = true; await page.reload();
+      lastStage = `failure recovery ${width}`;
       await page.getByRole('alert').filter({ hasText: 'Não foi possível atualizar o Command Center.' }).waitFor();
       homeFailure = false; await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
       await page.getByRole('heading', { name: 'Seu próximo passo, Bob', exact: true }).waitFor();
+      lastStage = `cross-tab logout ${width}`;
       await otherTab.evaluate(() => localStorage.removeItem('sirius_session_token'));
       await page.waitForURL('**/login');
       assert.equal(await page.getByText('Alice private memory', { exact: true }).count(), 0);
@@ -129,9 +135,11 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
       await context.close(); console.log(`Integrated hardening ${width}: passed`);
     }
   } catch (error) {
+    // A concurrent route teardown must not replace the actual failing assertion.
+    console.error('Integrated hardening original failure:', lastStage, error.message);
     if (lastPage && !lastPage.isClosed()) {
-      console.error(await lastPage.evaluate(() => ({ active: document.activeElement?.tagName, label: document.activeElement?.getAttribute('aria-label'), foreground: document.hasFocus(), panel: !!document.getElementById('sirius-assistant-panel') })));
-      await lastPage.screenshot({ path: 'test-results/integrated-hardening/failure.png', fullPage: true });
+      console.error(await lastPage.evaluate(() => ({ active: document.activeElement?.tagName, label: document.activeElement?.getAttribute('aria-label'), foreground: document.hasFocus(), panel: !!document.getElementById('sirius-assistant-panel') })).catch(() => ({ diagnostic: 'Page navigated during failure inspection' })));
+      await lastPage.screenshot({ path: 'test-results/integrated-hardening/failure.png', fullPage: true }).catch(() => {});
     }
     throw error;
   } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
