@@ -8,6 +8,14 @@
       "path": "backend/alembic/versions/a81c9d37e502_link_strategy_plan_topics.py",
       "sha256": "1922856f70973908dbdc1a37c44908da1b3c811a9bd444fd69279cc105fcc519",
       "review_comment_id": 6063091667
+    },
+    "41": {
+      "sha": "147a3dcb51fdb5a44739e9df349b35ed4d41ac02",
+      "revision": "c9e42a7d160b",
+      "down_revision": "a81c9d37e502",
+      "path": "backend/alembic/versions/c9e42a7d160b_nutrition_evidence.py",
+      "sha256": "2bb9b767477a6e66fa8bf9f8be7a5343d40b6067f17c2121437219d89b32e8d9",
+      "review_comment_id": 6139427146
     }
   }
 }
