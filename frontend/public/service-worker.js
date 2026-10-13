@@ -1,4 +1,5 @@
-const CACHE_NAME = 'sirius-cache-v3';
+// Refresh installed shells after removing legacy telemetry and enabling mobile zoom.
+const CACHE_NAME = 'sirius-cache-v4';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 
 // Cache only the application shell/assets, never authenticated API responses.

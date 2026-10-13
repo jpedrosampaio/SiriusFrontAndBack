@@ -18,7 +18,10 @@ function harness(network = async () => new Response('online')) {
       if (!stores.has(name)) stores.set(name, new Map());
       const store = stores.get(name);
       return {
-        async addAll() {},
+        async addAll(urls) {
+          const responses = await Promise.all(urls.map(url => network(url)));
+          for (let index = 0; index < urls.length; index++) store.set(urls[index], responses[index].clone());
+        },
         async match(request) {
           calls.reads++;
           return store.get(key(request))?.clone();
@@ -72,9 +75,24 @@ const offline = async () => { throw new TypeError('Network unavailable'); };
 test('activation purges all old Sirius private/static caches but preserves unrelated caches', async () => {
   const h = harness();
   for (const name of ['sirius-api-v1', 'sirius-api-v2', 'sirius-cache-v2',
-                       'sirius-cache-v3', 'unrelated-cache']) h.stores.set(name, new Map());
+                       'sirius-cache-v3', 'sirius-cache-v4', 'unrelated-cache']) h.stores.set(name, new Map());
   await h.dispatch('activate');
-  assert.deepEqual([...h.stores.keys()].sort(), ['sirius-cache-v3', 'unrelated-cache']);
+  assert.deepEqual([...h.stores.keys()].sort(), ['sirius-cache-v4', 'unrelated-cache']);
+  assert.equal(h.calls.claimed, true);
+});
+
+test('installed v3 shell is replaced before subsequent offline navigation, retaining unrelated data', async () => {
+  let online = true;
+  const h = harness(async () => online ? new Response('clean zoom-enabled shell') : offline());
+  h.stores.set('sirius-cache-v3', new Map([['/index.html', new Response('legacy telemetry shell')]]));
+  h.stores.set('unrelated-cache', new Map([['personal draft', new Response('preserved')]]));
+  await h.dispatch('install');
+  await h.dispatch('activate');
+  online = false;
+  const response = await h.dispatch('fetch', request('https://app.test/tasks', { mode: 'navigate' }));
+  assert.equal(await response.text(), 'clean zoom-enabled shell');
+  assert.equal(h.stores.has('sirius-cache-v3'), false);
+  assert.equal(await h.stores.get('unrelated-cache').get('personal draft').text(), 'preserved');
   assert.equal(h.calls.claimed, true);
 });
 
@@ -122,7 +140,7 @@ test('Authorization outside /api also bypasses caches', async () => {
 test('static assets continue to work offline', async () => {
   const h = harness(offline);
   const url = 'https://app.test/static/js/main.hash.js';
-  h.stores.set('sirius-cache-v3', new Map([[url, new Response('cached bundle')]]));
+  h.stores.set('sirius-cache-v4', new Map([[url, new Response('cached bundle')]]));
   const response = await h.dispatch('fetch', request(url));
   assert.equal(await response.text(), 'cached bundle');
   assert.equal(h.calls.fetch.length, 0);
@@ -130,7 +148,7 @@ test('static assets continue to work offline', async () => {
 
 test('online navigation fetches fresh HTML instead of an old cached entry', async () => {
   const h = harness(async () => new Response('fresh shell'));
-  h.stores.set('sirius-cache-v3', new Map([['/index.html', new Response('old shell')]]));
+  h.stores.set('sirius-cache-v4', new Map([['/index.html', new Response('old shell')]]));
   const response = await h.dispatch('fetch', request('https://app.test/', { mode: 'navigate' }));
   assert.equal(await response.text(), 'fresh shell');
   assert.equal(h.calls.fetch[0].options.cache, 'no-cache');
@@ -138,7 +156,7 @@ test('online navigation fetches fresh HTML instead of an old cached entry', asyn
 
 test('offline navigation retains shell fallback', async () => {
   const h = harness(offline);
-  h.stores.set('sirius-cache-v3', new Map([['/index.html', new Response('app shell')]]));
+  h.stores.set('sirius-cache-v4', new Map([['/index.html', new Response('app shell')]]));
   const response = await h.dispatch('fetch', request('https://app.test/tasks', { mode: 'navigate' }));
   assert.equal(await response.text(), 'app shell');
 });
