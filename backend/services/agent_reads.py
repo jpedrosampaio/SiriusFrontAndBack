@@ -64,6 +64,9 @@ async def page_context(user_id, raw):
             if model is Question:
                 statement=statement.where(Question.notebook_id.is_(None)|select(Notebook.id).where(
                     Notebook.id==Question.notebook_id,Notebook.user_id==uid,Notebook.archived_at.is_(None)).exists())
+            if model is QuestionAttempt:
+                statement=statement.where(QuestionAttempt.notebook_id.is_(None)|select(Notebook.id).where(
+                    Notebook.id==QuestionAttempt.notebook_id,Notebook.user_id==uid,Notebook.archived_at.is_(None)).exists())
             if hasattr(model, 'archived_at'):
                 statement = statement.where(model.archived_at.is_(None))
             row = (await session.execute(statement)).first()
@@ -74,7 +77,9 @@ async def page_context(user_id, raw):
                     selected[parameter].update(amount=str(tx.amount),category=tx.category,date=str(tx.date),type=tx.type)
                 elif parameter=='question':
                     attempt=await session.scalar(select(QuestionAttempt).where(QuestionAttempt.user_id==uid,
-                        QuestionAttempt.question_id==identity).order_by(QuestionAttempt.answered_at.desc(),QuestionAttempt.id.desc()).limit(1))
+                        QuestionAttempt.question_id==identity,QuestionAttempt.notebook_id.is_(None)|select(Notebook.id).where(
+                            Notebook.id==QuestionAttempt.notebook_id,Notebook.user_id==uid,Notebook.archived_at.is_(None)).exists()
+                        ).order_by(QuestionAttempt.answered_at.desc(),QuestionAttempt.id.desc()).limit(1))
                     if attempt:
                         selected[parameter]['latest_attempt']={'answer':(attempt.answer or '')[:100],
                             'correct':attempt.correct,'total':attempt.total,'error_cause':attempt.error_cause,

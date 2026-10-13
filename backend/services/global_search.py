@@ -83,7 +83,9 @@ async def search_owned(uid, needle, *, domain=None, cursor=None, limit=5):
             match(Question.statement)).correlate(QuestionAttempt).exists()
         await group('errors',QuestionAttempt,func.coalesce(error_label,'Erro registrado'),'Erro registrado',
             lambda r:study_link(r[2],view='questoes'),'question_error',extra=(QuestionAttempt.notebook_id,),
-            filters=(QuestionAttempt.correct<QuestionAttempt.total,),indexed=error_statement)
+            filters=(QuestionAttempt.correct<QuestionAttempt.total,
+                QuestionAttempt.notebook_id.is_(None)|select(Notebook.id).where(Notebook.id==QuestionAttempt.notebook_id,
+                    Notebook.user_id==uid,Notebook.archived_at.is_(None)).exists()),indexed=error_statement)
         await group('reviews',ReviewEvent,StudyTopic.name,'Revisão registrada',
             lambda r:study_link(r[2],topic=r[3],view='revisoes'),'review',extra=(StudyTopic.notebook_id,StudyTopic.topic_key),
             joins=((StudyTopic,(StudyTopic.id==ReviewEvent.topic_id)&(StudyTopic.user_id==uid)&StudyTopic.archived_at.is_(None)),

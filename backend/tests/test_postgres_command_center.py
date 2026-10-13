@@ -17,7 +17,7 @@ from db.models.command import CommandAudit
 from db.models.finance import FinancialTransaction
 from db.models.exams import Question
 from db.models.files import FileRecord, RagSource, RagChunk, EditalAnalysis
-from db.models.studies import StudyTopic, ReviewEvent, StudyPlanEntry
+from db.models.studies import StudyTopic, ReviewEvent, StudyPlanEntry, Notebook, QuestionAttempt
 from services.command_center import home
 from services.agent_reads import page_context
 from services.time import local_today
@@ -244,6 +244,29 @@ class CommandCenter(unittest.IsolatedAsyncioTestCase):
         result=self.ok(await self.http.get('/api/search/global',params={'q':'needle','domain':'materials'}))
         self.assertEqual(len(result['results']),1);self.assertEqual(result['results'][0]['title'],'Neutral.pdf')
         self.assertNotIn('confidential body',str(result));self.assertNotIn('storage_key',str(result))
+
+    async def test_archived_notebook_errors_are_hidden_but_standalone_history_remains_accessible(self):
+        _,_,book=await self.setup_catalog()
+        async with unit_of_work() as s:
+            notebook=await s.get(Notebook,UUID(book['notebook_id']));notebook.archived_at=datetime.now(timezone.utc)
+            question=Question(user_id=self.uid,statement='Standalone history question',question_type='multiple_choice',source='manual')
+            s.add(question);await s.flush();qid=question.id
+            hidden=QuestionAttempt(user_id=self.uid,notebook_id=notebook.id,source='manual',answered_at=datetime.now(timezone.utc),
+                question_id=qid,answer='Archived private answer',correct=0,total=1,error_cause='knowledge_gap')
+            standalone=QuestionAttempt(user_id=self.uid,source='manual',answered_at=datetime.now(timezone.utc)-timedelta(minutes=1),
+                question_id=qid,answer='Visible standalone answer',correct=0,total=1,error_cause='knowledge_gap')
+            foreign=QuestionAttempt(user_id=self.bob,source='manual',answered_at=datetime.now(timezone.utc),correct=0,total=1,error_cause='knowledge_gap')
+            s.add_all([hidden,standalone,foreign]);await s.flush();hid=hidden.id;sid=standalone.id
+        result=self.ok(await self.http.get('/api/search/global',params={'q':'Lacuna','domain':'errors'}))
+        self.assertEqual([row['id'] for row in result['results']],[str(sid)])
+        self.assertEqual(await page_context(self.uid,{'attempt_id':str(hid)}),{})
+        self.assertEqual((await page_context(self.uid,{'attempt_id':str(sid)}))['attempt']['attempt_id'],str(sid))
+        self.assertEqual(await page_context(self.bob,{'attempt_id':str(sid)}),{})
+        selected=await page_context(self.uid,{'question_id':str(qid)})
+        self.assertEqual(selected['question']['latest_attempt']['answer'],'Visible standalone answer')
+        self.assertNotIn('Archived private answer',str(selected))
+        async with unit_of_work() as s:
+            self.assertEqual(await s.scalar(select(func.count()).select_from(QuestionAttempt).where(QuestionAttempt.user_id==self.uid)),2)
 
     async def test_latest_topic_review_resolves_debt_and_foreign_review_is_not_counted(self):
         _,_,book=await self.setup_catalog()

@@ -32,6 +32,8 @@ Domains: tasks, finance, habits, goals, calendar, workout plans/exercises/histor
 
 Writes require Idempotency-Key. Correction/removal require a server version derived from the existing record and provenance; concurrent changes return409. Same-key uncertain retries recover the original receipt. Receipts retain identity/version, not a second personal-content copy. Removal erases content/provenance and blocks its hash from relearning. Audit records metadata and reasons, not forgotten memory text. Fifty active memories remain the existing bounded limit; prior origins remain explicitly legacy/unknown rather than being relabeled as verified.
 
+Legacy `/api/ai/memory` mutations enforce the same key/version contract through the shared service. Old clients must fetch the current memory version and supply the preconditions; they cannot silently overwrite Command Center corrections. Reads and existing explicit hash-unblocking removal remain available to the owner.
+
 ## Audit and undo
 
 GET `/api/command/audit` paginates owned business records or the existing Agent audit (`source=agent`); it does not copy Agent logs. Actor, event/action, UTC timestamp, entity, structured reason and appropriate before/after summaries support review of day-plan acceptance/release, availability, operational study-plan regeneration/entry changes and memory changes. Audit and mutation commit atomically under the existing user lock. Source records and protected study blocks remain authoritative; this is not a full duplicate event store.

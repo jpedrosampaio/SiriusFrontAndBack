@@ -39,6 +39,8 @@ class Memories:
 
     async def save(self, user_id, body, memory_id=None, *, request_key=None, expected_version=None):
         mid = identity(memory_id) if memory_id else None
+        if not request_key:raise HTTPException(428,'Idempotency-Key obrigatório.')
+        if mid and not expected_version:raise HTTPException(428,'Versão atual obrigatória.')
         digest = fingerprint(body.content)
         if not body.content.strip(): raise HTTPException(422, 'Informe o conteúdo da memória.')
         async def apply(session, user):
@@ -58,7 +60,7 @@ class Memories:
                 if mid: raise HTTPException(409, 'Esta memória já existe.')
                 if (duplicate.provenance or {}).get('scope','global') != body.scope:
                     raise HTTPException(409,'A memória já existe em outro escopo; corrija o registro existente.')
-                return {'memory_id':str(duplicate.id),'version':version(duplicate)} if request_key else public(duplicate)
+                return {'memory_id':str(duplicate.id),'version':version(duplicate)}
             if row is None:
                 count = await session.scalar(select(func.count()).select_from(Memory).where(Memory.user_id==user.id, Memory.blocked.is_(False)))
                 if count >= 50: raise HTTPException(409, 'Limite de 50 memórias. Edite ou remova uma memória.')
@@ -76,12 +78,14 @@ class Memories:
                 evidence=['Informação declarada explicitamente pelo proprietário.'],
                 limitations=['Não verificada pelo sistema; nenhuma inferência foi salva como fato.'],
                 after={'category':row.kind,'scope':body.scope,'version':version(row)})
-            return {'memory_id':str(row.id),'version':version(row)} if request_key else public(row)
+            return {'memory_id':str(row.id),'version':version(row)}
         return await run_activity(identity(user_id), request_key,
             ['save_memory',str(mid),body.model_dump(),expected_version], apply)
 
     async def remove(self, user_id, memory_id, block=True, *, request_key=None, expected_version=None):
         mid = identity(memory_id)
+        if not request_key:raise HTTPException(428,'Idempotency-Key obrigatório.')
+        if not expected_version:raise HTTPException(428,'Versão atual obrigatória.')
         async def apply(session, user):
             row = await session.scalar(select(Memory).where(Memory.user_id==user.id, Memory.id==mid))
             if row is None: raise HTTPException(404, 'Memória não encontrada.')
@@ -90,10 +94,11 @@ class Memories:
             if block:
                 # Keep the category/hash key but erase personal content and provenance.
                 row.blocked, row.content, row.provenance = True, '', {}
+                await session.flush();await session.refresh(row)
             else:
                 await session.delete(row)
             await record(session,user.id,event='memory.removed',action='remove',entity_type='memory',
                 entity_id=mid,evidence=['Remoção explícita solicitada pelo proprietário.'],
                 limitations=['Conteúdo removido não é copiado para a auditoria nem oferece desfazer.'])
-            return {'removed':True, 'blocked':block}
+            return {'removed':True, 'blocked':block,'version':version(row) if block else None}
         return await run_activity(identity(user_id),request_key,['remove_memory',str(mid),block,expected_version],apply)

@@ -11,6 +11,7 @@ from ai.core import Core
 from services.agent_actions import Actions
 from ai.actions import Preferences
 from ai.memory import MemoryInput
+from command_contracts import MemoryChange
 from services.agent_memory import Memories
 from services.retrieval import Retrieval
 from ai.agent import SiriusAgent
@@ -124,16 +125,21 @@ class AgentRuntime:
             return await self.memory.list(account.user_id)
 
         @self.api.post('/memory')
-        async def create_memory(body: MemoryInput, account=Depends(user)):
-            return await self.memory.save(account.user_id, body)
+        async def create_memory(request: Request, body: MemoryChange, account=Depends(user)):
+            if body.expected_version:raise HTTPException(422,'Criação não aceita versão anterior.')
+            return await self.memory.save(account.user_id, MemoryInput(**body.model_dump(exclude={'expected_version'})),
+                request_key=request.headers.get('Idempotency-Key'))
 
         @self.api.put('/memory/{memory_id}')
-        async def update_memory(memory_id: str, body: MemoryInput, account=Depends(user)):
-            return await self.memory.save(account.user_id, body, memory_id)
+        async def update_memory(request: Request, memory_id: str, body: MemoryChange, account=Depends(user)):
+            return await self.memory.save(account.user_id, MemoryInput(**body.model_dump(exclude={'expected_version'})), memory_id,
+                request_key=request.headers.get('Idempotency-Key'),expected_version=body.expected_version)
 
         @self.api.delete('/memory/{memory_id}')
-        async def remove_memory(memory_id: str, block: bool = True, account=Depends(user)):
-            return await self.memory.remove(account.user_id, memory_id, block)
+        async def remove_memory(request: Request, memory_id: str, block: bool = True,
+                                version: str | None = Query(None,pattern=r'^[a-f0-9]{64}$'),account=Depends(user)):
+            return await self.memory.remove(account.user_id, memory_id, block,
+                request_key=request.headers.get('Idempotency-Key'),expected_version=version)
 
         @self.api.post('/rag/editais/{source_id}')
         async def index(source_id: str, account=Depends(user)):
