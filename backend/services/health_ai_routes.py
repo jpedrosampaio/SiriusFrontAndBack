@@ -63,7 +63,7 @@ Responda em português de forma prática e motivadora."""
         }
 
     except Exception as e:
-        logging.error(f"Workout suggestions failed: {e}")
+        logging.error("Workout suggestions failed type=%s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Não foi possível gerar sugestões. Tente novamente.")
 
 
@@ -126,8 +126,8 @@ async def analyze_pdf_measurement(
         }
 
     except Exception as e:
-        logging.error(f"PDF analysis failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to analyze PDF: {str(e)}")
+        logging.error("PDF analysis failed type=%s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to analyze PDF. Please try again.")
 
 
 @api_router.get("/body-measurements/recommendations")
@@ -181,8 +181,8 @@ Responda em português de forma direta e motivadora."""
             "workouts_analyzed": len(workouts)
         }
     except Exception as e:
-        logging.error(f"Recommendations generation failed: {e}")
+        logging.error("Recommendations generation failed type=%s", type(e).__name__)
         return {
             "recommendations": "Não foi possível gerar recomendações no momento. Tente novamente mais tarde.",
-            "error": str(e)
+            "error": "generation_failed"
         }

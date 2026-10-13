@@ -53,8 +53,8 @@ async def suggest_recipe(request: Request, preferences: dict, session_token: Opt
     except HTTPException:
         raise
     except json.JSONDecodeError as je:
-        logging.error(f'Recipe JSON parse error: {je}')
+        logging.error('Recipe JSON parse error type=%s', type(je).__name__)
         raise HTTPException(status_code=500, detail='Erro ao interpretar resposta da IA. Tente novamente.')
     except Exception as e:
-        logging.error(f'Recipe suggestion failed: {e}')
-        raise HTTPException(status_code=500, detail=f'Falha ao gerar receita: {str(e)}')
+        logging.error('Recipe suggestion failed type=%s', type(e).__name__)
+        raise HTTPException(status_code=500, detail='Falha ao gerar receita. Tente novamente.')

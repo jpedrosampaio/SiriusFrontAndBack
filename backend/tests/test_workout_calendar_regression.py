@@ -101,6 +101,37 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 model(objective='hipertrofia', level='iniciante', **args)
 
+    async def test_provider_exceptions_do_not_expose_prompt_or_response(self):
+        private = 'PRIVATE_WORKOUT_PROVIDER_SENTINEL'
+        for failure in (ValueError(private), json.JSONDecodeError(private, private, 0)):
+            with self.subTest(type=type(failure).__name__):
+                ns = route_context()
+                ns['call_llm'] = AsyncMock(side_effect=failure)
+                data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes')
+                with self.assertLogs(level='ERROR') as logs, self.assertRaises(HTTPException) as error:
+                    await ns['generate_workout_plan'](SimpleNamespace(headers={}), data, None)
+                self.assertEqual(error.exception.status_code, 500)
+                self.assertNotIn(private, error.exception.detail)
+                self.assertNotIn(private, ' '.join(logs.output))
+                self.assertIn(type(failure).__name__, ' '.join(logs.output))
+                ns['db'].workout_plans.insert_one.assert_not_awaited()
+                ns['award_xp'].assert_not_awaited()
+
+    async def test_persistence_exception_does_not_expose_workout_or_sql_parameters(self):
+        private = 'PRIVATE_WORKOUT_SQL_PARAMETERS_SENTINEL'
+        ns = route_context()
+        ns['call_llm'] = AsyncMock(return_value=json.dumps(period()))
+        ns['sql_plans'] = SimpleNamespace(save=AsyncMock(side_effect=ValueError(private)))
+        data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes')
+        with self.assertLogs(level='ERROR') as logs, self.assertRaises(HTTPException) as error:
+            await ns['generate_workout_plan'](SimpleNamespace(headers={}), data, None)
+        self.assertEqual(error.exception.status_code, 500)
+        self.assertNotIn(private, error.exception.detail)
+        self.assertNotIn(private, ' '.join(logs.output))
+        self.assertIn('ValueError', ' '.join(logs.output))
+        ns['db'].workout_plans.insert_one.assert_not_awaited()
+        ns['award_xp'].assert_not_awaited()
+
 
 
 
