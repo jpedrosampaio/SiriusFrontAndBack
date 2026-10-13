@@ -80,6 +80,6 @@ class RuntimePanels(unittest.IsolatedAsyncioTestCase):
         types={r['type'] for r in result['panels']['reminders']['reminders']};self.assertTrue({'finance','habit','task'}<=types)
         streak=result['panels']['streaks'];self.assertEqual(streak['current_streak'],4);self.assertEqual(streak['module_streaks']['habits'],3)
         daily=result['panels']['daily']['raw_data'];self.assertEqual(daily['tasks_done'],1);self.assertEqual(daily['tasks_pending'],0)
-        self.assertEqual(daily['study_minutes'],25);self.assertEqual(daily['workouts_count'],1);self.assertEqual(daily['calories'],500)
+        self.assertEqual(daily['study_minutes'],25);self.assertEqual(daily['workouts_count'],1);self.assertIsNone(daily['calories']);self.assertIn('total desconhecido',self.llm.call_args.args[0])
         self.assertNotIn('Future task',self.llm.call_args.args[0])
         other=self.ok(await self.http.get('/api/dashboard/weekly-summary',headers={'Authorization':'Bearer bob'}));self.assertEqual(other['finance']['expense'],0)
