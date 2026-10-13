@@ -98,7 +98,7 @@ def dedup_cargos_fuzzy(cargos: List[dict], threshold: float = 0.90) -> List[dict
                     base_disc_names.add(nm)
             merges.append((cname, base.get("nome") or ""))
     if merges:
-        logging.info(f"dedup_cargos_fuzzy merged {len(merges)} cargo(s): {merges}")
+        logging.info("dedup_cargos_fuzzy merged %s cargo(s)", len(merges))
     return out
 
 
@@ -1668,7 +1668,7 @@ async def _hydrate_missing_disciplinas(pdf_text: str, cargos_list: List[dict], a
             result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=180, user_id=user_id, response_schema=_HYDRATION_SCHEMA)
             parsed = _parse_json_lenient(result) if result else None
             if not parsed:
-                logging.warning(f"analyze-edital: hidratação (lote {start//chunk_size + 1}, tentativa {tentativa+1}) falhou (err={err})")
+                logging.warning("analyze-edital: hidratação (lote %s, tentativa %s) falhou", start//chunk_size + 1, tentativa + 1)
                 continue
             total_disc = len(parsed.get("disciplinas_comuns") or []) + sum(
                 len(c.get("disciplinas") or []) for c in (parsed.get("cargos") or [])
@@ -1753,7 +1753,7 @@ TEXTO DO EDITAL:
         api_key, timeout_override=180, user_id=user_id,
     )
     if not result:
-        logging.warning(f"analyze-edital: enumeração de cargos (retry) falhou (err={err})")
+        logging.warning("analyze-edital: enumeração de cargos (retry) falhou")
         return []
     parsed = _parse_json_lenient(result)
     if not parsed:
@@ -1773,7 +1773,7 @@ async def _hydrate_disciplinas_from_text(pdf_text: str, cargo_nome: str, api_key
     )
     result, err = await call_gemini(prompt, _HYDRATION_SYSTEM_MSG, api_key, timeout_override=150, user_id=user_id, response_schema=_HYDRATION_SCHEMA)
     if not result:
-        logging.warning(f"import-edital: hidratação por texto falhou (err={err})")
+        logging.warning("import-edital: hidratação por texto falhou")
         return []
     parsed = _parse_json_lenient(result)
     if not parsed:
@@ -2058,7 +2058,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         try:
             parsed = json.loads(json_str_clean)
         except json.JSONDecodeError as jerr:
-            logging.warning(f"analyze-edital: JSON inválido ({jerr}). Tentando reparo. Tamanho resposta: {len(json_str_clean)} chars.")
+            logging.warning("analyze-edital: JSON inválido (%s). Tentando reparo. Tamanho resposta: %s chars.", type(jerr).__name__, len(json_str_clean))
             parsed = _try_repair_json(json_str_clean)
             if parsed is None:
                 logging.error("analyze-edital: reparo JSON falhou")
@@ -2150,7 +2150,7 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         }
 
     except json.JSONDecodeError as e:
-        logging.error(f"analyze-edital JSONDecodeError (não recuperável): {e}")
+        logging.error("analyze-edital JSONDecodeError (não recuperável): %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Erro ao processar resposta da IA. Tente novamente.")
     except HTTPException:
         raise

@@ -13,21 +13,34 @@ const TOKEN_KEY = "sirius_session_token";
 let userCache = null;
 let userRequest = null;
 let authGeneration = 0;
+let sessionGeneration = 0;
 function invalidateUser() { userCache = null; userRequest = null; authGeneration += 1; }
+function invalidateAuthentication() {
+  sessionGeneration += 1; invalidateUser();
+  try { window.sessionStorage?.removeItem('sirius-conversation'); } catch { /* Storage can be disabled. */ }
+}
+function sessionChangedError() {
+  return Object.assign(new Error('A sessão mudou. A resposta anterior foi descartada.'), { code: 'ERR_CANCELED', __CANCEL__: true });
+}
+function belongsToCurrentSession(config) {
+  return config?.siriusSessionGeneration === undefined || config.siriusSessionGeneration === sessionGeneration;
+}
 // Memory only: never reuse one account's response after logout or a token change.
 export function getCurrentUser() {
   if (userCache && userCache.until > Date.now()) return Promise.resolve(userCache.response);
   if (userRequest) return userRequest;
   const generation = authGeneration;
+  const session = sessionGeneration;
   const request = axios.get(`${API}/auth/me`, { withCredentials: true }).then(response => {
+    if (session !== sessionGeneration) throw sessionChangedError();
     if (generation === authGeneration) userCache = { response, until: Date.now() + 30000 };
     return response;
   }).finally(() => { if (userRequest === request) userRequest = null; });
   userRequest = request;
   return request;
 }
-window.addEventListener('storage', event => { if (event.key === TOKEN_KEY || event.key === null) invalidateUser(); });
-window.addEventListener('sirius-auth-changed', invalidateUser);
+window.addEventListener('storage', event => { if (event.key === TOKEN_KEY || event.key === null) invalidateAuthentication(); });
+window.addEventListener('sirius-auth-changed', invalidateAuthentication);
 
 export const isOfflineMode = () => OFFLINE_MODE;
 
@@ -36,14 +49,14 @@ export const getToken = () => {
   return localStorage.getItem(TOKEN_KEY);
 };
 export const setToken = (token) => {
-  invalidateUser();
-  window.dispatchEvent(new Event('sirius-auth-changed'));
+  invalidateAuthentication();
   if (!OFFLINE_MODE) localStorage.setItem(TOKEN_KEY, token);
+  window.dispatchEvent(new Event('sirius-auth-changed'));
 };
 export const clearToken = () => {
-  invalidateUser();
-  window.dispatchEvent(new Event('sirius-auth-changed'));
+  invalidateAuthentication();
   if (!OFFLINE_MODE) localStorage.removeItem(TOKEN_KEY);
+  window.dispatchEvent(new Event('sirius-auth-changed'));
 };
 
 export const getOfflineUser = () => OFFLINE_USER;
@@ -52,6 +65,7 @@ export const getOfflineData = () => OFFLINE_DEMO_DATA;
 // Set up global axios interceptor to add Authorization header
 axios.interceptors.request.use(
   (config) => {
+    config.siriusSessionGeneration = sessionGeneration;
     const token = getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -66,6 +80,7 @@ axios.interceptors.request.use(
 // Interceptor for 401 responses - clear token and redirect to login
 axios.interceptors.response.use(
   (response) => {
+    if (!belongsToCurrentSession(response.config)) return Promise.reject(sessionChangedError());
     const isChatTransport = /\/ai\/(chat|cancel\/)/.test(response.config?.url || '');
     const url = response.config?.url || '';
     const isFinancialPreview = /\/finance\/intelligence\/(simulate|compare-debts)(?:\?|$)/.test(url) || /\/projections\/insights(?:\?|$)/.test(url);
@@ -78,6 +93,7 @@ axios.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (!belongsToCurrentSession(error.config || error.response?.config)) return Promise.reject(sessionChangedError());
     if (OFFLINE_MODE) {
       const offlineError = new Error('Modo offline - dados locais');
       (offlineError).isOfflineError = true;

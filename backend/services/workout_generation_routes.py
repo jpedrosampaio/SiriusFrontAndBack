@@ -468,14 +468,13 @@ IMPORTANTE:
         logging.info("Successfully parsed workout plan")
 
     except json.JSONDecodeError as e:
-        logging.error(f"JSON parse error: {e}")
-        logging.error(f"Response text (first 500 chars): {response_text[:500] if response_text else 'N/A'}")
+        logging.error("Workout JSON parse error type=%s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Erro ao processar resposta da IA. Tente novamente.")
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Workout generation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao gerar treino: {str(e)}. Tente novamente.")
+        logging.error("Workout generation failed type=%s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Erro ao gerar treino. Tente novamente.")
 
     try:
         # Create the plan document
@@ -535,8 +534,8 @@ IMPORTANTE:
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Failed to save workout plan: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao salvar treino: {str(e)[:100]}")
+        logging.error("Failed to save workout plan type=%s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Erro ao salvar treino. Tente novamente.")
 
 
 @api_router.post("/workouts/import-plan")
@@ -599,7 +598,7 @@ REGRAS: Extraia TODOS os exercícios fielmente. Se não conseguir ler algo, indi
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Erro ao processar ficha de treino. Tente novamente.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erro ao processar treino. Tente novamente.")
 
 
 
@@ -798,5 +797,5 @@ REGRAS:
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Failed to improve workout plan: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao melhorar treino: {str(e)[:100]}")
+        logging.error("Failed to improve workout plan type=%s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Erro ao melhorar treino. Tente novamente.")

@@ -8,7 +8,7 @@ Recheck Git/PR/deploy state at session start; the functional publication SHA is 
 
 ## Next phase and authorization
 
-Next: **Phase 14 of the original master plan**, awaiting explicit owner authorization. No implementation for Phase 14 is authorized. Phase 13 contracts and operational limits: [COMMAND_CENTER](docs/COMMAND_CENTER.md).
+Current work: **Phase 14 - Integrated Hardening**, explicitly authorized by the owner. Branch `chore/sirius-3-integrated-hardening` starts from verified main `bd565c337d79b436a2b9777f2649bafa218f3762`. Audit and validation are in progress; Phase 14 is not published. Coverage, risk priorities and performance reference: [INTEGRATED_HARDENING](docs/INTEGRATED_HARDENING.md). Do not start a Phase 15 or claim complete Sirius 3.0 acceptance without evidence for all essential criteria.
 
 ## Migrations and blockers
 

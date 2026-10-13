@@ -1,0 +1,20 @@
+{
+  "measurement": "normalized LF UTF-8 HTML template; not transferred page/bundle bytes or latency",
+  "before_source": "bd565c337d79b436a2b9777f2649bafa218f3762",
+  "before": {
+    "bytes": 10964,
+    "gzip_bytes": 3657,
+    "sha256": "4e2ccb7d2393a0e411cbfdc123ee72c3b600748454636a6e0142c2579bc07bb8"
+  },
+  "after": {
+    "bytes": 2372,
+    "gzip_bytes": 792,
+    "sha256": "7e5335cfe260f95c52bcffd859ec190a21bdb548db68c8b38fea981ae6ccfdc0"
+  },
+  "removed_runtime_dependencies": [
+    "assets.emergent.sh editor bootstrap/debug monitor",
+    "cdn.tailwindcss.com iframe runtime",
+    "PostHog bootstrap/flags/session recording"
+  ],
+  "retained": "compiled Tailwind, PWA metadata/assets, fonts and explicit Google login redirect; zoom no longer disabled"
+}

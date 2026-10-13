@@ -129,7 +129,7 @@ async def get_daily_summary(request: Request):
                 parsed['score']=progress_score(raw)
                 summary_data = SummaryBody.model_validate(parsed).model_dump()
     except Exception as e:
-        logging.error(f'Daily summary AI error: {e}')
+        logging.error('Daily summary AI error type=%s', type(e).__name__)
     if not summary_data:
         total_items = len(pending_tasks) + len(habits_pending) + len(done_tasks) + len(habits_done)
         done_items = len(done_tasks) + len(habits_done)

@@ -58,8 +58,8 @@ async def generate_meal_plan(request: Request, session_token: Optional[str]=Cook
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail='Erro ao processar resposta da IA. Tente novamente.')
     except Exception as e:
-        logging.error(f'Meal plan generation failed: {e}')
-        raise HTTPException(status_code=500, detail=f'Erro ao gerar plano alimentar: {str(e)[:100]}')
+        logging.error('Meal plan generation failed type=%s', type(e).__name__)
+        raise HTTPException(status_code=500, detail='Erro ao gerar plano alimentar. Tente novamente.')
 
 @api_router.post('/nutrition/import-plan')
 async def import_meal_plan(request: Request, file: UploadFile=File(...), session_token: Optional[str]=Cookie(None)):

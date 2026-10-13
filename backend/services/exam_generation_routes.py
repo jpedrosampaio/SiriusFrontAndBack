@@ -185,13 +185,13 @@ Responda APENAS com um JSON válido no formato:
             ['import-simulado',hashlib.sha256(content).hexdigest(),title,banca,disciplina,concurso,question_type,area_id,program_id],simulado_doc,questions)
 
     except json.JSONDecodeError as e:
-        logging.error(f"Failed to parse PDF questions JSON: {e}")
+        logging.error("Failed to parse PDF questions JSON type=%s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Erro ao interpretar as questões do PDF. Tente novamente.")
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"PDF simulado import failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao processar PDF: {str(e)}")
+        logging.error("PDF simulado import failed type=%s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Erro ao processar PDF. Tente novamente.")
 
     finally:
         if tmp_path:
@@ -379,7 +379,7 @@ async def generate_simulado(request: Request, data: SimuladoCreate, session_toke
             return simulado_doc,questions
 
         except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse generated simulado JSON: {e}")
+            logging.error("Failed to parse generated simulado JSON type=%s", type(e).__name__)
             raise HTTPException(status_code=500, detail="Erro ao gerar simulado. Tente novamente.")
         except HTTPException:
             raise
