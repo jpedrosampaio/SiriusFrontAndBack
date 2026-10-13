@@ -98,7 +98,7 @@ def dedup_cargos_fuzzy(cargos: List[dict], threshold: float = 0.90) -> List[dict
                     base_disc_names.add(nm)
             merges.append((cname, base.get("nome") or ""))
     if merges:
-        logging.info(f"dedup_cargos_fuzzy merged {len(merges)} cargo(s): {merges}")
+        logging.info("dedup_cargos_fuzzy merged %s cargo(s)", len(merges))
     return out
 
 
