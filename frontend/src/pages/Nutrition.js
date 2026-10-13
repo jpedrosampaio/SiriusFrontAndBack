@@ -439,7 +439,8 @@ export default function Nutrition() {
       const res = await axios.post(`${API}/nutrition/import-plan?preview=true`, formData, {
         withCredentials: true,
         headers: { "Content-Type": "multipart/form-data" },
-        timeout: 120000
+        // Backend allows 60s for upload and 180s for analysis; leave time for receipt persistence.
+        timeout: 270000
       });
       if(res.data.already_confirmed){toast.success('Este documento já foi confirmado. O plano existente foi preservado, sem XP adicional.');setShowImportDialog(false);fetchMealPlans();return;}
       if(res.data.preview && res.data.preview_id){importPreviewId.current=res.data.preview_id;setImportPreview(res.data.preview);return;}
