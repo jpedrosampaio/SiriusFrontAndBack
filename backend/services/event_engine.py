@@ -50,8 +50,10 @@ async def process(event, *, dry_run):
 async def tick(automations, *, sender=None, user_id=None, bootstrap=True):
     if bootstrap:await queue.bootstrap()
     processed=0
-    for _ in range(4):
-        event=await queue.claim(user_id)
+    # Reserve capacity in both directions; due scans must not starve their alerts.
+    for scans_only in (True,False,False,False):
+        event=await queue.claim(user_id,scans_only=scans_only)
+        if not event:event=await queue.claim(user_id,scans_only=not scans_only)
         if not event:break
         try:
             if event['type']=='system.scan' or event['payload'].get('schema')=='domain-event/2':
@@ -62,7 +64,6 @@ async def tick(automations, *, sender=None, user_id=None, bootstrap=True):
             await queue.finish(event,error='processing_failed')
         processed+=1
     from services.event_delivery import deliver_one
-    from services.telegram_delivery import deliver_reply
     for _ in range(2):
         try:
             if not await deliver_one(user_id=user_id,sender=sender):break
@@ -71,9 +72,4 @@ async def tick(automations, *, sender=None, user_id=None, bootstrap=True):
             import logging
             logging.warning('automation delivery deferred; persisted lease retained')
             break
-    if user_id is None:
-        try:processed+=int(await deliver_reply(sender=sender))
-        except Exception:
-            import logging
-            logging.warning('Telegram reply deferred; persisted lease retained')
     return processed

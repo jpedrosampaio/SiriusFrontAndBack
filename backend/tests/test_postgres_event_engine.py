@@ -116,7 +116,7 @@ class EventEngine(unittest.IsolatedAsyncioTestCase):
             async with unit_of_work() as session:
                 row=await session.scalar(select(Event).where(Event.user_id==self.uid,Event.event_type=='system.scan'))
                 row.available_at=self.now-timedelta(days=1)
-            scan=await queue.claim(self.uid);self.assertEqual(scan['type'],'system.scan');await engine.scan(scan)
+            scan=await queue.claim(self.uid,scans_only=True);self.assertEqual(scan['type'],'system.scan');await engine.scan(scan)
         async with unit_of_work() as session:
             seen=(await session.scalars(select(Event.entity_id).where(Event.user_id==self.uid,Event.event_type=='task.overdue'))).all()
         self.assertEqual(len(set(seen)),45)
@@ -424,3 +424,80 @@ class EventEngine(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(facts['version'],'event-briefing/2');self.assertTrue(facts['read_only']);self.assertTrue(facts['confirmation_required'])
                 self.assertIn('global_plan',facts['facts']);self.assertIsNone(facts['facts']['finance']['bank_balance'])
             self.assertEqual((await session.get(User,self.uid)).xp,0)
+
+    async def test_due_scan_backlog_cannot_starve_domain_events(self):
+        await self.enable()
+        ids=[await self.task() for _ in range(3)]
+        async with unit_of_work() as session:
+            for n in range(5):session.add(Event(user_id=self.uid,event_type='system.scan',dedup_key=f'backlog-{n}',payload={}))
+            for identity in ids:
+                await queue.enqueue(session,self.uid,candidate('task.overdue','task',self.day-timedelta(days=2),{},'Due',identity),self.day)
+        async def recurring_scan(event):return await queue.finish(event,delay=timedelta(seconds=0))
+        with patch('services.event_engine.scan',side_effect=recurring_scan) as scans:
+            await engine.tick(self.runtime.automations,user_id=self.uid,bootstrap=False)
+            self.assertEqual(scans.await_count,1)
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(Event).where(Event.user_id==self.uid,
+                Event.event_type=='task.overdue',Event.status=='processed')),3)
+
+    async def test_uncertain_financial_reply_retry_never_reexecutes_transaction(self):
+        async with unit_of_work() as session:session.add(TelegramLink(user_id=self.uid,chat_id=self.chat,telegram_name='Alice',linked_at=self.now))
+        update=uuid4().int%10**15
+        parser=AsyncMock(return_value='[{"type":"expense","amount":"48.00","description":"Registered","category":"Food"}]')
+        with patch('server.call_llm',parser):await TelegramService().process(update,self.chat,'Register expense')
+        sender=AsyncMock(side_effect=TimeoutError('ambiguous'));await deliver_reply(update_id=update,sender=sender)
+        route=f'/automations/telegram-replies/{update}'
+        body={'action':'retry','accept_duplicate_risk':True};headers={'Idempotency-Key':'retry-reply-owned-001'}
+        self.assertEqual((await self.api.post(route,json={'action':'retry'},headers=headers)).status_code,409)
+        self.assertEqual((await self.api.post(route,json=body,headers={**headers,'Authorization':'Bearer bob'})).status_code,404)
+        self.assertEqual((await self.api.get('/automations/telegram-replies',headers={'Authorization':'Bearer bob'})).json()['items'],[])
+        self.assertEqual((await self.api.get(f'/automations/telegram-replies?before={update}',headers={'Authorization':'Bearer bob'})).status_code,404)
+        self.ok(await self.api.post(route,json=body,headers=headers))
+        self.assertTrue(self.ok(await self.api.post(route,json=body,headers=headers))['replayed'])
+        sender=AsyncMock(return_value={'ok':True,'result':{'message_id':9,'chat':{'id':self.chat}}})
+        await asyncio.gather(*(deliver_reply(update_id=update,sender=sender) for _ in range(4)))
+        self.assertEqual(sender.await_count,1);self.assertEqual(parser.await_count,1)
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(FinancialTransaction).where(FinancialTransaction.user_id==self.uid)),1)
+            row=await session.get(TelegramUpdate,update);self.assertEqual(row.delivery_status,'delivered')
+            self.assertEqual(row.delivery_attempts,2);self.assertEqual(len(row.delivery_history),5)
+
+    async def test_reply_retry_respects_attempt_expiry_and_pairing_bounds(self):
+        async with unit_of_work() as session:session.add(TelegramLink(user_id=self.uid,chat_id=self.chat,telegram_name='Alice',linked_at=self.now))
+        update=uuid4().int%10**15;await TelegramService().process(update,self.chat,'/semana')
+        route=f'/automations/telegram-replies/{update}';body={'action':'retry','accept_duplicate_risk':True}
+        async with unit_of_work() as session:
+            row=await session.get(TelegramUpdate,update);row.delivery_status='uncertain';row.delivery_attempts=8
+        self.assertEqual((await self.api.post(route,json=body,headers={'Idempotency-Key':'reply-bound-001'})).status_code,409)
+        async with unit_of_work() as session:
+            row=await session.get(TelegramUpdate,update);row.delivery_attempts=7
+        self.ok(await self.api.post(route,json=body,headers={'Idempotency-Key':'reply-last-attempt'}))
+        sender=AsyncMock(return_value={'ok':True,'result':{'message_id':8,'chat':{'id':self.chat}}})
+        self.assertTrue(await deliver_reply(update_id=update,sender=sender));self.assertEqual(sender.await_count,1)
+        async with unit_of_work() as session:self.assertEqual((await session.get(TelegramUpdate,update)).delivery_attempts,8)
+        async with unit_of_work() as session:
+            row=await session.get(TelegramUpdate,update);row.delivery_status='uncertain';row.delivered_at=None;row.delivery_attempts=7;row.completed_at=self.now-timedelta(days=2)
+        self.assertEqual((await self.api.post(route,json=body,headers={'Idempotency-Key':'reply-bound-002'})).status_code,409)
+        async with unit_of_work() as session:
+            row=await session.get(TelegramUpdate,update);row.completed_at=self.now
+            link=await session.scalar(select(TelegramLink).where(TelegramLink.user_id==self.uid));await session.delete(link)
+        self.assertEqual((await self.api.post(route,json=body,headers={'Idempotency-Key':'reply-bound-003'})).status_code,409)
+
+    async def test_retryable_command_transport_runs_with_proactive_automation_disabled(self):
+        from ai.automations import Automations
+        from types import SimpleNamespace
+        async with unit_of_work() as session:session.add(TelegramLink(user_id=self.uid,chat_id=self.chat,telegram_name='Alice',linked_at=self.now))
+        update=uuid4().int%10**15;await TelegramService().process(update,self.chat,'/semana')
+        sender=AsyncMock(return_value={'ok':False,'error_code':429,'parameters':{'retry_after':30}})
+        await deliver_reply(update_id=update,sender=sender)
+        async with unit_of_work() as session:
+            row=await session.get(TelegramUpdate,update);self.assertEqual(row.delivery_status,'pending');row.next_delivery_at=self.now-timedelta(seconds=1)
+        sender=AsyncMock(return_value={'ok':True,'result':{'message_id':2,'chat':{'id':self.chat}}})
+        async def transport():return await deliver_reply(update_id=update,sender=sender)
+        worker=Automations(None,SimpleNamespace(automations=False))
+        with patch.dict(os.environ,{'TELEGRAM_BOT_TOKEN':'fake-test-token'}),patch('services.event_engine.tick',AsyncMock()) as tick,\
+                patch('services.telegram_delivery.deliver_reply',side_effect=transport),patch('ai.automations.asyncio.sleep',AsyncMock(side_effect=asyncio.CancelledError)):
+            await worker.start()
+            with self.assertRaises(asyncio.CancelledError):await worker.worker
+            await worker.stop();tick.assert_not_awaited()
+        async with unit_of_work() as session:self.assertEqual((await session.get(TelegramUpdate,update)).delivery_status,'delivered')

@@ -17,6 +17,7 @@ export function deliveryError(code) {
     processing_failed: 'Não foi possível processar o evento. A falha permanece registrada.',
     worker_attempts_exhausted: 'Limite de tentativas atingido.', worker_disabled: 'Execução automática desativada no servidor.',
     manual_retry: 'Reenvio solicitado por você.',
+    reply_expired: 'Resposta antiga; o reenvio não está mais disponível.', owner_deleted: 'Conta removida; resposta cancelada.',
   })[code] || 'Falha registrada. Consulte o suporte para revisar esta entrega.';
 }
 export function receiptIntent(action, identity, acceptDuplicateRisk = false) {

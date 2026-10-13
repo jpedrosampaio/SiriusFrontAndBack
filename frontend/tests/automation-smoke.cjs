@@ -8,11 +8,12 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
   try{for(const width of [320,390,768,1024,1440]){
     const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'});
     await context.addInitScript(()=>localStorage.setItem('sirius_onboarding_complete','true'));
-    const errors=[],writes=[],keys=[];let states=0,lost=true,saves=0,accepted=false;
+    const errors=[],writes=[],keys=[];let states=0,lost=true,saves=0,accepted=false,replyAccepted=false;
     const rule={enabled:true,frequency:'daily',priority:'medium',channels:['in_app']};
     const state={enabled:false,daily_cap:3,timezone:'America/Sao_Paulo',policy:{quiet_start:null,quiet_end:null,morning_time:'08:00',night_time:'21:00',weekly_time:'18:00',weekly_weekday:6,rules:{}},inherited_quiet_start:'22:00',inherited_quiet_end:'08:00',runtime_enabled:true,simulation_only:true,channels:{in_app:true,telegram:false},telegram_paired:false,scan:null,catalog:[{event_type:'task.overdue',title:'Tarefa pendente',domain:'tasks',rule} ]};
     const event={event_id:'event-own',event_type:'task.overdue',title:'Tarefa pendente',status:'processed',attempts:1,created_at:'2026-10-13T09:00:00Z',candidate:{facts:{title:'Revisar assunto registrado'},reasons:['Ocorrência registrada vencida e ainda pendente.']},deliveries:[{delivery_id:'delivery-own',channel:'in_app',status:'available',attempts:0,history:[],retry_allowed:false},{delivery_id:'telegram-own',channel:'telegram',status:'uncertain',attempts:1,last_error:'provider_confirmation_unknown',retry_allowed:true,history:[{at:'2026-10-13T09:01:00Z',outcome:'uncertain'}]}]};
     const report={date:'2026-10-13',timezone:'America/Sao_Paulo',mode:'morning',facts:{tasks:{recorded_completed:1,pending_count:1,pending:[{id:'task-own',title:'Estudar conteúdo',date:'2026-10-13'}]},preparation:{recorded_minutes:20,planned_minutes:40},training:{recorded_completed:0,recorded_minutes:0},finance:{recorded_expense:'0.00'},tomorrow:{commitments:[]}},proposals:[{title:'Revisar disponibilidade',link:'/calendar'}],limitations:['Modelos atuais não são snapshots históricos.']};
+    const reply={kind:'command_reply',delivery_id:'987654321000',channel:'telegram',status:'uncertain',attempts:1,reply:'1 transação registrada: registro próprio',completed_at:'2026-10-13T09:00:00Z',retry_allowed:true,last_error:'provider_confirmation_unknown',history:[]};
     const fulfill=(r,data,status=200)=>r.fulfill({status,contentType:'application/json',body:JSON.stringify(data)});
     await context.route('**/*',async r=>{const request=r.request(),url=new URL(request.url()),p=url.pathname;
       if(!p.startsWith('/api/'))return url.hostname==='127.0.0.1'?r.continue():r.abort();let data=[];
@@ -20,6 +21,8 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
       if(p==='/api/auth/me')data={user_id:'event-user',name:'Event Test',xp:0,rank:'Recruta'};
       if(p==='/api/automations/state'){states++;if(states===2)return fulfill(r,{detail:'Falha temporária da leitura'},503);data=state;}
       if(p==='/api/automations/events')data={items:[event,{event_id:'report-own',event_type:'brief.daily',title:'Resumo anterior registrado',status:'processed',attempts:1,created_at:'2026-10-12T12:00:00Z',candidate:{facts:{...report,version:'event-briefing/2'},reasons:['Resumo dos registros próprios.']},deliveries:[]}],next_cursor:null};
+      if(p==='/api/automations/telegram-replies')data={items:[reply],next_cursor:null};
+      if(p.startsWith('/api/automations/telegram-replies/')){assert.ok(request.headers()['idempotency-key']);assert.equal(request.postDataJSON().accept_duplicate_risk,true);replyAccepted=true;reply.status='pending';reply.retry_allowed=false;data=reply;}
       if(p==='/api/dashboard/daily-briefing')data={...report,mode:url.searchParams.get('mode')};
       if(p==='/api/automations/policy'){
         saves++;keys.push(request.headers()['idempotency-key']);assert.ok(keys.at(-1));
@@ -49,6 +52,7 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
     await activeReport.getByText('Fontes e limites do resumo').click();await activeReport.getByText('Modelos atuais não são snapshots históricos.').waitFor();
     await panel.getByRole('button',{name:'Marcar como lido'}).click();await panel.getByText('Sirius · Recebimento confirmado',{exact:false}).waitFor();
     await panel.getByRole('button',{name:'Reenviar com confirmação'}).click();await panel.getByText('Telegram · Aguardando envio',{exact:false}).waitFor();assert.equal(accepted,true);
+    await panel.getByRole('button',{name:'Reenviar resposta com confirmação'}).click();await panel.getByRole('button',{name:'Reenviar resposta com confirmação'}).waitFor({state:'hidden'});assert.equal(replyAccepted,true);
     await panel.getByText('Tipos de eventos e canais',{exact:true}).click();await panel.getByLabel('Prioridade Tarefa pendente').selectOption('high');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`horizontal overflow ${width}`);
     assert.deepEqual(errors,[]);assert.ok(writes.every(p=>p.startsWith('/api/automations/')),`unrelated writes ${writes}`);

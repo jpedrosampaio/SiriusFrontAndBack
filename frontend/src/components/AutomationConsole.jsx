@@ -45,14 +45,16 @@ function Evidence({ facts = {} }) {
 export default function AutomationConsole() {
   const [state,setState] = useState(null), [policy,setPolicy] = useState(null), [enabled,setEnabled] = useState(false), [cap,setCap] = useState(3);
   const [events,setEvents] = useState([]), [cursor,setCursor] = useState(null), [report,setReport] = useState(null), [mode,setMode] = useState('morning');
+  const [replies,setReplies] = useState([]), [replyCursor,setReplyCursor] = useState(null);
   const [loading,setLoading] = useState(true), [busy,setBusy] = useState(false), [error,setError] = useState(''), [saved,setSaved] = useState(false);
   const requests = useRef(createActivityRequests()), sequence = useRef(0);
   const load = useCallback(async () => {
     const seq = ++sequence.current; setLoading(true); setError('');
     try {
-      const [s,e] = await Promise.all([axios.get(`${API}/automations/state`,{withCredentials:true}),axios.get(`${API}/automations/events`,{withCredentials:true})]);
+      const [s,e,r] = await Promise.all([axios.get(`${API}/automations/state`,{withCredentials:true}),axios.get(`${API}/automations/events`,{withCredentials:true}),axios.get(`${API}/automations/telegram-replies`,{withCredentials:true})]);
       if (sequence.current !== seq) return;
       setState(s.data);setPolicy(s.data.policy);setEnabled(s.data.enabled);setCap(s.data.daily_cap);setEvents(e.data.items);setCursor(e.data.next_cursor);
+      setReplies(r.data.items);setReplyCursor(r.data.next_cursor);
     } catch(e) { if(sequence.current===seq)setError(getApiErrorMessage(e,'Não foi possível carregar as automações.')); }
     finally { if(sequence.current===seq)setLoading(false); }
   },[]);
@@ -75,8 +77,9 @@ export default function AutomationConsole() {
     if(accept&&!window.confirm('A entrega anterior pode ter chegado. Reenviar pode duplicar a mensagem. Deseja confirmar?'))return;
     const key=requests.current.begin(d.delivery_id,receiptIntent(action,d.delivery_id,accept));if(!key)return;
     setBusy(true);setError('');let succeeded=false;
-    try {await axios.post(`${API}/automations/deliveries/${d.delivery_id}`,{action,accept_duplicate_risk:accept},{withCredentials:true,headers:{'Idempotency-Key':key}});succeeded=true;
-      const e=await axios.get(`${API}/automations/events`,{withCredentials:true});setEvents(e.data.items);setCursor(e.data.next_cursor);}
+    try {const collection=d.kind==='command_reply'?'telegram-replies':'deliveries';
+      await axios.post(`${API}/automations/${collection}/${d.delivery_id}`,{action,accept_duplicate_risk:accept},{withCredentials:true,headers:{'Idempotency-Key':key}});succeeded=true;
+      const [e,r]=await Promise.all([axios.get(`${API}/automations/events`,{withCredentials:true}),axios.get(`${API}/automations/telegram-replies`,{withCredentials:true})]);setEvents(e.data.items);setCursor(e.data.next_cursor);setReplies(r.data.items);setReplyCursor(r.data.next_cursor);}
     catch(e){setError(getApiErrorMessage(e,'Ação indisponível; tente novamente.'));}
     finally {requests.current.finish(d.delivery_id,succeeded);setBusy(false);}
   };
@@ -86,6 +89,11 @@ export default function AutomationConsole() {
     catch(e){setError(getApiErrorMessage(e,'Histórico indisponível.'));}finally{setBusy(false);}
   };
   const updateRule = (kind,changes) => setPolicy(p=>({...p,rules:{...p.rules,[kind]:{...state.catalog.find(c=>c.event_type===kind).rule,...p.rules[kind],...changes}}}));
+  const moreReplies = async () => {
+    setBusy(true);setError('');
+    try {const r=await axios.get(`${API}/automations/telegram-replies`,{params:{before:replyCursor},withCredentials:true});setReplies(v=>[...v,...r.data.items.filter(x=>!v.some(old=>old.delivery_id===x.delivery_id))]);setReplyCursor(r.data.next_cursor);}
+    catch(e){setError(getApiErrorMessage(e,'Histórico de respostas indisponível.'));}finally{setBusy(false);}
+  };
   return <section aria-label="Automações inteligentes" className="space-y-5 min-w-0">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">Sua rotina, conectada</h2><p className="text-sm text-slate-400">Alertas explicáveis, resumos integrados e histórico de entrega.</p></div><Button variant="outline" onClick={load} disabled={busy||loading}>Atualizar automações</Button></div>
     {error&&<div role="alert" className="rounded-lg border border-red-800 bg-red-950/30 p-3 text-sm break-words">{error}</div>}
@@ -134,6 +142,14 @@ export default function AutomationConsole() {
           </div>)}
         </article>)}
         {cursor&&<Button variant="outline" disabled={busy} onClick={more}>Carregar eventos anteriores</Button>}
+      </div>
+      <div className={panel}><h3 className="font-medium">Respostas dos comandos no Telegram</h3><p className="text-xs text-slate-400">Reenviar recupera somente a resposta armazenada. O comando e suas transações não são executados novamente. Respostas expiram para reenvio após um dia.</p>
+        {replies.length===0&&<p className="text-sm text-slate-400">Nenhuma resposta registrada nesta conta.</p>}
+        {replies.map(d=><article key={d.delivery_id} className="border-t border-slate-800 pt-3 space-y-2 min-w-0 break-words"><p className="text-sm">{deliveryLabels[d.status]||d.status} · {d.attempts} tentativa(s)</p><p className="text-xs text-slate-400">Resposta registrada em {d.completed_at}</p><p className="text-sm whitespace-pre-wrap">{d.reply}</p>{d.last_error&&<p className="text-xs text-amber-300">{deliveryError(d.last_error)}</p>}
+          {d.retry_allowed&&<Button variant="outline" disabled={busy} onClick={()=>receipt(d,'retry')}>Reenviar resposta com confirmação</Button>}
+          {d.history?.length>0&&<details><summary className="text-xs cursor-pointer text-slate-400">Histórico da resposta</summary>{d.history.map((h,i)=><p key={i} className="text-xs text-slate-400">{h.at} · {deliveryLabels[h.outcome]||h.outcome}{h.receipt&&` · recibo ${h.receipt}`}</p>)}</details>}
+        </article>)}
+        {replyCursor&&<Button variant="outline" disabled={busy} onClick={moreReplies}>Carregar respostas anteriores</Button>}
       </div>
     </>}
   </section>;

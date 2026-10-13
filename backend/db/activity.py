@@ -9,12 +9,12 @@ from db.repositories.identity import IdentityRepository
 from db.session import unit_of_work
 
 
-async def run_activity(user_id, request_key, fingerprint, apply):
+async def run_activity(user_id, request_key, fingerprint, apply, *, session=None):
     if request_key is not None and (not 8 <= len(request_key) <= 128 or not all(
             c.isascii() and (c.isalnum() or c in '-_') for c in request_key)):
         raise HTTPException(422, 'Invalid Idempotency-Key')
     digest = hashlib.sha256(json.dumps(fingerprint, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    async with unit_of_work() as session:
+    async with unit_of_work(session=session) as session:
         user = await IdentityRepository(session).by_id(user_id, lock=True)
         if user is None:
             raise HTTPException(404, 'User not found')

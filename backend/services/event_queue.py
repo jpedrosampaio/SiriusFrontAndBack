@@ -70,7 +70,7 @@ async def bootstrap():
         return len(owners)
 
 
-async def claim(user_id=None, *, now=None):
+async def claim(user_id=None, *, now=None, scans_only=None):
     instant=now or utc_now()
     async with unit_of_work() as session:
         expired=select(Event.id).where(Event.status=='processing',Event.lease_until<=instant,Event.attempts>=5).limit(40).with_for_update(skip_locked=True)
@@ -79,7 +79,8 @@ async def claim(user_id=None, *, now=None):
         query=select(Event).where(Event.available_at<=instant,Event.attempts<5,
             or_(Event.status=='pending',(Event.status=='processing')&(Event.lease_until<=instant)))
         if user_id is not None:query=query.where(Event.user_id==UUID(str(user_id)))
-        priority=case((Event.event_type=='system.scan',0),(Event.payload['priority'].astext=='high',1),
+        if scans_only is not None:query=query.where((Event.event_type=='system.scan') if scans_only else (Event.event_type!='system.scan'))
+        priority=case((Event.event_type=='system.scan',4),(Event.payload['priority'].astext=='high',1),
             (Event.payload['priority'].astext=='low',3),else_=2)
         row=await session.scalar(query.order_by(priority,Event.available_at,Event.created_at,Event.id).limit(1).with_for_update(skip_locked=True))
         if row is None:return None

@@ -44,7 +44,12 @@ class Automations:
         while True:
             try:
                 from services.event_engine import tick
-                await tick(self)
+                if self.settings.automations:
+                    try:await tick(self)
+                    except Exception:logging.warning('automation processing deferred; transport remains active')
+                # Command transport is independent of proactive automation opt-in.
+                from services.telegram_delivery import deliver_reply
+                await deliver_reply()
                 await asyncio.sleep(interval)
             except asyncio.CancelledError: raise
             except Exception:
@@ -52,7 +57,7 @@ class Automations:
                 await asyncio.sleep(interval)
 
     async def start(self):
-        if self.settings.automations and self.worker is None:
+        if (self.settings.automations or os.getenv('TELEGRAM_BOT_TOKEN')) and self.worker is None:
             self.worker = asyncio.create_task(self.run())
 
     async def stop(self):

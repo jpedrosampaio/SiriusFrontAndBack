@@ -15,13 +15,16 @@ async def claim_reply(update_id=None):
     async with unit_of_work() as session:
         await links_lock(session)
         query=select(TelegramUpdate).where(TelegramUpdate.completed_at.is_not(None),TelegramUpdate.delivered_at.is_(None),TelegramUpdate.next_delivery_at<=now,
-            or_((TelegramUpdate.delivery_status=='pending')&(TelegramUpdate.delivery_attempts<5),
+            or_((TelegramUpdate.delivery_status=='pending')&((TelegramUpdate.delivery_attempts<5)|
+                    ((TelegramUpdate.delivery_error=='manual_retry')&(TelegramUpdate.delivery_attempts<8))),
                 (TelegramUpdate.delivery_status=='processing')&(TelegramUpdate.lease_until<=now)))
         if update_id is not None:query=query.where(TelegramUpdate.update_id==update_id)
         row=await session.scalar(query.order_by(TelegramUpdate.next_delivery_at,TelegramUpdate.update_id).limit(1).with_for_update(skip_locked=True))
         if row is None:return None
         if row.delivery_status=='processing':
             row.delivery_status='uncertain';row.delivery_error='worker_interrupted_during_delivery'
+            row.delivery_history=[*(row.delivery_history or []),{'at':now.isoformat(),'attempt':row.delivery_attempts,
+                'outcome':'uncertain','error':row.delivery_error}][-32:]
             row.lease_token=None;row.lease_until=now;return None
         if row.completed_at<now-timedelta(days=1):
             row.delivery_status='cancelled';row.delivery_error='reply_expired';return None
