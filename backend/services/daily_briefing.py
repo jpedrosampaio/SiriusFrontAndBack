@@ -4,7 +4,7 @@ import logging
 from datetime import datetime,timezone,timedelta
 from types import SimpleNamespace
 from uuid import UUID
-from fastapi import APIRouter,Request
+from fastapi import APIRouter,Request,HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel,Field,ValidationError
 from sqlalchemy import select,func
@@ -45,6 +45,11 @@ def public(row):
 def fresh(row):return row is not None and row.updated_at>=datetime.now(timezone.utc)-timedelta(hours=4)
 
 
+def nutrition_facts(values):
+    calories=values.get('calories',0)
+    return values.get('meals_count',0),round(calories) if calories is not None else None
+
+
 async def cached_summary(uid,day):
     async with unit_of_work() as session:
         row=await session.scalar(select(DailySummary).where(DailySummary.user_id==UUID(uid),DailySummary.date==day))
@@ -70,7 +75,11 @@ async def summary_context(uid,day):
 async def save_summary(uid,day,result):
     async def apply(session,owner):
         row=await session.scalar(select(DailySummary).where(DailySummary.user_id==owner.id,DailySummary.date==day))
-        if fresh(row):return public(row)
+        meals,_,_=await period(session,owner.id,day,day)
+        incoming=nutrition_facts(result['raw_data'])
+        if nutrition_facts(meals.get(day,{}))!=incoming:
+            raise HTTPException(409,'Os registros alimentares mudaram durante a análise. Atualize o resumo.')
+        if fresh(row) and (row.meals_count,row.calories)==incoming:return public(row)
         values={**result['summary'],**result['raw_data']}
         if row is None:row=DailySummary(user_id=owner.id,date=day,**values);session.add(row)
         else:
@@ -89,9 +98,7 @@ async def get_daily_summary(request: Request):
     if cached:
         async with unit_of_work() as session:
             nutrition,_,_=await period(session,UUID(user.user_id),day,day)
-        calories=nutrition.get(day,{}).get('calories',0)
-        current=round(calories) if calories is not None else None
-        if cached['raw_data']['calories']!=current:cached=None
+        if nutrition_facts(cached['raw_data'])!=nutrition_facts(nutrition.get(day,{})):cached=None
     if cached:
         async with unit_of_work() as session:
             repo=PlanningRepository(session)

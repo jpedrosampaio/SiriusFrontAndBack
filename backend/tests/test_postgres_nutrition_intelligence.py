@@ -268,6 +268,11 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
             briefing=self.ok(await self.http.get('/api/dashboard/daily-summary'))
             cached=self.ok(await self.http.get('/api/dashboard/daily-summary'))
             self.assertIsNone(cached['raw_data']['calories']);ai.assert_awaited_once()
+            await self.add(name='Another incomplete meal',foods=[])
+            changed=self.ok(await self.http.get('/api/dashboard/daily-summary'))
+            self.assertEqual(changed['raw_data']['meals_count'],2);self.assertEqual(ai.await_count,2)
+            refreshed=self.ok(await self.http.get('/api/dashboard/daily-summary'))
+            self.assertEqual(refreshed['raw_data']['meals_count'],2);self.assertEqual(ai.await_count,2)
         self.assertIsNone(briefing['raw_data']['calories'])
         self.assertIn('total desconhecido',ai.call_args.args[0])
         async with unit_of_work() as session:
@@ -284,6 +289,34 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
         async with unit_of_work() as session:
             rows=(await session.scalars(select(Report).where(Report.user_id==self.uid))).all()
             self.assertEqual(len(rows),1);self.assertIsNone(rows[0].calories);self.assertIsNone(rows[0].protein)
+
+    async def test_briefing_refreshes_fresh_known_cache_and_rejects_stale_analysis(self):
+        import json
+        from db.models.reports import DailySummary
+        async def account(request):return {'user_id':str(self.uid),'timezone':'America/Sao_Paulo','name':'Test','rank':'Test','xp':0}
+        response=json.dumps({'greeting':'Test','progress_summary':'Test','pending_items':[],'motivation':'Test','priority_action':'Test'})
+        ai=AsyncMock(return_value=response)
+        await self.add()
+        with patch('services.daily_briefing.account',account),patch('services.daily_briefing.call_llm',ai):
+            self.assertEqual(self.ok(await self.http.get('/api/dashboard/daily-summary'))['raw_data']['calories'],100)
+            await self.add(name='Second')
+            self.assertEqual(self.ok(await self.http.get('/api/dashboard/daily-summary'))['raw_data']['calories'],200)
+            self.assertEqual(self.ok(await self.http.get('/api/dashboard/daily-summary'))['raw_data']['calories'],200)
+            self.assertEqual(ai.await_count,2)
+            entered=asyncio.Event();release=asyncio.Event()
+            async def delayed(*args,**kwargs):entered.set();await release.wait();return response
+            ai.side_effect=delayed
+            await self.add(name='Third')
+            task=asyncio.create_task(self.http.get('/api/dashboard/daily-summary'))
+            try:
+                await asyncio.wait_for(entered.wait(),5);await self.add(name='Fourth')
+            finally:release.set()
+            self.assertEqual((await task).status_code,409)
+            async with unit_of_work() as session:
+                row=await session.scalar(select(DailySummary).where(DailySummary.user_id==self.uid))
+                self.assertEqual(row.calories,200);self.assertEqual(row.meals_count,2)
+            ai.side_effect=None
+            self.assertEqual(self.ok(await self.http.get('/api/dashboard/daily-summary'))['raw_data']['calories'],400)
 
     async def test_expired_analysis_reservation_is_recovered_and_stale_result_rejected(self):
         from services.nutrition_previews import upload_analysis,create_preview
