@@ -90,6 +90,7 @@ const server = http.createServer((req, res) => {
           if (url.pathname === '/api/auth/me') body = activeUser;
           if (url.pathname === '/api/auth/register' || url.pathname === '/api/auth/login') body = { session_token: 'synthetic-token', user };
           if (url.pathname === '/api/dashboard/panels') body = {panels: {}, errors: []};
+          if (url.pathname === '/api/command/home') body = {date:'2026-10-07',timezone:'America/Sao_Paulo',next_action:{id:'study',title:'Estudar Direito Constitucional',start_minute:480,end_minute:540,link:'/studies',confirmed:false},today:[{id:'study',title:'Estudar Direito Constitucional',start_minute:480,end_minute:540,link:'/studies',confirmed:false}],today_count:1,attention:[],attention_count:0,areas:[],warnings:[],unscheduled_count:0};
           if (url.pathname === '/api/ai/daily') body = { tasks: { completed: 0, total: 1 }, commitments: [{ event_id: 'fixed', date: '2026-10-07', title: 'Compromisso registrado', start_minute: 840, end_minute: 900 }], plan: { date: '2026-10-07', available_minutes: 540, blocks: [{ task_id: 'task', title: 'Estudar Direito Constitucional', start_minute: 480, end_minute: 540, duration_minutes: 60 }], unscheduled: [] } };
           if (url.pathname === '/api/ai/conversation') body = {messages: [{message_id: 'fixture-private', role: 'assistant', content: 'Conversa sintética desta conta', actions: [{ action_id: 'fixture-expense', summary: 'Registrar despesa', reason: 'Pedido explícito', arguments: { amount: 48, category: 'Alimentação', date: '2026-09-26' }, status: actionStatus, expires_at: new Date(Date.now() + 1200000).toISOString() }] }]};
           if (url.pathname === '/api/ai/conversation' && activeUser.user_id !== user.user_id) body = { messages: [] };
@@ -147,13 +148,13 @@ const server = http.createServer((req, res) => {
         if (overflow) errors.push({ name, width, error: 'Horizontal overflow' });
         if (name === 'dashboard') {
           assert.equal(requests.filter(p => p === '/api/ai/actions' || p === '/api/ai/insights').length, 0, 'closed suggestions must not fetch');
-          await page.getByText('Estudar Direito Constitucional', { exact: true }).waitFor();
+          await page.getByRole('heading',{name:'Estudar Direito Constitucional',exact:true}).waitFor();
           assert.equal(await page.getByText('Capacidade em minutos', { exact: false }).count(), 0);
           assert.equal(await page.getByText('Ver plano de hoje', { exact: true }).count(), 0);
           const launcher = page.getByRole('button', { name: 'Abrir assistente Sirius', exact: true }).filter({ visible: true });
           assert.equal(await launcher.count(), 1, 'one visible Sirius entry point');
           await page.keyboard.press('Control+k');
-          await page.getByRole('combobox').fill('Nova tarefa');
+          await page.getByRole('combobox',{name:'Buscar registros e ações'}).fill('Nova tarefa');
           await page.getByRole('option', { name: 'Nova tarefa' }).waitFor();
           await page.keyboard.press('Escape');
           await launcher.click();

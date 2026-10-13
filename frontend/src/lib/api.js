@@ -27,6 +27,7 @@ export function getCurrentUser() {
   return request;
 }
 window.addEventListener('storage', event => { if (event.key === TOKEN_KEY || event.key === null) invalidateUser(); });
+window.addEventListener('sirius-auth-changed', invalidateUser);
 
 export const isOfflineMode = () => OFFLINE_MODE;
 
@@ -69,10 +70,11 @@ axios.interceptors.response.use(
     const url = response.config?.url || '';
     const isFinancialPreview = /\/finance\/intelligence\/(simulate|compare-debts)(?:\?|$)/.test(url) || /\/projections\/insights(?:\?|$)/.test(url);
     const isTrainingPreview = /\/workouts\/intelligence\/substitutions(?:\?|$)/.test(url);
+    const isIntegratedPreview = /\/command\/scenarios(?:\?|$)/.test(url) || /\/life\/simulate(?:\?|$)/.test(url) || /\/study\/programs\/[^/]+\/strategy\/simulate(?:\?|$)/.test(url);
       const isNutritionPreview = /\/nutrition\/intelligence\/alternatives(?:\?|$)/.test(url) || /\/nutrition\/import-plan(?:\?|$)/.test(url);
     // Legacy bills GET materializes projections on first view; it is a mutation.
     const importsBills = /\/finance\/monthly-bills(?:\?|$)/.test(url) && response.config?.method === 'get';
-      if (!isChatTransport && !isFinancialPreview && !isTrainingPreview && !isNutritionPreview && (importsBills || !['get', 'head', 'options'].includes(response.config?.method || 'get'))) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
+      if (!isChatTransport && !isFinancialPreview && !isTrainingPreview && !isNutritionPreview && !isIntegratedPreview && (importsBills || !['get', 'head', 'options'].includes(response.config?.method || 'get'))) { invalidateUser(); window.dispatchEvent(new Event('sirius-data-changed')); }
     return response;
   },
   (error) => {

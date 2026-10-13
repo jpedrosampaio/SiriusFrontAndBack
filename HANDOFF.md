@@ -8,11 +8,13 @@ Recheck Git/PR/deploy state at session start; the functional publication SHA is 
 
 ## Next phase and authorization
 
-Next: **Phase 13 - Sirius Command Center**. It is not authorized; wait for explicit owner approval. Phase 12 is published; contracts: [EVENT_AUTOMATION_ENGINE](docs/EVENT_AUTOMATION_ENGINE.md). Do not start the next phase based on historical instructions or the existence of the master plan.
+Current work: **Phase 13 - Sirius Command Center**, explicitly authorized by the owner on 2026-10-13. Branch `feat/sirius-command-center` starts from main `4a90864ad3657526264a04e5892a2741739ad5e9`. Implementation and validation are in progress; it is not published. Contracts and audit: [COMMAND_CENTER](docs/COMMAND_CENTER.md). Phase 14 remains unauthorized.
 
 ## Migrations and blockers
 
 Published schema head: `e47c2b6a901d`, parent `c9e42a7d160b`. Applied successfully by the [protected workflow](https://github.com/jpedrosampaio/SiriusFrontAndBack/actions/runs/38412230689), after mandatory owner Environment approval and before PR44 merge. No pending Phase 12 migration or publication blocker. No production test writes. [PRODUCTION_MIGRATIONS](docs/PRODUCTION_MIGRATIONS.md) remains authoritative.
+
+Phase 13 proposes `f13c8a7b902d` (parent `e47c2b6a901d`), adding owned business audit only. It has not been applied to production. Exact-head CI, clean Codex review, protected migration with mandatory owner approval, merge and both deploy validations remain publication gates.
 
 ## Decisions and continuity
 

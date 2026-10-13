@@ -22,8 +22,8 @@ export function useAssistant(page, enabled = true, context = {}) {
   const setAttachment = useCallback(value => setAssistantContext(conversationId, { attachment: value }), [conversationId]);
   const contextKey = JSON.stringify(context);
   useEffect(() => {
-    if (enabled && contextKey !== '{}') setAssistantContext(conversationId, { context: JSON.parse(contextKey) });
-  }, [enabled, contextKey, conversationId]);
+    if (enabled && (contextKey !== '{}' || page !== '/chat')) setAssistantContext(conversationId, { context: JSON.parse(contextKey) });
+  }, [enabled, contextKey, conversationId,page]);
   useEffect(() => {
     const sync = () => setSelection(getAssistantContext(conversationId));
     sync(); window.addEventListener('sirius-context-updated', sync);

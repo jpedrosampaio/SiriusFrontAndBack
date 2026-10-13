@@ -216,6 +216,8 @@ async def plan_create(request: Request,program_id: UUID,body: PlanSettings):
         notebooks=await catalog_notebooks(session,user.id,program_id=program_id)
         if not notebooks: raise HTTPException(422,'Adicione disciplinas antes de planejar.')
         plan,previous=await plan_rows(session,user.id,program_id)
+        audit_before={'entry_count':len(previous),'recorded_minutes':sum(row.minutes for row in previous),
+            'start_date':str(plan.start_date) if plan else None,'end_date':str(plan.end_date) if plan else None}
         today=local_today(user.timezone)
         preserved=[row for row in previous if row.completed or row.manual or row.fixed or row.date>body.end_date or
             (row.date<max(today,body.start_date) and not (body.adaptive and body.recovery and today-timedelta(days=28)<=row.date<today))]
@@ -248,6 +250,15 @@ async def plan_create(request: Request,program_id: UUID,body: PlanSettings):
             row.strategy_topic_key=values.get('topic_key')
             session.add(row); entries.append(row)
         await session.flush(); await session.refresh(plan)
+        from services.command_audit import record
+        await record(session,user.id,event='preparation.plan.updated',action='replan',entity_type='study_plan',entity_id=plan.id,
+            evidence=['Planejamento operacional solicitado pelo proprietário.',
+                'Adaptive Strategy existente.' if body.adaptive else 'Distribuição operacional existente.',
+                f'{len(preserved)} bloco(s) protegido(s) preservado(s).'],
+            constraints=['Blocos concluídos, manuais e fixos preservados; horários reservados descontados.'],
+            limitations=['Resumo de auditoria; conteúdos e sessões permanecem nas fontes canônicas.'],before=audit_before,
+            after={'entry_count':len(entries),'recorded_minutes':sum(row.minutes for row in entries),
+                'settings':body.model_dump(mode='json'),'protected_count':len(preserved)})
         return plan_json(plan,sorted(entries,key=lambda row:(row.date,str(row.id))))
     return await mutate(request,['dated-plan',str(program_id),body.model_dump(mode='json')],apply)
 
@@ -259,6 +270,7 @@ async def entry_update(request: Request,program_id: UUID,entry_id: UUID,body: Pl
         plan,entries=await plan_rows(session,user.id,program_id)
         row=next((row for row in entries if row.id==entry_id),None)
         if row is None: raise HTTPException(404,'Bloco não encontrado')
+        audit_before={'date':str(row.date),'completed':row.completed,'manual':row.manual}
         if body.date:
             if row.completed: raise HTTPException(409,'O histórico concluído não pode ser remarcado.')
             if not plan.start_date<=body.date<=plan.end_date: raise HTTPException(422,'Data fora do período planejado.')
@@ -268,5 +280,11 @@ async def entry_update(request: Request,program_id: UUID,entry_id: UUID,body: Pl
                 raise HTTPException(422,'Este dia não tem tempo disponível para o bloco.')
             row.date=body.date; row.manual=True
         if body.completed is not None: row.completed=body.completed
+        from services.command_audit import record
+        await record(session,user.id,event='preparation.entry.updated',action='update',entity_type='study_plan_entry',entity_id=row.id,
+            evidence=['Alteração de bloco solicitada explicitamente pelo proprietário.'],
+            constraints=['Histórico concluído não é remarcado; limite diário e reservas existentes conferidos.'],
+            before=audit_before,after={'date':str(row.date),'completed':row.completed,'manual':row.manual},
+            limitations=['Não oferece reversão automática: outras sessões e alocações podem depender deste bloco.'])
         return entry_json(row)
     return await mutate(request,['dated-entry',str(program_id),str(entry_id),body.model_dump(mode='json')],apply)

@@ -18,6 +18,16 @@ class Core:
         from services.agent_reads import page_context
         return await page_context(user_id, raw)
 
+    async def clock(self,user_id):
+        from uuid import UUID
+        from sqlalchemy import select
+        from db.models.identity import User
+        from db.session import unit_of_work
+        async with unit_of_work() as session:
+            zone=await session.scalar(select(User.timezone).where(User.id==UUID(str(user_id))))
+        local=datetime.now(ZoneInfo(zone or 'America/Sao_Paulo'))
+        return {'date':local.date().isoformat(),'timezone':zone or 'America/Sao_Paulo'}
+
     async def life_context(self, user_id):
         from services.life_state import daily, agent_context, agent_plan
         result=await daily(user_id)
