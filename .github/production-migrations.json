@@ -24,6 +24,14 @@
       "path": "backend/alembic/versions/e47c2b6a901d_durable_event_retries_and_owned_.py",
       "sha256": "2bf10e0fc2b341b6e8d6f77f8388d291a4aa9d778bf22b703f2897721786f88a",
       "review_comment_id": 6147268022
+    },
+    "47": {
+      "sha": "7f8c94c8ce270f69a6bdb0349b46c15a5e9f173f",
+      "revision": "f13c8a7b902d",
+      "down_revision": "e47c2b6a901d",
+      "path": "backend/alembic/versions/f13c8a7b902d_owned_command_center_audit.py",
+      "sha256": "422419ce27e64b1ea7ee67a2f70044e34585f3d8663564b8df0180c3eb8c64f8",
+      "review_comment_id": 6152333894
     }
   }
 }
