@@ -18,15 +18,36 @@ class CommandContext(unittest.IsolatedAsyncioTestCase):
         credentials=SimpleNamespace(get=AsyncMock(return_value={'groq':'mock-only'}))
         memory=SimpleNamespace(list=AsyncMock(return_value=[]))
         actions=SimpleNamespace(preferences=AsyncMock(return_value=Preferences(blocked_tools=['get_study_progress'])))
-        router=SimpleNamespace(settings=SimpleNamespace(rag=False),generate=AsyncMock(return_value=AIResult(data=AgentPlan(reply='Mock response',calls=[]),provider='mock',model='fake')))
-        agent=SiriusAgent(core,router,credentials,actions,memory,None)
+        router=SimpleNamespace(settings=SimpleNamespace(rag=True),generate=AsyncMock(return_value=AIResult(data=AgentPlan(reply='Mock response',calls=[]),provider='mock',model='fake')))
+        retrieval=SimpleNamespace(ensure_selection=AsyncMock(),search=AsyncMock(return_value={'method':'lexical','citations':[{'text':'Private indexed syllabus'}]}))
+        agent=SiriusAgent(core,router,credentials,actions,memory,retrieval)
         body=SimpleNamespace(page='/studies',message='Quero estudar neste caderno',page_context='{}',conversation_id='test',request_id='test')
-        await agent.respond('owned',body,json.dumps({'history':[]}))
+        response=await agent.respond('owned',body,json.dumps({'history':[]}))
         core.read.assert_not_awaited()
+        retrieval.ensure_selection.assert_not_awaited();retrieval.search.assert_not_awaited()
+        self.assertEqual(response['retrieval_method'],'blocked');self.assertEqual(response['citations'],[])
         prompt=json.loads(router.generate.await_args.kwargs['prompt'])
         self.assertNotIn('owned_notebooks',prompt['context'])
         self.assertNotIn('Private syllabus',str(prompt))
+        self.assertNotIn('Private indexed syllabus',str(prompt))
         self.assertNotIn('get_study_progress',router.generate.await_args.kwargs['system'])
+
+    async def test_enabled_rag_preserves_explicit_owned_study_selection_when_allowed(self):
+        selected={'notebook':{'notebook_id':'owned-notebook'}}
+        core=SimpleNamespace(page_context=AsyncMock(return_value=selected),read=AsyncMock(return_value=[]))
+        credentials=SimpleNamespace(get=AsyncMock(return_value={'groq':'mock-only'}))
+        memory=SimpleNamespace(list=AsyncMock(return_value=[]))
+        actions=SimpleNamespace(preferences=AsyncMock(return_value=Preferences()))
+        router=SimpleNamespace(settings=SimpleNamespace(rag=True),generate=AsyncMock(return_value=AIResult(data=AgentPlan(reply='Mock response',calls=[]),provider='mock',model='fake')))
+        evidence={'method':'lexical','citations':[{'text':'Owned selected source'}]}
+        retrieval=SimpleNamespace(ensure_selection=AsyncMock(),search=AsyncMock(return_value=evidence))
+        agent=SiriusAgent(core,router,credentials,actions,memory,retrieval)
+        body=SimpleNamespace(page='/studies',message='Explique a fonte.',page_context='{}',conversation_id='test',request_id='test')
+        response=await agent.respond('owned',body,json.dumps({'history':[]}))
+        retrieval.ensure_selection.assert_awaited_once_with('owned',selected)
+        retrieval.search.assert_awaited_once_with('owned',body.message,'owned-notebook')
+        self.assertEqual(response['citations'],evidence['citations'])
+        self.assertIn('Owned selected source',router.generate.await_args.kwargs['prompt'])
 
     def test_limits_preserve_complete_facts_and_disclose_omissions(self):
         raw={'date':'2026-10-13','selection':{'exercise':{'title':'Supino'}},'large_history':['x'*500]*1000,'finance':{'amount':'0.30','bank_balance':None}}

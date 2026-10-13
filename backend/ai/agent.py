@@ -159,9 +159,12 @@ class SiriusAgent:
             context['owned_notebooks'] = await self.core.read('get_study_progress', user_id)
         # Client page context is deliberately not an authority for IDs or ownership.
         selected = context['selection']
-        if self.router.settings.rag: await self.retrieval.ensure_selection(user_id, selected)
+        # Document retrieval can contain study materials. A removed selection must
+        # never broaden a blocked study read into an account-wide lexical search.
+        rag_allowed = self.router.settings.rag and 'get_study_progress' not in blocked
+        if rag_allowed: await self.retrieval.ensure_selection(user_id, selected)
         source_id = next((selected[key][field] for key, field in [('attachment', 'attachment_id'), ('analysis', 'analysis_id'), ('notebook', 'notebook_id')] if key in selected), None)
-        evidence = await self.retrieval.search(user_id, body.message, source_id) if self.router.settings.rag else {'method': 'disabled', 'citations': []}
+        evidence = await self.retrieval.search(user_id, body.message, source_id) if rag_allowed else {'method': 'blocked' if 'get_study_progress' in blocked else 'disabled', 'citations': []}
         context['retrieval'] = evidence
         model_history, count = [], 0
         for item in reversed(history.get('history', [])[-6:]):
