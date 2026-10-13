@@ -166,10 +166,10 @@ async def export_nutrition(request: Request, format: str, start: Date | None=Non
         for row, m in enumerate(meals, 2):
             ws.cell(row=row, column=1, value=m.get('date', '')).border = thin_border
             ws.cell(row=row, column=2, value=m.get('meal_type', '')).border = thin_border
-            ws.cell(row=row, column=3, value=round(m.get('total_calories', 0), 1)).border = thin_border
-            ws.cell(row=row, column=4, value=round(m.get('total_protein', 0), 1)).border = thin_border
-            ws.cell(row=row, column=5, value=round(m.get('total_carbs', 0), 1)).border = thin_border
-            ws.cell(row=row, column=6, value=round(m.get('total_fat', 0), 1)).border = thin_border
+            ws.cell(row=row, column=3, value=round(m['total_calories'],1) if m.get('total_calories') is not None else 'Desconhecido').border = thin_border
+            ws.cell(row=row, column=4, value=round(m['total_protein'],1) if m.get('total_protein') is not None else 'Desconhecido').border = thin_border
+            ws.cell(row=row, column=5, value=round(m['total_carbs'],1) if m.get('total_carbs') is not None else 'Desconhecido').border = thin_border
+            ws.cell(row=row, column=6, value=round(m['total_fat'],1) if m.get('total_fat') is not None else 'Desconhecido').border = thin_border
         for col in ws.columns:
             max_len = max((len(str(cell.value or '')) for cell in col))
             ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 25)
@@ -198,7 +198,7 @@ async def export_nutrition(request: Request, format: str, start: Date | None=Non
         elements.append(Spacer(1, 20))
         data = [['Data', 'Refeição', 'Calorias', 'Proteína', 'Carbos', 'Gordura']]
         for m in meals:
-            data.append([m.get('date', ''), m.get('meal_type', ''), f"{m.get('total_calories', 0):.0f}", f"{m.get('total_protein', 0):.1f}g", f"{m.get('total_carbs', 0):.1f}g", f"{m.get('total_fat', 0):.1f}g"])
+            data.append([m.get('date', ''), m.get('meal_type', ''), format(m['total_calories'],'.0f') if m.get('total_calories') is not None else 'Desconhecido', format(m['total_protein'],'.1f')+'g' if m.get('total_protein') is not None else 'Desconhecido', format(m['total_carbs'],'.1f')+'g' if m.get('total_carbs') is not None else 'Desconhecido', format(m['total_fat'],'.1f')+'g' if m.get('total_fat') is not None else 'Desconhecido'])
         table = Table(data, repeatRows=1, colWidths=[2.5 * cm, 3 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm])
         table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#22C55E')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (-1, -1), 8), ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')])]))
         elements.append(table)

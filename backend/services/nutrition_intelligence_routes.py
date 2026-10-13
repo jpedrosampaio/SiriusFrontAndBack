@@ -40,9 +40,8 @@ async def record_source(request: Request, kind: str, identity: UUID, body: Repea
             if source is None:raise HTTPException(404,'Receita própria não encontrada.')
             if body.meal_type is None:raise HTTPException(422,'Escolha o tipo da refeição para registrar a receita.')
             meal_type=body.meal_type
-            data=[{'name':source.name,'quantity':float(body.portions),'unit':'porcao',**{k:getattr(source,k+'_per_serving') for k in MACROS},
-                'nutrition_evidence':{'source':'estimated','known_macros':[k for k in MACROS if getattr(source,k+'_per_serving')>0],
-                    'basis':'per_unit','portion_label':'Uma porção da receita'} if source.ai_generated else None}]
+            from services.nutrition_evidence import recipe_food
+            data=[recipe_food(source,float(body.portions))]
         if not data:raise HTTPException(409,'Template sem alimentos; revise antes de registrar.')
         row=Meal(user_id=owner.id,name=source.name,meal_type=meal_type,date=body.date,source_reference={
             'planned_meal_id' if kind=='planned' else 'recipe_id':str(identity),'portions':str(body.portions)})

@@ -36,6 +36,8 @@ const mealTypeLabels = {
   snack: "Lanche"
 };
 
+const macroLabel=(value,unit='')=>value==null?'Desconhecido':`${value}${unit?` ${unit}`:''}`;
+
 export default function Nutrition() {
   const activityRequests=useRef(createActivityRequests());
   const [importPreview,setImportPreview]=useState(null);
@@ -748,10 +750,10 @@ export default function Nutrition() {
                           </div>
                           <Badge variant="outline" className="mb-2">{mealTypeLabels[meal.meal_type]}</Badge>
                           <div className="grid grid-cols-4 gap-2 text-xs text-[#A1A1AA]">
-                            <span>{meal.total_calories} kcal</span>
-                            <span>{meal.total_protein}g P</span>
-                            <span>{meal.total_carbs}g C</span>
-                            <span>{meal.total_fat}g G</span>
+                            <span>{macroLabel(meal.total_calories,'kcal')}</span>
+                            <span>{macroLabel(meal.total_protein,'g P')}</span>
+                            <span>{macroLabel(meal.total_carbs,'g C')}</span>
+                            <span>{macroLabel(meal.total_fat,'g G')}</span>
                           </div>
                         </div>
                       );
@@ -906,19 +908,19 @@ export default function Nutrition() {
                             <div className="grid grid-cols-4 gap-4 mb-3">
                               <div className="text-center">
                                 <Flame className="w-4 h-4 mx-auto text-orange-500" />
-                                <span className="text-sm">{meal.total_calories} kcal</span>
+                                <span className="text-sm">{macroLabel(meal.total_calories,'kcal')}</span>
                               </div>
                               <div className="text-center">
                                 <Drumstick className="w-4 h-4 mx-auto text-red-500" />
-                                <span className="text-sm">{meal.total_protein}g</span>
+                                <span className="text-sm">{macroLabel(meal.total_protein,'g')}</span>
                               </div>
                               <div className="text-center">
                                 <Wheat className="w-4 h-4 mx-auto text-yellow-500" />
-                                <span className="text-sm">{meal.total_carbs}g</span>
+                                <span className="text-sm">{macroLabel(meal.total_carbs,'g')}</span>
                               </div>
                               <div className="text-center">
                                 <Droplet className="w-4 h-4 mx-auto text-purple-500" />
-                                <span className="text-sm">{meal.total_fat}g</span>
+                                <span className="text-sm">{macroLabel(meal.total_fat,'g')}</span>
                               </div>
                             </div>
                             {meal.foods?.length > 0 && (
@@ -994,19 +996,19 @@ export default function Nutrition() {
                       </div>
                       <div className="grid grid-cols-4 gap-2 text-center text-xs">
                         <div>
-                          <span className="text-orange-500">{recipe.calories_per_serving}</span>
+                          <span className="text-orange-500">{macroLabel(recipe.calories_per_serving)}</span>
                           <span className="block text-[#A1A1AA]">kcal</span>
                         </div>
                         <div>
-                          <span className="text-red-500">{recipe.protein_per_serving}g</span>
+                          <span className="text-red-500">{macroLabel(recipe.protein_per_serving,'g')}</span>
                           <span className="block text-[#A1A1AA]">P</span>
                         </div>
                         <div>
-                          <span className="text-yellow-500">{recipe.carbs_per_serving}g</span>
+                          <span className="text-yellow-500">{macroLabel(recipe.carbs_per_serving,'g')}</span>
                           <span className="block text-[#A1A1AA]">C</span>
                         </div>
                         <div>
-                          <span className="text-purple-500">{recipe.fat_per_serving}g</span>
+                          <span className="text-purple-500">{macroLabel(recipe.fat_per_serving,'g')}</span>
                           <span className="block text-[#A1A1AA]">G</span>
                         </div>
                       </div>
@@ -1049,21 +1051,21 @@ export default function Nutrition() {
                           </div>
                           <div className="bg-[#121212] p-3 rounded-lg text-center">
                             <Target className="w-5 h-5 mx-auto mb-1 text-red-400" />
-                            <p className="text-sm font-bold">{selectedRecipe.calories_per_serving}</p>
+                            <p className="text-sm font-bold">{macroLabel(selectedRecipe.calories_per_serving)}</p>
                             <p className="text-xs text-[#A1A1AA]">kcal/porção</p>
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-3">
                           <div className="bg-red-500/10 p-3 rounded-lg text-center">
-                            <p className="text-lg font-bold text-red-400">{selectedRecipe.protein_per_serving}g</p>
+                            <p className="text-lg font-bold text-red-400">{macroLabel(selectedRecipe.protein_per_serving,'g')}</p>
                             <p className="text-xs text-[#A1A1AA]">Proteínas</p>
                           </div>
                           <div className="bg-yellow-500/10 p-3 rounded-lg text-center">
-                            <p className="text-lg font-bold text-yellow-400">{selectedRecipe.carbs_per_serving}g</p>
+                            <p className="text-lg font-bold text-yellow-400">{macroLabel(selectedRecipe.carbs_per_serving,'g')}</p>
                             <p className="text-xs text-[#A1A1AA]">Carboidratos</p>
                           </div>
                           <div className="bg-purple-500/10 p-3 rounded-lg text-center">
-                            <p className="text-lg font-bold text-purple-400">{selectedRecipe.fat_per_serving}g</p>
+                            <p className="text-lg font-bold text-purple-400">{macroLabel(selectedRecipe.fat_per_serving,'g')}</p>
                             <p className="text-xs text-[#A1A1AA]">Gorduras</p>
                           </div>
                         </div>
@@ -1323,7 +1325,7 @@ export default function Nutrition() {
                             <div key={mIdx} className="bg-[#121212] rounded-lg p-3">
                               <div className="flex justify-between items-center mb-2">
                                 <span className="text-sm font-medium">{meal.time} - {meal.name}</span>
-                                <Badge variant="outline" className="text-[10px]">{meal.total_calories || 0} kcal</Badge>
+                                <Badge variant="outline" className="text-[10px]">{macroLabel(meal.total_calories,'kcal')}</Badge>
                               </div>
                               {meal.foods && meal.foods.map((f, fIdx) => (
                                 <div key={fIdx} className="flex justify-between text-xs text-[#A1A1AA]"><span>{f.name} ({f.quantity})</span><span>{f.calories} kcal</span></div>
@@ -1656,10 +1658,10 @@ export default function Nutrition() {
                     <h3 className="text-xl font-bold text-[#00F0FF] mb-2">{suggestedRecipe.name}</h3>
                     <p className="text-[#A1A1AA] mb-4">{suggestedRecipe.description}</p>
                     <div className="grid grid-cols-4 gap-2 mb-4">
-                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Flame className="w-4 h-4 mx-auto text-orange-500" /><span className="text-sm">{suggestedRecipe.calories_per_serving} kcal</span></div>
-                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Dumbbell className="w-4 h-4 mx-auto text-red-500" /><span className="text-sm">{suggestedRecipe.protein_per_serving}g P</span></div>
-                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Zap className="w-4 h-4 mx-auto text-yellow-500" /><span className="text-sm">{suggestedRecipe.carbs_per_serving}g C</span></div>
-                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Droplet className="w-4 h-4 mx-auto text-purple-500" /><span className="text-sm">{suggestedRecipe.fat_per_serving}g G</span></div>
+                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Flame className="w-4 h-4 mx-auto text-orange-500" /><span className="text-sm">{macroLabel(suggestedRecipe.calories_per_serving,'kcal')}</span></div>
+                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Dumbbell className="w-4 h-4 mx-auto text-red-500" /><span className="text-sm">{macroLabel(suggestedRecipe.protein_per_serving,'g P')}</span></div>
+                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Zap className="w-4 h-4 mx-auto text-yellow-500" /><span className="text-sm">{macroLabel(suggestedRecipe.carbs_per_serving,'g C')}</span></div>
+                      <div className="text-center p-2 bg-[#0A0A0A] rounded"><Droplet className="w-4 h-4 mx-auto text-purple-500" /><span className="text-sm">{macroLabel(suggestedRecipe.fat_per_serving,'g G')}</span></div>
                     </div>
                     <div className="mb-4"><h4 className="font-medium mb-2">Ingredientes</h4><ul className="list-disc list-inside space-y-1 text-[#A1A1AA]">{suggestedRecipe.ingredients?.map((ing, idx) => <li key={idx}>{ing.quantity} {ing.unit} de {ing.name}</li>)}</ul></div>
                     <div className="mb-4"><h4 className="font-medium mb-2">Modo de Preparo</h4><ol className="list-decimal list-inside space-y-2 text-[#A1A1AA]">{suggestedRecipe.instructions?.map((step, idx) => <li key={idx}>{step}</li>)}</ol></div>

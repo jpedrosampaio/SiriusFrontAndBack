@@ -21,6 +21,20 @@ def evidence(food):
         'portion_label': food.portion_label}
 
 
+def meal_projection(foods,reported):
+    if any(value is not None for value in reported.values()):
+        return [{'quantity':1,'nutrition_evidence':None,**{k:reported[k] or 0 for k in MACROS}}]
+    return foods or [{'quantity':1,'nutrition_evidence':{'source':'unknown','known_macros':[]},**{k:0 for k in MACROS}}]
+
+
+def recipe_food(row,quantity=1):
+    proof=row.nutrition_evidence
+    if proof is None and row.ai_generated:
+        proof={'source':'estimated','known_macros':[k for k in MACROS if getattr(row,k+'_per_serving')>0],
+            'basis':'per_unit','portion_label':'Uma porção da receita'}
+    return {'name':row.name,'quantity':quantity,'unit':'porcao',**{k:getattr(row,k+'_per_serving') for k in MACROS},'nutrition_evidence':proof}
+
+
 def project(foods):
     result = {}
     for key in MACROS:

@@ -228,6 +228,8 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
         self.ok(await self.http.put('/api/nutrition/goals',json={'daily_calories':200}))
         self.assertEqual((await self.state())['remaining']['calories'],'200.000')
         await self.add(foods=[])
+        meal=self.ok(await self.http.get('/api/nutrition/meals'))[0]
+        self.assertIsNone(meal['total_calories']);self.assertEqual(meal['macro_evidence']['calories']['unknown_items'],1)
         state=await self.state()
         for value in state['consumed'].values():self.assertIsNone(value['total']);self.assertEqual(value['unknown_items'],1)
         self.assertIsNone(state['remaining']['calories']);self.assertIsNone(state['meals'][0]['macros']['calories']['total'])
@@ -245,6 +247,8 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
             item=await session.scalar(select(MealItem).where(MealItem.user_id==self.uid));item.nutrition_evidence=None
             session.add(MealItem(user_id=self.uid,meal_id=item.meal_id,position=1,name='Known beside legacy',unit='portion',quantity=1,
                 calories=1,protein=1,carbs=1,fat=1,nutrition_evidence={'source':'registered','known_macros':['calories','protein','carbs','fat']}))
+        response=self.ok(await self.http.get('/api/nutrition/meals'))[0]
+        self.assertIsNone(response['total_calories']);self.assertEqual(response['macro_evidence']['calories']['known_total'],'1.000')
         async with unit_of_work() as session:
             meals,_,_=await period(session,self.uid,self.today,self.today)
             for key in ('calories','protein','carbs','fat'):self.assertIsNone(meals[self.today][key])

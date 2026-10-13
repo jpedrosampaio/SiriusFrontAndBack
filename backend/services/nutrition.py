@@ -40,15 +40,17 @@ class MealBody(BaseModel):
 
 
 def meal_json(row):
-    from services.nutrition_evidence import number
+    from services.nutrition_evidence import project,meal_projection
     foods=[{**{key:getattr(item,key) for key in Food.model_fields if key not in ('estimated','portion_label','known_macros')},
         'estimated':(item.nutrition_evidence or {}).get('source')=='estimated',
         'portion_label':(item.nutrition_evidence or {}).get('portion_label',''),
         'nutrition_evidence':item.nutrition_evidence} for item in row.items]
-    totals={key:number(getattr(row,'reported_'+key)) if getattr(row,'reported_'+key) is not None else sum((number(food[key])*number(food['quantity']) for food in foods),number(0)) for key in MACROS}
+    reported={key:getattr(row,'reported_'+key) for key in MACROS}
+    macros=project(meal_projection(foods,reported))
     return jsonable_encoder({'meal_id':row.id,'user_id':row.user_id,'name':row.name,'meal_type':row.meal_type,
         'date':row.date,'notes':row.notes,'created_at':row.created_at,'foods':foods,
-        **{'total_'+key:float(round(value,3)) for key,value in totals.items()}})
+        'macro_evidence':macros,'legacy_reported_totals':reported if any(v is not None for v in reported.values()) else None,
+        **{'total_'+key:float(value['total']) if value['total'] is not None else None for key,value in macros.items()}})
 
 
 def water_json(row):

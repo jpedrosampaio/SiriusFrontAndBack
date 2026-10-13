@@ -83,9 +83,8 @@ async def load_templates(session, owner, day):
     for recipe in recipes[:100]:
         templates.append(SimpleNamespace(id=recipe.id,name=recipe.name,meal_type=None,template_kind='recipe',
             ingredient_names=[i.name for i in ingredients if i.recipe_id==recipe.id]))
-        by[recipe.id]=[{'name':recipe.name,'quantity':1,'unit':'porcao',**{k:getattr(recipe,k+'_per_serving') for k in MACROS},
-            'nutrition_evidence':{'source':'estimated','known_macros':[k for k in MACROS if getattr(recipe,k+'_per_serving')>0],
-                'basis':'per_unit','portion_label':'Uma porção da receita'} if recipe.ai_generated else None}]
+        from services.nutrition_evidence import recipe_food
+        by[recipe.id]=[recipe_food(recipe)]
     return templates,by,truncated or len(planned)>100 or len(recipes)>100
 
 
@@ -107,10 +106,8 @@ async def load_state(session, owner, day, *, include_context=True):
     # Imported historical meal-level totals have no item-level provenance.
     projected_foods={}
     for row in today:
-        if any(getattr(row, 'reported_' + k) is not None for k in MACROS):
-            projected_foods[row.id]=[{'quantity':1,'nutrition_evidence':None,**{k:getattr(row,'reported_'+k) or 0 for k in MACROS}}]
-        else:
-            projected_foods[row.id]=foods[row.id] or [{'quantity':1,'nutrition_evidence':{'source':'unknown','known_macros':[]},**{k:0 for k in MACROS}}]
+        from services.nutrition_evidence import meal_projection
+        projected_foods[row.id]=meal_projection(foods[row.id],{k:getattr(row,'reported_'+k) for k in MACROS})
         all_foods.extend(projected_foods[row.id])
     consumed = project(all_foods)
     target = await session.scalar(select(NutritionGoal).where(NutritionGoal.user_id == uid))

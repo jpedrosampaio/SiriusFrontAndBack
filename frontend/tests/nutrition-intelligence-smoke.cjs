@@ -30,6 +30,7 @@ const server=http.createServer((req,res)=>{
       if(p==='/api/nutrition/goals')data={goal_id:null,configured:false,confirmed_fields:[]};
       if(p==='/api/nutrition/stats')data={consumed:{calories:0,protein:0,carbs:0,fat:0},remaining:{},meals_count:0};
       if(p==='/api/nutrition/water')data={total_ml:0,logs:[]};
+      if(p==='/api/nutrition/meals')data=[{meal_id:'meal-own',name:'Arroz registrado',date:'2026-10-09',meal_type:'lunch',foods:[],total_calories:100,total_protein:null,total_carbs:20,total_fat:0}];
       if(p==='/api/nutrition/weekly-trend')data={daily:[],averages:{dias_registrados:0}};
       if(p==='/api/nutrition/intelligence/state'){reads++;data=state;}
       if(p==='/api/nutrition/intelligence/alternatives'){
@@ -76,6 +77,9 @@ const server=http.createServer((req,res)=>{
     await panel.getByRole('button',{name:'Registrar com confirmação'}).click();
     await panel.getByText('Nova refeição confirmada',{exact:false}).waitFor();
     assert.equal(committed,1);assert.equal(repeats,2);assert.equal(new Set(keys).size,1);
+    await page.getByRole('tab',{name:'Refeições',exact:true}).click();
+    await page.getByText('Desconhecido',{exact:true}).waitFor();
+    await page.getByText('0 g',{exact:true}).waitFor();
     await page.getByRole('tab',{name:'Plano Alimentar',exact:true}).click();
     await page.getByTestId('import-meal-plan-btn').click();
     const dialog=page.getByRole('dialog');

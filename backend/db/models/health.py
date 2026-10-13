@@ -273,6 +273,7 @@ class Recipe(Identity, Owned, Timestamps, Base):
     tags: Mapped[list[str]] = mapped_column(ARRAY(Text),default=list)
     tips: Mapped[str] = mapped_column(Text,default='')
     ai_generated: Mapped[bool] = mapped_column(default=True)
+    nutrition_evidence: Mapped[dict | None] = mapped_column(JSONB)
     ingredients: Mapped[list['RecipeIngredient']] = relationship(passive_deletes=True,order_by='RecipeIngredient.position')
     __table_args__ = (UniqueConstraint('user_id','id'),Index('ix_recipes_owner_created','user_id','created_at'),
         CheckConstraint('servings > 0 AND prep_time_minutes >= 0 AND cook_time_minutes >= 0',name='portions_time'),
