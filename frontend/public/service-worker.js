@@ -3,11 +3,31 @@ const CACHE_NAME = 'sirius-cache-v4';
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 
 // Cache only the application shell/assets, never authenticated API responses.
+async function installShell() {
+  const response = await fetch('/asset-manifest.json', { cache: 'no-cache' });
+  if (!response.ok) throw new Error('Shell manifest unavailable');
+  const manifest = await response.clone().json();
+  if (!Array.isArray(manifest.entrypoints) || !manifest.entrypoints.length || manifest.entrypoints.length > 32) {
+    throw new Error('Invalid shell entrypoints');
+  }
+  const entrypoints = manifest.entrypoints.map((path) => {
+    if (typeof path !== 'string') throw new Error('Invalid shell asset');
+    const url = new URL(path, self.location.origin + '/');
+    if (url.origin !== self.location.origin || !url.pathname.startsWith('/static/') ||
+        !/\.(?:js|css)$/.test(url.pathname) || url.search || url.hash) {
+      throw new Error('Invalid shell asset');
+    }
+    return url.href;
+  });
+  const cache = await caches.open(CACHE_NAME);
+  await cache.addAll([...STATIC_ASSETS, ...new Set(entrypoints)]);
+  await cache.put('/asset-manifest.json', response);
+  // Only activate/purge the older shell after every boot JS/CSS asset is cached.
+  await self.skipWaiting();
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil(installShell());
 });
 
 self.addEventListener('activate', (event) => {

@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, '../public/service-worker.js
 function harness(network = async () => new Response('online')) {
   const listeners = {};
   const stores = new Map();
-  const calls = { reads: 0, writes: 0, fetch: [], claimed: false };
+  const calls = { reads: 0, writes: 0, fetch: [], claimed: false, skipped: false };
   function key(request) { return typeof request === 'string' ? request : request.url; }
   const caches = {
     async keys() { return [...stores.keys()]; },
@@ -20,6 +20,7 @@ function harness(network = async () => new Response('online')) {
       return {
         async addAll(urls) {
           const responses = await Promise.all(urls.map(url => network(url)));
+          if (responses.some(response => !response.ok)) throw new TypeError('Precache failed');
           for (let index = 0; index < urls.length; index++) store.set(urls[index], responses[index].clone());
         },
         async match(request) {
@@ -41,7 +42,7 @@ function harness(network = async () => new Response('online')) {
     self: {
       location: { origin: 'https://app.test' },
       addEventListener(name, fn) { listeners[name] = fn; },
-      async skipWaiting() {},
+      async skipWaiting() { calls.skipped = true; },
       clients: { async claim() { calls.claimed = true; } }
     },
     caches, URL, Response, console,
@@ -83,7 +84,14 @@ test('activation purges all old Sirius private/static caches but preserves unrel
 
 test('installed v3 shell is replaced before subsequent offline navigation, retaining unrelated data', async () => {
   let online = true;
-  const h = harness(async () => online ? new Response('clean zoom-enabled shell') : offline());
+  const h = harness(async request => {
+    if (!online) return offline();
+    const url = new URL(typeof request === 'string' ? request : request.url, 'https://app.test');
+    if (url.pathname === '/asset-manifest.json') return new Response(JSON.stringify({ entrypoints: ['static/js/main.new.js', 'static/css/main.new.css'] }));
+    if (url.pathname.endsWith('.js')) return new Response('new boot JavaScript');
+    if (url.pathname.endsWith('.css')) return new Response('new boot stylesheet');
+    return new Response('clean zoom-enabled shell');
+  });
   h.stores.set('sirius-cache-v3', new Map([['/index.html', new Response('legacy telemetry shell')]]));
   h.stores.set('unrelated-cache', new Map([['personal draft', new Response('preserved')]]));
   await h.dispatch('install');
@@ -91,9 +99,36 @@ test('installed v3 shell is replaced before subsequent offline navigation, retai
   online = false;
   const response = await h.dispatch('fetch', request('https://app.test/tasks', { mode: 'navigate' }));
   assert.equal(await response.text(), 'clean zoom-enabled shell');
+  for (const [asset, contents] of [['/static/js/main.new.js', 'new boot JavaScript'], ['/static/css/main.new.css', 'new boot stylesheet']]) {
+    const bundle = await h.dispatch('fetch', request('https://app.test' + asset));
+    assert.equal(bundle.status, 200); assert.equal(await bundle.text(), contents);
+  }
   assert.equal(h.stores.has('sirius-cache-v3'), false);
   assert.equal(await h.stores.get('unrelated-cache').get('personal draft').text(), 'preserved');
   assert.equal(h.calls.claimed, true);
+  assert.equal(h.calls.skipped, true);
+});
+
+test('failed essential bundle prevents activation and leaves the installed old shell available', async () => {
+  const h = harness(async request => {
+    const url = new URL(typeof request === 'string' ? request : request.url, 'https://app.test');
+    if (url.pathname === '/asset-manifest.json') return new Response(JSON.stringify({ entrypoints: ['static/js/missing.js'] }));
+    if (url.pathname.endsWith('.js')) return new Response('Unavailable', { status: 503 });
+    return new Response('new shell');
+  });
+  h.stores.set('sirius-cache-v3', new Map([['/index.html', new Response('installed old shell')]]));
+  await assert.rejects(h.dispatch('install'), /Precache failed/);
+  assert.equal(h.calls.skipped, false); assert.equal(h.calls.claimed, false);
+  assert.equal(await h.stores.get('sirius-cache-v3').get('/index.html').text(), 'installed old shell');
+});
+
+test('precache rejects private, external and excessive manifest entrypoints before fetching assets', async () => {
+  for (const entrypoints of [['/api/auth/me'], ['https://external.test/static/main.js'], Array(33).fill('static/js/main.js')]) {
+    const h = harness(async () => new Response(JSON.stringify({ entrypoints })));
+    await assert.rejects(h.dispatch('install'), /Invalid shell/);
+    assert.equal(h.calls.fetch.length, 1); assert.equal(h.calls.writes, 0);
+    assert.equal(h.calls.skipped, false);
+  }
 });
 
 test('offline account switch cannot return a previous account API response', async () => {
