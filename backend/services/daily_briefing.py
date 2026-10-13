@@ -89,7 +89,9 @@ async def get_daily_summary(request: Request):
     if cached:
         async with unit_of_work() as session:
             nutrition,_,_=await period(session,UUID(user.user_id),day,day)
-        if nutrition.get(day,{}).get('calories',0) is None:cached=None
+        calories=nutrition.get(day,{}).get('calories',0)
+        current=round(calories) if calories is not None else None
+        if cached['raw_data']['calories']!=current:cached=None
     if cached:
         async with unit_of_work() as session:
             repo=PlanningRepository(session)
@@ -128,6 +130,5 @@ async def get_daily_summary(request: Request):
         summary_data = {'greeting': f'Bom dia, {user.name}! Seu rank atual é {user.rank}.', 'progress_summary': f"Você já concluiu {len(done_tasks)} tarefas e {len(habits_done)} hábitos hoje. {('Estudou ' + str(study_minutes) + ' min. ' if study_minutes else '')}{('Treinou! ' if workout_count else '')}{('Registrou ' + str(meal_count) + ' refeições.' if meal_count else '')}", 'pending_items': [t['title'] for t in pending_tasks[:5]] + [h['name'] for h in habits_pending[:5]], 'motivation': 'Disciplina é o que te move quando a motivação falta. Continue!', 'priority_action': pending_tasks[0]['title'] if pending_tasks else habits_pending[0]['name'] if habits_pending else 'Dia limpo! Descanse ou avance no extra.', 'score': score}
     summary_data['score']=progress_score(raw)
     result = {'user_id': user.user_id, 'date': today_str, 'summary': summary_data, 'raw_data': {'tasks_pending': len(pending_tasks), 'tasks_done': len(done_tasks), 'habits_pending': len(habits_pending), 'habits_done': len(habits_done), 'study_minutes': study_minutes, 'meals_count': meal_count, 'calories': round(total_calories) if total_calories is not None else None, 'workouts_count': workout_count}, 'created_at': datetime.now(timezone.utc).isoformat()}
-    if raw['calories'] is None:return result
     return await save_summary(user.user_id,day,result)
 

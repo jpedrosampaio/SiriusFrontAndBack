@@ -28,8 +28,8 @@ class Report(Identity,Owned,Timestamps,Base):
     workouts: Mapped[int]
     workout_minutes: Mapped[int]
     meals: Mapped[int]
-    calories: Mapped[float]
-    protein: Mapped[float]
+    calories: Mapped[float | None]
+    protein: Mapped[float | None]
     water_ml: Mapped[int]
     __table_args__=(Index('ix_reports_owner_created','user_id','created_at'),CheckConstraint('end_date >= start_date',name='period'))
 
@@ -49,6 +49,6 @@ class DailySummary(Identity,Owned,Timestamps,Base):
     habits_done: Mapped[int]
     study_minutes: Mapped[int]
     meals_count: Mapped[int]
-    calories: Mapped[int]
+    calories: Mapped[int | None]
     workouts_count: Mapped[int]
     __table_args__=(UniqueConstraint('user_id','date'),CheckConstraint('score BETWEEN 0 AND 100',name='score'))

@@ -12,7 +12,7 @@ Image support imports diet documents/photos, not recognition of dishes. Preserve
 
 Reuse historical meals as templates/favorites and existing user preferences for explicit availability, exclusions and optional budget/price declarations. Favorite references do not duplicate meal history. Reuse the owned receipt transaction for confirmed quick registration; previews never write meals, XP, finance or calendars.
 
-Migration `c9e42a7d160b` adds five nullable fields: meal-item and planned-food provenance, meal source references and goal confirmation metadata. It does not rewrite old values or infer which historical defaults were intentionally selected. Old goals remain visible as unconfirmed until explicitly saved; missing goals remain missing. Nutrition evidence records supplied macro fields, including explicit zero, registered/estimated source and the declared unit. Missing fields remain unknown even when legacy storage uses numeric zero.
+Migration `c9e42a7d160b` adds five new nullable fields: meal-item and planned-food provenance, meal source references and goal confirmation metadata. It does not rewrite old values or infer which historical defaults were intentionally selected. Old goals remain visible as unconfirmed until explicitly saved; missing goals remain missing. Nutrition evidence records supplied macro fields, including explicit zero, registered/estimated source and the declared unit. Missing fields remain unknown even when legacy storage uses numeric zero.
 
 The Nutrition Engine owns nutrition calculations. Finance provides only explicit budget limits; declared prices remain known or estimated and never become expenses. Recorded training/calendar commitments supply context, never calorie expenditure or clinical needs. Organization proposals have dates and meal references, not competing scheduling or automatic fixed-commitment changes. Life State and Agent reuse these contracts and their existing permissions.
 
@@ -36,7 +36,9 @@ State and scenario reads use owned read-only repeatable snapshots. The daily pro
 
 Coverage includes Decimal/unknown-source regressions, PostgreSQL ownership, partial goals, concurrent replay, favorites/deletion, recipe ingredients, own financial-budget capacity/month, preview side effects and plan confirmation. The browser suite exercises unknowns, failed-preview retry, confirmed registration with an uncertain-response retry and editable document preview at all five required widths. All existing suites and four CI workflows remain required.
 
-Period aggregates, weekly trends, dashboard, reports and daily briefing propagate unknown composition rather than treating placeholder numbers as complete consumption. Daily briefing does not persist a numeric cache when calories are unknown; historical cache rows are preserved. Empty dates remain recorded zero.
+Period aggregates, weekly trends, dashboard, reports and daily briefing propagate unknown composition rather than treating placeholder numbers as complete consumption. Report calories/protein and daily-briefing calories accept null for unknown composition. Daily briefing caches that explicit unknown without fabricated numbers; stale numeric nutrition evidence invalidates the cache. Historical numeric rows are preserved. Empty dates remain recorded zero.
+
+The additive migration also relaxes nullability for report calories/protein and daily-summary calories; it does not rewrite any existing values. Downgrade refuses unknown snapshots instead of replacing them with invented totals.
 
 ## Delivery status
 

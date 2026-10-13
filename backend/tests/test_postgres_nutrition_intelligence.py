@@ -266,10 +266,24 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
         ai=AsyncMock(return_value=json.dumps({'greeting':'Test','progress_summary':'Test','pending_items':[],'motivation':'Test','priority_action':'Test'}))
         with patch('services.daily_briefing.account',account),patch('services.daily_briefing.call_llm',ai):
             briefing=self.ok(await self.http.get('/api/dashboard/daily-summary'))
+            cached=self.ok(await self.http.get('/api/dashboard/daily-summary'))
+            self.assertIsNone(cached['raw_data']['calories']);ai.assert_awaited_once()
         self.assertIsNone(briefing['raw_data']['calories'])
         self.assertIn('total desconhecido',ai.call_args.args[0])
         async with unit_of_work() as session:
-            self.assertEqual(await session.scalar(select(func.count()).select_from(DailySummary).where(DailySummary.user_id==self.uid)),0)
+            row=await session.scalar(select(DailySummary).where(DailySummary.user_id==self.uid))
+            self.assertIsNotNone(row);self.assertIsNone(row.calories)
+        from db.models.reports import Report
+        with patch('services.reports.account',account),patch('services.reports._llm',AsyncMock(return_value='Unknown composition')):
+            query={'report_type':'sprint','start':str(self.today),'end':str(self.today)}
+            headers={'Idempotency-Key':'unknown-nutrition-report'}
+            first=self.ok(await self.http.post('/api/reports/generate',params=query,headers=headers))
+            retry=self.ok(await self.http.post('/api/reports/generate',params=query,headers=headers))
+        self.assertEqual(first['report_id'],retry['report_id'])
+        self.assertIsNone(first['data']['calories']);self.assertIsNone(first['data']['protein'])
+        async with unit_of_work() as session:
+            rows=(await session.scalars(select(Report).where(Report.user_id==self.uid))).all()
+            self.assertEqual(len(rows),1);self.assertIsNone(rows[0].calories);self.assertIsNone(rows[0].protein)
 
     async def test_expired_analysis_reservation_is_recovered_and_stale_result_rejected(self):
         from services.nutrition_previews import upload_analysis,create_preview
