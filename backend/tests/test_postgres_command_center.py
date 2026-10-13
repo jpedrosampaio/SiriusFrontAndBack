@@ -210,17 +210,18 @@ class CommandCenter(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.http.get('/api/command/export/credentials/json')).status_code,422)
 
     async def test_export_oversized_next_record_remains_on_next_page_without_truncation(self):
+        first_id,second_id=sorted((uuid4(),uuid4()))
         async with unit_of_work() as s:
             convo=Conversation(user_id=self.uid,title='Export sizing',external_id=str(uuid4()));s.add(convo);await s.flush()
-            s.add(Message(id=UUID(int=1),user_id=self.uid,conversation_id=convo.id,sequence=1,role='user',content='Small first record'))
-            s.add(Message(id=UUID(int=2),user_id=self.uid,conversation_id=convo.id,sequence=2,role='assistant',content='x'*2_000_001))
+            s.add(Message(id=first_id,user_id=self.uid,conversation_id=convo.id,sequence=1,role='user',content='Small first record'))
+            s.add(Message(id=second_id,user_id=self.uid,conversation_id=convo.id,sequence=2,role='assistant',content='x'*2_000_001))
         first=self.ok(await self.http.get('/api/command/export/messages/json',params={'limit':1}))
         self.assertEqual(first['records'][0]['content'],'Small first record')
-        self.assertEqual(first['next_cursor'],str(UUID(int=1)))
+        self.assertEqual(first['next_cursor'],str(first_id))
         next_page=await self.http.get('/api/command/export/messages/json',params={'limit':1,'cursor':first['next_cursor']})
         self.assertEqual(next_page.status_code,413)
         async with unit_of_work() as s:
-            self.assertEqual(len((await s.get(Message,UUID(int=2))).content),2_000_001)
+            self.assertEqual(len((await s.get(Message,second_id)).content),2_000_001)
 
     async def test_context_ignores_client_facts_and_verifies_every_selected_owner(self):
         async with unit_of_work() as s:
