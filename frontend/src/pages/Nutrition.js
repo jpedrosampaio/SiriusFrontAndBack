@@ -782,7 +782,7 @@ export default function Nutrition() {
                     {weeklyTrend.goals && (
                       <div className="flex justify-between text-[10px] text-[#71717A] mt-2 px-2">
                         <span>Meta: {weeklyTrend.goals.daily_calories} kcal/dia</span>
-                        <span>Média: {weeklyTrend.averages?.calorias || 0} kcal</span>
+                        <span>Média: {weeklyTrend.averages?.calorias ?? 'Desconhecida'} kcal</span>
                       </div>
                     )}
                   </CardContent>

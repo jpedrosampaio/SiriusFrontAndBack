@@ -156,9 +156,14 @@ async def weekly(request: Request):
     daily=[]
     for offset in range(7):
         day=start+timedelta(days=offset);values=meals.get(day,{})
-        daily.append({'day':day.strftime('%a'),'date':day.isoformat(),'calorias':round(values.get('calories',0)),
-            'proteina':round(values.get('protein',0),1),'carboidratos':round(values.get('carbs',0),1),
-            'gordura':round(values.get('fat',0),1),'agua_ml':water.get(day,0),'refeicoes':values.get('meals_count',0)})
-    recorded=[day for day in daily if day['calorias']>0]
-    return {'daily':daily,'goals':goals,'averages':{'calorias':round(sum(day['calorias'] for day in recorded)/max(len(recorded),1)),
-        'proteina':round(sum(day['proteina'] for day in recorded)/max(len(recorded),1),1),'dias_registrados':len(recorded)}}
+        def rounded(key,digits=0):
+            value=values.get(key,0)
+            return round(value,digits) if value is not None else None
+        daily.append({'day':day.strftime('%a'),'date':day.isoformat(),'calorias':rounded('calories'),
+            'proteina':rounded('protein',1),'carboidratos':rounded('carbs',1),
+            'gordura':rounded('fat',1),'agua_ml':water.get(day,0),'refeicoes':values.get('meals_count',0)})
+    recorded=[day for day in daily if day['refeicoes']>0]
+    def average(key,digits=0):
+        return None if any(day[key] is None for day in recorded) else round(sum(day[key] for day in recorded)/max(len(recorded),1),digits)
+    return {'daily':daily,'goals':goals,'averages':{'calorias':average('calorias'),
+        'proteina':average('proteina',1),'dias_registrados':len(recorded)}}

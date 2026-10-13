@@ -139,6 +139,26 @@ class RuntimeNutritionPlans(unittest.IsolatedAsyncioTestCase):
             self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Retry','meals':[self.planned_meal()]}))
             self.assertTrue(self.ok(await send())['requires_confirmation'])
 
+    async def test_distinct_slow_uploads_do_not_hold_database_pool(self):
+        entered=asyncio.Event();release=asyncio.Event();calls=0
+        async def analyze(**kwargs):
+            nonlocal calls
+            calls+=1
+            if calls==3:entered.set()
+            await release.wait()
+            return SimpleNamespace(text=json.dumps({'plan_name':'Concurrent','meals':[self.planned_meal()]}))
+        self.plan_ai.side_effect=analyze
+        async def send(index):return await self.http.post('/api/nutrition/import-plan',files={'file':('plan.pdf',f'%PDF distinct-{index}'.encode(),'application/pdf')})
+        with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})):
+            tasks=[asyncio.create_task(send(i)) for i in range(3)]
+            try:
+                await asyncio.wait_for(entered.wait(),5)
+                from db.session import get_engine
+                self.assertEqual(get_engine().sync_engine.pool.checkedout(),0)
+                self.assertEqual((await asyncio.wait_for(self.http.get('/api/nutrition/meals'),2)).status_code,200)
+            finally:release.set()
+            self.assertTrue(all(r.status_code==200 for r in await asyncio.gather(*tasks)))
+
     async def test_import_failure_rolls_back_all_sql_and_xp(self):
         self.plan_ai.return_value=SimpleNamespace(text=json.dumps({'plan_name':'Imported','daily_calories':2200,'meals':[self.planned_meal()]}))
         with patch('services.nutrition_generation_routes.upload_part',AsyncMock(return_value={})):

@@ -4,7 +4,7 @@ import unittest
 from uuid import UUID,uuid4
 from datetime import timedelta,datetime,time
 from zoneinfo import ZoneInfo
-from unittest.mock import patch
+from unittest.mock import patch,AsyncMock
 from sqlalchemy import select,func
 from db.models.health import Meal,MealItem,NutritionGoal,NutritionPlan,Recipe,RecipeIngredient,WorkoutLog
 from db.models.planning import CalendarEvent
@@ -232,6 +232,63 @@ class NutritionIntelligence(unittest.IsolatedAsyncioTestCase):
         for value in state['consumed'].values():self.assertIsNone(value['total']);self.assertEqual(value['unknown_items'],1)
         self.assertIsNone(state['remaining']['calories']);self.assertIsNone(state['meals'][0]['macros']['calories']['total'])
         self.assertIsNone(self.ok(await self.http.get('/api/nutrition/stats'))['consumed']['calories'])
+        trend=self.ok(await self.http.get('/api/nutrition/weekly-trend'))
+        self.assertIsNone(trend['daily'][-1]['calorias']);self.assertIsNone(trend['averages']['calorias'])
+
+    async def test_period_aggregates_preserve_partial_and_legacy_unknowns(self):
+        await self.add(foods=[{'name':'Partial','quantity':1,'unit':'portion','calories':100,'protein':0,'known_macros':['calories','protein']}])
+        from services.nutrition_data import period
+        async with unit_of_work() as session:
+            meals,_,_=await period(session,self.uid,self.today,self.today)
+            self.assertEqual(meals[self.today]['calories'],100);self.assertEqual(meals[self.today]['protein'],0)
+            self.assertIsNone(meals[self.today]['carbs']);self.assertIsNone(meals[self.today]['fat'])
+            item=await session.scalar(select(MealItem).where(MealItem.user_id==self.uid));item.nutrition_evidence=None
+            session.add(MealItem(user_id=self.uid,meal_id=item.meal_id,position=1,name='Known beside legacy',unit='portion',quantity=1,
+                calories=1,protein=1,carbs=1,fat=1,nutrition_evidence={'source':'registered','known_macros':['calories','protein','carbs','fat']}))
+        async with unit_of_work() as session:
+            meals,_,_=await period(session,self.uid,self.today,self.today)
+            for key in ('calories','protein','carbs','fat'):self.assertIsNone(meals[self.today][key])
+
+    async def test_unknown_composition_propagates_to_briefing_dashboard_and_reports(self):
+        await self.add(foods=[])
+        from services.daily_briefing import summary_context
+        context=await summary_context(str(self.uid),self.today)
+        self.assertIsNone(context[-2])
+        from report_metrics import period_metrics
+        metrics=await period_metrics(str(self.uid),self.today,self.today)
+        self.assertIsNone(metrics['calories']);self.assertIsNone(metrics['protein'])
+        async def account(request):return {'user_id':str(self.uid),'timezone':'America/Sao_Paulo','name':'Test','rank':'Test','xp':0}
+        with patch('services.dashboard.account',account):
+            dashboard=self.ok(await self.http.get('/api/stats/dashboard'))
+        self.assertIsNone(dashboard['nutrition_stats']['calories_consumed'])
+        from db.models.reports import DailySummary
+        import json
+        ai=AsyncMock(return_value=json.dumps({'greeting':'Test','progress_summary':'Test','pending_items':[],'motivation':'Test','priority_action':'Test'}))
+        with patch('services.daily_briefing.account',account),patch('services.daily_briefing.call_llm',ai):
+            briefing=self.ok(await self.http.get('/api/dashboard/daily-summary'))
+        self.assertIsNone(briefing['raw_data']['calories'])
+        self.assertIn('total desconhecido',ai.call_args.args[0])
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(DailySummary).where(DailySummary.user_id==self.uid)),0)
+
+    async def test_expired_analysis_reservation_is_recovered_and_stale_result_rejected(self):
+        from services.nutrition_previews import upload_analysis,create_preview
+        from services.nutrition_plan_dto import PlanBody
+        from fastapi import HTTPException
+        from datetime import timezone
+        from uuid import uuid4
+        upload=uuid4().hex+uuid4().hex
+        raw={'name':'Lease','days':[{'meals':[{'name':'Lunch','meal_type':'lunch','foods':[]}]}]}
+        async with upload_analysis(str(self.uid),upload) as stale:
+            async with unit_of_work() as session:
+                row=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==self.uid,
+                    ActivityReceipt.request_key=='nutrition-analysis-'+upload[:32]))
+                row.result={**row.result,'expires_at':(datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()}
+            async with upload_analysis(str(self.uid),upload) as fresh:
+                self.assertNotEqual(stale,fresh)
+                with self.assertRaises(HTTPException) as error:await create_preview(str(self.uid),PlanBody.model_validate(raw),upload,lease=stale)
+                self.assertEqual(error.exception.status_code,409)
+                self.assertTrue((await create_preview(str(self.uid),PlanBody.model_validate(raw),upload,lease=fresh))['requires_confirmation'])
 
     async def test_diet_recurs_through_inclusive_end_and_recording_is_per_day(self):
         async def account(request):return {'user_id':str(self.uid),'timezone':'America/Sao_Paulo'}

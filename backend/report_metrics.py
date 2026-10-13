@@ -65,5 +65,6 @@ async def period_metrics(user_id,start,end):
             'total_habits_completions':checks,'income':money.get('income',0),'expenses':money.get('expense',0),'goals':goals,'goals_progress':progress,
             'goal_checks':goal_checks,'study_minutes':minutes,'questions_answered':total,'questions_correct':correct,
             'workouts':workouts,'workout_minutes':duration,'meals':sum(day['meals_count'] for day in meals.values()),
-            'calories':sum(day['calories'] for day in meals.values()),'protein':sum(day['protein'] for day in meals.values()),'water_ml':sum(water.values()),
+            'calories':None if any(day['calories'] is None for day in meals.values()) else sum(day['calories'] for day in meals.values()),
+            'protein':None if any(day['protein'] is None for day in meals.values()) else sum(day['protein'] for day in meals.values()),'water_ml':sum(water.values()),
             'definitions':'tasks/habits/goals: cadastros criados no intervalo; goals_progress: progresso atual dessas metas, não histórico; demais métricas: atividades no intervalo.'}

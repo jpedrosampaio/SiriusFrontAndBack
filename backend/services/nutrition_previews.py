@@ -1,12 +1,13 @@
 """Owned upload receipts: no plan/meal/target/XP writes until one confirmation."""
 import hashlib
 import json
+import anyio
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from uuid import UUID,uuid4
 from fastapi import HTTPException
-from sqlalchemy import select,text
+from sqlalchemy import select
 from db.activity import run_activity
 from db.models.identity import ActivityReceipt
 from db.session import unit_of_work
@@ -18,16 +19,38 @@ def digest(value):
 
 @asynccontextmanager
 async def upload_analysis(user_id,upload_digest):
-    key=int.from_bytes(hashlib.sha256(f'nutrition-import:{UUID(str(user_id))}:{upload_digest}'.encode()).digest()[:8],'big',signed=True)
-    async with unit_of_work() as session:
-        if not await session.scalar(text('SELECT pg_try_advisory_xact_lock(:key)'),{'key':key}):
+    uid=UUID(str(user_id));key='nutrition-analysis-'+upload_digest[:32];token=str(uuid4())
+    async def reserve(session,owner):
+        row=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==uid,ActivityReceipt.request_key==key))
+        if row and (row.result.get('kind')!='nutrition_analysis' or row.result.get('upload_digest')!=upload_digest):
+            raise HTTPException(409,'Identidade de upload conflitante.')
+        if row and datetime.fromisoformat(row.result['expires_at'])>datetime.now(timezone.utc):
             raise HTTPException(409,'Este documento já está sendo analisado. Aguarde e tente novamente para reutilizar a prévia.',headers={'Retry-After':'2'})
-        yield session
+        value={'kind':'nutrition_analysis','upload_digest':upload_digest,'token':token,
+            'expires_at':(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()}
+        if row:row.result=value
+        else:session.add(ActivityReceipt(user_id=uid,request_key=key,fingerprint=digest(['nutrition-analysis',upload_digest]),result=value))
+        return {}
+    await run_activity(uid,None,['nutrition-analysis',upload_digest],reserve)
+    try:
+        yield token
+    finally:
+        async def release(session,owner):
+            row=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==uid,ActivityReceipt.request_key==key))
+            if row and row.result.get('token')==token:await session.delete(row)
+            return {}
+        with anyio.CancelScope(shield=True):
+            await run_activity(uid,None,['nutrition-analysis-release',upload_digest],release)
 
 
-async def create_preview(user_id,plan,upload_digest,*,session=None):
+async def create_preview(user_id,plan,upload_digest,*,lease=None):
     key='nutrition-preview-'+upload_digest[:32]
     async def apply(session,owner):
+        if lease is not None:
+            reservation=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==owner.id,
+                ActivityReceipt.request_key=='nutrition-analysis-'+upload_digest[:32]))
+            if reservation is None or reservation.result.get('token')!=lease or datetime.fromisoformat(reservation.result['expires_at'])<=datetime.now(timezone.utc):
+                raise HTTPException(409,'Reserva de análise expirada; tente novamente.')
         previous=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==owner.id,ActivityReceipt.request_key==key))
         if previous:
             if previous.result.get('kind')!='nutrition_upload_preview' or previous.result.get('upload_digest')!=upload_digest:
@@ -40,11 +63,6 @@ async def create_preview(user_id,plan,upload_digest,*,session=None):
         if previous:previous.result=result
         else:session.add(ActivityReceipt(user_id=owner.id,request_key=key,fingerprint=digest(['nutrition-upload-preview',upload_digest]),result=result))
         return preview_response(result)
-    if session is not None:
-        from db.repositories.identity import IdentityRepository
-        owner=await IdentityRepository(session).by_id(UUID(str(user_id)),lock=True)
-        if owner is None:raise HTTPException(404,'Usuário não encontrado.')
-        result=await apply(session,owner);await session.flush();return result
     return await run_activity(UUID(str(user_id)),None,['nutrition-upload-preview',upload_digest],apply)
 
 

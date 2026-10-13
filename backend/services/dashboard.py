@@ -61,7 +61,7 @@ async def dashboard_snapshot(user_id,today=None):
             'goals_total':goals,'goals_avg_progress':progress,
             'workout_stats':{'workouts_this_week':workouts,'total_duration_minutes':minutes,'total_calories_burned':calories,'total_xp_earned':xp},
             'nutrition_stats':{'calories_consumed':nutrition.get('calories',0),'calories_goal':nutrition_goal['daily_calories'],
-                'protein_consumed':round(nutrition.get('protein',0),1),'protein_goal':nutrition_goal['daily_protein'],
+            'protein_consumed':round(nutrition.get('protein',0),1) if nutrition.get('protein',0) is not None else None,'protein_goal':nutrition_goal['daily_protein'],
                 'water_consumed_ml':water.get(day,0),'water_goal_ml':nutrition_goal['water_goal_ml'],'meals_count':nutrition.get('meals_count',0)},
             'study_stats':{'study_time_today_minutes':study,'current_streak':streak['current_streak'],'longest_streak':streak['best_streak'],
                 'flashcards_due':due,'total_flashcards':cards,'notebooks_count':notebooks},
