@@ -5,7 +5,11 @@ from db.engine import get_engine
 
 
 @asynccontextmanager
-async def unit_of_work():
+async def unit_of_work(*, session=None):
+    # Coordinators may reuse a caller's transaction. Only its owner commits/rolls back.
+    if session is not None:
+        yield session
+        return
     factory = async_sessionmaker(get_engine(), expire_on_commit=False, autoflush=False)
     async with factory() as session:
         async with session.begin():

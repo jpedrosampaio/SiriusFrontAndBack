@@ -14,7 +14,7 @@ for(const width of [1440,1024,768,390,320]){
   if(p==='/api/auth/me')return respond(r,{user_id:'fixture',name:'User',rank:'Recruta'});
   if(p==='/api/study/v2/targets')return respond(r,[{target_id:'t1',program_id:'demo',name:'Preparation',kind:'custom',is_primary:primary}]);
   if(p.endsWith('/primary')){keys.push(r.request().headers()['idempotency-key']);primary=true;if(!failedPrimary){failedPrimary=true;return respond(r,{detail:'Synthetic response loss'},504);}return respond(r,{is_primary:true});}
-  if(p.endsWith('/state')){stateReads++;if(!failedState){failedState=true;return respond(r,{detail:'Synthetic read failure'},503);}return respond(r,state);}
+  if(p==='/api/study/v2/programs/demo/state'){stateReads++;if(!failedState){failedState=true;return respond(r,{detail:'Synthetic read failure'},503);}return respond(r,state);}
   if(p.endsWith('/overview'))return respond(r,{});
   if(p.endsWith('/cronograma'))return respond(r,{program,notebooks:[discipline],cronograma:[]});
   if(p.endsWith('/edital-verticalizado'))return respond(r,{disciplinas:[discipline]});

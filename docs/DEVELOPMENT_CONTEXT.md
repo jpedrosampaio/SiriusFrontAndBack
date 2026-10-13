@@ -27,6 +27,7 @@ Base auditada: `main` em `280dcd73d688d3f34ab3cb9a5deedb83a278e4c7`. Não havia 
 | Financeiro | [FINANCE_INTELLIGENCE](FINANCE_INTELLIGENCE.md), contratos/rotas e integrações financeiras atuais |
 | Treinos | [TRAINING_INTELLIGENCE](TRAINING_INTELLIGENCE.md), [WORKOUT_SESSION_UX2](WORKOUT_SESSION_UX2.md), [WORKOUT_YOUTUBE](WORKOUT_YOUTUBE.md), `backend/training_contracts.py`, `backend/services/training_intelligence*`, `backend/services/workout_*`, componentes/páginas de treino |
 | Nutrição | [NUTRITION_INTELLIGENCE](NUTRITION_INTELLIGENCE.md), `backend/nutrition_contracts.py`, `backend/services/nutrition*`, modelos, rotas/componentes atuais e integrações com Life State/Agent |
+| Events e automations | [EVENT_AUTOMATION_ENGINE](EVENT_AUTOMATION_ENGINE.md), `backend/event_contracts.py`, `services/event_*`, `services/telegram*`, outbox e preferencias Agent; fontes dos dominios afetados |
 | Agent e IA compartilhada | `backend/ai/registry.py`, `core.py`, `agent.py`, `backend/services/core_writes.py`, [shared-assistant](shared-assistant.md), documentos dos motores envolvidos |
 | Persistência e migrations | [POSTGRES_ARCHITECTURE](POSTGRES_ARCHITECTURE.md), [DATA_MODEL](DATA_MODEL.md), [PRODUCTION_MIGRATIONS](PRODUCTION_MIGRATIONS.md), modelos/revisões Alembic atuais |
 | Desempenho, mobile e confiabilidade | [DATABASE_PERFORMANCE](DATABASE_PERFORMANCE.md), [performance-loading](performance-loading.md), [reliability-mobile](reliability-mobile.md), [functional-reliability](functional-reliability.md) |

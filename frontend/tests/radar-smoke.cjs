@@ -12,7 +12,7 @@ for(const width of [1440,1024,768,390,320]){
  await context.route('**/*',async r=>{const url=new URL(r.request().url()),p=url.pathname;if(!p.startsWith('/api/'))return url.hostname==='127.0.0.1'?r.continue():r.abort();
   if(p==='/api/auth/me')return respond(r,{user_id:'fixture',name:'User',rank:'Recruta'});
   if(p==='/api/study/v2/targets')return respond(r,[{target_id:'t1',program_id:'demo',name:'Preparation',kind:'custom',is_primary:false}]);
-  if(p.endsWith('/state'))return respond(r,state);
+  if(p==='/api/study/v2/programs/demo/state')return respond(r,state);
   if(p.endsWith('/radar')){radarReads++;return respond(r,{sources:[{source_id:'s1',title:'Official source'}],latest_versions:[{version_id:'v1',source_id:'s1',hash_basis:'page_text',detected_at:'2026-10-07T12:00:00Z',details:{title:'Official source'},impact:{categories:['syllabus'],baseline:false},partial:false}],dates:[{version_id:'v1',event:'exam',date:'2027-02-01',quote:'Prova objetiva: 01/02/2027',url:'https://orgao.gov.br',conflicting_candidates:true}],date_notice:'Confirm extracted dates'});}
   if(p.endsWith('/versions'))return respond(r,{items:[{version_id:'v1',detected_at:'2026-10-07T12:00:00Z',hash_basis:'page_text',impact:{added:['Disciplina nova'],removed:['Peso anterior'],partial:true,document_links_added:[{url:'https://orgao.gov.br/retificacao.pdf',title:'Retificacao'}]}}],next_offset:null});
   if(p.endsWith('/overview'))return respond(r,{});

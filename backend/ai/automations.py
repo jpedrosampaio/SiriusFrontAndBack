@@ -40,22 +40,24 @@ class Automations:
             await self.suggest(user_id, 'daily_plan', 'Revise a capacidade do seu dia', {'tasks': await self.core.read('get_today_tasks', user_id)}, '/assistant/settings', now)
 
     async def run(self):
-        interval=max(900,int(os.getenv('AUTOMATION_POLL_INTERVAL_SECONDS','900')))
+        interval=max(30,min(900,int(os.getenv('AUTOMATION_POLL_INTERVAL_SECONDS','60'))))
         while True:
             try:
-                from services.agent_automations import claim, finish
-                event = await claim()
-                if event:
-                    await self.process(event)
-                    await finish(event)
-                else: await asyncio.sleep(interval)
+                from services.event_engine import tick
+                if self.settings.automations:
+                    try:await tick(self)
+                    except Exception:logging.warning('automation processing deferred; transport remains active')
+                # Command transport is independent of proactive automation opt-in.
+                from services.telegram_delivery import deliver_reply
+                await deliver_reply()
+                await asyncio.sleep(interval)
             except asyncio.CancelledError: raise
             except Exception:
                 logging.warning('automation worker failed; retry deferred')
                 await asyncio.sleep(interval)
 
     async def start(self):
-        if self.settings.automations and self.worker is None:
+        if (self.settings.automations or os.getenv('TELEGRAM_BOT_TOKEN')) and self.worker is None:
             self.worker = asyncio.create_task(self.run())
 
     async def stop(self):

@@ -58,6 +58,10 @@ class Tool:
 
 
 READS = {
+    'get_daily_briefing':'Resumo integrado factual do dia e agenda de amanhã; propostas exigem confirmação',
+    'get_night_review':'Comparar registros executados e planejamento atual sem inventar aderência histórica',
+    'get_weekly_coach':'Revisão factual dos últimos sete dias; nenhum compromisso é alterado',
+    'get_automation_state':'Regras, canais realmente disponíveis, limites e execução persistida das automações próprias',
     'get_nutrition_state':'Estado nutricional factual: origem, metas confirmadas, refeições planejadas e registros; sem prescrição',
     'get_training_state':'Estado factual de treino: séries, cargas, RPE, recordes na janela e sugestões explicáveis, sem alterar cargas',
     'get_finance_state':'Estado financeiro factual, fluxo previsto sem renda inventada, orçamentos e insights; saldo registrado não é bancário',

@@ -8,11 +8,11 @@ Recheck Git/PR/deploy state at session start; the functional publication SHA is 
 
 ## Next phase and authorization
 
-Next: **Phase 12 - Event & Automation Engine 2.0**. **Not authorized; await explicit owner permission before starting.** Phase 11 is published; its current contracts are in [NUTRITION_INTELLIGENCE](docs/NUTRITION_INTELLIGENCE.md).
+Current work: **Phase 12 - Event & Automation Engine 2.0**, explicitly authorized on 2026-10-13. Branch `feat/event-automation-engine-2`, based on main `6adccf311bad31591f3d4e51f0079c4da7fbc01f`. Implementation and validation are in progress, not published. Contracts: [EVENT_AUTOMATION_ENGINE](docs/EVENT_AUTOMATION_ENGINE.md). Phase 13 - Sirius Command Center is not authorized; wait after Phase 12 publication.
 
 ## Migrations and blockers
 
-Published schema head: `c9e42a7d160b`, parent `a81c9d37e502`. Applied successfully by the [protected workflow](https://github.com/jpedrosampaio/SiriusFrontAndBack/actions/runs/38356833389), after mandatory owner Environment approval and before PR41 merge. No pending migration or publication blocker; no production test writes. Future production migrations remain exclusive to the protected workflow and owner approval in [PRODUCTION_MIGRATIONS](docs/PRODUCTION_MIGRATIONS.md).
+Published schema head: `c9e42a7d160b`, parent `a81c9d37e502`. Applied successfully by the [protected workflow](https://github.com/jpedrosampaio/SiriusFrontAndBack/actions/runs/38356833389), after mandatory owner Environment approval and before PR41 merge. Phase 12 adds pending revision `e47c2b6a901d` (parent `c9e42a7d160b`), tested only in disposable PostgreSQL. Remaining gates: full CI, final clean Codex review, protected migration approval/application before functional merge, exact deploys and read-only production validation. No production test writes. [PRODUCTION_MIGRATIONS](docs/PRODUCTION_MIGRATIONS.md) remains authoritative.
 
 ## Decisions and continuity
 

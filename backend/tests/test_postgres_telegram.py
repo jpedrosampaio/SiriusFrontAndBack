@@ -93,9 +93,9 @@ class Telegram(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await session.scalar(select(func.count()).select_from(FinancialTransaction).where(FinancialTransaction.user_id==self.uid)),0)
 
     async def test_webhook_secret_private_chat_retry_and_daily_owner(self):
-        await self.bind();update={'update_id':self.update_id(),'message':{'chat':{'id':self.chat,'type':'private'},'text':'/saldo','from':{'first_name':'Alice'}}}
+        await self.bind();update={'update_id':self.update_id(),'message':{'chat':{'id':self.chat,'type':'private'},'text':'/saldo','from':{'id':self.chat,'first_name':'Alice'}}}
         headers={'X-Telegram-Bot-Api-Secret-Token':'a'*32}
-        with patch('server.TELEGRAM_BOT_TOKEN','test'),patch('server.TELEGRAM_BOT_WEBHOOK_SECRET','a'*32),patch('server.send_telegram_message',AsyncMock(return_value={'ok':True})) as sender:
+        with patch('server.TELEGRAM_BOT_TOKEN','test'),patch('server.TELEGRAM_BOT_WEBHOOK_SECRET','a'*32),patch('server.send_telegram_message',AsyncMock(return_value={'ok':True,'result':{'message_id':42,'chat':{'id':self.chat}}})) as sender:
             self.assertEqual((await self.http.post('/api/telegram/webhook',json=update)).status_code,403)
             self.ok(await self.http.post('/api/telegram/webhook',json=update,headers=headers))
             self.ok(await self.http.post('/api/telegram/webhook',json=update,headers=headers));self.assertEqual(sender.await_count,1)
