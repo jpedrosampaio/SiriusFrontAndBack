@@ -2049,22 +2049,22 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         if json_str.endswith("```"):
             json_str = json_str[:-3]
 
-        # (fallback robusto) Se o JSON estiver truncado, tenta:
-        #   1) recuperar até o último cargo válido cortando após "]" final antes do último trailing
-        #   2) se falhar, tenta json_repair (simple: fechar aspas/colchetes)
+        # Never turn a recovered prefix of a truncated document into a complete analysis.
         json_str_clean = json_str.strip()
         try:
             parsed = json.loads(json_str_clean)
-        except json.JSONDecodeError as jerr:
-            logging.warning("analyze-edital: JSON inválido (%s). Tentando reparo. Tamanho resposta: %s chars.", type(jerr).__name__, len(json_str_clean))
-            parsed = _try_repair_json(json_str_clean)
-            if parsed is None:
-                logging.error("analyze-edital: reparo JSON falhou")
-                raise HTTPException(
-                    status_code=500,
-                    detail="A IA devolveu JSON inválido/incompleto. Tente novamente — se persistir, envie um PDF menor ou apenas as páginas do conteúdo programático.",
-                )
-            logging.info(f"analyze-edital: JSON reparado com sucesso. Cargos recuperados: {len(parsed.get('cargos') or [])}")
+        except json.JSONDecodeError:
+            from ai.errors import public_ai_error
+            raise public_ai_error('malformed_output') from None
+        from jsonschema import Draft202012Validator,ValidationError as SchemaValidationError
+        try:
+            Draft202012Validator(response_schema).validate(parsed)
+        except SchemaValidationError:
+            from ai.errors import public_ai_error
+            raise public_ai_error('malformed_output') from None
+        if not parsed.get('cargos'):
+            from ai.errors import public_ai_error
+            raise public_ai_error('empty_output')
 
         cargos_list = parsed.get("cargos") or []
         # (item 3) — dedup fuzzy para proteger contra o modelo emitir cargos duplicados
