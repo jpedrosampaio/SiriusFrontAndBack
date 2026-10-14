@@ -20,6 +20,7 @@ MESSAGES = {
     'equipment_unknown':'Informe os equipamentos disponíveis ou marque explicitamente nenhum equipamento.',
     'equipment_conflict':'As declarações antiga e nova de equipamento estão em conflito.',
     'modality_mismatch':'As sessões retornadas não correspondem à modalidade e à combinação solicitadas.',
+    'focus_mismatch':'As sessões retornadas não contemplam os grupos ou o foco solicitado.',
     'level_mismatch':'A IA incluiu exercício ou volume incompatível com o nível declarado.',
     'duration_mismatch':'A duração estimada das sessões ultrapassa o tempo informado.',
     'excluded_exercise':'A IA incluiu um exercício que você pediu para evitar.',
@@ -39,6 +40,7 @@ class GenerationInvalid(ValueError):
 
 
 class GeneratedExercise(Exercise):
+    sets: int = Field(ge=1,le=8)
     required_equipment: list[Equipment] = Field(max_length=18)
     difficulty: Literal['iniciante','intermediario','avancado']
     exercise_kind: Literal['peso_corporal','resistencia','corrida','mobilidade']
@@ -85,6 +87,7 @@ def validate_request(request):
         labels=[s.get('label') for s in splits]
         if not labels or len(labels)>5 or len(labels)!=len(set(labels)) or any(not isinstance(v,str) or not re.fullmatch(r'[A-Z][A-Z0-9_-]{0,9}',v) or v in ('CARDIO','DESCANSO') for v in labels):
             raise GenerationInvalid('invalid_splits')
+        if request.split_type and request.split_type!=''.join(labels):raise GenerationInvalid('invalid_splits')
     inventory=equipment_for(request)
     if inventory is None and request.workout_type!='corrida':
         raise GenerationInvalid('equipment_unknown')
@@ -185,14 +188,23 @@ def validate_bases(data,request,labels=None):
             raise GenerationInvalid('duration_mismatch')
         if request.level=='iniciante' and len(session.exercises)>6:
             raise GenerationInvalid('level_mismatch')
-        if request.workout_type=='calistenia' and request.calisthenics_focus=='full_body':
-            groups={ex.muscle_group for ex in session.exercises}
-            if not groups.intersection({'pernas','gluteos'}) or not groups.intersection({'peito','costas','ombros','biceps','triceps','bracos'}):
+        groups={ex.muscle_group for ex in session.exercises}
+        upper={'peito','costas','ombros','biceps','triceps','bracos'};lower={'pernas','gluteos','panturrilha'}
+        full_body=request.workout_type=='calistenia' and request.calisthenics_focus=='full_body'
+        full_body=full_body or (request.workout_type in ('musculacao','hibrido') and request.generation_mode=='periodo' and not request.muscle_groups)
+        if session.label!='CARDIO':
+            if full_body and (not groups.intersection(lower) or not groups.intersection(upper)):
                 raise GenerationInvalid('insufficient_variety')
+            if request.workout_type=='calistenia' and ((request.calisthenics_focus=='forca_upper' and not groups.intersection(upper)) or
+                    (request.calisthenics_focus=='forca_lower' and not groups.intersection(lower))):raise GenerationInvalid('focus_mismatch')
+            requested=request.muscle_groups
+            if request.generation_mode=='tipo_treino':
+                requested=next((s.get('muscle_groups') for s in request.split_config or [] if s.get('label')==session.label),None)
+            if requested and not groups.intersection(requested):raise GenerationInvalid('focus_mismatch')
         for exercise in session.exercises:
             if not (set(exercise.required_equipment)|inferred_equipment(exercise)).issubset(inventory):
                 raise GenerationInvalid('equipment_mismatch')
-            if LEVELS[exercise.difficulty]>LEVELS[request.level] or (request.level=='iniciante' and exercise.sets>4):
+            if LEVELS[exercise.difficulty]>LEVELS[request.level] or exercise.sets>{'iniciante':4,'intermediario':6,'avancado':8}[request.level]:
                 raise GenerationInvalid('level_mismatch')
             if request.level=='iniciante' and re.search(r'planche|muscle.up|handstand push|front lever|back lever|pistol',normalized(exercise.name)):
                 raise GenerationInvalid('level_mismatch')
@@ -240,7 +252,8 @@ def compose_calendar(plan,request):
             exercises=[]
             for ex in base.exercises:
                 prescribed={key:getattr(ex,key) for key in Exercise.model_fields}
-                if request.workout_type!='corrida': prescribed['weight']='A definir' if ex.required_equipment else 'Peso corporal'
+                prescribed['weight']=('A definir' if ex.exercise_kind=='resistencia' else
+                    'Intensidade a definir' if ex.exercise_kind=='corrida' else 'Peso corporal')
                 exercises.append(copy.deepcopy(prescribed))
             days.append({'week':week,'day_name':f'sem{week}_dia{ordinal+1}',
                 'day_label':f'Semana {week} - Dia {ordinal+1}: Treino {label}', 'split_label':label,

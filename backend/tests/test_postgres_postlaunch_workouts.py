@@ -91,6 +91,7 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         missing=bases(labels=('A','B'),kind='peso_corporal',equipment=[]);invalid.append(missing)
         apparatus=bases(kind='peso_corporal',equipment=[]);apparatus['base_sessions'][0]['exercises'][0]['name']='Paralelas';invalid.append(apparatus)
         advanced=bases(kind='peso_corporal',equipment=[]);advanced['base_sessions'][0]['exercises'][0]['name']='Planche';invalid.append(advanced)
+        volume=bases(kind='peso_corporal',equipment=[]);volume['base_sessions'][0]['exercises'][0].update(sets=99,rest_seconds=0);invalid.append(volume)
         too_long=bases(kind='peso_corporal',equipment=[],minutes=90);invalid.append(too_long)
         wrong_calendar=bases(kind='peso_corporal',equipment=[]);wrong_calendar['days']=[{'week':3}];invalid.append(wrong_calendar)
         for index,data in enumerate(invalid+['{"base_sessions":']):
@@ -203,3 +204,20 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         async with unit_of_work() as session:
             from db.models.planning import CalendarEvent
             self.assertEqual(await session.scalar(select(func.count()).select_from(CalendarEvent).where(CalendarEvent.user_id==self.uid)),0)
+
+    async def test_declared_focus_and_split_identity_are_checked_before_save(self):
+        data=bases(kind='peso_corporal',equipment=[])
+        for base in data['base_sessions']:
+            for exercise in base['exercises']:exercise['muscle_group']='pernas'
+        self.llm.return_value=json.dumps(data)
+        self.assertEqual((await self.create(self.request(calisthenics_focus='forca_upper'))).status_code,502)
+        self.assertEqual(self.ok(await self.http.get('/api/workout-plans')),[])
+        before=self.llm.await_count
+        mismatch=self.request(workout_type='musculacao',available_equipment=['halteres'],generation_mode='tipo_treino',split_type='AB',split_config=[{'label':'A'}])
+        self.assertEqual((await self.create(mismatch)).status_code,422);self.assertEqual(self.llm.await_count,before)
+
+    async def test_apparatus_is_not_a_load_and_running_has_no_invented_numeric_intensity(self):
+        for kind,modality,equipment,expected in [('peso_corporal','calistenia',['barra_fixa'],'Peso corporal'),('corrida','corrida',[],'Intensidade a definir')]:
+            self.llm.return_value=json.dumps(bases(kind=kind,equipment=equipment))
+            plan=self.ok(await self.create(self.request(workout_type=modality,available_equipment=equipment),key='postlaunch-intensity-'+kind))['plan']
+            self.assertTrue(all(ex['weight']==expected for day in plan['days'] for ex in day['exercises']))
