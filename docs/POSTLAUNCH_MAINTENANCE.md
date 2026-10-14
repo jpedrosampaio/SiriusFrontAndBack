@@ -16,3 +16,9 @@ Audit followed models, generation/calendar/writer, session UX2/Training consumer
 Order: safe provider classification/recovery; bounded validated workout bases and deterministic calendar plus form; top-level Meu dia/Análises and truthful indicators; full self-review/tests/CI/Codex; exact merge deployments and read-only production checks. Prefer JSON-compatible metadata without migration. No real AI/YouTube/Telegram calls in tests, production test writes or paid infrastructure.
 
 Publication is pending. Record concrete outcomes and remaining external/operational boundaries here; detailed final release evidence belongs in a separate history record. All four workflows, disposable PostgreSQL, security/regressions, frontend lint/unit/build, every browser suite and all five widths remain required.
+
+## Provider correction
+
+Canonical error kinds survive facade/router and allowlisted messages expose a diagnostic reference, not provider bodies. Rate limit, quota, permission/key, request format, model, network/timeout, empty/truncated/blocked/malformed output remain distinct. Cooldowns retain their cause per user/model. Direct and queued analyses share this classification. Active duplicate uploads serialize under the existing owner lock; duplicate cleanup cannot delete a content-addressed live input. These changes do not promise that an account's quota/access is available.
+
+Primary references: [model catalogue](https://ai.google.dev/gemini-api/docs/models), [generateContent REST](https://ai.google.dev/api/generate-content), [structured outputs](https://ai.google.dev/gemini-api/docs/structured-output). The current model and REST API are documented; deprecated response-format fields remain supported in the published REST schema. Request `store:false` disables optional request logging for Gemini generation; this is not a guarantee about every external provider's retention policy.

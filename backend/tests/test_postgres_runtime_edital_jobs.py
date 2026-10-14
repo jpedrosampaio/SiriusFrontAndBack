@@ -1,4 +1,5 @@
 import os
+import asyncio
 import unittest
 import tempfile
 from types import SimpleNamespace
@@ -70,8 +71,8 @@ class RuntimeEditalJobs(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_validation_owner_limit_and_unconfigured_storage(self):
         self.assertEqual((await self.submit(b'not-pdf')).status_code,422)
-        for _ in range(2): self.assertEqual((await self.submit()).status_code,202)
-        self.assertEqual((await self.submit()).status_code,429)
+        for i in range(2): self.assertEqual((await self.submit(b'%PDF-distinct-'+str(i).encode())).status_code,202)
+        self.assertEqual((await self.submit(b'%PDF-third-distinct')).status_code,429)
         self.assertEqual(len(list(self.storage.root.rglob('*/*'))),2)
         self.assertEqual((await self.submit(headers={'Authorization':'Bearer bob'})).status_code,202)
         self.service.storage=UnconfiguredStorage()
@@ -82,6 +83,29 @@ class RuntimeEditalJobs(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get('/study/edital-jobs')).json()['jobs'],before)
         await self.service.start(); self.assertIsNone(self.service.task)
         self.assertFalse((await self.client.get('/study/edital-jobs')).json()['upload_available'])
+
+    async def test_concurrent_duplicate_uploads_share_one_owned_job_and_keep_input(self):
+        left,right=await asyncio.gather(self.submit(),self.submit())
+        self.assertEqual(left.status_code,202);self.assertEqual(right.status_code,202)
+        self.assertEqual(left.json()['job_id'],right.json()['job_id'])
+        self.assertTrue(left.json().get('replayed') or right.json().get('replayed'))
+        self.assertEqual(len((await self.client.get('/study/edital-jobs')).json()['jobs']),1)
+        job=await self.service.claim()
+        self.assertEqual(await self.storage.read(self.uid,job['storage_key']),b'%PDF-test')
+        self.assertEqual(len(list(self.storage.root.rglob('*/*'))),1)
+        other=await self.submit(headers={'Authorization':'Bearer bob'})
+        self.assertEqual(other.status_code,202);self.assertNotEqual(other.json()['job_id'],left.json()['job_id'])
+        self.process.assert_not_awaited()
+
+    async def test_async_classified_failure_survives_without_private_exception_body(self):
+        from ai.errors import public_ai_error
+        error=public_ai_error('model_unavailable'); error.detail['message']='PRIVATE_PROVIDER_DOCUMENT'
+        self.process.side_effect=error
+        await self.submit(); job=await self.service.claim(); await self.service.run(job)
+        row=(await self.client.get('/study/edital-jobs')).json()['jobs'][0]
+        self.assertEqual(row['status'],'failed');self.assertIn('modelo',row['phase'].lower())
+        self.assertNotIn('PRIVATE',row['phase']);self.assertIsNone(row['analysis_id'])
+        self.process.assert_awaited_once();self.assertIsNone(await self.service.claim())
 
     async def test_storage_failure_never_creates_job_or_runs_ai(self):
         self.service.storage=SimpleNamespace(put=AsyncMock(side_effect=StorageUnavailable('private diagnostic')))

@@ -27,7 +27,7 @@ async def call_gemini(prompt, system_message, api_key, timeout_override=None, us
             await usage_callback(user_id, result.model, usage=result.usage, feature=task)
         return result.text, None
     except AIError as error:
-        return None, {'rate_limit': 'quota', 'quota': 'quota', 'invalid_key': 'invalid', 'invalid_request': 'invalid', 'timeout': 'timeout'}.get(error.kind, 'other')
+        return None, error.kind
 
 
 async def upload_to_gemini(content, api_key, mime_type='application/pdf'):
@@ -41,8 +41,11 @@ async def call_gemini_with_pdf(pdf_content, prompt_text, system_message, api_key
     if len(pdf_content) <= inline_max_bytes:
         part = {'inlineData': {'mimeType': 'application/pdf', 'data': base64.b64encode(pdf_content).decode()}}
     else:
-        uri = await upload_to_gemini(pdf_content, api_key)
-        if not uri: return None, 'other'
+        try:
+            uri = await GeminiProvider(http_client()).upload(pdf_content, api_key)
+        except AIError as error:
+            return None, error.kind
+        if not uri: return None, 'empty_output'
         part = {'fileData': {'mimeType': 'application/pdf', 'fileUri': uri}}
     return await call_gemini(prompt_text, system_message, api_key, timeout, user_id, response_schema, usage_callback,
                              parts=[part, {'text': prompt_text}], task=task, keys=keys)

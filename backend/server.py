@@ -252,7 +252,8 @@ async def request_gemini(*, contents, config, user_id, task='document_analysis')
     text, error = await generate('', system, key, user_id=user_id, response_schema=schema,
                                  usage_callback=track_gemini_usage, parts=parts, config_options=options, task=task, keys=keys)
     if not text:
-        raise HTTPException(429 if error == 'quota' else 502, 'A IA não respondeu. Confira sua chave e tente novamente.')
+        from ai.errors import public_ai_error
+        raise public_ai_error(error or 'empty_output')
     return SimpleNamespace(text=text)
 
 async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None, user_id: Optional[str] = None, response_schema: Optional[dict] = None, task='edital_extract') -> tuple[Optional[str], Optional[str]]:
@@ -2036,11 +2037,8 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             response_schema=response_schema,
         )
         if not result:
-            if error_type == "quota":
-                raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou. Tente amanhã ou crie outra chave em https://aistudio.google.com/apikey.")
-            if error_type in ("invalid", "empty"):
-                raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida ou foi revogada. Gere uma nova em https://aistudio.google.com/apikey.")
-            raise HTTPException(status_code=500, detail=f"Erro ao contactar API Gemini (tipo={error_type or 'unknown'}). Tente novamente.")
+            from ai.errors import public_ai_error
+            raise public_ai_error(error_type or 'empty_output')
 
         json_str = result.strip()
         # Remove eventuais code fences caso o modelo ignore o responseMimeType

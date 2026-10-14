@@ -28,16 +28,26 @@ class Provider:
         except httpx.TimeoutException as exc:
             raise AIError('timeout') from exc
         except httpx.HTTPError as exc:
-            raise AIError('unavailable') from exc
+            raise AIError('network_error') from exc
         if response.status_code >= 400:
-            kind = {400: 'invalid_request', 401: 'invalid_key', 403: 'invalid_key',
-                    404: 'unavailable', 408: 'timeout', 429: 'rate_limit'}.get(response.status_code, 'unavailable' if response.status_code >= 500 else 'provider_error')
+            kind = {400: 'invalid_request', 401: 'invalid_key', 403: 'permission_denied',
+                    404: 'model_unavailable', 408: 'timeout', 429: 'rate_limit'}.get(response.status_code, 'unavailable' if response.status_code >= 500 else 'provider_error')
+            if response.status_code == 400:
+                try:
+                    details = response.json().get('error', {}).get('details', [])
+                    if any(d.get('reason') == 'API_KEY_INVALID' for d in details if isinstance(d, dict)):
+                        kind = 'invalid_key'
+                except (ValueError, AttributeError):
+                    pass
             if response.status_code == 429 and 'quota' in response.text.lower():
                 kind = 'quota'
             retry = response.headers.get('retry-after', '30')
             raise AIError(kind, int(retry) if retry.isdigit() else 30)
         try:
-            return response.json()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise AIError('malformed_output')
+            return data
         except ValueError as exc:
             raise AIError('malformed_output') from exc
 
