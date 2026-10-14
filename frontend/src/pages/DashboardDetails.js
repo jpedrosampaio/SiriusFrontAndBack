@@ -655,6 +655,7 @@ export default function Dashboard({ embedded = false }) {
           {panelErrors.length > 0 && <div role="alert" className="text-sm text-amber-300 mb-4">Alguns painéis não carregaram. <button onClick={() => panels.refetch()} className="min-h-11 underline">Tentar novamente</button></div>}
           {analyticsLoading && <p role="status">Atualizando gráficos…</p>}
           {analyticsError && <div role="alert" className="text-sm text-amber-300 mb-4">Não foi possível atualizar os gráficos. <button onClick={() => fetchAnalytics(analyticsDays)} className="min-h-11 underline">Tentar novamente gráficos</button></div>}
+          {analytics && analytics.days !== analyticsDays && <p role="status" className="mb-4 text-sm text-amber-200">Exibindo a última consulta de {analytics.days} dias. A consulta de {analyticsDays} dias ainda não foi confirmada.</p>}
           {analytics && analytics.data && analytics.data.length > 0 && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-5">

@@ -456,7 +456,7 @@ export default function Profile() {
                     <Target className="w-5 h-5 text-[#00F0FF]" />
                     <span className="text-sm text-[#A1A1AA]">Metas</span>
                   </div>
-                  <span className="font-data">{stats?.goals_avg_progress == null ? 'Sem metas' : `${Number(stats.goals_avg_progress).toFixed(0)}%`}</span>
+                  <span className="font-data">{!stats ? 'Não informado' : stats.goals_avg_progress == null ? 'Sem metas' : `${Number(stats.goals_avg_progress).toFixed(0)}%`}</span>
                 </div>
               </div>
             </Card>
