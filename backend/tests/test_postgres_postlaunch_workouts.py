@@ -221,3 +221,25 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             self.llm.return_value=json.dumps(bases(kind=kind,equipment=equipment))
             plan=self.ok(await self.create(self.request(workout_type=modality,available_equipment=equipment),key='postlaunch-intensity-'+kind))['plan']
             self.assertTrue(all(ex['weight']==expected for day in plan['days'] for ex in day['exercises']))
+
+    async def test_every_selected_group_is_required_for_period_and_each_split(self):
+        body=self.request(workout_type='musculacao',available_equipment=['halteres'],muscle_groups=['peito','triceps','ombros'])
+        partial=bases()
+        for base in partial['base_sessions']:
+            for exercise in base['exercises']:exercise['muscle_group']='peito'
+        self.llm.return_value=json.dumps(partial)
+        self.assertEqual((await self.create(body)).status_code,502)
+        split_groups=[['peito','triceps','ombros'],['costas','biceps'],['pernas','gluteos','abdomen']]
+        split_body={**body,'muscle_groups':None,'generation_mode':'tipo_treino','split_type':'ABC',
+            'split_config':[{'label':label,'muscle_groups':groups} for label,groups in zip('ABC',split_groups)]}
+        self.assertEqual((await self.create(split_body,key='postlaunch-split-missing-groups')).status_code,502)
+        self.assertEqual(self.ok(await self.http.get('/api/workout-plans')),[])
+        async with unit_of_work() as session:self.assertEqual((await session.get(User,self.uid)).xp,0)
+        complete=bases()
+        for base,groups in zip(complete['base_sessions'],split_groups):
+            for index,exercise in enumerate(base['exercises']):exercise['muscle_group']=groups[index%len(groups)]
+        self.llm.return_value=json.dumps(complete)
+        plan=self.ok(await self.create(split_body,key='postlaunch-complete-split-focus'))['plan']
+        for day in plan['days']:
+            expected=split_groups['ABC'.index(day['split_label'])]
+            self.assertTrue(set(expected).issubset({exercise['muscle_group'] for exercise in day['exercises']}))
