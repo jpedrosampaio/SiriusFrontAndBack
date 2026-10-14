@@ -16,20 +16,7 @@ from services.time import local_today
 router=APIRouter()
 
 
-class Exercise(BaseModel):
-    name: str=Field(min_length=1,max_length=300)
-    sets: int=Field(default=3,ge=1,le=100)
-    reps: str=Field(default='12',max_length=100)
-    weight: str=Field(default='',max_length=100)
-    rest_seconds: int=Field(default=60,ge=0,le=3600)
-    muscle_group: str=Field(default='',max_length=300)
-    tutorial: str=Field(default='',max_length=20000)
-    video_url: str=Field(default='',max_length=2000)
-    notes: str=Field(default='',max_length=20000)
-
-    @field_validator('reps','weight',mode='before')
-    @classmethod
-    def text_number(cls,value): return str(value) if isinstance(value,(int,float)) else value
+from workout_exercise_contract import Exercise
 
 
 class Day(BaseModel):
@@ -116,7 +103,11 @@ async def today_schedule(request: Request):
         row=await session.scalar(select(WorkoutPlan).where(WorkoutPlan.user_id==uid,WorkoutPlan.archived_at.is_(None))
             .options(selectinload(WorkoutPlan.days).selectinload(WorkoutDay.exercises)).order_by(WorkoutPlan.created_at.desc()).limit(1))
         if row is None or not row.days: return {'scheduled':False,'message':'Nenhum plano de treino encontrado'}
-        plan=plan_json(row); index=max(0,(today-row.created_at.astimezone(ZoneInfo(user['timezone'])).date()).days)%len(row.days)
+        from workout_calendar import scheduled_plan_index
+        plan=plan_json(row);elapsed=(today-row.created_at.astimezone(ZoneInfo(user['timezone'])).date()).days
+        index=scheduled_plan_index(len(row.days),row.generation_parameters,elapsed)
+        if index is None:
+            return {'scheduled':False,'plan_id':str(row.id),'message':'A proposta não aloca sessão hoje. Você pode revisar a ficha; nenhum compromisso foi criado.'}
         day=plan['days'][index]
         logged=await session.scalar(select(WorkoutLog.id).where(WorkoutLog.user_id==uid,WorkoutLog.plan_id==row.id,
             WorkoutLog.date==today,WorkoutLog.completed.is_(True)).limit(1))

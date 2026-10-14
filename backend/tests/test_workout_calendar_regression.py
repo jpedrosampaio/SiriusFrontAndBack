@@ -7,11 +7,12 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from unittest.mock import AsyncMock
 
 from fastapi import APIRouter, Cookie, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from workout_generation_fixtures import bases
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -35,7 +36,7 @@ def route_context():
     async def save(uid,key,fingerprint,document,xp):
         await ns['db'].workout_plans.insert_one(document)
         return {'success':True,'plan':document,'xp_earned':xp}
-    ns['sql_plans']=SimpleNamespace(save=save)
+    ns['sql_plans']=SimpleNamespace(save=save,replay=AsyncMock(return_value=None))
     return ns
 
 
@@ -47,11 +48,12 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
     async def generate(self, responses, **kwargs):
         self.ns = route_context()
         self.ns['call_llm'] = AsyncMock(side_effect=[json.dumps(r) for r in responses])
+        kwargs.setdefault('available_equipment',['halteres'])
         request = self.ns['WorkoutPlanGenerate'](objective='hipertrofia', level='intermediario', duration='mes', **kwargs)
         return await self.ns['generate_workout_plan'](SimpleNamespace(headers={}), request, None)
 
     async def test_four_weeks_month(self):
-        result = await self.generate([period()])
+        result = await self.generate([bases()])
         plan = result['plan']
         self.assertEqual(len(plan['days']), 20)
         self.assertEqual(plan['cycle_weeks'], 4)
@@ -59,20 +61,20 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan['days'][5]['day_name'], 'sem2_dia1')
 
     async def test_partial_response_retried_before_save(self):
-        result = await self.generate([period(10), period()])
+        result = await self.generate([bases(labels=('A','B')), bases()])
         self.assertEqual(len(result['plan']['days']), 20)
         self.assertEqual(self.ns['call_llm'].await_count, 2)
         self.ns['db'].workout_plans.insert_one.assert_awaited_once()
 
     async def test_repeated_partial_response_never_saved_or_rewarded(self):
         with self.assertRaises(HTTPException) as error:
-            await self.generate([period(10), period(10)])
+            await self.generate([bases(labels=('A','B')), bases(labels=('A','B'))])
         self.assertEqual(error.exception.status_code, 502)
         self.ns['db'].workout_plans.insert_one.assert_not_awaited()
         self.ns['award_xp'].assert_not_awaited()
 
     async def test_splits_expanded_exactly(self):
-        data = {'splits': [{'split_label': 'A', 'exercises': [{'name': 'Exercise'}]}]}
+        data = bases(labels=('A',))
         result = await self.generate([data], generation_mode='tipo_treino', split_config=[{'label': 'A'}], cycle_weeks=4, training_days_per_week=3)
         self.assertEqual(len(result['plan']['days']), 12)
         self.assertEqual(result['plan']['days'][-1]['week'], 4)
@@ -91,7 +93,7 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
         self.ns['db'].workout_plans.insert_one.assert_not_awaited()
 
     async def test_running_frequency_and_stale_split_mode(self):
-        result = await self.generate([period(12)], workout_type='corrida', weekly_frequency=3, generation_mode='tipo_treino')
+        result = await self.generate([bases(kind='corrida',equipment=[])], workout_type='corrida', weekly_frequency=3, generation_mode='tipo_treino',available_equipment=[])
         self.assertEqual(result['plan']['training_days_per_week'], 3)
         self.assertEqual(result['plan']['generation_mode'], 'periodo')
 
@@ -107,7 +109,7 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(type=type(failure).__name__):
                 ns = route_context()
                 ns['call_llm'] = AsyncMock(side_effect=failure)
-                data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes')
+                data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes',available_equipment=['halteres'])
                 with self.assertLogs(level='ERROR') as logs, self.assertRaises(HTTPException) as error:
                     await ns['generate_workout_plan'](SimpleNamespace(headers={}), data, None)
                 self.assertEqual(error.exception.status_code, 500)
@@ -120,9 +122,9 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
     async def test_persistence_exception_does_not_expose_workout_or_sql_parameters(self):
         private = 'PRIVATE_WORKOUT_SQL_PARAMETERS_SENTINEL'
         ns = route_context()
-        ns['call_llm'] = AsyncMock(return_value=json.dumps(period()))
-        ns['sql_plans'] = SimpleNamespace(save=AsyncMock(side_effect=ValueError(private)))
-        data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes')
+        ns['call_llm'] = AsyncMock(return_value=json.dumps(bases()))
+        ns['sql_plans'] = SimpleNamespace(save=AsyncMock(side_effect=ValueError(private)),replay=AsyncMock(return_value=None))
+        data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes',available_equipment=['halteres'])
         with self.assertLogs(level='ERROR') as logs, self.assertRaises(HTTPException) as error:
             await ns['generate_workout_plan'](SimpleNamespace(headers={}), data, None)
         self.assertEqual(error.exception.status_code, 500)

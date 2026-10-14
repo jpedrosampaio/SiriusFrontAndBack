@@ -196,7 +196,7 @@ async def get_freellm_api_key(user_id: str) -> Optional[str]:
 
 # ========== LLM CALLS ==========
 
-async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None, timeout_override: Optional[int] = None, task: str = 'assistant_chat') -> str:
+async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None, timeout_override: Optional[int] = None, task: str = 'assistant_chat', raise_ai_errors: bool = False) -> str:
     from ai.types import AIError
     if not user_id:
         return '⚠️ Faça login para usar IA.'
@@ -206,6 +206,7 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
         await track_gemini_usage(user_id, result.model, usage=result.usage, feature=task)
         return result.text
     except AIError as error:
+        if raise_ai_errors: raise
         if not keys: return '⚠️ Configure uma chave de IA nas configurações do assistente.'
         if error.kind in ('quota', 'rate_limit'): return '⚠️ Limite de IA atingido. Aguarde antes de tentar novamente.'
         return '⚠️ IA temporariamente indisponível. Seus dados foram preservados.'

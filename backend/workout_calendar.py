@@ -3,13 +3,29 @@ import copy
 import re
 
 
+def scheduled_plan_index(day_count, parameters, elapsed_days):
+    """New generation uses relative weekly proposals; legacy plans keep their rotation."""
+    policy=(parameters or {}).get('composition_policy') or {}
+    if not isinstance(policy,dict):policy={}
+    if policy.get('version')!=1 or not policy.get('proposal_only'):
+        return max(0,elapsed_days)%day_count if day_count else None
+    frequency=policy.get('sessions_per_week');weeks=policy.get('weeks')
+    if type(frequency) is not int or type(weeks) is not int or not 1<=frequency<=7 or not 1<=weeks<=12:
+        return None
+    offsets=[i*7//frequency for i in range(frequency)]
+    week,offset=divmod(elapsed_days,7)
+    if elapsed_days<0 or week>=weeks or offset not in offsets: return None
+    index=week*frequency+offsets.index(offset)
+    return index if index<day_count else None
+
+
 def calendar_shape(request):
     if request.generation_mode == "tipo_treino" and request.workout_type != "corrida":
         return request.cycle_weeks or 4, request.training_days_per_week or 5
-    weeks = {"dia": 1, "semana": 1, "mes": 4, "ciclo": 10}.get(request.duration)
+    weeks = getattr(request,'cycle_weeks',None) or {"dia": 1, "semana": 1, "mes": 4, "ciclo": 10}.get(request.duration)
     if weeks is None:
         raise ValueError("Duração de treino inválida.")
-    frequency = (request.weekly_frequency or 4) if request.workout_type == "corrida" else 5
+    frequency = getattr(request,'training_days_per_week',None) or ((getattr(request,'weekly_frequency',None) or 4) if request.workout_type == "corrida" else 5)
     return weeks, 1 if request.duration == "dia" else frequency
 
 

@@ -9,11 +9,30 @@ from db.repositories.identity import IdentityRepository
 from db.session import unit_of_work
 
 
-async def run_activity(user_id, request_key, fingerprint, apply, *, session=None):
+def validate_activity_key(request_key):
     if request_key is not None and (not 8 <= len(request_key) <= 128 or not all(
             c.isascii() and (c.isalnum() or c in '-_') for c in request_key)):
         raise HTTPException(422, 'Invalid Idempotency-Key')
-    digest = hashlib.sha256(json.dumps(fingerprint, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+def activity_digest(fingerprint):
+    return hashlib.sha256(json.dumps(fingerprint, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+async def replay_activity(user_id, request_key, fingerprint):
+    """Read a committed owned receipt before expensive provider work; never writes."""
+    validate_activity_key(request_key)
+    if request_key is None: return None
+    async with unit_of_work() as session:
+        previous = await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==user_id,
+            ActivityReceipt.request_key==request_key))
+        if previous is None: return None
+        if previous.fingerprint != activity_digest(fingerprint):
+            raise HTTPException(409,'Idempotency-Key already used for another action')
+        return {**previous.result,'replayed':True}
+
+
+async def run_activity(user_id, request_key, fingerprint, apply, *, session=None):
+    validate_activity_key(request_key)
+    digest = activity_digest(fingerprint)
     async with unit_of_work(session=session) as session:
         user = await IdentityRepository(session).by_id(user_id, lock=True)
         if user is None:

@@ -8,6 +8,7 @@ from sqlalchemy import select,func
 from db.models.health import WorkoutPlan
 from db.models.identity import User
 from db.session import unit_of_work
+from workout_generation_fixtures import bases
 import test_postgres_runtime_workout_plans as plan_tests
 
 
@@ -26,10 +27,10 @@ class RuntimeWorkoutGeneration(unittest.IsolatedAsyncioTestCase):
         self.patches.extend(extra)
 
     def period(self,count=20):
-        return {'days':[{'exercises':[{'name':f'Exercício {i}','sets':3,'reps':12} for i in range(8)]} for _ in range(count)]}
+        return bases(labels=('A','B','C') if count==20 else ('A','B'),count=8)
 
     async def generate(self,headers=None):
-        return await self.http.post('/api/workout-plans/generate',json={'objective':'hipertrofia','level':'iniciante','duration':'mes'},headers=headers or {})
+        return await self.http.post('/api/workout-plans/generate',json={'objective':'hipertrofia','level':'intermediario','duration':'mes','available_equipment':['halteres']},headers=headers or {})
 
     async def test_four_weeks_retry_and_atomic_reward_replay(self):
         self.llm.side_effect=[json.dumps(self.period(10)),json.dumps(self.period()),json.dumps(self.period())]
@@ -40,6 +41,7 @@ class RuntimeWorkoutGeneration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.llm.call_args.kwargs['user_id'],str(self.uid))
         replay=self.ok(await self.generate({'Idempotency-Key':'generate-plan-001'}))
         self.assertEqual(result['plan']['plan_id'],replay['plan']['plan_id'])
+        self.assertEqual(self.llm.await_count,2,'A committed receipt must replay before another provider call')
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),1)
             self.assertEqual((await session.get(User,self.uid)).xp,5)
@@ -68,14 +70,18 @@ class RuntimeWorkoutGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_health_condition_saved_with_plan_and_rolled_back_on_failure(self):
         from services.auth import AuthService
         self.llm.return_value=json.dumps(self.period())
-        body={'objective':'hipertrofia','level':'iniciante','duration':'mes','health_condition':'Adaptar por lesão anterior'}
+        body={'objective':'hipertrofia','level':'intermediario','duration':'mes','available_equipment':['halteres'],'health_condition':'Adaptar por lesão anterior'}
+        async with unit_of_work() as session:
+            owner=await session.get(User,self.uid); owner.preferences={**owner.preferences,'health_condition':'Relato anterior do perfil'}
         result=self.ok(await self.http.post('/api/workout-plans/generate',json=body))
         self.assertEqual(result['plan']['health_condition'],body['health_condition'])
-        self.assertEqual((await AuthService().profile(self.uid))['health_condition'],body['health_condition'])
+        self.assertEqual((await AuthService().profile(self.uid))['health_condition'],'Relato anterior do perfil')
+        self.assertTrue(result['plan']['professional_review_required'])
+        self.assertNotIn(body['health_condition'],result['plan']['name']+result['plan']['description'])
         with patch('services.workout_plan_writes.apply_xp',side_effect=RuntimeError('rollback')):
             response=await self.http.post('/api/workout-plans/generate',json={**body,'health_condition':'Outra condição'})
             self.assertEqual(response.status_code,500)
-        self.assertEqual((await AuthService().profile(self.uid))['health_condition'],body['health_condition'])
+        self.assertEqual((await AuthService().profile(self.uid))['health_condition'],'Relato anterior do perfil')
 
     async def test_improve_owned_plan_preserves_four_weeks_and_parent(self):
         self.llm.return_value=json.dumps(self.period())
@@ -84,7 +90,7 @@ class RuntimeWorkoutGeneration(unittest.IsolatedAsyncioTestCase):
         url='/api/workout-plans/'+pid+'/improve'
         self.assertEqual((await self.http.post(url,headers={'Authorization':'Bearer bob'})).status_code,404)
         self.llm.assert_not_awaited()
-        self.llm.side_effect=[json.dumps(self.period(10)),json.dumps({**self.period(),'improvements_summary':'Progressão controlada'})]
+        self.llm.side_effect=[json.dumps({'days':original['days'][:10]}),json.dumps({'days':original['days'],'improvements_summary':'Progressão controlada'})]
         result=self.ok(await self.http.post(url))
         self.assertEqual(len(result['plan']['days']),20); self.assertEqual(result['plan']['cycle_weeks'],4)
         self.assertEqual(result['plan']['improved_from'],pid); self.assertEqual(result['improvements_summary'],'Progressão controlada')
