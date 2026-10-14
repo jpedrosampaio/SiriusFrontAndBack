@@ -1,5 +1,6 @@
 """SQL weekly summaries, activity streaks and deterministic reminders."""
 from datetime import timedelta
+from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter,Request
@@ -35,8 +36,8 @@ async def weekly(request: Request):
     async with unit_of_work() as session:
         money=(await session.execute(select(FinancialTransaction.type,func.sum(FinancialTransaction.amount),func.count()).where(
             FinancialTransaction.user_id==uid,FinancialTransaction.date.between(start,today)).group_by(FinancialTransaction.type))).all()
-        sums={kind:amount for kind,amount,count in money};income=sums.get('income',0);expense=sums.get('expense',0)
-        count,minutes,calories=(await session.execute(select(func.count(),func.coalesce(func.sum(WorkoutLog.duration_minutes),0),func.coalesce(func.sum(WorkoutLog.calories),0)).where(
+        sums={kind:amount for kind,amount,count in money};income=sums.get('income',Decimal(0));expense=sums.get('expense',Decimal(0))
+        count,minutes,calories,calorie_count=(await session.execute(select(func.count(),func.coalesce(func.sum(WorkoutLog.duration_minutes),0),func.sum(WorkoutLog.calories),func.count(WorkoutLog.calories)).where(
             WorkoutLog.user_id==uid,WorkoutLog.completed.is_(True),WorkoutLog.date.between(start,today)))).one()
         lower,upper=utc_bounds(start,today,user['timezone'])
         sessions,difficulty=(await session.execute(select(func.count(),func.avg(WorkoutSession.feedback['difficulty'].as_float())).where(
@@ -50,10 +51,11 @@ async def weekly(request: Request):
             StudySession.user_id==uid,StudySession.completed.is_(True),StudySession.date.between(start,today)))).one()
     return jsonable_encoder({'period':{'start':start.isoformat(),'end':today.isoformat()},
         'finance':{'income':income,'expense':expense,'balance':income-expense,'transactions_count':sum(count for kind,amount,count in money)},
-        'workouts':{'count':count,'total_minutes':minutes,'total_calories':calories,'sessions_completed':sessions,'avg_difficulty':round(difficulty or 0,1)},
-        'habits':{'completed':checks,'total_possible':possible,'completion_pct':round(checks/max(possible,1)*100),'active_habits':len(habits)},
-        'tasks':{'completed':done,'total':tasks,'completion_pct':round(done/max(tasks,1)*100)},
-        'study':{'sessions':studied,'total_minutes':duration},'xp':user['xp'],'rank':user['rank']})
+        'workouts':{'count':count,'total_minutes':minutes,'total_calories':calories if count and calorie_count==count else None,
+            'calorie_records':calorie_count,'sessions_completed':sessions,'avg_difficulty':round(difficulty,1) if difficulty is not None else None},
+        'habits':{'completed':checks,'total_possible':possible,'completion_pct':round(checks/possible*100) if possible else None,'active_habits':len(habits)},
+        'tasks':{'completed':done,'total':tasks,'completion_pct':round(done/tasks*100) if tasks else None},
+        'study':{'sessions':studied,'total_minutes':duration},'xp':user['xp'],'rank':user['rank']},custom_encoder={Decimal:lambda value:format(value,'f')})
 
 
 @router.get('/streaks/global')

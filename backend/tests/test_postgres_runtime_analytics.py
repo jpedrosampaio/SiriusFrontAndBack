@@ -36,14 +36,14 @@ class RuntimeAnalytics(unittest.IsolatedAsyncioTestCase):
                 FinancialTransaction(user_id=self.bob,date=self.today,type='income',amount=Decimal('9999'),category='income')])
             session.add_all([FinancialTransaction(user_id=self.uid,date=self.today,type='income',amount=Decimal('1'),category='income') for _ in range(5005)])
         result=self.ok(await self.http.get('/api/stats/analytics',params={'days':7}))
-        self.assertEqual(result['totals'],{'tasks':1,'habits_avg':0.1,'income':5007.25,'expenses':0,'study_hours':0.3,'workouts':1,'questions':10,'xp_earned':5})
+        self.assertEqual(result['totals'],{'tasks':1,'habits_avg':0.1,'income':'5007.25','expenses':'0.00','study_hours':0.3,'workouts':1,'questions':10,'xp_earned':5})
         self.assertEqual(result['data'][-1],{'date':self.today.isoformat(),'label':self.today.isoformat()[5:],'tasks':1,'habits':1,'habits_total':1,
-            'income':5007.25,'expenses':0,'balance':5007.25,'study_min':20,'workouts':1,'workout_min':40,'questions':10,'correct':7,'xp':5,'xp_cumulative':5})
-        self.assertEqual(len(result['data']),7);self.assertEqual(result['data'][0]['income'],0)
+            'income':'5007.25','expenses':'0.00','balance':'5007.25','study_min':20,'workouts':1,'workout_min':40,'questions':10,'correct':7,'xp':5,'xp_cumulative':5})
+        self.assertEqual(len(result['data']),7);self.assertEqual(result['data'][0]['income'],'0.00')
         self.assertEqual((await self.http.get('/api/stats/analytics',params={'days':0})).status_code,422)
         self.assertEqual(self.ok(await self.http.get('/api/stats/analytics',params={'days':100}))['days'],90)
         other=self.ok(await self.http.get('/api/stats/analytics',headers={'Authorization':'Bearer bob'}))
-        self.assertEqual(other['totals']['income'],9999);self.assertEqual(other['totals']['tasks'],0)
+        self.assertEqual(other['totals']['income'],'9999.00');self.assertEqual(other['totals']['tasks'],0)
 
     async def test_xp_ledger_atomic_replay_undo_and_rollback(self):
         async with unit_of_work() as session:

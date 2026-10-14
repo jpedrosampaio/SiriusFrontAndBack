@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { cacheKey } from '@/lib/query-cache';
 import { getCurrentUser } from '@/lib/api';
@@ -8,6 +8,8 @@ import { openSirius } from '@/lib/sirius-context';
 import WhyDetails from '@/components/WhyDetails';
 import { formatBRL } from '@/lib/finance-money';
 import Onboarding from '@/components/Onboarding';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 const Details = lazy(() => import('./DashboardDetails'));
 const Tools = lazy(() => import('@/components/CommandTools'));
@@ -30,15 +32,21 @@ function summary(area) {
   return values[area.domain];
 }
 export default function Dashboard() {
-  const [tool, setTool] = useState(null), [details, setDetails] = useState(false);
-  const query = useQuery({ queryKey: cacheKey('command-home'), queryFn: async ({ signal }) => {
+  const [tool, setTool] = useState(null);
+  const [params, setParams] = useSearchParams();
+  const view = params.get('view') === 'analyses' ? 'analyses' : 'day';
+  const selectView = value => setParams(previous => { const next = new URLSearchParams(previous); if (value === 'day') next.delete('view'); else next.set('view', value); return next; }, { replace: true });
+  const query = useQuery({ queryKey: cacheKey('command-home'), enabled: view === 'day', queryFn: async ({ signal }) => {
     const [home, user] = await Promise.all([axios.get(`${API}/command/home`, { signal, timeout: 20000 }), getCurrentUser()]);
     return { ...home.data, user: user.data };
   } });
   const data = query.data, next = data?.next_action;
   return <div className="page-container pb-28 max-w-5xl mx-auto space-y-7" data-testid="command-center">
-    <Onboarding />
-    <header className="pt-5 space-y-2"><p className="text-sm text-sky-300">Sirius · Command Center</p><h1 data-testid="dashboard-title" className="text-2xl sm:text-3xl font-semibold break-words">Seu próximo passo{data?.user?.name ? `, ${data.user.name.split(' ')[0]}` : ''}</h1><p className="text-sm text-slate-400">Uma visão do seu dia, com fatos e espaço para decidir.</p></header>
+    {view === 'day' && <Onboarding />}
+    <header className="pt-5 space-y-2"><p className="text-sm text-sky-300">Sirius · {view === 'day' ? 'Command Center' : 'Seu painel'}</p><h1 data-testid="dashboard-title" className="text-2xl sm:text-3xl font-semibold break-words">{view === 'day' ? `Seu próximo passo${data?.user?.name ? `, ${data.user.name.split(' ')[0]}` : ''}` : 'Análises e evolução'}</h1><p className="text-sm text-slate-400">{view === 'day' ? 'Uma visão do seu dia, com fatos e espaço para decidir.' : 'Indicadores dos seus registros, com estimativas e informações ausentes identificadas.'}</p></header>
+    <Tabs value={view} onValueChange={selectView} className="min-w-0">
+      <TabsList aria-label="Visão da página inicial" className="grid w-full grid-cols-2 h-auto p-1 mb-6"><TabsTrigger value="day" className="min-h-11">MEU DIA</TabsTrigger><TabsTrigger value="analyses" className="min-h-11">ANÁLISES</TabsTrigger></TabsList>
+      <TabsContent value="day" className="space-y-7">
     {query.isPending && <p role="status">Consultando sua vida integrada…</p>}
     {query.isError && <div role="alert" className="rounded-xl border border-amber-400/30 p-4"><p>Não foi possível atualizar o Command Center. {data ? 'A última consulta continua visível.' : 'Tente novamente.'}</p><button className={button} onClick={() => query.refetch()}>Tentar novamente</button></div>}
     {data && <>
@@ -61,9 +69,11 @@ export default function Dashboard() {
       </section>
       <section aria-labelledby="areas-title" className="space-y-3"><h2 id="areas-title" className="text-lg font-semibold">Áreas</h2><ul className="divide-y divide-white/10">{(data.areas || []).map(area => <li key={area.domain} className="py-3 flex flex-wrap gap-2 items-center justify-between"><div className="min-w-0"><h3 className="font-medium">{labels[area.domain]}</h3><p className="text-sm text-slate-400 break-words">{summary(area)}{area.truncated ? ' · Consulta limitada' : ''}</p></div><Link className={`${button} inline-flex items-center`} to={area.link}>Abrir {labels[area.domain]}</Link></li>)}</ul></section>
     </>}
-    <section aria-label="Ferramentas do Command Center" className="space-y-3 border-t border-white/10 pt-5"><div className="flex flex-wrap gap-2">{[['scenarios','Simular cenários'],['memory','Memória explícita'],['audit','Histórico de ações'],['export','Exportar dados']].map(([id,label]) => <button className={button} key={id} aria-pressed={tool===id} onClick={() => setTool(tool===id ? null : id)}>{label}</button>)}<button className={button} onClick={() => openSirius({ intent:'next_action',draft:'O que devo fazer agora?' })}>Perguntar ao Sirius</button><button className={button} aria-expanded={details} onClick={() => setDetails(!details)}>Painel detalhado</button></div>
+    <section aria-label="Ferramentas do Command Center" className="space-y-3 border-t border-white/10 pt-5"><div className="flex flex-wrap gap-2">{[['scenarios','Simular cenários'],['memory','Memória explícita'],['audit','Histórico de ações'],['export','Exportar dados']].map(([id,label]) => <button className={button} key={id} aria-pressed={tool===id} onClick={() => setTool(tool===id ? null : id)}>{label}</button>)}<button className={button} onClick={() => openSirius({ intent:'next_action',draft:'O que devo fazer agora?' })}>Perguntar ao Sirius</button><button className={button} onClick={() => selectView('analyses')}>Painel detalhado</button></div>
       {tool && <Suspense fallback={<p role="status">Carregando ferramenta…</p>}><Tools key={tool} initialTab={tool} onClose={() => setTool(null)} /></Suspense>}
     </section>
-    {details && <Suspense fallback={<p role="status">Carregando painel detalhado…</p>}><Details /></Suspense>}
+      </TabsContent>
+      <TabsContent value="analyses" className="min-w-0"><ErrorBoundary><Suspense fallback={<p role="status">Carregando painel detalhado…</p>}><Details embedded /></Suspense></ErrorBoundary></TabsContent>
+    </Tabs>
   </div>;
 }
