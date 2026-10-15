@@ -135,7 +135,7 @@ async def _generated_document(gen_data,uid,revision_context=None):
             training_location=gen_data.training_location,available_equipment=equipment_for(gen_data),
             session_minutes=gen_data.session_minutes,health_condition=gen_data.health_condition,
             created_at=datetime.now(timezone.utc).isoformat())
-        document.update({field:getattr(gen_data,field) for field in ('calisthenics_focus','calisthenics_equipment','running_goal','preferred_terrain','avoid_exercises')})
+        document.update({field:getattr(gen_data,field) for field in ('muscle_groups','calisthenics_focus','calisthenics_equipment','running_goal','preferred_terrain','avoid_exercises')})
         return document
     except HTTPException:
         raise

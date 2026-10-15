@@ -13,7 +13,7 @@ from services.planning import apply_xp
 PARAMETERS=('weekly_progression','workout_type','generation_mode','split_type','split_config','training_days_per_week',
     'cycle_weeks','include_cardio','cardio_type','cardio_mode','health_condition','source','source_filename',
     'training_location','available_equipment','session_minutes','base_sessions','composition_policy','professional_review_required',
-    'calisthenics_focus','calisthenics_equipment','running_goal','preferred_terrain','avoid_exercises')
+    'muscle_groups','calisthenics_focus','calisthenics_equipment','running_goal','preferred_terrain','avoid_exercises')
 
 
 async def replay(uid,key,fingerprint):

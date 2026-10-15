@@ -203,6 +203,18 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(plan.get('composition_policy'));self.assertEqual(plan['improvements_summary'],'Variações para revisão')
         self.llm.assert_awaited_once()
 
+    async def test_period_revision_retains_selected_muscles_instead_of_default_full_body(self):
+        self.llm.return_value=json.dumps(bases())
+        original=self.ok(await self.create(self.request(workout_type='musculacao',available_equipment=['halteres'],muscle_groups=['pernas'])))['plan']
+        self.assertEqual(original['muscle_groups'],['pernas'])
+        revised=bases()
+        for base in revised['base_sessions']:
+            for ex in base['exercises']: ex['muscle_group']='pernas'
+        self.llm.return_value=json.dumps(revised)
+        plan=self.ok(await self.http.post(f"/api/workout-plans/{original['plan_id']}/improve"))['plan']
+        self.assertEqual(plan['muscle_groups'],['pernas']);self.assertEqual(len(plan['days']),12)
+        self.assertTrue(all(ex['muscle_group']=='pernas' for day in plan['days'] for ex in day['exercises']))
+
     async def test_running_implicitly_selects_running_not_another_cardio_activity(self):
         body=self.request(workout_type='corrida',available_equipment=['bicicleta'],preferred_terrain='asfalto')
         for index,activity in enumerate(('bike','caminhada')):
