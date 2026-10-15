@@ -32,6 +32,7 @@ Base auditada: `main` em `280dcd73d688d3f34ab3cb9a5deedb83a278e4c7`. Não havia 
 | Agent e IA compartilhada | `backend/ai/registry.py`, `core.py`, `agent.py`, `backend/services/core_writes.py`, [shared-assistant](shared-assistant.md), documentos dos motores envolvidos |
 | Persistência e migrations | [POSTGRES_ARCHITECTURE](POSTGRES_ARCHITECTURE.md), [DATA_MODEL](DATA_MODEL.md), [PRODUCTION_MIGRATIONS](PRODUCTION_MIGRATIONS.md), modelos/revisões Alembic atuais |
 | Desempenho, mobile e confiabilidade | [DATABASE_PERFORMANCE](DATABASE_PERFORMANCE.md), [performance-loading](performance-loading.md), [reliability-mobile](reliability-mobile.md), [functional-reliability](functional-reliability.md) |
+| Manutenção pós-publicação: treinos, editais e análises | [POSTLAUNCH_MAINTENANCE](POSTLAUNCH_MAINTENANCE.md); leia o registro histórico somente para investigar uma decisão ou evidência específica |
 
 `AI_ARCHITECTURE`, `AI_MIGRATION_MAP`, `SIRIUS_AGENT` e `SIRIUS_CORE_3` preservam descrições de etapas anteriores. Leia seus trechos apenas quando relevantes; Mongo/Atlas, Render, duração padrão e instruções manuais antigas não descrevem necessariamente o runtime atual. POSTGRES_ARCHITECTURE contém a auditoria da migração original; o status de sua antiga branch não é um bloqueio atual. O workflow protegido é a referência de migrations de produção.
 
@@ -65,4 +66,4 @@ Ao concluir, informe resultado, testes/revisão, publicação e limitações mat
 
 HANDOFF deve conter somente estado atual, próxima fase/autorização, migrations/bloqueios e decisões materiais, com links para evidências. Não acrescente logs, cada tentativa de teste ou instruções permanentes repetidas. Registre detalhes de publicação em documento histórico separado ou na PR; preserve snapshots históricos sem reescrevê-los.
 
-Ao retomar outra sessão, releia o estado atual e verifique Git/PR/checks/deploys relevantes antes de agir. Atualize apenas fatos que mudaram; a existência do plano ou de comandos antigos não autoriza novas fases. Esta melhoria termina após sua integração e validação; aguarde nova autorização para a Fase 10.
+Ao retomar outra sessão, releia o estado atual e verifique Git/PR/checks/deploys relevantes antes de agir. Atualize apenas fatos que mudaram; a existência do plano ou de comandos antigos não autoriza novas fases. O HANDOFF registra a autorização vigente e o próximo trabalho; ao concluir uma entrega, aguarde nova autorização.
