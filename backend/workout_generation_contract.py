@@ -13,6 +13,10 @@ Equipment = Literal['halteres','barra_anilhas','banco','elasticos','barra_fixa',
 Location = Literal['casa','academia','ar_livre']
 Conditioning = Literal['corrida','bike','HIIT','caminhada','natacao','pular_corda','eliptico','remo']
 CONDITIONING_EQUIPMENT = {'bike':'bicicleta','natacao':'piscina','pular_corda':'corda','eliptico':'eliptico','remo':'remo'}
+CONDITIONING_NAMES = {'corrida':r'^(?:corrida|running|jogging)\b', 'caminhada':r'^(?:caminhada|walking)\b',
+    'bike':r'^(?:bicicleta|ciclismo|bike|cycling)\b', 'natacao':r'^(?:natacao|swimming)\b',
+    'pular_corda':r'^(?:pular corda|jump rope)\b', 'eliptico':r'^(?:eliptico|elliptical)\b',
+    'remo':r'^(?:remo ergometrico|remo indoor|rowing machine|rowing ergometer)\b'}
 LEVELS = {'iniciante':0,'intermediario':1,'avancado':2}
 LEGACY_EQUIPMENT = {'nenhum':[], 'solo':[], 'barra':['barra_fixa'], 'paralelas':['paralelas'], 'argolas':['argolas']}
 MESSAGES = {
@@ -81,8 +85,21 @@ def equipment_for(request):
     return supplied if supplied is not None else legacy
 
 
+def hybrid_request(request):
+    return request.workout_type=='hibrido' or request.include_cardio
+
+
+def alternating_cardio(request):
+    return hybrid_request(request) and request.cardio_mode=='hibrido_alternado'
+
+
+def requested_conditioning(request):
+    if request.workout_type=='corrida': return 'corrida'
+    return normalized(request.cardio_type) if hybrid_request(request) and request.cardio_type else None
+
+
 def validate_request(request):
-    if calendar_shape(request)[1]==1 and (request.workout_type=='hibrido' or request.include_cardio) and request.cardio_mode=='hibrido_alternado':
+    if calendar_shape(request)[1]==1 and alternating_cardio(request):
         raise GenerationInvalid('single_alternating_cardio')
     if request.weekly_frequency is not None and request.training_days_per_week is not None and request.weekly_frequency!=request.training_days_per_week:
         raise GenerationInvalid('frequency_conflict')
@@ -99,12 +116,11 @@ def validate_request(request):
                 any(not isinstance(group,str) or not group.strip() for group in s['muscle_groups']) for s in splits):
             raise GenerationInvalid('invalid_splits')
         weeks,frequency=calendar_shape(request)
-        alternating=(request.workout_type=='hibrido' or request.include_cardio) and request.cardio_mode=='hibrido_alternado'
-        if weeks*((frequency+1)//2 if alternating else frequency)<len(labels):
+        if weeks*((frequency+1)//2 if alternating_cardio(request) else frequency)<len(labels):
             raise GenerationInvalid('insufficient_split_slots')
     inventory=equipment_for(request)
-    if (request.workout_type=='hibrido' or request.include_cardio) and request.cardio_type:
-        activity=normalized(request.cardio_type)
+    activity=requested_conditioning(request)
+    if activity:
         if activity not in {'corrida','bike','hiit','caminhada','natacao','pular_corda','eliptico','remo'}:
             raise GenerationInvalid('modality_mismatch')
         required=CONDITIONING_EQUIPMENT.get(activity)
@@ -119,13 +135,14 @@ def validate_request(request):
 
 
 def base_labels(request):
-    _,frequency=calendar_shape(request)
+    weeks,frequency=calendar_shape(request)
     if request.generation_mode=='tipo_treino' and request.workout_type!='corrida':
         labels=[s['label'] for s in request.split_config]
-        if request.include_cardio and request.cardio_mode=='hibrido_alternado': labels.append('CARDIO')
+        if alternating_cardio(request): labels.append('CARDIO')
         return labels
-    labels=list('ABC')[:min(3,frequency)]
-    if (request.workout_type=='hibrido' or request.include_cardio) and request.cardio_mode=='hibrido_alternado': labels.append('CARDIO')
+    strength_slots=weeks*((frequency+1)//2) if alternating_cardio(request) else weeks*frequency
+    labels=list('ABC')[:min(3,frequency,strength_slots)]
+    if alternating_cardio(request): labels.append('CARDIO')
     return labels
 
 
@@ -190,6 +207,26 @@ def inferred_equipment(exercise):
     return result
 
 
+def validate_conditioning(exercise,request):
+    identified={kind for kind,pattern in CONDITIONING_NAMES.items() if re.search(pattern,normalized(exercise.name))}
+    is_conditioning=(identified or exercise.muscle_group in ('cardio','cardiorespiratorio') or
+        exercise.exercise_kind in ('corrida','cardio') or exercise.conditioning_type is not None)
+    if not is_conditioning: return
+    if exercise.muscle_group not in ('cardio','cardiorespiratorio') or exercise.exercise_kind not in ('corrida','cardio'):
+        raise GenerationInvalid('modality_mismatch')
+    actual=normalized(exercise.conditioning_type or ('corrida' if exercise.exercise_kind=='corrida' else ''))
+    expected=requested_conditioning(request)
+    if not actual or (expected and actual!=expected) or (exercise.exercise_kind=='corrida' and actual!='corrida'):
+        raise GenerationInvalid('modality_mismatch')
+    if actual!='hiit' and identified and identified!={actual}: raise GenerationInvalid('modality_mismatch')
+    apparatus=set(exercise.required_equipment)|inferred_equipment(exercise)
+    if actual!='hiit' and (any(gear in apparatus and kind!=actual for kind,gear in CONDITIONING_EQUIPMENT.items()) or
+            ('esteira' in apparatus and actual not in ('corrida','caminhada'))):
+        raise GenerationInvalid('modality_mismatch')
+    required=CONDITIONING_EQUIPMENT.get(actual)
+    if required and required not in apparatus: raise GenerationInvalid('equipment_mismatch')
+
+
 def validate_bases(data,request,labels=None):
     try: plan=BasePlan.model_validate(data)
     except ValidationError: raise GenerationInvalid('invalid_sessions') from None
@@ -226,28 +263,7 @@ def validate_bases(data,request,labels=None):
                 requested=next((s.get('muscle_groups') for s in request.split_config or [] if s.get('label')==session.label),None)
             if requested and not set(requested).issubset(groups):raise GenerationInvalid('focus_mismatch')
         for exercise in session.exercises:
-            is_conditioning=(exercise.muscle_group in ('cardio','cardiorespiratorio') or
-                exercise.exercise_kind in ('corrida','cardio') or exercise.conditioning_type is not None)
-            if is_conditioning and (exercise.muscle_group not in ('cardio','cardiorespiratorio') or exercise.exercise_kind not in ('corrida','cardio')):
-                raise GenerationInvalid('modality_mismatch')
-            if (request.workout_type=='hibrido' or request.include_cardio) and request.cardio_type and is_conditioning:
-                expected=normalized(request.cardio_type)
-                actual=normalized(exercise.conditioning_type or ('corrida' if exercise.exercise_kind=='corrida' else ''))
-                if actual!=expected or exercise.exercise_kind not in ('corrida','cardio') or (exercise.exercise_kind=='corrida' and expected!='corrida'):
-                    raise GenerationInvalid('modality_mismatch')
-                name=normalized(exercise.name)
-                named={'corrida':r'corrida|running|jogging', 'caminhada':r'caminhada|walking',
-                    'bike':r'bicicleta|ciclismo|\bbike\b|cycling', 'natacao':r'natacao|swimming',
-                    'pular_corda':r'pular corda|jump rope', 'eliptico':r'eliptico|elliptical', 'remo':r'remo|rowing'}
-                identified={kind for kind,pattern in named.items() if re.search(pattern,name)}
-                if expected!='hiit' and identified and identified!={expected}: raise GenerationInvalid('modality_mismatch')
-                required=CONDITIONING_EQUIPMENT.get(expected)
-                apparatus=set(exercise.required_equipment)|inferred_equipment(exercise)
-                if expected!='hiit' and (any(gear in apparatus and kind!=expected for kind,gear in CONDITIONING_EQUIPMENT.items()) or
-                        ('esteira' in apparatus and expected not in ('corrida','caminhada'))):
-                    raise GenerationInvalid('modality_mismatch')
-                if required and required not in apparatus:
-                    raise GenerationInvalid('equipment_mismatch')
+            validate_conditioning(exercise,request)
             if not (set(exercise.required_equipment)|inferred_equipment(exercise)).issubset(inventory):
                 raise GenerationInvalid('equipment_mismatch')
             if LEVELS[exercise.difficulty]>LEVELS[request.level] or exercise.sets>{'iniciante':4,'intermediario':6,'avancado':8}[request.level]:
@@ -262,7 +278,7 @@ def validate_bases(data,request,labels=None):
         strength=any(ex.muscle_group not in ('cardio','cardiorespiratorio','descanso') for ex in session.exercises)
         if request.workout_type=='corrida' and (session.session_kind!='corrida' or strength or not cardio):
             raise GenerationInvalid('modality_mismatch')
-        hybrid=request.workout_type=='hibrido' or request.include_cardio
+        hybrid=hybrid_request(request)
         if hybrid:
             if request.cardio_mode=='hibrido_alternado':
                 if session.label=='CARDIO' and (not cardio or strength): raise GenerationInvalid('modality_mismatch')

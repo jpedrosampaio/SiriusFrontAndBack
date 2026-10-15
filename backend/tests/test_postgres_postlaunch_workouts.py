@@ -107,7 +107,7 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
     async def test_conditioning_cannot_hide_behind_strength_tags_or_conflicting_kinds(self):
         for index,(group,kind,activity) in enumerate([
                 ('pernas','corrida','corrida'),('pernas','corrida',None),
-                ('peito','resistencia','bike'),('cardio','peso_corporal','bike')]):
+                ('pernas','resistencia',None),('peito','resistencia','bike'),('cardio','peso_corporal','bike')]):
             for mode in ('hibrido','hibrido_alternado'):
                 force=bases()
                 cardio=bases(labels=('CARDIO',),kind='corrida',equipment=['bicicleta'])
@@ -130,6 +130,49 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
             self.assertEqual((await session.get(User,self.uid)).xp,0)
+
+    async def test_legacy_hybrid_split_includes_conditioning_without_optional_flag(self):
+        force=bases(labels=('A','B'))
+        force['base_sessions']+=bases(labels=('CARDIO',),kind='corrida',equipment=[])['base_sessions']
+        self.llm.return_value=json.dumps(force)
+        body=self.request(workout_type='hibrido',available_equipment=['halteres'],generation_mode='tipo_treino',
+            split_type='AB',split_config=[{'label':label,'muscle_groups':['peito']} for label in 'AB'],cardio_mode='hibrido_alternado')
+        for index,changes in enumerate(({}, {'include_cardio':False})):
+            plan=self.ok(await self.create({**body,**changes},key=f'postlaunch-implicit-hybrid-{index}'))['plan']
+            self.assertEqual(len(plan['days']),12)
+            self.assertEqual(sum(d['split_label']=='CARDIO' for d in plan['days']),4)
+            self.assertEqual({d['split_label'] for d in plan['days']},{'A','B','CARDIO'})
+        short=bases(labels=('A',))
+        short['base_sessions']+=bases(labels=('CARDIO',),kind='corrida',equipment=[])['base_sessions']
+        self.llm.return_value=json.dumps(short)
+        plan=self.ok(await self.create({**body,'generation_mode':'periodo','split_type':None,'split_config':None,
+            'cycle_weeks':1,'duration':'semana','training_days_per_week':2},key='postlaunch-short-alternating'))['plan']
+        self.assertEqual([day['split_label'] for day in plan['days']],['A','CARDIO'])
+        self.assertEqual({base['label'] for base in plan['base_sessions']},{day['split_label'] for day in plan['days']})
+
+    async def test_running_implicitly_selects_running_not_another_cardio_activity(self):
+        body=self.request(workout_type='corrida',available_equipment=['bicicleta'],preferred_terrain='asfalto')
+        for index,activity in enumerate(('bike','caminhada')):
+            data=bases(kind='corrida',equipment=[])
+            for base in data['base_sessions']:
+                for ex in base['exercises']:
+                    ex.update(name='Bicicleta ergométrica' if activity=='bike' else 'Caminhada',
+                        conditioning_type=activity,exercise_kind='cardio',required_equipment=['bicicleta'] if activity=='bike' else [])
+            self.llm.return_value=json.dumps(data)
+            self.assertEqual((await self.create(body,key=f'postlaunch-running-wrong-{index}')).status_code,502)
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+        self.llm.return_value=json.dumps(bases(kind='corrida',equipment=[]))
+        self.assertEqual(len(self.ok(await self.create(body,key='postlaunch-running-compatible'))['plan']['days']),12)
+
+    async def test_strength_row_names_do_not_become_a_different_conditioning_activity(self):
+        data=bases()
+        for base in data['base_sessions']:
+            base['exercises'][1].update(name='Remada com halteres',muscle_group='costas')
+        self.llm.return_value=json.dumps(data)
+        plan=self.ok(await self.create(self.request(workout_type='musculacao',available_equipment=['halteres'])))['plan']
+        self.assertTrue(all(day['exercises'][1]['name']=='Remada com halteres' for day in plan['days']))
 
     async def test_odd_frequency_alternation_includes_every_declared_split_in_order(self):
         first=bases(labels=('A','B','C'))
