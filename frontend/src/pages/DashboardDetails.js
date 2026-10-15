@@ -412,9 +412,10 @@ export default function Dashboard({ embedded = false }) {
                       <span className="font-data">{stats.workout_stats?.total_duration_minutes || 0} min</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-[#A1A1AA] flex items-center gap-2"><Flame className="w-4 h-4" /> Calorias declaradas</span>
+                      <span className="text-[#A1A1AA] flex items-center gap-2"><Flame className="w-4 h-4" /> Calorias registradas</span>
                       <span className="font-data text-[#FF9500]">{stats.workout_stats?.total_calories_burned == null ? 'Não informado' : `${stats.workout_stats.total_calories_burned} kcal`}</span>
                     </div>
+                    <p className="text-xs text-[#A1A1AA]">Origem não verificada; registros antigos podem conter estimativas. Total disponível somente com informação em todos os treinos concluídos.</p>
                   </div>
                 </Card>
 

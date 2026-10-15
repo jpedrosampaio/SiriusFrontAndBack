@@ -60,7 +60,7 @@ async def dashboard_snapshot(user_id,today=None):
             'habits_total':habits,'habits_completed_today':done,'income':income,'expenses':expenses,'balance':income-expenses,
             'goals_total':goals,'goals_avg_progress':float(progress) if progress is not None else None,
             'workout_stats':{'workouts_this_week':workouts,'total_duration_minutes':minutes,'total_calories_burned':calories if calorie_count==workouts and workouts else None,
-                'calorie_records':calorie_count,'calories_source':'declared' if calorie_count else 'unknown','total_xp_earned':xp},
+                'calorie_records':calorie_count,'calories_source':'unverified' if calorie_count else 'unknown','total_xp_earned':xp},
             'nutrition_stats':{'calories_consumed':nutrition.get('calories',0),'calories_goal':nutrition_goal['daily_calories'],
             'protein_consumed':round(nutrition.get('protein',0),1) if nutrition.get('protein',0) is not None else None,'protein_goal':nutrition_goal['daily_protein'],
                 'water_consumed_ml':water.get(day,0),'water_goal_ml':nutrition_goal['water_goal_ml'],'meals_count':nutrition.get('meals_count',0)},

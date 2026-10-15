@@ -29,6 +29,7 @@ class RuntimeWorkoutDaily(unittest.IsolatedAsyncioTestCase):
         results=[self.ok(r) for r in await asyncio.gather(*(self.http.post(self.url+'/complete',json={'duration_minutes':30}) for _ in range(8)))]
         self.assertEqual(len({r['log_id'] for r in results}),1)
         self.assertEqual(results[0]['xp_earned'],35)
+        self.assertTrue(all(result['calories'] is None for result in results))
         self.assertTrue(self.ok(await self.http.get(self.url))['completed'])
         async with unit_of_work() as session:
             self.assertEqual((await session.get(User,self.uid)).xp,35)
@@ -37,6 +38,8 @@ class RuntimeWorkoutDaily(unittest.IsolatedAsyncioTestCase):
         status=self.ok(await self.http.get(self.url));self.assertFalse(status['completed']);self.assertEqual(status['exercises_status'],{})
         self.assertEqual(self.ok(await self.http.get('/api/workouts')),[])
         async with unit_of_work() as session:self.assertEqual((await session.get(User,self.uid)).xp,0)
+        zero=self.ok(await self.http.post(self.url+'/complete',json={'duration_minutes':30,'calories':0}))
+        self.assertEqual(zero['calories'],0)
 
     async def test_batch_multiple_plans_isolated_and_matches_single(self):
         other=self.ok(await self.http.post('/api/workout-plans',json={'name':'Segundo','exercises':[{'name':'Remada'}]}))

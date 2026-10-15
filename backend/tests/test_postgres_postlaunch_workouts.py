@@ -344,6 +344,24 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutSession).where(WorkoutSession.user_id==self.uid)),0)
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutLog).where(WorkoutLog.user_id==self.uid)),0)
 
+    async def test_calisthenics_mobility_is_preparatory_not_a_bodyweight_session(self):
+        for focus in ('full_body','forca_upper','forca_lower'):
+            data=bases(kind='mobilidade',equipment=[])
+            self.llm.return_value=json.dumps(data)
+            response=await self.create(self.request(calisthenics_focus=focus),key=f'postlaunch-mobility-only-{focus}')
+            self.assertEqual(response.status_code,502,response.text)
+            self.assertIn('modality_mismatch',response.text)
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+        valid=bases(kind='peso_corporal',equipment=[])
+        for base in valid['base_sessions']:
+            base['exercises'][0]['exercise_kind']='mobilidade'
+        self.llm.return_value=json.dumps(valid)
+        plan=self.ok(await self.create(self.request(),key='postlaunch-mobility-with-bodyweight'))['plan']
+        self.assertEqual(len(plan['days']),12)
+        self.assertTrue(all(any(ex['exercise_kind']=='peso_corporal' for ex in base['exercises']) for base in plan['base_sessions']))
+
     async def test_calisthenics_conditioning_requires_an_actual_circuit_proposal(self):
         ordinary=bases(kind='peso_corporal',equipment=[])
         self.llm.return_value=json.dumps(ordinary)

@@ -62,7 +62,7 @@ class RuntimeDashboard(unittest.IsolatedAsyncioTestCase):
             from sqlalchemy import select
             row=await session.scalar(select(WorkoutLog).where(WorkoutLog.user_id==self.uid,WorkoutLog.name=='Unknown'));row.calories=0
         result=self.ok(await self.http.get('/api/stats/dashboard'))['workout_stats']
-        self.assertEqual(result['total_calories_burned'],0);self.assertEqual(result['calories_source'],'declared')
+        self.assertEqual(result['total_calories_burned'],0);self.assertEqual(result['calories_source'],'unverified')
         other=self.ok(await self.http.get('/api/stats/dashboard',headers={'Authorization':'Bearer bob'}))
         self.assertEqual(other['workout_stats']['workouts_this_week'],0);self.assertIsNone(other['workout_stats']['total_calories_burned'])
 

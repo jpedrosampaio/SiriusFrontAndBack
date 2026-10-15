@@ -374,6 +374,8 @@ def validate_bases(data,request,labels=None):
                 raise GenerationInvalid('excluded_exercise')
             if request.workout_type=='calistenia' and exercise.exercise_kind not in ('peso_corporal','mobilidade'):
                 raise GenerationInvalid('modality_mismatch')
+        if request.workout_type=='calistenia' and not any(ex.exercise_kind=='peso_corporal' for ex in session.exercises):
+            raise GenerationInvalid('modality_mismatch')
         cardio=any(ex.muscle_group in ('cardio','cardiorespiratorio') for ex in session.exercises)
         strength=any(ex.muscle_group not in ('cardio','cardiorespiratorio','descanso') for ex in session.exercises)
         if request.workout_type=='corrida' and (session.session_kind!='corrida' or strength or not cardio):

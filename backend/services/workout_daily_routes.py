@@ -103,7 +103,7 @@ async def complete(request: Request,plan_id: UUID,body: Completion):
             count=sum(ex['completed'] for ex in exercises);total=len(exercises)
             xp=10+(int(count/total*30) if total else 0)+(body.duration_minutes//15)*5
             data=LogBody(plan_id=plan_id,name=plan.name,activity_type='weightlifting',date=today,duration_minutes=body.duration_minutes,
-                calories=body.calories if body.calories is not None else body.duration_minutes*6,notes=body.notes,exercises_completed=exercises)
+                calories=body.calories,notes=body.notes,exercises_completed=exercises)
             result=await add_log(session,owner,data,xp);row.log_id=UUID(result['log_id'])
         return {**result,'new_xp':owner.xp,'new_rank':owner.rank,'exercises_completed_count':count,'total_exercises':total}
     return await run_activity(UUID(user['user_id']),request.headers.get('Idempotency-Key'),

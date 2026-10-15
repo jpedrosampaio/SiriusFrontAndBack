@@ -6,7 +6,7 @@ const stats={tasks_today:0,tasks_completed_today:0,habits_total:0,habits_complet
 (async()=>{await new Promise(r=>server.listen(4192,'127.0.0.1',r));const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{})});let lastPage;
 try{for(const width of [320,390,768,1024,1440]){
  const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'});await context.addInitScript(()=>localStorage.setItem('sirius_onboarding_complete','true'));
- const page=await context.newPage();lastPage=page;const errors=[],calls=[],generations=[],edits=[];page.on('pageerror',e=>errors.push(e.message));
+ const page=await context.newPage();lastPage=page;const errors=[],calls=[],generations=[],edits=[],completions=[];page.on('pageerror',e=>errors.push(e.message));
  let owner='Alice',plans=[],summaryFails=true,analyticsFails=true;
  const respond=(r,body,status=200)=>r.fulfill({status,contentType:'application/json',body:JSON.stringify(body)});
  await context.route('**/*',async r=>{const u=new URL(r.request().url()),p=u.pathname,m=r.request().method();if(!p.startsWith('/api/'))return u.hostname==='127.0.0.1'?r.continue():r.abort();calls.push({p,m});
@@ -24,7 +24,10 @@ try{for(const width of [320,390,768,1024,1440]){
    const body=r.request().postDataJSON();edits.push(body);plans=[{...plans[0],...body,exercises:body.days.flatMap(day=>day.exercises)}];return respond(r,{message:'Workout plan updated'});
   }
   if(p==='/api/workout-sessions/active')return respond(r,{session:null});
-  if(p==='/api/daily-workout-status')return respond(r,{plans:{}});
+  if(p==='/api/daily-workout-status')return respond(r,Object.fromEntries(plans.map(plan=>[plan.plan_id,{exercises_status:{0:true},completed:false}])));
+  if(p.endsWith('/complete')&&p.startsWith('/api/daily-workout-status/')&&m==='POST'){
+   completions.push(r.request().postDataJSON());return respond(r,{xp_earned:10,exercises_completed_count:1,total_exercises:20});
+  }
   if(p==='/api/workouts/today-schedule')return respond(r,{scheduled:false});
   if(p==='/api/workout-stats')return respond(r,{workouts_this_week:0,total_duration_minutes:0});
   if(p==='/api/training/state')return respond(r,{status:'insufficient_data',facts:[],limitations:[],recommendations:[],personal_records:[]});
@@ -66,6 +69,14 @@ try{for(const width of [320,390,768,1024,1440]){
  await editor.getByLabel('Sessão para editar',{exact:true}).selectOption('0');assert.equal(await editor.getByLabel('Exercício 1',{exact:true}).inputValue(),'Agachamento livre');await editor.getByLabel('Sessão para editar',{exact:true}).selectOption('19');assert.equal(await editor.getByLabel('Repetições 1',{exact:true}).inputValue(),'8-12');
  assert.equal(edits.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:`${output}/editor-${width}.png`});
  await editor.getByRole('button',{name:'Salvar Alterações',exact:true}).click();await page.getByText('Ficha atualizada!',{exact:true}).waitFor();assert.equal(edits.length,1);assert.equal(edits[0].days.length,20);assert.equal(edits[0].plan_duration,'mes');assert.equal(edits[0].days[19].week,4);assert.equal(edits[0].days[19].exercises[0].name,'Agachamento editado');assert.equal(edits[0].days[19].exercises[0].reps,'8-12');assert.ok(edits[0].days.slice(0,19).every(day=>day.exercises[0].name==='Agachamento livre'));
+ await page.getByText('Proposta conferida',{exact:true}).click();
+ for(const value of [null,0]){
+  await page.getByRole('button',{name:'Concluir Treino do Dia',exact:true}).click();
+  const completion=page.getByRole('dialog');const calories=completion.getByLabel('Calorias (opcional)',{exact:true});
+  assert.equal(await calories.inputValue(),'');if(value===0){await calories.fill('0');assert.equal(await calories.inputValue(),'0');}
+  await completion.getByRole('button',{name:'Concluir Treino',exact:true}).click();await completion.waitFor({state:'hidden'});
+  assert.equal(completions.at(-1).calories,value);
+ }
  owner='Bob';await page.evaluate(()=>window.dispatchEvent(new Event('sirius-auth-changed')));await page.getByTestId('open-ai-generate-btn').click();await dialog.getByLabel('Modalidade',{exact:true}).waitFor();assert.equal(await dialog.getByLabel('Modalidade',{exact:true}).inputValue(),'musculacao');await dialog.getByText('Limitações e exercícios a evitar (opcional)',{exact:true}).click();assert.equal(await dialog.getByLabel('Condições físicas relatadas',{exact:true}).inputValue(),'');await dialog.locator('form').getByRole('button',{name:'Fechar',exact:true}).click();
  await page.goto('http://127.0.0.1:4192/dashboard');await page.getByRole('tab',{name:'MEU DIA',exact:true}).waitFor();assert.equal(calls.filter(r=>r.p==='/api/stats/dashboard').length,0);
  await page.getByRole('tab',{name:'MEU DIA',exact:true}).focus();await page.keyboard.press('ArrowRight');await page.getByText('Não foi possível carregar as análises.',{exact:true}).waitFor();assert.equal(await page.getByRole('tab',{name:'ANÁLISES',exact:true}).getAttribute('aria-selected'),'true');

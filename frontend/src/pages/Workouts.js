@@ -261,12 +261,11 @@ export default function Workouts() {
     const status = dailyStatus[plan.plan_id] || {};
     const completedCount = Object.values(status.exercises_status || {}).filter(Boolean).length;
     const estimatedDuration = Math.max(30, completedCount * 5 + 15);
-    const estimatedCalories = Math.round(estimatedDuration * 6);
     
     setCompletingPlan(plan);
     setCompleteWorkoutData({
       duration_minutes: estimatedDuration,
-      calories: estimatedCalories,
+      calories: null,
       notes: ""
     });
     setOpenCompleteWorkout(true);
@@ -779,7 +778,7 @@ export default function Workouts() {
               <h3 className="font-heading text-lg">{workout.name}</h3>
               <p className="text-sm text-[#A1A1AA]">
                 {showDate ? `${workout.date} - ` : ''}{getActivityLabel(workout.activity_type)} - {workout.duration_minutes} min
-                {workout.calories && <span className="ml-2">🔥 {workout.calories} kcal</span>}
+                {workout.calories != null && <span className="ml-2" title="Valor registrado; origem não verificada. Registros antigos podem conter estimativas.">🔥 {workout.calories} kcal registradas</span>}
                 {hasExercises && (
                   <span className="ml-2 text-[#00F0FF]">
                     ({completedExercises}/{totalExercises} exercícios)
@@ -1182,12 +1181,15 @@ export default function Workouts() {
                       />
                     </div>
                     <div>
-                      <Label className="text-xs uppercase tracking-wider">Calorias (aprox)</Label>
+                      <Label htmlFor="completed-workout-calories" className="text-xs uppercase tracking-wider">Calorias (opcional)</Label>
                       <Input 
+                        id="completed-workout-calories"
                         type="number" 
-                        value={completeWorkoutData.calories || ""} 
-                        onChange={(e) => setCompleteWorkoutData({...completeWorkoutData, calories: parseInt(e.target.value) || null})}
-                        placeholder="Estimativa"
+                        min="0"
+                        max="50000"
+                        value={completeWorkoutData.calories ?? ""}
+                        onChange={(e) => setCompleteWorkoutData({...completeWorkoutData, calories: e.target.value === "" ? null : Number(e.target.value)})}
+                        placeholder="Não informado"
                         className="bg-[#121212] border-[#27272A] text-white mt-1" 
                       />
                     </div>
@@ -1233,8 +1235,8 @@ export default function Workouts() {
               <div className="h-6 w-px bg-[#27272A]" />
               <div className="flex items-center gap-2">
                 <Flame className="w-5 h-5 text-[#EF4444]" />
-                <span className="text-xs text-[#A1A1AA] uppercase">Cal</span>
-                <span className="font-heading text-xl">{stats.total_calories}</span>
+                <span className="text-xs text-[#A1A1AA] uppercase">Cal registradas</span>
+                <span className="font-heading text-xl">{stats.total_calories ?? 'Não informado'}</span>
               </div>
               <div className="h-6 w-px bg-[#27272A]" />
               <div className="flex items-center gap-2">
@@ -1242,6 +1244,7 @@ export default function Workouts() {
                 <span className="text-xs text-[#A1A1AA] uppercase">XP</span>
                 <span className="font-heading text-xl">{stats.total_xp_earned}</span>
               </div>
+              <p className="w-full text-xs text-[#A1A1AA]">Calorias com origem não verificada; registros antigos podem conter estimativas. O total exige informação em todos os treinos concluídos do período.</p>
               {detailedStats && (
                 <>
                   <div className="h-6 w-px bg-[#27272A]" />

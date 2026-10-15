@@ -52,7 +52,8 @@ async def weekly(request: Request):
     return jsonable_encoder({'period':{'start':start.isoformat(),'end':today.isoformat()},
         'finance':{'income':income,'expense':expense,'balance':income-expense,'transactions_count':sum(count for kind,amount,count in money)},
         'workouts':{'count':count,'total_minutes':minutes,'total_calories':calories if count and calorie_count==count else None,
-            'calorie_records':calorie_count,'sessions_completed':sessions,'avg_difficulty':round(difficulty,1) if difficulty is not None else None},
+            'calorie_records':calorie_count,'calories_source':'unverified' if calorie_count else 'unknown',
+            'sessions_completed':sessions,'avg_difficulty':round(difficulty,1) if difficulty is not None else None},
         'habits':{'completed':checks,'total_possible':possible,'completion_pct':round(checks/possible*100) if possible else None,'active_habits':len(habits)},
         'tasks':{'completed':done,'total':tasks,'completion_pct':round(done/tasks*100) if tasks else None},
         'study':{'sessions':studied,'total_minutes':duration},'xp':user['xp'],'rank':user['rank']},custom_encoder={Decimal:lambda value:format(value,'f')})
