@@ -22,6 +22,8 @@ for(const width of [320,390,768,1024,1440]){
   }
   if(p==='/api/command/memory'&&m==='GET')return respond(r,memory);
   if(p==='/api/command/memory'&&m==='POST'){
+   // Delay the retry at the synthetic transport boundary: draft text is not a server acknowledgement.
+   if(keys.length===1)await new Promise(resolve=>setTimeout(resolve,200));
    const b=r.request().postDataJSON(),key=r.request().headers()['idempotency-key'];assert.ok(key);keys.push(key);assert.equal(b.category,'fact');
    if(!failed){memory=[{...b,memory_id:id,version:'a'.repeat(64),provenance:{origin:'user_declared',verified:false}}];failed=true;return respond(r,{detail:'Resposta perdida; tente novamente.'},502);}
    assert.equal(keys[0],key,'uncertain retry must reuse key');return respond(r,{memory_id:id,version:'a'.repeat(64)});
@@ -53,7 +55,11 @@ for(const width of [320,390,768,1024,1440]){
  await page.getByRole('button',{name:'Memória explícita',exact:true}).click();const tool=page.getByRole('region',{name:'Controle integrado'});
  await tool.getByText('Nenhuma memória explícita cadastrada.',{exact:true}).waitFor();await tool.getByLabel('Informação para lembrar',{exact:true}).fill('Trabalho de manhã.');
  await tool.getByRole('button',{name:'Confirmar memória',exact:true}).click();await tool.getByRole('alert').waitFor();assert.equal(await tool.getByLabel('Informação para lembrar',{exact:true}).inputValue(),'Trabalho de manhã.');
- await tool.getByRole('button',{name:'Confirmar memória',exact:true}).click();await tool.getByText('Trabalho de manhã.',{exact:true}).waitFor();assert.equal(keys.length,2);
+ const retryResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/command/memory'&&response.request().method()==='POST'&&response.status()===200);
+ await tool.getByRole('button',{name:'Confirmar memória',exact:true}).click();await retryResponse;
+ await tool.getByText('Memória salva como declaração explícita.',{exact:true}).waitFor();
+ await tool.getByRole('listitem').getByText('Trabalho de manhã.',{exact:true}).waitFor();assert.equal(keys.length,2);
+ assert.equal(await tool.getByLabel('Informação para lembrar',{exact:true}).inputValue(),'');
  await tool.getByRole('button',{name:'Corrigir memória',exact:true}).click();await tool.getByLabel('Informação para lembrar',{exact:true}).fill('Rascunho preservado');await tool.getByRole('button',{name:'Salvar correção',exact:true}).click();await tool.getByText('Memória alterada. Recarregue antes de corrigir.',{exact:true}).waitFor();assert.equal(await tool.getByLabel('Informação para lembrar',{exact:true}).inputValue(),'Rascunho preservado');
  await page.getByRole('button',{name:'Histórico de ações',exact:true}).click();await tool.getByRole('button',{name:'Desfazer ação',exact:true}).click();assert.equal(undo,false);await tool.getByRole('button',{name:'Confirmar desfazer',exact:true}).click();await tool.getByText('Reversão confirmada.',{exact:true}).waitFor();assert.equal(undo,true);
  await page.getByRole('button',{name:'Simular cenários',exact:true}).click();await tool.getByLabel('Limite de minutos flexíveis (opcional)',{exact:true}).fill('45');await tool.getByLabel('Receita mensal hipotética (R$)',{exact:true}).fill('20.00');await tool.getByLabel('Despesa mensal hipotética (R$)',{exact:true}).fill('10.01');await tool.getByRole('button',{name:'Simular sem alterar registros',exact:true}).click();await tool.getByRole('heading',{name:'Prévia, sem aplicação',exact:true}).waitFor();await tool.getByText('Variação estimada de fluxo: R$ 9,99',{exact:true}).waitFor();assert.equal(calls.filter(r=>r.p==='/api/life/accept').length,0);
