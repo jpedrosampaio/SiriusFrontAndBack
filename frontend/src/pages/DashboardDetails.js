@@ -1,6 +1,7 @@
 import DailyProgress from '@/components/DailyProgress';
 import { useQuery } from '@tanstack/react-query';
-import { cacheKey, cachedGet } from '@/lib/query-cache';
+import { cacheKey } from '@/lib/query-cache';
+import { formatBRL } from '@/lib/finance-money';
 import DailyWorkspace from '@/components/DailyWorkspace';
 import { getCurrentUser } from "@/lib/api";
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -19,7 +20,7 @@ import { ResponsiveContainer, LineChart, Line, BarChart, Bar, AreaChart, Area, X
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-export default function Dashboard() {
+export default function Dashboard({ embedded = false }) {
   const summary = useQuery({ queryKey: cacheKey('dashboard-summary'), queryFn: async ({ signal }) => {
     const [u, s] = await Promise.all([getCurrentUser(), axios.get(`${API}/stats/dashboard`, { signal, timeout: 20000 })]);
     return { user: u.data, stats: s.data };
@@ -41,26 +42,24 @@ export default function Dashboard() {
 
 
 
-  const [panelErrors, setPanelErrors] = useState([]);
+  const panels = useQuery({ queryKey: cacheKey('/dashboard/panels'), enabled: Boolean(summary.data), queryFn: async ({ signal }) =>
+    (await axios.get(`${API}/dashboard/panels`, { signal, timeout: 20000 })).data });
+  const panelErrors = panels.isError ? ['panels'] : panels.data?.errors || [];
   const analyticsMarker = useRef(null);
-  const loadPanels = useCallback(async () => {
-    try {
-      const data = await cachedGet('/dashboard/panels');
-      const p = data.panels || {};
-      if (p.weekly) setWeeklySummary(p.weekly);
-      if (p.reminders) setReminders(p.reminders.reminders || []);
-      if (p.streaks) setGlobalStreaks(p.streaks);
-      if (p.daily) setDailySummary(p.daily);
-      if (p.workout) setTodayWorkout(p.workout.scheduled ? p.workout : null);
-      setPanelErrors(data.errors || []);
-    } catch { setPanelErrors(['panels']); }
-  }, []);
-  const fetchData = async () => { await summary.refetch(); await loadPanels(); };
+  const [analyticsError, setAnalyticsError] = useState(false), [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const analyticsRequest = useRef(null);
+  const fetchData = async () => { await Promise.all([summary.refetch(), panels.refetch()]); if (analytics) await fetchAnalytics(analyticsDays); };
   useEffect(() => {
     if (!summary.data) return;
     setCrossSuggestions(summary.data.stats.suggestions || []);
-    void loadPanels();
-  }, [summary.data, loadPanels]);
+  }, [summary.data]);
+  useEffect(() => {
+    if (!panels.data) return;
+    const p = panels.data.panels || {};
+    setWeeklySummary(p.weekly || null); setReminders(p.reminders?.reminders || []);
+    setGlobalStreaks(p.streaks || null); setDailySummary(p.daily || null);
+    setTodayWorkout(p.workout?.scheduled ? p.workout : null);
+  }, [panels.data]);
 
   const dismissReminder = (idx) => {
     setReminders(prev => prev.filter((_, i) => i !== idx));
@@ -68,19 +67,24 @@ export default function Dashboard() {
 
   const fetchAnalytics = useCallback(async (d) => {
     setAnalyticsDays(d);
+    analyticsRequest.current?.abort();
+    const controller = new AbortController(); analyticsRequest.current = controller;
+    setAnalyticsLoading(true); setAnalyticsError(false);
     try {
-      const res = await axios.get(`${API}/stats/analytics?days=${d}`, { withCredentials: true });
-      setAnalytics(res.data);
-    } catch { /* Optional operation failed; preserve the current view. */ }
+      const res = await axios.get(`${API}/stats/analytics?days=${d}`, { withCredentials: true, signal: controller.signal, timeout: 20000 });
+      if (!controller.signal.aborted && analyticsRequest.current === controller) setAnalytics(res.data);
+    } catch { if (!controller.signal.aborted && analyticsRequest.current === controller) setAnalyticsError(true); }
+    finally { if (!controller.signal.aborted && analyticsRequest.current === controller) setAnalyticsLoading(false); }
   }, []);
+  useEffect(() => () => analyticsRequest.current?.abort(), []);
   useEffect(() => {
-    if (loading || !analyticsMarker.current) return;
+    if (!stats || !analyticsMarker.current || analyticsRequest.current) return;
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) { fetchAnalytics(7); observer.disconnect(); }
     }, { rootMargin: '200px' });
     observer.observe(analyticsMarker.current);
     return () => observer.disconnect();
-  }, [loading, fetchAnalytics]);
+  }, [stats, fetchAnalytics]);
 
   const getNextRank = () => {
     const ranks = [
@@ -129,18 +133,20 @@ export default function Dashboard() {
     );
   }
 
+  if (!stats) return <div role="alert" className="rounded-xl border p-4 space-y-3"><p>Não foi possível carregar as análises.</p><Button onClick={() => summary.refetch()}>Tentar novamente</Button></div>;
   const nextRank = getNextRank();
   const simStats = stats?.simulado_stats || {};
   const qOverview = stats?.question_overview || {};
+  const financeChartData = analytics?.data?.map(row => ({ ...row, income_exact: row.income, expenses_exact: row.expenses, income: Number(row.income), expenses: Number(row.expenses) }));
 
   return (
-    <div className="flex min-h-screen bg-[#050505]">
-      <Onboarding />
+    <div className="flex min-w-0 bg-[#050505]">
+      {!embedded && <Onboarding />}
 
-      <div className={`flex-1 ml-0  p-4 md:p-6 lg:p-8  md:pt-0 pb-24 md:pb-8 page-enter`}>
+      <div className={`flex-1 min-w-0 ml-0 ${embedded ? '' : 'p-4 md:p-6 lg:p-8 md:pt-0'} pb-24 md:pb-8 page-enter`}>
         <PullToRefresh onRefresh={fetchData}>
         <div className="max-w-7xl mx-auto">
-          <div className="sirius-page-heading sirius-hero mb-6 md:mb-8 mt-4 md:mt-8">
+          {!embedded && <div className="sirius-page-heading sirius-hero mb-6 md:mb-8 mt-4 md:mt-8">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
                 <div className="sirius-eyebrow">Visão geral · seu dia no Sirius</div>
@@ -149,9 +155,10 @@ export default function Dashboard() {
               </div>
 
             </div>
-          </div>
+          </div>}
 
           {summary.isError && <p role="alert" className="mb-4 text-amber-300">Não foi possível atualizar o resumo. Os dados disponíveis continuam visíveis. <button onClick={() => summary.refetch()} className="underline">Tentar novamente</button></p>}
+          <div className="mb-5 flex flex-wrap items-center gap-3"><Button variant="outline" onClick={fetchData} disabled={summary.isFetching || panels.isFetching}>Atualizar análises</Button><p className="text-xs text-muted-foreground">Valores vêm de registros. Calorias alimentares podem conter estimativas; resultado financeiro não é saldo bancário.</p></div>
           <DailyWorkspace />
           <section className="mb-8" aria-labelledby="today-actions"><div className="flex items-center justify-between mb-4"><h2 id="today-actions" className="text-xl font-semibold">O que vamos fazer hoje?</h2><Button variant="ghost" onClick={() => navigate('/calendar')}>Ver agenda<ChevronRight className="w-4 h-4 ml-1" /></Button></div><div className="sirius-action-grid">
             <button className="sirius-action-card" onClick={() => navigate('/studies')}><BookOpen className="w-5 h-5 text-blue-300" /><strong>Continuar meus estudos</strong><span>{stats?.study_stats?.study_time_today_minutes || 0} min registrados hoje · abrir meu plano</span></button>
@@ -370,15 +377,15 @@ export default function Dashboard() {
                 <Card className="bg-[#0A0A0A] border-[#27272A] p-4 md:p-6">
                   <div className="flex items-center justify-between mb-2 md:mb-4">
                     <DollarSign className="w-6 h-6 md:w-8 md:h-8 text-[#FF9500]" />
-                    <span className="font-data text-lg md:text-2xl">R$ {(stats.balance ?? 0).toFixed(0)}</span>
+                    <span className="font-data text-lg md:text-2xl break-all">{formatBRL(stats.balance)}</span>
                   </div>
-                  <p className="text-[#A1A1AA] uppercase text-[10px] md:text-xs tracking-wider">Saldo</p>
+                  <p className="text-[#A1A1AA] uppercase text-[10px] md:text-xs tracking-wider">Resultado registrado</p>
                 </Card>
 
                 <Card className="bg-[#0A0A0A] border-[#27272A] p-4 md:p-6">
                   <div className="flex items-center justify-between mb-2 md:mb-4">
                     <Target className="w-6 h-6 md:w-8 md:h-8 text-[#00F0FF]" />
-                    <span className="font-data text-lg md:text-2xl">{(stats.goals_avg_progress ?? 0).toFixed(0)}%</span>
+                    <span className="font-data text-lg md:text-2xl">{stats.goals_avg_progress == null ? 'Sem metas' : `${Number(stats.goals_avg_progress).toFixed(0)}%`}</span>
                   </div>
                   <p className="text-[#A1A1AA] uppercase text-[10px] md:text-xs tracking-wider">Metas</p>
                 </Card>
@@ -405,9 +412,10 @@ export default function Dashboard() {
                       <span className="font-data">{stats.workout_stats?.total_duration_minutes || 0} min</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-[#A1A1AA] flex items-center gap-2"><Flame className="w-4 h-4" /> Calorias</span>
-                      <span className="font-data text-[#FF9500]">{stats.workout_stats?.total_calories_burned || 0} kcal</span>
+                      <span className="text-[#A1A1AA] flex items-center gap-2"><Flame className="w-4 h-4" /> Calorias registradas</span>
+                      <span className="font-data text-[#FF9500]">{stats.workout_stats?.total_calories_burned == null ? 'Não informado' : `${stats.workout_stats.total_calories_burned} kcal`}</span>
                     </div>
+                    <p className="text-xs text-[#A1A1AA]">Origem não verificada; registros antigos podem conter estimativas. Total disponível somente com informação em todos os treinos concluídos.</p>
                   </div>
                 </Card>
 
@@ -423,15 +431,15 @@ export default function Dashboard() {
                   <div className="space-y-3">
                     <div>
                       <div className="flex justify-between items-center mb-1">
-                        <span className="text-[#A1A1AA] text-sm">Calorias</span>
+                        <span className="text-[#A1A1AA] text-sm">Calorias registradas</span>
                         <span className="font-data text-sm">
                           {stats.nutrition_stats?.calories_consumed ?? 'Desconhecido'} / {stats.nutrition_stats?.calories_goal ?? 'Meta não configurada'}
                         </span>
                       </div>
-                      <Progress
+                      {stats.nutrition_stats?.calories_consumed != null && stats.nutrition_stats?.calories_goal > 0 && <Progress
                         value={stats.nutrition_stats?.calories_goal > 0 ? Math.min(((stats.nutrition_stats?.calories_consumed || 0) / stats.nutrition_stats.calories_goal) * 100, 100) : 0}
                         className="h-2"
-                      />
+                      />}
                     </div>
                     <div>
                       <div className="flex justify-between items-center mb-1">
@@ -506,16 +514,17 @@ export default function Dashboard() {
                     </div>
                     <div>
                       <div className="flex justify-between items-center mb-1">
-                        <span className="text-[#A1A1AA] text-sm">Média</span>
-                        <span className={`font-data text-sm ${(simStats.average_score || 0) >= 70 ? 'text-[#39FF14]' : (simStats.average_score || 0) >= 50 ? 'text-[#FFD700]' : 'text-[#FF3B30]'}`}>
-                          {simStats.average_score || 0}%
+                        <span className="text-[#A1A1AA] text-sm">Nota média (0–100)</span>
+                        <span className="font-data text-sm">
+                          {simStats.average_score ?? 'Sem tentativas corrigidas'}
                         </span>
                       </div>
-                      <Progress value={simStats.average_score || 0} className="h-2" />
+                      {simStats.average_score != null && <Progress value={simStats.average_score} aria-label="Nota média normalizada dos simulados" className="h-2" />}
+                      {simStats.accuracy_rate != null && <p className="text-xs text-muted-foreground">Acertos sobre o total de questões: {simStats.accuracy_rate}%. A nota segue os pesos e penalizações de cada prova.</p>}
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-[#A1A1AA] text-sm">Melhor</span>
-                      <span className="font-data text-[#39FF14]">{simStats.best_score || 0}%</span>
+                      <span className="text-[#A1A1AA] text-sm">Maior pontuação registrada</span>
+                      <span className="font-data">{simStats.best_score ?? 'Não informada'}</span>
                     </div>
                   </div>
                 </Card>
@@ -541,7 +550,7 @@ export default function Dashboard() {
                       </div>
                       <div className="bg-[#121212] rounded-lg p-2">
                         <p className={`font-data text-lg ${(qOverview.accuracy_rate || 0) >= 70 ? 'text-[#39FF14]' : (qOverview.accuracy_rate || 0) >= 50 ? 'text-[#FFD700]' : 'text-[#FF3B30]'}`}>
-                          {qOverview.accuracy_rate || 0}%
+                          {qOverview.total_answered > 0 && qOverview.accuracy_rate != null ? `${qOverview.accuracy_rate}%` : 'Sem respostas'}
                         </p>
                         <p className="text-[10px] text-[#A1A1AA]">Taxa</p>
                       </div>
@@ -583,16 +592,16 @@ export default function Dashboard() {
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-[#A1A1AA] text-sm">Receitas</span>
-                      <span className="font-data text-sm text-[#39FF14]">+R$ {(stats.income ?? 0).toFixed(0)}</span>
+                      <span className="font-data text-sm text-[#39FF14] break-all">{formatBRL(stats.income)}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-[#A1A1AA] text-sm">Despesas</span>
-                      <span className="font-data text-sm text-[#FF3B30]">-R$ {(stats.expenses ?? 0).toFixed(0)}</span>
+                      <span className="font-data text-sm text-[#FF3B30] break-all">{formatBRL(stats.expenses)}</span>
                     </div>
                     <div className="border-t border-[#27272A] pt-2 flex justify-between items-center">
-                      <span className="font-medium text-sm">Saldo</span>
-                      <span className={`font-data text-base ${(stats.balance ?? 0) >= 0 ? 'text-[#39FF14]' : 'text-[#FF3B30]'}`}>
-                        R$ {(stats.balance ?? 0).toFixed(0)}
+                      <span className="font-medium text-sm">Resultado registrado</span>
+                      <span className={`font-data min-w-0 break-all text-right text-base ${(stats.balance ?? 0) >= 0 ? 'text-[#39FF14]' : 'text-[#FF3B30]'}`}>
+                        {formatBRL(stats.balance)}
                       </span>
                     </div>
                   </div>
@@ -610,10 +619,10 @@ export default function Dashboard() {
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div className="bg-[#121212] rounded-lg p-3 text-center">
                       <DollarSign className="w-5 h-5 mx-auto mb-1 text-[#39FF14]" />
-                      <p className={`font-data text-lg ${(weeklySummary.finance?.balance || 0) >= 0 ? 'text-[#39FF14]' : 'text-[#FF3B30]'}`}>
-                        R$ {(weeklySummary.finance?.balance || 0).toFixed(0)}
+                      <p className={`font-data break-all text-lg ${(weeklySummary.finance?.balance || 0) >= 0 ? 'text-[#39FF14]' : 'text-[#FF3B30]'}`}>
+                        {formatBRL(weeklySummary.finance?.balance)}
                       </p>
-                      <p className="text-[10px] text-[#52525B]">Saldo Semana</p>
+                      <p className="text-[10px] text-[#52525B]">Resultado registrado na semana</p>
                     </div>
                     <div className="bg-[#121212] rounded-lg p-3 text-center">
                       <Dumbbell className="w-5 h-5 mx-auto mb-1 text-[#FF6B6B]" />
@@ -622,7 +631,7 @@ export default function Dashboard() {
                     </div>
                     <div className="bg-[#121212] rounded-lg p-3 text-center">
                       <Flame className="w-5 h-5 mx-auto mb-1 text-[#FF9500]" />
-                      <p className="font-data text-lg text-white">{weeklySummary.habits?.completion_pct || 0}%</p>
+                      <p className="font-data text-lg text-white">{weeklySummary.habits?.total_possible > 0 && weeklySummary.habits?.completion_pct != null ? `${weeklySummary.habits.completion_pct}%` : 'Sem hábitos previstos'}</p>
                       <p className="text-[10px] text-[#52525B]">Hábitos</p>
                     </div>
                     <div className="bg-[#121212] rounded-lg p-3 text-center">
@@ -642,21 +651,26 @@ export default function Dashboard() {
           )}
 
           {/* ===== ANALYTICS CHARTS ===== */}
-          <div ref={analyticsMarker} />
-          {panelErrors.length > 0 && <div role="status" className="text-sm text-amber-300 mb-4">Alguns painéis não carregaram. <button onClick={loadPanels} className="underline">Tentar novamente</button></div>}
+          <div ref={analyticsMarker} data-testid="analytics-marker" />
+          {panels.isFetching && <p role="status">Atualizando painéis…</p>}
+          {panelErrors.length > 0 && <div role="alert" className="text-sm text-amber-300 mb-4">Alguns painéis não carregaram. <button onClick={() => panels.refetch()} className="min-h-11 underline">Tentar novamente</button></div>}
+          {analyticsLoading && <p role="status">Atualizando gráficos…</p>}
+          {analyticsError && <div role="alert" className="text-sm text-amber-300 mb-4">Não foi possível atualizar os gráficos. <button onClick={() => fetchAnalytics(analyticsDays)} className="min-h-11 underline">Tentar novamente gráficos</button></div>}
+          {analytics && analytics.days !== analyticsDays && <p role="status" className="mb-4 text-sm text-amber-200">Exibindo a última consulta de {analytics.days} dias. A consulta de {analyticsDays} dias ainda não foi confirmada.</p>}
           {analytics && analytics.data && analytics.data.length > 0 && (
             <div className="mt-8">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
+              <div data-testid="analytics-toolbar" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+                <div className="flex min-w-0 items-center gap-3">
                   <Activity className="w-6 h-6 text-[#007AFF]" />
                   <h2 className="font-heading text-lg md:text-xl">ANÁLISE DE EVOLUÇÃO</h2>
                 </div>
-                <div className="flex gap-1 bg-[#0A0A0A] border border-[#27272A] rounded-lg p-1">
+                <div className="flex w-fit shrink-0 gap-1 bg-[#0A0A0A] border border-[#27272A] rounded-lg p-1">
                   {[7, 14, 30].map(d => (
                     <button
                       key={d}
                       onClick={() => fetchAnalytics(d)}
-                      className={"px-3 py-1 text-xs rounded-md transition-colors " + (analyticsDays === d ? "bg-[#007AFF] text-white" : "text-[#52525B] hover:text-white")}
+                      aria-pressed={analyticsDays === d}
+                      className={"min-h-11 px-3 py-1 text-xs rounded-md transition-colors " + (analyticsDays === d ? "bg-[#007AFF] text-white" : "text-[#52525B] hover:text-white")}
                     >
                       {d}d
                     </button>
@@ -693,7 +707,7 @@ export default function Dashboard() {
                     <h3 className="text-sm font-medium text-[#A1A1AA] uppercase tracking-wider">Receitas vs Despesas</h3>
                   </div>
                   <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={analytics.data} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+                    <AreaChart data={financeChartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
                       <defs>
                         <linearGradient id="gradIncome" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#39FF14" stopOpacity={0.3} />
@@ -709,7 +723,7 @@ export default function Dashboard() {
                       <YAxis tick={{ fill: "#52525B", fontSize: 11 }} axisLine={{ stroke: "#27272A" }} />
                       <Tooltip
                         contentStyle={{ background: "#0A0A0A", border: "1px solid #27272A", borderRadius: 8, color: "#fff", fontSize: 12 }}
-                        formatter={(val) => ["R$ " + Number(val).toFixed(2)]}
+                        formatter={(val, name, item) => [formatBRL(item.payload[`${item.dataKey}_exact`]), name]}
                       />
                       <Area type="monotone" dataKey="income" name="Receitas" stroke="#39FF14" fill="url(#gradIncome)" strokeWidth={2} />
                       <Area type="monotone" dataKey="expenses" name="Despesas" stroke="#FF3B30" fill="url(#gradExpense)" strokeWidth={2} />

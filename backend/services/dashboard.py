@@ -22,7 +22,7 @@ from cross_module_rules import suggestions_from_snapshot
 router=APIRouter()
 
 
-def accuracy(correct,total):return round(correct/total*100,1) if total else 0
+def accuracy(correct,total):return round(correct/total*100,1) if total else None
 
 
 async def dashboard_snapshot(user_id,today=None):
@@ -38,9 +38,9 @@ async def dashboard_snapshot(user_id,today=None):
         finances=dict((await session.execute(select(FinancialTransaction.type,func.sum(FinancialTransaction.amount)).where(
             FinancialTransaction.user_id==uid,FinancialTransaction.date>=month,FinancialTransaction.date<next_month).group_by(FinancialTransaction.type))).all())
         income=finances.get('income',Decimal(0));expenses=finances.get('expense',Decimal(0))
-        goals,progress=(await session.execute(select(func.count(),func.coalesce(func.avg(Goal.progress),0)).where(Goal.user_id==uid,Goal.archived_at.is_(None)))).one()
-        workouts,minutes,calories,xp=(await session.execute(select(func.count(),*[func.coalesce(func.sum(field),0) for field in
-            (WorkoutLog.duration_minutes,WorkoutLog.calories,WorkoutLog.xp_earned)]).where(WorkoutLog.user_id==uid,WorkoutLog.completed.is_(True),
+        goals,progress=(await session.execute(select(func.count(),func.avg(Goal.progress)).where(Goal.user_id==uid,Goal.archived_at.is_(None)))).one()
+        workouts,minutes,calories,xp,calorie_count=(await session.execute(select(func.count(),func.coalesce(func.sum(WorkoutLog.duration_minutes),0),
+            func.sum(WorkoutLog.calories),func.coalesce(func.sum(WorkoutLog.xp_earned),0),func.count(WorkoutLog.calories)).where(WorkoutLog.user_id==uid,WorkoutLog.completed.is_(True),
             WorkoutLog.date.between(day-timedelta(days=6),day)))).one()
         meals,water,nutrition_goal=await period(session,uid,day,day);nutrition=meals.get(day,{})
         study=await session.scalar(select(func.coalesce(func.sum(StudySession.duration_minutes),0)).where(
@@ -58,14 +58,15 @@ async def dashboard_snapshot(user_id,today=None):
         return {'user':{'name':user.name,'xp':user.xp,'rank':user.rank,'picture':user.picture},
             'tasks_today':len(pairs),'tasks_completed_today':sum(bool(instance and instance.completed) for task,instance in pairs),
             'habits_total':habits,'habits_completed_today':done,'income':income,'expenses':expenses,'balance':income-expenses,
-            'goals_total':goals,'goals_avg_progress':progress,
-            'workout_stats':{'workouts_this_week':workouts,'total_duration_minutes':minutes,'total_calories_burned':calories,'total_xp_earned':xp},
+            'goals_total':goals,'goals_avg_progress':float(progress) if progress is not None else None,
+            'workout_stats':{'workouts_this_week':workouts,'total_duration_minutes':minutes,'total_calories_burned':calories if calorie_count==workouts and workouts else None,
+                'calorie_records':calorie_count,'calories_source':'unverified' if calorie_count else 'unknown','total_xp_earned':xp},
             'nutrition_stats':{'calories_consumed':nutrition.get('calories',0),'calories_goal':nutrition_goal['daily_calories'],
             'protein_consumed':round(nutrition.get('protein',0),1) if nutrition.get('protein',0) is not None else None,'protein_goal':nutrition_goal['daily_protein'],
                 'water_consumed_ml':water.get(day,0),'water_goal_ml':nutrition_goal['water_goal_ml'],'meals_count':nutrition.get('meals_count',0)},
             'study_stats':{'study_time_today_minutes':study,'current_streak':streak['current_streak'],'longest_streak':streak['best_streak'],
                 'flashcards_due':due,'total_flashcards':cards,'notebooks_count':notebooks},
-            'simulado_stats':{'total_simulados':simulations,'total_attempts':attempts,'average_score':round(average or 0,1),'best_score':round(best or 0,1),
+            'simulado_stats':{'total_simulados':simulations,'total_attempts':attempts,'average_score':round(average,1) if average is not None else None,'best_score':round(best,1) if best is not None else None,
                 'total_questions_answered':total,'total_correct':correct,'accuracy_rate':accuracy(correct,total)},
             'question_overview':{'total_answered':answered,'total_correct':right,'accuracy_rate':accuracy(right,answered)}}
 
@@ -74,17 +75,17 @@ async def dashboard_snapshot(user_id,today=None):
 async def stats(request: Request):
     user=await account(request);result=await dashboard_snapshot(user['user_id'])
     result['suggestions']=suggestions_from_snapshot(result)
-    return jsonable_encoder(result)
+    return jsonable_encoder(result,custom_encoder={Decimal:lambda value:format(value,'f')})
 
 
 @router.get('/suggestions/cross-module')
 async def suggestions(request: Request):
     user=await account(request)
-    return {'suggestions':suggestions_from_snapshot(await dashboard_snapshot(user['user_id']))}
+    return jsonable_encoder({'suggestions':suggestions_from_snapshot(await dashboard_snapshot(user['user_id']))},custom_encoder={Decimal:lambda value:format(value,'f')})
 
 
 @router.get('/stats/analytics')
 async def analytics(request: Request,days: int=Query(7,ge=1)):
     from analytics_service import analytics_snapshot
     user=await account(request)
-    return jsonable_encoder(await analytics_snapshot(user['user_id'],days))
+    return jsonable_encoder(await analytics_snapshot(user['user_id'],days),custom_encoder={Decimal:lambda value:format(value,'f')})

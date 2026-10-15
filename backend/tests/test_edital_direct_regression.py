@@ -15,7 +15,7 @@ def pipeline():
     nodes = [n for n in ast.parse(SOURCE.read_text(encoding='utf8')).body if getattr(n, 'name', '') in names]
     ns = dict(globals(), _CARGO_TEXT_FIELDS=('vagas','remuneracao','escolaridade'))
     ns.update(get_user_api_key=AsyncMock(return_value='synthetic-key'), sql_edital=SimpleNamespace(cached=AsyncMock(return_value=None),save=AsyncMock()),
-        extract_pdf_text=lambda _: 'Document text', call_gemini=AsyncMock(return_value=(json.dumps({'concurso':{'nome':'Contest'}, 'cargos':[{'nome':'Analyst', 'disciplinas':[{'nome':'Mathematics','topicos':['Algebra']}]}]}), None)),
+        extract_pdf_text=lambda _: 'Document text', call_gemini=AsyncMock(return_value=(json.dumps({'concurso':{'nome':'Contest'}, 'multiple_cargos':False, 'cargos':[{'nome':'Analyst', 'disciplinas':[{'nome':'Mathematics','grupo':'Conhecimentos gerais','topicos':['Algebra']}]}]}), None)),
         agent_runtime=SimpleNamespace(router=None,credentials=SimpleNamespace(get=AsyncMock(return_value={})),settings=SimpleNamespace(rag=False),automations=SimpleNamespace(emit=AsyncMock())),
         _hydrate_missing_disciplinas=AsyncMock(), _enumerate_cargos_text=AsyncMock(), _try_repair_json=lambda _: None)
     exec(compile(ast.Module(body=nodes,type_ignores=[]),str(SOURCE),'exec'),ns)
@@ -50,10 +50,14 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Gemini',error.exception.detail); ns['call_gemini'].assert_not_awaited()
 
     async def test_provider_errors_are_specific_without_secrets(self):
-        for kind,word in [('invalid','inv'),('quota','cota')]:
+        for kind,word in [('invalid','inv'),('quota','cota'),('rate_limit','requisições'),
+            ('model_unavailable','modelo'),('timeout','tempo'),('network_error','conectar'),
+            ('malformed_output','incompleta'),('output_truncated','incompleta'),('invalid_request','formato'),('empty_output','conteúdo')]:
             ns=pipeline(); ns['call_gemini'].return_value=(None,kind)
             with self.assertRaises(HTTPException) as error: await ns['process_edital_analysis'](SimpleNamespace(user_id='u'),upload())
-            self.assertIn(word,error.exception.detail); self.assertNotIn('synthetic-key',error.exception.detail)
+            self.assertIn(word,error.exception.detail['message'].lower()); self.assertNotIn('synthetic-key',repr(error.exception.detail))
+            self.assertTrue(error.exception.detail['code'].startswith('ai_'))
+            ns['sql_edital'].save.assert_not_awaited()
         ns=pipeline(); ns['call_gemini'].side_effect=RuntimeError('synthetic-key PRIVATE SOURCE')
         with self.assertRaises(HTTPException) as error: await ns['process_edital_analysis'](SimpleNamespace(user_id='u'),upload())
         self.assertNotIn('PRIVATE',error.exception.detail); self.assertNotIn('RuntimeError',error.exception.detail)
@@ -64,7 +68,17 @@ class DirectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.exception.status_code,422); ns['call_gemini'].assert_not_awaited()
         ns=pipeline(); ns['call_gemini'].return_value=('not json',None)
         with self.assertRaises(HTTPException) as error: await ns['process_edital_analysis'](SimpleNamespace(user_id='u'),upload())
-        self.assertIn('incompleto',error.exception.detail); ns['sql_edital'].save.assert_not_awaited()
+        self.assertEqual(error.exception.detail['code'],'ai_malformed_output'); ns['sql_edital'].save.assert_not_awaited()
+
+    async def test_repairable_prefix_and_invalid_schema_never_save_a_complete_analysis(self):
+        from unittest.mock import Mock
+        for text in ['{"concurso":{"nome":"Private"},"cargos":[{"nome":"Recovered"}', '[]', '{}', '{"cargos":[]}', '{"concurso":{},"cargos":[]}', '{"concurso":{},"cargos":[{}]}']:
+            ns=pipeline();ns['call_gemini'].return_value=(text,None)
+            ns['_try_repair_json']=Mock(return_value={'concurso':{'nome':'Private'},'cargos':[{'nome':'Recovered'}]})
+            with self.assertRaises(HTTPException) as error:await ns['process_edital_analysis'](SimpleNamespace(user_id='u'),upload())
+            self.assertEqual(error.exception.status_code,502);self.assertTrue(error.exception.detail['code'].startswith('ai_'))
+            ns['_try_repair_json'].assert_not_called();ns['sql_edital'].save.assert_not_awaited()
+            self.assertNotIn('Private',repr(error.exception.detail));self.assertNotIn('Recovered',repr(error.exception.detail))
 
     def test_direct_and_worker_use_same_pipeline(self):
         tree=ast.parse(SOURCE.read_text(encoding='utf8'))

@@ -192,9 +192,19 @@ async def training(session, uid, day, zone, *, now=None):
             reasons=['Sessão ativa real. Duração restante precisa da sua estimativa.']))
     elif not active and count==0:
         for p in plans[:LIMIT]:
+            from workout_calendar import scheduled_plan_index
+            policy=(p.generation_parameters or {}).get('composition_policy') or {}
+            if not isinstance(policy,dict):policy={}
+            frequency=policy.get('sessions_per_week')
+            weeks=policy.get('weeks')
+            if policy.get('proposal_only'):
+                if type(frequency) is not int or type(weeks) is not int:continue
+                if scheduled_plan_index(frequency*weeks,p.generation_parameters,
+                    (day-p.created_at.astimezone(zone).date()).days) is None:continue
             state.candidates.append(candidate('training',p,day,'Treino: '+p.name,None,'/workouts',
                 reasons=['Plano cadastrado; inclusão no dia exige sua seleção e estimativa de duração.',
-                    f"{intelligence['training_days']} dia(s) com treino registrado nos 28 dias até a data planejada; frequência prescrita desconhecida."]))
+                    f"{intelligence['training_days']} dia(s) com treino registrado nos 28 dias até a data planejada; "+
+                    (f'{frequency} sessão(ões) por semana na proposta declarada, sem compromisso automático.' if frequency else 'frequência prescrita desconhecida.')]))
     elif active:
         state.warnings.append('Uma sessão de treino ativa só é sugerida para hoje, sem duplicação em dias futuros.')
     return state

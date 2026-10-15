@@ -28,6 +28,7 @@ class AIRouter:
         self.settings = settings or Settings()
         self.providers = providers or {'gemini': GeminiProvider(), 'groq': GroqProvider()}
         self.cooldowns = OrderedDict()
+        self.cooldown_errors = {}
         self.reserve = reserve
 
     async def generate(self, *, task, keys, user_id='', prompt='', system='', schema=None, output_type=None, **kwargs):
@@ -58,6 +59,7 @@ class AIRouter:
                 continue
             token = (user_id, model.provider, model.name)
             if self.cooldowns.get(token, 0) > time.monotonic():
+                last = AIError(self.cooldown_errors.get(token, 'unavailable'))
                 continue
             if self.reserve and not await self.reserve(user_id, model):
                 last = AIError('quota'); continue
@@ -80,14 +82,17 @@ class AIRouter:
                 return result
             except AIError as exc:
                 last, status = exc, exc.kind
-                if exc.kind == 'invalid_key':
+                if exc.kind in ('invalid_key', 'permission_denied'):
                     excluded.add(model.provider)
                 if exc.kind == 'invalid_request':
                     # Invalid input/schema must not silently become unvalidated output.
                     raise
-                if exc.kind in ('quota', 'rate_limit', 'unavailable', 'timeout'):
+                if exc.kind in ('quota', 'rate_limit', 'unavailable', 'model_unavailable', 'network_error', 'timeout'):
                     self.cooldowns[token] = time.monotonic() + exc.retry_after
-                    while len(self.cooldowns) > 1000: self.cooldowns.popitem(last=False)
+                    self.cooldown_errors[token] = exc.kind
+                    while len(self.cooldowns) > 1000:
+                        expired, _ = self.cooldowns.popitem(last=False)
+                        self.cooldown_errors.pop(expired, None)
             finally:
                 logging.info('ai provider=%s model=%s task=%s latency_ms=%.1f fallback=%s status=%s tokens=%s', model.provider, model.name, task, (time.perf_counter()-started)*1000, attempted > 1, status,
                              {k:v for k,v in (result.usage if result else {}).items() if k in ('total_tokens', 'totalTokenCount', 'prompt_tokens', 'completion_tokens')})

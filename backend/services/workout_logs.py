@@ -129,25 +129,30 @@ async def stats(request: Request,period: str='week'):
     user=await account(request); today=local_today(user['timezone']); start=today-timedelta(days={'week':7,'month':30}.get(period,365))
     async with unit_of_work() as session:
         where=(WorkoutLog.user_id==UUID(user['user_id']),WorkoutLog.completed.is_(True),WorkoutLog.date>=start,WorkoutLog.date<=today)
-        count,minutes,distance,calories,xp=(await session.execute(select(func.count(),func.coalesce(func.sum(WorkoutLog.duration_minutes),0),
-            func.coalesce(func.sum(WorkoutLog.distance_km),0),func.coalesce(func.sum(WorkoutLog.calories),0),func.coalesce(func.sum(WorkoutLog.xp_earned),0)).where(*where))).one()
+        count,minutes,distance,calories,xp,calorie_count=(await session.execute(select(func.count(),func.coalesce(func.sum(WorkoutLog.duration_minutes),0),
+            func.coalesce(func.sum(WorkoutLog.distance_km),0),func.sum(WorkoutLog.calories),func.coalesce(func.sum(WorkoutLog.xp_earned),0),func.count(WorkoutLog.calories)).where(*where))).one()
         types=dict((await session.execute(select(WorkoutLog.activity_type,func.count()).where(*where).group_by(WorkoutLog.activity_type))).all())
         return {'period':period,'total_workouts':count,'total_duration_minutes':minutes,'total_distance_km':round(distance,2),
-            'total_calories':calories,'total_xp_earned':xp,'by_activity_type':types}
+            # Historical values mix user entries and old automatic estimates; keep them without guessing provenance.
+            'total_calories':calories if count and calorie_count==count else None,
+            'calorie_records':calorie_count,'calories_source':'unverified' if calorie_count else 'unknown',
+            'total_xp_earned':xp,'by_activity_type':types}
 
 
 @router.get('/workout-stats/detailed')
 async def detailed(request: Request):
     user=await account(request); today=local_today(user['timezone']); start=today-timedelta(days=29)
     async with unit_of_work() as session:
-        groups=(await session.execute(select(WorkoutLog.date,func.sum(WorkoutLog.duration_minutes),func.coalesce(func.sum(WorkoutLog.calories),0),func.count())
+        groups=(await session.execute(select(WorkoutLog.date,func.sum(WorkoutLog.duration_minutes),func.sum(WorkoutLog.calories),func.count(),func.count(WorkoutLog.calories))
             .where(WorkoutLog.user_id==UUID(user['user_id']),WorkoutLog.completed.is_(True),WorkoutLog.date>=start,WorkoutLog.date<=today).group_by(WorkoutLog.date))).all()
-    by_day={day:(minutes,calories,count) for day,minutes,calories,count in groups}; weekly={}; daily=[]
+    by_day={day:(minutes,calories if recorded==count else None,count,recorded) for day,minutes,calories,count,recorded in groups}; weekly={}; daily=[]
     for index in range(30):
-        day=start+timedelta(days=index); minutes,calories,count=by_day.get(day,(0,0,0)); week=day.isocalendar().week
+        day=start+timedelta(days=index); minutes,calories,count,recorded=by_day.get(day,(0,None,0,0)); week=day.isocalendar().week
         weekly[week]=weekly.get(week,0)+int(count>0)
-        daily.append({'date':day.isoformat(),'duration':minutes,'calories':calories,'count':count})
+        daily.append({'date':day.isoformat(),'duration':minutes,'calories':calories,'count':count,
+            'calorie_records':recorded,'calories_source':'unverified' if recorded else 'unknown'})
     current,best=streaks(by_day,today); trained=len(by_day)
     return {'daily_data':daily,'current_streak':current,'best_streak':best,'trained_days':trained,'total_days':30,
         'consistency_percentage':round(trained/30*100,1),'avg_duration_minutes':round(sum(v[0] for v in by_day.values())/max(trained,1),1),
-        'avg_calories':round(sum(v[1] for v in by_day.values())/max(trained,1),1),'weekly_consistency':weekly}
+        'avg_calories':round(sum(v[1] for v in by_day.values())/trained,1) if trained and all(v[1] is not None for v in by_day.values()) else None,
+        'calories_source':'unverified' if any(v[3] for v in by_day.values()) else 'unknown','weekly_consistency':weekly}

@@ -65,11 +65,8 @@ TEXTO DO EDITAL:
 
         result, error_type = await call_gemini(prompt_text, system_msg, user_api_key, timeout_override=180, user_id=user.user_id)
         if not result:
-            if error_type == "quota":
-                raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou.")
-            if error_type == "invalid":
-                raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida.")
-            raise HTTPException(status_code=500, detail=f"Erro ao contactar API Gemini (tipo={error_type}).")
+            from ai.errors import public_ai_error
+            raise public_ai_error(error_type or 'empty_output')
 
         json_str = result.strip()
         if json_str.startswith("```json"):

@@ -62,3 +62,31 @@ class RuntimeWorkoutLogs(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats['total_workouts'],2); self.assertEqual(stats['total_duration_minutes'],60)
         detail=self.ok(await self.http.get('/api/workout-stats/detailed'))
         self.assertEqual(len(detail['daily_data']),30); self.assertEqual(detail['current_streak'],2); self.assertEqual(detail['trained_days'],2)
+
+    async def test_calorie_coverage_zero_legacy_values_and_account_isolation(self):
+        async def account(request):return {'user_id':str(self.bob if request.headers.get('Authorization')=='Bearer bob' else self.uid),'timezone':'America/Sao_Paulo'}
+        with patch('services.dashboard.account',account):
+            async def verify(expected,recorded,source):
+                stats=self.ok(await self.http.get('/api/workout-stats'))
+                dashboard=self.ok(await self.http.get('/api/stats/dashboard'))['workout_stats']
+                detail=self.ok(await self.http.get('/api/workout-stats/detailed'))
+                self.assertEqual(stats['total_calories'],expected);self.assertEqual(dashboard['total_calories_burned'],expected)
+                for result in (stats,dashboard):
+                    self.assertEqual(result['calorie_records'],recorded);self.assertEqual(result['calories_source'],source)
+                self.assertEqual(detail['avg_calories'],expected);self.assertEqual(detail['calories_source'],source)
+                today=next(day for day in detail['daily_data'] if day['date']==self.payload()['date'])
+                self.assertEqual(today['calories'],expected)
+                return stats
+            await verify(None,0,'unknown')
+            zero=self.ok(await self.http.post('/api/workouts',json={**self.payload(),'calories':0}))
+            await verify(0,1,'unverified')
+            # Preserve an old duration*6 value without attributing it to the user or a sensor.
+            async with unit_of_work() as session:
+                row=await session.scalar(select(WorkoutLog).where(WorkoutLog.user_id==self.uid));row.calories=180
+            await verify(180,1,'unverified')
+            self.ok(await self.http.post('/api/workouts',json=self.payload()))
+            self.assertEqual((await verify(None,1,'unverified'))['total_workouts'],2)
+            self.ok(await self.http.patch('/api/workouts/'+zero['log_id']+'/toggle'))
+            await verify(None,0,'unknown')
+            other=self.ok(await self.http.get('/api/workout-stats',headers={'Authorization':'Bearer bob'}))
+            self.assertEqual(other['total_workouts'],0);self.assertIsNone(other['total_calories'])

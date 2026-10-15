@@ -196,7 +196,7 @@ async def get_freellm_api_key(user_id: str) -> Optional[str]:
 
 # ========== LLM CALLS ==========
 
-async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None, timeout_override: Optional[int] = None, task: str = 'assistant_chat') -> str:
+async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None, timeout_override: Optional[int] = None, task: str = 'assistant_chat', raise_ai_errors: bool = False) -> str:
     from ai.types import AIError
     if not user_id:
         return '⚠️ Faça login para usar IA.'
@@ -206,6 +206,7 @@ async def call_llm(prompt: str, session_id: str = "default", system_message: str
         await track_gemini_usage(user_id, result.model, usage=result.usage, feature=task)
         return result.text
     except AIError as error:
+        if raise_ai_errors: raise
         if not keys: return '⚠️ Configure uma chave de IA nas configurações do assistente.'
         if error.kind in ('quota', 'rate_limit'): return '⚠️ Limite de IA atingido. Aguarde antes de tentar novamente.'
         return '⚠️ IA temporariamente indisponível. Seus dados foram preservados.'
@@ -252,7 +253,8 @@ async def request_gemini(*, contents, config, user_id, task='document_analysis')
     text, error = await generate('', system, key, user_id=user_id, response_schema=schema,
                                  usage_callback=track_gemini_usage, parts=parts, config_options=options, task=task, keys=keys)
     if not text:
-        raise HTTPException(429 if error == 'quota' else 502, 'A IA não respondeu. Confira sua chave e tente novamente.')
+        from ai.errors import public_ai_error
+        raise public_ai_error(error or 'empty_output')
     return SimpleNamespace(text=text)
 
 async def call_gemini(prompt: str, system_message: str, api_key: str, timeout_override: Optional[int] = None, user_id: Optional[str] = None, response_schema: Optional[dict] = None, task='edital_extract') -> tuple[Optional[str], Optional[str]]:
@@ -2036,11 +2038,8 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
             response_schema=response_schema,
         )
         if not result:
-            if error_type == "quota":
-                raise HTTPException(status_code=500, detail="Sua cota da API Gemini esgotou. Tente amanhã ou crie outra chave em https://aistudio.google.com/apikey.")
-            if error_type in ("invalid", "empty"):
-                raise HTTPException(status_code=500, detail="Sua chave Gemini é inválida ou foi revogada. Gere uma nova em https://aistudio.google.com/apikey.")
-            raise HTTPException(status_code=500, detail=f"Erro ao contactar API Gemini (tipo={error_type or 'unknown'}). Tente novamente.")
+            from ai.errors import public_ai_error
+            raise public_ai_error(error_type or 'empty_output')
 
         json_str = result.strip()
         # Remove eventuais code fences caso o modelo ignore o responseMimeType
@@ -2051,22 +2050,22 @@ REGRAS OBRIGATÓRIAS (leia com atenção):
         if json_str.endswith("```"):
             json_str = json_str[:-3]
 
-        # (fallback robusto) Se o JSON estiver truncado, tenta:
-        #   1) recuperar até o último cargo válido cortando após "]" final antes do último trailing
-        #   2) se falhar, tenta json_repair (simple: fechar aspas/colchetes)
+        # Never turn a recovered prefix of a truncated document into a complete analysis.
         json_str_clean = json_str.strip()
         try:
             parsed = json.loads(json_str_clean)
-        except json.JSONDecodeError as jerr:
-            logging.warning("analyze-edital: JSON inválido (%s). Tentando reparo. Tamanho resposta: %s chars.", type(jerr).__name__, len(json_str_clean))
-            parsed = _try_repair_json(json_str_clean)
-            if parsed is None:
-                logging.error("analyze-edital: reparo JSON falhou")
-                raise HTTPException(
-                    status_code=500,
-                    detail="A IA devolveu JSON inválido/incompleto. Tente novamente — se persistir, envie um PDF menor ou apenas as páginas do conteúdo programático.",
-                )
-            logging.info(f"analyze-edital: JSON reparado com sucesso. Cargos recuperados: {len(parsed.get('cargos') or [])}")
+        except json.JSONDecodeError:
+            from ai.errors import public_ai_error
+            raise public_ai_error('malformed_output') from None
+        from jsonschema import Draft202012Validator,ValidationError as SchemaValidationError
+        try:
+            Draft202012Validator(response_schema).validate(parsed)
+        except SchemaValidationError:
+            from ai.errors import public_ai_error
+            raise public_ai_error('malformed_output') from None
+        if not parsed.get('cargos'):
+            from ai.errors import public_ai_error
+            raise public_ai_error('empty_output')
 
         cargos_list = parsed.get("cargos") or []
         # (item 3) — dedup fuzzy para proteger contra o modelo emitir cargos duplicados

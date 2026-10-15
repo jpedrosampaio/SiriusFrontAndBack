@@ -1,0 +1,89 @@
+// Local synthetic contracts only: every API/vendor request is intercepted.
+const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
+const {chromium}=require('playwright'),root=path.join(process.cwd(),'build'),output='test-results/postlaunch';
+const server=http.createServer((req,res)=>{let file=path.join(root,new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}if(!fs.existsSync(file)||fs.statSync(file).isDirectory())file=path.join(root,'index.html');res.setHeader('Content-Type',({'.js':'application/javascript','.css':'text/css','.html':'text/html'})[path.extname(file)]||'application/octet-stream');fs.createReadStream(file).pipe(res);});
+const stats={tasks_today:0,tasks_completed_today:0,habits_total:0,habits_completed_today:0,income:'9007199254740993.01',expenses:'0.00',balance:'9007199254740993.01',goals_total:0,goals_avg_progress:null,suggestions:[],workout_stats:{workouts_this_week:0,total_duration_minutes:0,total_calories_burned:null},nutrition_stats:{calories_consumed:null,calories_goal:null,water_consumed_ml:0,water_goal_ml:null,meals_count:0},study_stats:{study_time_today_minutes:0,current_streak:0,flashcards_due:0,notebooks_count:0},simulado_stats:{total_simulados:0,total_attempts:0,average_score:null,best_score:null,accuracy_rate:null},question_overview:{total_answered:0,total_correct:0,accuracy_rate:null}};
+(async()=>{await new Promise(r=>server.listen(4192,'127.0.0.1',r));const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{})});let lastPage;
+try{for(const width of [320,390,768,1024,1440]){
+ const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'});await context.addInitScript(()=>localStorage.setItem('sirius_onboarding_complete','true'));
+ const page=await context.newPage();lastPage=page;const errors=[],calls=[],generations=[],edits=[],completions=[];page.on('pageerror',e=>errors.push(e.message));
+ let owner='Alice',plans=[],summaryFails=true,analyticsFails=true;
+ const respond=(r,body,status=200)=>r.fulfill({status,contentType:'application/json',body:JSON.stringify(body)});
+ await context.route('**/*',async r=>{const u=new URL(r.request().url()),p=u.pathname,m=r.request().method();if(!p.startsWith('/api/'))return u.hostname==='127.0.0.1'?r.continue():r.abort();calls.push({p,m});
+  if(p==='/api/auth/me')return respond(r,{user_id:owner,name:owner,rank:'Recruta',xp:0,timezone:'America/Sao_Paulo',preferences:{}});
+  if(p==='/api/workout-plans/generate'){
+   const body=r.request().postDataJSON(),key=r.request().headers()['idempotency-key'];generations.push({body,key});
+   if(generations.length===1)return respond(r,{detail:{code:'ai_output_truncated',message:'A resposta da IA ficou incompleta. Nenhum treino foi salvo.'}},502);
+   const exercises=[{name:'Agachamento livre',sets:3,reps:'10',weight:'Peso corporal',rest_seconds:60,muscle_group:'pernas',tutorial:'Movimento controlado.'}];
+   plans=[{plan_id:'11111111-1111-4111-8111-111111111111',name:'Proposta conferida',workout_type:'calistenia',plan_duration:'mes',generated_by_ai:true,training_days_per_week:5,cycle_weeks:4,exercises,days:Array.from({length:20},(_,i)=>({week:Math.floor(i/5)+1,day_name:`sem${Math.floor(i/5)+1}_dia${i%5+1}`,day_label:`Semana ${Math.floor(i/5)+1} - Dia ${i%5+1}`,exercises}))}];
+   if(generations.length===2)return r.abort('failed');
+   await new Promise(resolve=>setTimeout(resolve,150));return respond(r,{success:true,replayed:true,plan:plans[0],xp_earned:5});
+  }
+  if(p==='/api/workout-plans')return respond(r,owner==='Alice'?plans:[]);
+  if(p==='/api/workout-plans/11111111-1111-4111-8111-111111111111'&&m==='PATCH'){
+   const body=r.request().postDataJSON();edits.push(body);plans=[{...plans[0],...body,exercises:body.days.flatMap(day=>day.exercises)}];return respond(r,{message:'Workout plan updated'});
+  }
+  if(p==='/api/workout-sessions/active')return respond(r,{session:null});
+  if(p==='/api/daily-workout-status')return respond(r,Object.fromEntries(plans.map(plan=>[plan.plan_id,{exercises_status:{0:true},completed:false}])));
+  if(p.endsWith('/complete')&&p.startsWith('/api/daily-workout-status/')&&m==='POST'){
+   completions.push(r.request().postDataJSON());return respond(r,{xp_earned:10,exercises_completed_count:1,total_exercises:20});
+  }
+  if(p==='/api/workouts/today-schedule')return respond(r,{scheduled:false});
+  if(p==='/api/workout-stats')return respond(r,{workouts_this_week:0,total_duration_minutes:0});
+  if(p==='/api/training/state')return respond(r,{status:'insufficient_data',facts:[],limitations:[],recommendations:[],personal_records:[]});
+  if(p==='/api/command/home')return respond(r,{date:'2026-10-14',timezone:'America/Sao_Paulo',next_action:null,today:[],areas:[],attention:[],warnings:[]});
+  if(p==='/api/stats/dashboard')return summaryFails?respond(r,{detail:'Synthetic failure'},503):respond(r,stats);
+  if(p==='/api/dashboard/panels')return respond(r,{panels:{weekly:{period:{},finance:{income:'9007199254740993.01',expense:'0.00',balance:'9007199254740993.01'},workouts:{},habits:{},tasks:{},study:{}},workout:{scheduled:false}},errors:[]});
+  if(p==='/api/stats/analytics'){
+   if(analyticsFails)return respond(r,{detail:'Synthetic graphs failure'},503);
+   const days=Number(u.searchParams.get('days'));if(days===14)await new Promise(resolve=>setTimeout(resolve,250));
+   return respond(r,{days,data:[{label:`Janela ${days}`,date:'2026-10-14',income:'1000.01',expenses:'0.01',tasks:0,habits:0,study_min:0,xp_cumulative:0}],totals:{income:'1000.01',expenses:'0.01',tasks:0,habits_avg:0,study_hours:0,workouts:0,questions:0,xp_earned:0}});
+  }
+  if(p==='/api/ai/daily')return respond(r,{plan:null,commitments:[]});
+  if(p==='/api/motivational-quote')return respond(r,{quote:'Um passo de cada vez.'});
+  if(p==='/api/agent/preferences')return respond(r,{enabled:false});
+  return respond(r,[]);
+ });
+ await page.goto('http://127.0.0.1:4192/workouts');await page.getByTestId('open-ai-generate-btn').click();
+ const dialog=page.getByRole('dialog');await dialog.evaluate(async node=>{await Promise.all(node.getAnimations().map(animation=>animation.finished));});assert.notEqual(await dialog.evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)');await fs.promises.mkdir(output,{recursive:true});await page.screenshot({path:`${output}/form-start-${width}.png`});await dialog.getByTestId('generate-ai-workout-btn').click();await dialog.getByRole('alert').waitFor();assert.equal(generations.length,0);
+ await dialog.getByLabel('Onde você pretende treinar?',{exact:true}).selectOption('casa');
+ await dialog.getByTestId('generate-ai-workout-btn').click();await dialog.getByText('Declare os equipamentos ou selecione “Nenhum equipamento”.',{exact:true}).waitFor();assert.equal(generations.length,0);
+ await dialog.getByText('Escolher equipamentos',{exact:true}).click();await dialog.getByLabel('Halteres',{exact:true}).check();await dialog.getByLabel('Banco',{exact:true}).check();
+ await dialog.getByTestId('generation-summary').getByText('Equipamentos: Halteres, Banco',{exact:true}).waitFor();
+ await dialog.getByLabel('Modalidade',{exact:true}).selectOption('calistenia');await dialog.getByLabel('Nível',{exact:true}).selectOption('iniciante');await dialog.getByRole('button',{name:'Nenhum equipamento',exact:true}).click();
+ await dialog.getByTestId('generation-summary').getByText('4 semanas × 3 sessões por semana = 12 sessões',{exact:true}).waitFor();
+ await dialog.getByLabel('Duração do planejamento',{exact:true}).selectOption('12');await dialog.getByLabel('Sessões por semana',{exact:true}).selectOption('7');await dialog.getByTestId('generation-summary').getByText('12 semanas × 7 sessões por semana = 84 sessões',{exact:true}).waitFor();
+ await dialog.getByLabel('Duração do planejamento',{exact:true}).selectOption('single');await dialog.getByTestId('generation-summary').getByText('Sessão única = 1 sessão',{exact:true}).waitFor();
+ await dialog.getByLabel('Duração do planejamento',{exact:true}).selectOption('4');await dialog.getByLabel('Sessões por semana',{exact:true}).selectOption('5');
+ await dialog.getByText('Limitações e exercícios a evitar (opcional)',{exact:true}).click();await dialog.getByLabel('Condições físicas relatadas',{exact:true}).fill('Histórico relatado de lesão no ombro');await dialog.getByLabel('Exercícios a evitar, um por linha',{exact:true}).fill('Paralelas');
+ await dialog.getByTestId('generation-summary').scrollIntoViewIfNeeded();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await fs.promises.mkdir(output,{recursive:true});await page.screenshot({path:`${output}/generation-${width}.png`});
+ await dialog.getByTestId('generate-ai-workout-btn').click();await dialog.getByRole('alert').waitFor();assert.equal(await dialog.getByLabel('Condições físicas relatadas',{exact:true}).inputValue(),'Histórico relatado de lesão no ombro');assert.equal(await dialog.getByLabel('Sessões por semana',{exact:true}).isEnabled(),true);
+ assert.equal(generations[0].body.training_days_per_week,5);assert.equal(generations[0].body.cycle_weeks,4);assert.deepEqual(generations[0].body.available_equipment,[]);
+ await dialog.getByTestId('generate-ai-workout-btn').click();await dialog.getByRole('button',{name:'Recuperar mesmo pedido',exact:true}).waitFor();assert.equal(await dialog.getByLabel('Modalidade',{exact:true}).isDisabled(),true);
+ await dialog.locator('form').getByRole('button',{name:'Fechar',exact:true}).click();await page.getByTestId('open-ai-generate-btn').click();await dialog.getByRole('button',{name:'Recuperar mesmo pedido',exact:true}).click();await page.getByText('Treino recuperado, sem duplicar plano ou XP.',{exact:true}).waitFor();
+ assert.equal(generations.length,3);assert.notEqual(generations[0].key,generations[1].key);assert.equal(generations[1].key,generations[2].key);assert.deepEqual(generations[1].body,generations[2].body);
+ await page.getByRole('tab',{name:'Fichas',exact:true}).click();await page.getByRole('button',{name:'Editar Proposta conferida',exact:true}).click();
+ const editor=page.getByRole('dialog');await editor.evaluate(async node=>{await Promise.all(node.getAnimations().map(animation=>animation.finished));});
+ await editor.getByLabel('Sessão para editar',{exact:true}).selectOption('19');await editor.getByLabel('Exercício 1',{exact:true}).fill('Agachamento editado');await editor.getByLabel('Repetições 1',{exact:true}).fill('8-12');
+ await editor.getByLabel('Novo exercício',{exact:true}).fill('Mobilidade');await editor.getByRole('button',{name:'Adicionar Exercício',exact:true}).click();await editor.getByRole('button',{name:'Remover exercício 2',exact:true}).click();
+ await editor.getByLabel('Sessão para editar',{exact:true}).selectOption('0');assert.equal(await editor.getByLabel('Exercício 1',{exact:true}).inputValue(),'Agachamento livre');await editor.getByLabel('Sessão para editar',{exact:true}).selectOption('19');assert.equal(await editor.getByLabel('Repetições 1',{exact:true}).inputValue(),'8-12');
+ assert.equal(edits.length,0);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:`${output}/editor-${width}.png`});
+ await editor.getByRole('button',{name:'Salvar Alterações',exact:true}).click();await page.getByText('Ficha atualizada!',{exact:true}).waitFor();assert.equal(edits.length,1);assert.equal(edits[0].days.length,20);assert.equal(edits[0].plan_duration,'mes');assert.equal(edits[0].days[19].week,4);assert.equal(edits[0].days[19].exercises[0].name,'Agachamento editado');assert.equal(edits[0].days[19].exercises[0].reps,'8-12');assert.ok(edits[0].days.slice(0,19).every(day=>day.exercises[0].name==='Agachamento livre'));
+ await page.getByText('Proposta conferida',{exact:true}).click();
+ for(const value of [null,0]){
+  await page.getByRole('button',{name:'Concluir Treino do Dia',exact:true}).click();
+  const completion=page.getByRole('dialog');const calories=completion.getByLabel('Calorias (opcional)',{exact:true});
+  assert.equal(await calories.inputValue(),'');if(value===0){await calories.fill('0');assert.equal(await calories.inputValue(),'0');}
+  await completion.getByRole('button',{name:'Concluir Treino',exact:true}).click();await completion.waitFor({state:'hidden'});
+  assert.equal(completions.at(-1).calories,value);
+ }
+ owner='Bob';await page.evaluate(()=>window.dispatchEvent(new Event('sirius-auth-changed')));await page.getByTestId('open-ai-generate-btn').click();await dialog.getByLabel('Modalidade',{exact:true}).waitFor();assert.equal(await dialog.getByLabel('Modalidade',{exact:true}).inputValue(),'musculacao');await dialog.getByText('Limitações e exercícios a evitar (opcional)',{exact:true}).click();assert.equal(await dialog.getByLabel('Condições físicas relatadas',{exact:true}).inputValue(),'');await dialog.locator('form').getByRole('button',{name:'Fechar',exact:true}).click();
+ await page.goto('http://127.0.0.1:4192/dashboard');await page.getByRole('tab',{name:'MEU DIA',exact:true}).waitFor();assert.equal(calls.filter(r=>r.p==='/api/stats/dashboard').length,0);
+ await page.getByRole('tab',{name:'MEU DIA',exact:true}).focus();await page.keyboard.press('ArrowRight');await page.getByText('Não foi possível carregar as análises.',{exact:true}).waitFor();assert.equal(await page.getByRole('tab',{name:'ANÁLISES',exact:true}).getAttribute('aria-selected'),'true');
+ summaryFails=false;await page.getByRole('button',{name:'Tentar novamente',exact:true}).click();await page.getByRole('button',{name:'Atualizar análises',exact:true}).waitFor();await page.getByText('Sem metas',{exact:true}).waitFor();await page.getByText('Sem tentativas corrigidas',{exact:true}).waitFor();await page.getByText('R$ 9.007.199.254.740.993,01',{exact:true}).first().waitFor();
+ await page.getByRole('tab',{name:'ANÁLISES',exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:`${output}/analytics-top-${width}.png`});
+ const marker=page.locator('[data-testid="analytics-marker"]');await marker.scrollIntoViewIfNeeded();await page.getByRole('button',{name:'Tentar novamente gráficos',exact:true}).waitFor();analyticsFails=false;await page.getByRole('button',{name:'Tentar novamente gráficos',exact:true}).click();await page.getByRole('button',{name:'14d',exact:true}).waitFor();analyticsFails=true;await page.getByRole('button',{name:'14d',exact:true}).click();await page.getByRole('button',{name:'Tentar novamente gráficos',exact:true}).waitFor();await page.getByText('Exibindo a última consulta de 7 dias. A consulta de 14 dias ainda não foi confirmada.',{exact:true}).waitFor();analyticsFails=false;await page.getByRole('button',{name:'Tentar novamente gráficos',exact:true}).click();await page.getByRole('button',{name:'30d',exact:true}).click();await page.getByRole('button',{name:'30d',exact:true}).getAttribute('aria-pressed');await page.waitForTimeout(400);assert.equal(await page.getByRole('button',{name:'30d',exact:true}).getAttribute('aria-pressed'),'true');
+ const toolbar=page.getByTestId('analytics-toolbar');assert.ok(await toolbar.evaluate(node=>node.getBoundingClientRect().right<=innerWidth));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:`${output}/analytics-${width}.png`,fullPage:true});
+ await page.getByRole('tab',{name:'MEU DIA',exact:true}).click();await page.getByText('Nenhuma próxima ação alocada com segurança.',{exact:true}).waitFor();await page.waitForTimeout(250);const closed=calls.filter(r=>r.p==='/api/stats/dashboard'||r.p==='/api/dashboard/panels'||r.p==='/api/stats/analytics').length;await page.evaluate(()=>window.dispatchEvent(new Event('sirius-data-changed')));await page.waitForTimeout(300);assert.equal(calls.filter(r=>r.p==='/api/stats/dashboard'||r.p==='/api/dashboard/panels'||r.p==='/api/stats/analytics').length,closed,'closed panels must not refetch on mutation');
+ await page.getByRole('tab',{name:'ANÁLISES',exact:true}).click();await page.reload();await page.getByRole('button',{name:'Atualizar análises',exact:true}).waitFor();assert.equal(await page.getByRole('tab',{name:'ANÁLISES',exact:true}).getAttribute('aria-selected'),'true');assert.deepEqual(errors,[]);await context.close();console.log(`Postlaunch ${width}: passed`);
+ }}catch(e){if(lastPage&&!lastPage.isClosed()){await fs.promises.mkdir(output,{recursive:true});await lastPage.screenshot({path:`${output}/failure.png`,fullPage:true});console.error('Horizontal bounds:',await lastPage.evaluate(()=>Array.from(document.querySelectorAll('body *')).map(node=>({tag:node.tagName,class:node.getAttribute('class'),right:node.getBoundingClientRect().right,text:node.textContent?.slice(0,80)})).filter(node=>node.right>innerWidth+1).slice(-20)));console.error((await lastPage.locator('body').innerText()).slice(-4500));}throw e;}finally{await browser.close();await new Promise(r=>server.close(r));}})().catch(e=>{console.error(e);process.exitCode=1;});

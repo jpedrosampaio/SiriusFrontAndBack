@@ -47,6 +47,7 @@ class RuntimeWorkoutSessions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(bool(r.json().get('replayed')) for r in completed),9)
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutLog).where(WorkoutLog.user_id==self.uid)),1)
+            self.assertIsNone((await session.scalar(select(WorkoutLog).where(WorkoutLog.user_id==self.uid))).calories)
             self.assertEqual((await session.get(User,self.uid)).xp,12)
         self.assertFalse(self.ok(await self.http.get('/api/workout-sessions/active'))['active'])
         self.assertEqual(self.ok(await self.http.get('/api/workout-sessions'))[0]['session_id'],sid)

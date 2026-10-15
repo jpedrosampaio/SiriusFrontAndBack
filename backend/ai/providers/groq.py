@@ -29,8 +29,10 @@ class GroqProvider(Provider):
             payload['tools'] = [{'type': 'function', 'function': t} for t in request.tools]
         data = await self.request('post', f'{BASE}/chat/completions', headers={'Authorization': f'Bearer {key}'}, json=payload, timeout=request.timeout)
         choice = next(iter(data.get('choices', [])), {})
-        if choice.get('finish_reason') in ('length', 'content_filter'):
-            raise AIError('malformed_output')
+        if choice.get('finish_reason') == 'length':
+            raise AIError('output_truncated')
+        if choice.get('finish_reason') == 'content_filter':
+            raise AIError('blocked_output')
         message = choice.get('message', {})
         calls = []
         try:
@@ -40,7 +42,7 @@ class GroqProvider(Provider):
             raise AIError('malformed_output') from exc
         text = message.get('content') or ''
         if not text and not calls:
-            raise AIError('malformed_output')
+            raise AIError('empty_output')
         return AIResult(text, 'groq', model.name, data.get('usage', {}), tool_calls=calls)
 
     async def transcribe(self, model, key, request):

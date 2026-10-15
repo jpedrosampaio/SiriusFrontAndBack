@@ -3,13 +3,33 @@ import copy
 import re
 
 
+def includes_conditioning(request):
+    return getattr(request,'workout_type',None)=='hibrido' or bool(getattr(request,'include_cardio',False))
+
+
+def scheduled_plan_index(day_count, parameters, elapsed_days):
+    """New generation uses relative weekly proposals; legacy plans keep their rotation."""
+    policy=(parameters or {}).get('composition_policy') or {}
+    if not isinstance(policy,dict):policy={}
+    if policy.get('version')!=1 or not policy.get('proposal_only'):
+        return max(0,elapsed_days)%day_count if day_count else None
+    frequency=policy.get('sessions_per_week');weeks=policy.get('weeks')
+    if type(frequency) is not int or type(weeks) is not int or not 1<=frequency<=7 or not 1<=weeks<=12:
+        return None
+    offsets=[i*7//frequency for i in range(frequency)]
+    week,offset=divmod(elapsed_days,7)
+    if elapsed_days<0 or week>=weeks or offset not in offsets: return None
+    index=week*frequency+offsets.index(offset)
+    return index if index<day_count else None
+
+
 def calendar_shape(request):
     if request.generation_mode == "tipo_treino" and request.workout_type != "corrida":
         return request.cycle_weeks or 4, request.training_days_per_week or 5
-    weeks = {"dia": 1, "semana": 1, "mes": 4, "ciclo": 10}.get(request.duration)
+    weeks = getattr(request,'cycle_weeks',None) or {"dia": 1, "semana": 1, "mes": 4, "ciclo": 10}.get(request.duration)
     if weeks is None:
         raise ValueError("Duração de treino inválida.")
-    frequency = (request.weekly_frequency or 4) if request.workout_type == "corrida" else 5
+    frequency = getattr(request,'training_days_per_week',None) or ((getattr(request,'weekly_frequency',None) or 4) if request.workout_type == "corrida" else 5)
     return weeks, 1 if request.duration == "dia" else frequency
 
 
@@ -35,6 +55,7 @@ def validate_ai_calendar(data, request):
         if not isinstance(splits, list) or not splits:
             raise ValueError("Retorne os modelos em splits; não substitua por days incompletos.")
         expected = {str(s.get("label", "")).lower() for s in (request.split_config or [])}
+        if includes_conditioning(request) and getattr(request,'cardio_mode',None)=='hibrido_alternado': expected.add('cardio')
         actual = {str(s.get("split_label", "")).lower() for s in splits if isinstance(s, dict)}
         if not expected or not expected.issubset(actual) or not (actual - {"cardio", "descanso", ""}):
             raise ValueError("Faltam divisões de treino solicitadas em splits.")
@@ -99,14 +120,14 @@ def expand_splits(plan_data, gen_data):
             is_rest_day = False
             is_cardio_day = False
 
-            if cardio_mode == "hibrido_alternado" and gen_data.include_cardio and cardio_split:
+            if cardio_mode == "hibrido_alternado" and includes_conditioning(gen_data) and cardio_split:
                 # Pattern: Muscle, Cardio, Muscle, Cardio, ..., Rest (last day)
                 if day_in_week == days_per_week:
                     is_rest_day = True
                 elif day_in_week % 2 == 0:
                     is_cardio_day = True
                 # Odd days (1, 3, 5, ...) are muscle days
-            elif cardio_mode == "hibrido" and gen_data.include_cardio:
+            elif cardio_mode == "hibrido" and includes_conditioning(gen_data):
                 # Hybrid mode: last day is rest, all others are muscle+cardio
                 if day_in_week == days_per_week:
                     is_rest_day = True

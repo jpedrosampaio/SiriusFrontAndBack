@@ -10,7 +10,7 @@ class GeminiProvider(Provider):
     async def generate(self, model, key, request):
         contents = [{'role': 'model' if m['role'] == 'assistant' else 'user', 'parts': [{'text': m['content']}]} for m in request.messages if m['role'] in ('user', 'assistant')]
         contents.append({'role': 'user', 'parts': request.parts or [{'text': request.prompt}]})
-        payload = {'contents': contents, 'generationConfig': {'maxOutputTokens': request.max_tokens}}
+        payload = {'contents': contents, 'generationConfig': {'maxOutputTokens': request.max_tokens}, 'store': False}
         if request.system:
             payload['systemInstruction'] = {'parts': [{'text': request.system}]}
         if request.schema:
@@ -19,14 +19,24 @@ class GeminiProvider(Provider):
             payload['tools'] = [{'functionDeclarations': request.tools}]
         data = await self.request('post', f'{BASE}/models/{model.name}:generateContent',
                                   headers={'x-goog-api-key': key}, json=payload, timeout=request.timeout)
-        candidate = next(iter(data.get('candidates', [])), {})
-        if candidate.get('finishReason') in ('MAX_TOKENS', 'SAFETY', 'RECITATION'):
+        candidates = data.get('candidates') or []
+        if not isinstance(candidates, list) or any(not isinstance(c, dict) for c in candidates):
             raise AIError('malformed_output')
-        parts = candidate.get('content', {}).get('parts', [])
+        candidate = next(iter(candidates), {})
+        if candidate.get('finishReason') == 'MAX_TOKENS':
+            raise AIError('output_truncated')
+        if candidate.get('finishReason') in ('SAFETY', 'RECITATION') or data.get('promptFeedback', {}).get('blockReason'):
+            raise AIError('blocked_output')
+        content = candidate.get('content') or {}
+        if not isinstance(content, dict):
+            raise AIError('malformed_output')
+        parts = content.get('parts') or []
+        if not isinstance(parts, list) or any(not isinstance(p, dict) or not isinstance(p.get('text', ''), str) for p in parts):
+            raise AIError('malformed_output')
         text = ''.join(p.get('text', '') for p in parts if not p.get('thought'))
         calls = [{'name': p['functionCall']['name'], 'arguments': p['functionCall'].get('args', {})} for p in parts if 'functionCall' in p]
         if not text and not calls:
-            raise AIError('malformed_output')
+            raise AIError('empty_output')
         return AIResult(text, 'gemini', model.name, data.get('usageMetadata', {}), tool_calls=calls)
 
     async def embed(self, model, key, request):

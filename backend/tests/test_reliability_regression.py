@@ -122,7 +122,7 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-3.5-flash-lite", usage={}, feature='edital_extract')
 
     async def test_quota_and_invalid_key_do_not_record_success(self):
-        for status, error in ((429, "quota"), (401, "invalid")):
+        for status, error in ((429, "rate_limit"), (401, "invalid_key")):
             self.post.side_effect = None
             self.post.return_value = self.response(status)
             self.assertEqual(await self.ns["call_gemini"]("p", "", "key", user_id="alice"),

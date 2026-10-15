@@ -66,7 +66,7 @@ async def complete_session(user_id, session_id, body, request_key=None):
         row.status,row.completed_at,row.total_duration_seconds,row.feedback = 'completed',now,seconds,stored_feedback
         minutes = max(1,seconds//60)
         repo.add_log(user_id=user.id,session_id=row.id,plan_id=row.plan_id,activity_type='weightlifting',
-            name=row.plan_name,duration_minutes=minutes,calories=minutes*6,notes=feedback['notes'],xp_earned=xp,
+            name=row.plan_name,duration_minutes=minutes,calories=None,notes=feedback['notes'],xp_earned=xp,
             completed=True,date=local_today(user.timezone,now=now))
         apply_xp(user,xp)
         return {'success':True,'session_id':str(row.id),'total_duration_seconds':seconds,'total_duration_minutes':minutes,

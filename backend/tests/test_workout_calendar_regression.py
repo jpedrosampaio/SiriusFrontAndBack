@@ -7,20 +7,21 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from unittest.mock import AsyncMock
 
 from fastapi import APIRouter, Cookie, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from workout_generation_fixtures import bases
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from workout_calendar import calendar_shape, validate_ai_calendar
+from workout_calendar import calendar_shape, validate_ai_calendar, expand_splits
 
 TREE = ast.parse((ROOT / 'server.py').read_text(encoding='utf-8'))
 NODES = [n for n in TREE.body if getattr(n, 'name', '') in ('WorkoutPlanGenerate', 'generate_workout_plan', 'improve_workout_plan', 'start_workout_session', '_strip_json_fences')]
 GENERATION_TREE=ast.parse((ROOT/'services/workout_generation_routes.py').read_text(encoding='utf-8'))
-NODES=[n for n in GENERATION_TREE.body if getattr(n,'name','') in ('WorkoutPlanGenerate','generate_workout_plan')]+NODES
+NODES=[n for n in GENERATION_TREE.body if getattr(n,'name','') in ('WorkoutPlanGenerate','generate_workout_plan','_generated_document')]+NODES
 
 
 def route_context():
@@ -35,7 +36,7 @@ def route_context():
     async def save(uid,key,fingerprint,document,xp):
         await ns['db'].workout_plans.insert_one(document)
         return {'success':True,'plan':document,'xp_earned':xp}
-    ns['sql_plans']=SimpleNamespace(save=save)
+    ns['sql_plans']=SimpleNamespace(save=save,replay=AsyncMock(return_value=None))
     return ns
 
 
@@ -44,14 +45,26 @@ def period(count=20):
 
 
 class CalendarTests(unittest.IsolatedAsyncioTestCase):
+    async def test_historical_hybrid_improvement_requires_and_retains_cardio_split(self):
+        request=SimpleNamespace(generation_mode='tipo_treino',workout_type='hibrido',include_cardio=False,
+            cardio_mode='hibrido_alternado',split_config=[{'label':'A'},{'label':'B'}],cycle_weeks=4,training_days_per_week=3)
+        splits=[{'split_label':label,'exercises':[{'name':f'Exercício {label}'}]} for label in ('A','B')]
+        with self.assertRaises(ValueError): validate_ai_calendar({'splits':splits},request)
+        data=validate_ai_calendar({'splits':[*splits,{'split_label':'CARDIO','exercises':[{'name':'Corrida'}]}]},request)
+        days=expand_splits(data,request)
+        self.assertEqual(len(days),12)
+        self.assertEqual(sum(day['split_label']=='Cardio' for day in days),4)
+        self.assertEqual(sum(day['split_label']=='Descanso' for day in days),4,'Historical expansion keeps its legacy rest-day behavior')
+
     async def generate(self, responses, **kwargs):
         self.ns = route_context()
         self.ns['call_llm'] = AsyncMock(side_effect=[json.dumps(r) for r in responses])
+        kwargs.setdefault('available_equipment',['halteres'])
         request = self.ns['WorkoutPlanGenerate'](objective='hipertrofia', level='intermediario', duration='mes', **kwargs)
         return await self.ns['generate_workout_plan'](SimpleNamespace(headers={}), request, None)
 
     async def test_four_weeks_month(self):
-        result = await self.generate([period()])
+        result = await self.generate([bases()])
         plan = result['plan']
         self.assertEqual(len(plan['days']), 20)
         self.assertEqual(plan['cycle_weeks'], 4)
@@ -59,28 +72,28 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan['days'][5]['day_name'], 'sem2_dia1')
 
     async def test_partial_response_retried_before_save(self):
-        result = await self.generate([period(10), period()])
+        result = await self.generate([bases(labels=('A','B')), bases()])
         self.assertEqual(len(result['plan']['days']), 20)
         self.assertEqual(self.ns['call_llm'].await_count, 2)
         self.ns['db'].workout_plans.insert_one.assert_awaited_once()
 
     async def test_repeated_partial_response_never_saved_or_rewarded(self):
         with self.assertRaises(HTTPException) as error:
-            await self.generate([period(10), period(10)])
+            await self.generate([bases(labels=('A','B')), bases(labels=('A','B'))])
         self.assertEqual(error.exception.status_code, 502)
         self.ns['db'].workout_plans.insert_one.assert_not_awaited()
         self.ns['award_xp'].assert_not_awaited()
 
     async def test_splits_expanded_exactly(self):
-        data = {'splits': [{'split_label': 'A', 'exercises': [{'name': 'Exercise'}]}]}
-        result = await self.generate([data], generation_mode='tipo_treino', split_config=[{'label': 'A'}], cycle_weeks=4, training_days_per_week=3)
+        data = bases(labels=('A',))
+        result = await self.generate([data], generation_mode='tipo_treino', split_config=[{'label': 'A', 'muscle_groups': ['peito']}], cycle_weeks=4, training_days_per_week=3)
         self.assertEqual(len(result['plan']['days']), 12)
         self.assertEqual(result['plan']['days'][-1]['week'], 4)
         self.assertIsNot(result['plan']['days'][0]['exercises'], result['plan']['days'][1]['exercises'])
 
     async def test_missing_splits_not_silently_replaced_by_partial_days(self):
         with self.assertRaises(HTTPException):
-            await self.generate([period(10), period(10)], generation_mode='tipo_treino', split_config=[{'label': 'A'}])
+            await self.generate([period(10), period(10)], generation_mode='tipo_treino', split_config=[{'label': 'A', 'muscle_groups': ['peito']}])
         self.ns['db'].workout_plans.insert_one.assert_not_awaited()
 
     async def test_conflicting_week_rejected(self):
@@ -91,7 +104,7 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
         self.ns['db'].workout_plans.insert_one.assert_not_awaited()
 
     async def test_running_frequency_and_stale_split_mode(self):
-        result = await self.generate([period(12)], workout_type='corrida', weekly_frequency=3, generation_mode='tipo_treino')
+        result = await self.generate([bases(kind='corrida',equipment=[])], workout_type='corrida', weekly_frequency=3, generation_mode='tipo_treino',available_equipment=[])
         self.assertEqual(result['plan']['training_days_per_week'], 3)
         self.assertEqual(result['plan']['generation_mode'], 'periodo')
 
@@ -107,7 +120,7 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(type=type(failure).__name__):
                 ns = route_context()
                 ns['call_llm'] = AsyncMock(side_effect=failure)
-                data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes')
+                data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes',available_equipment=['halteres'])
                 with self.assertLogs(level='ERROR') as logs, self.assertRaises(HTTPException) as error:
                     await ns['generate_workout_plan'](SimpleNamespace(headers={}), data, None)
                 self.assertEqual(error.exception.status_code, 500)
@@ -120,9 +133,9 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
     async def test_persistence_exception_does_not_expose_workout_or_sql_parameters(self):
         private = 'PRIVATE_WORKOUT_SQL_PARAMETERS_SENTINEL'
         ns = route_context()
-        ns['call_llm'] = AsyncMock(return_value=json.dumps(period()))
-        ns['sql_plans'] = SimpleNamespace(save=AsyncMock(side_effect=ValueError(private)))
-        data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes')
+        ns['call_llm'] = AsyncMock(return_value=json.dumps(bases()))
+        ns['sql_plans'] = SimpleNamespace(save=AsyncMock(side_effect=ValueError(private)),replay=AsyncMock(return_value=None))
+        data = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='iniciante', duration='mes',available_equipment=['halteres'])
         with self.assertLogs(level='ERROR') as logs, self.assertRaises(HTTPException) as error:
             await ns['generate_workout_plan'](SimpleNamespace(headers={}), data, None)
         self.assertEqual(error.exception.status_code, 500)

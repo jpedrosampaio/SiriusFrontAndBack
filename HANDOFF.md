@@ -8,7 +8,7 @@ Recheck Git/PR/deploy state at session start; the functional publication SHA is 
 
 ## Next phase and authorization
 
-Phase 14 authorization is fulfilled. The original fourteen-phase plan remains intact; **there is no Phase 15 and no further implementation is authorized**. Integrated A-G/multiuser evidence, all twenty item-141 criteria, measured performance and limitations: [INTEGRATED_HARDENING](docs/INTEGRATED_HARDENING.md). Proven contracts do not certify live AI answer quality, every production history, unconfigured binary storage or full backup/restore.
+Phase 14 authorization is fulfilled. The original fourteen-phase plan remains intact; **there is no Phase 15**. On 2026-10-14 the owner authorized post-launch maintenance for workout generation/form, recoverable edital errors and Meu dia/Análises navigation. Base main `dc4f3cf12ed6e14f666fe2575ca6204911df1d05`; branch `fix/postlaunch-workouts-edital-dashboard`; [PR52](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/52), audit and gates: [POSTLAUNCH_MAINTENANCE](docs/POSTLAUNCH_MAINTENANCE.md). Review corrections are under validation; the earlier head passed all four workflows, but final-head green CI, clean Codex review and publication remain pending. No new migration is required. Earlier integrated acceptance boundaries remain in [INTEGRATED_HARDENING](docs/INTEGRATED_HARDENING.md).
 
 ## Migrations and blockers
 
