@@ -104,6 +104,33 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code,422,response.text)
         self.llm.assert_not_awaited()
 
+    async def test_conditioning_cannot_hide_behind_strength_tags_or_conflicting_kinds(self):
+        for index,(group,kind,activity) in enumerate([
+                ('pernas','corrida','corrida'),('pernas','corrida',None),
+                ('peito','resistencia','bike'),('cardio','peso_corporal','bike')]):
+            for mode in ('hibrido','hibrido_alternado'):
+                force=bases()
+                cardio=bases(labels=('CARDIO',),kind='corrida',equipment=['bicicleta'])
+                cardio['base_sessions'][0]['session_kind']='cardio'
+                for ex in cardio['base_sessions'][0]['exercises']:
+                    ex.update(name='Bicicleta ergométrica',exercise_kind='cardio',conditioning_type='bike')
+                disguised={**cardio['base_sessions'][0]['exercises'][0], 'name':'Corrida leve',
+                    'muscle_group':group,'exercise_kind':kind,'conditioning_type':activity,'required_equipment':[]}
+                if mode=='hibrido':
+                    for base in force['base_sessions']:
+                        base['session_kind']='misto'
+                        base['exercises']+=copy.deepcopy(cardio['base_sessions'][0]['exercises'][:1])+[copy.deepcopy(disguised)]
+                    self.llm.side_effect=None;self.llm.return_value=json.dumps(force)
+                else:
+                    cardio['base_sessions'][0]['exercises'].append(disguised)
+                    self.llm.side_effect=[json.dumps(force),json.dumps(cardio),json.dumps(cardio)]
+                response=await self.create(self.request(workout_type='hibrido',available_equipment=['halteres','bicicleta'],
+                    include_cardio=True,cardio_type='bike',cardio_mode=mode),key=f'postlaunch-cardio-disguised-{index}-{mode}')
+                self.assertEqual(response.status_code,502,response.text)
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+
     async def test_odd_frequency_alternation_includes_every_declared_split_in_order(self):
         first=bases(labels=('A','B','C'))
         second=bases(labels=('D','E'))

@@ -226,7 +226,11 @@ def validate_bases(data,request,labels=None):
                 requested=next((s.get('muscle_groups') for s in request.split_config or [] if s.get('label')==session.label),None)
             if requested and not set(requested).issubset(groups):raise GenerationInvalid('focus_mismatch')
         for exercise in session.exercises:
-            if (request.workout_type=='hibrido' or request.include_cardio) and request.cardio_type and exercise.muscle_group in ('cardio','cardiorespiratorio'):
+            is_conditioning=(exercise.muscle_group in ('cardio','cardiorespiratorio') or
+                exercise.exercise_kind in ('corrida','cardio') or exercise.conditioning_type is not None)
+            if is_conditioning and (exercise.muscle_group not in ('cardio','cardiorespiratorio') or exercise.exercise_kind not in ('corrida','cardio')):
+                raise GenerationInvalid('modality_mismatch')
+            if (request.workout_type=='hibrido' or request.include_cardio) and request.cardio_type and is_conditioning:
                 expected=normalized(request.cardio_type)
                 actual=normalized(exercise.conditioning_type or ('corrida' if exercise.exercise_kind=='corrida' else ''))
                 if actual!=expected or exercise.exercise_kind not in ('corrida','cardio') or (exercise.exercise_kind=='corrida' and expected!='corrida'):
