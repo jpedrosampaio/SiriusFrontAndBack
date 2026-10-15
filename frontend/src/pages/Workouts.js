@@ -1337,9 +1337,9 @@ export default function Workouts() {
                   <Upload className="w-3 h-3 mr-1" />Importar Ficha
                 </Button>
               </div>
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="grid lg:grid-cols-2 gap-4">
                 {plans.length === 0 ? (
-                  <Card className="bg-[#0A0A0A] border-[#27272A] p-8 text-center md:col-span-2">
+                  <Card className="bg-[#0A0A0A] border-[#27272A] p-8 text-center lg:col-span-2">
                     <FileText className="w-12 h-12 text-[#52525B] mx-auto mb-4" />
                     <p className="text-[#A1A1AA]">Nenhuma ficha de treino criada</p>
                     <p className="text-sm text-[#52525B] mt-2">Clique em "Nova Ficha" para criar uma</p>
@@ -1359,7 +1359,7 @@ export default function Workouts() {
                           className="cursor-pointer"
                           onClick={() => togglePlanExpanded(plan.plan_id)}
                         >
-                          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+                          <div className="flex flex-col gap-3 xl:flex-row xl:justify-between xl:items-start">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-heading break-words text-lg">{plan.name}</h3>
