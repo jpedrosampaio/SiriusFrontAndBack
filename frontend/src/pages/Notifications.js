@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/api";
-import { useEffect, useState, useRef, useCallback, lazy, Suspense } from "react";
+import { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +43,6 @@ export default function Notifications() {
   const [activeTab, setActiveTab] = useState("active");
   const [browserPermission, setBrowserPermission] = useState("default");
   const [recentAlerts, setRecentAlerts] = useState([]);
-  const pollingRef = useRef(null);
   
   const [newNotification, setNewNotification] = useState({
     title: "",
@@ -98,21 +97,6 @@ export default function Notifications() {
     ]);
   }, []);
 
-  // Polling for pending notifications
-  const checkPendingNotifications = useCallback(async () => {
-    if (!user) return;
-    try {
-      const tzOffset = new Date().getTimezoneOffset();
-      const res = await axios.get(`${API}/notifications/check?timezone_offset=${tzOffset}`, { withCredentials: true });
-      const pending = Array.isArray(res.data) ? res.data : [];
-      for (const notif of pending) {
-        triggerBrowserNotification(notif);
-      }
-    } catch (err) {
-      // silently fail
-    }
-  }, [user, triggerBrowserNotification]);
-
   useEffect(() => {
     const load = async () => {
       try {
@@ -133,19 +117,6 @@ export default function Notifications() {
       setBrowserPermission(Notification.permission);
     }
   }, []);
-
-  // Start polling when user is loaded
-  useEffect(() => {
-    if (user) {
-      // Check immediately
-      checkPendingNotifications();
-      // Then check every 30 seconds
-      pollingRef.current = setInterval(checkPendingNotifications, 30000);
-    }
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [user, checkPendingNotifications]);
 
   const requestBrowserPermission = async () => {
     if ("Notification" in window) {

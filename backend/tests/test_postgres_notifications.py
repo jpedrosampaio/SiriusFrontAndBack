@@ -5,6 +5,8 @@ from datetime import datetime,timezone,timedelta,time
 from uuid import UUID
 from unittest.mock import patch
 from sqlalchemy import select,func,delete
+from sqlalchemy.dialects.postgresql import insert
+from db.models.agent import Preferences as StoredPreferences
 from db.session import unit_of_work
 from db.models.notifications import Notification,NotificationDelivery
 from db.models.studies import StudyArea,StudyProgram,Notebook,StudySchedule
@@ -20,6 +22,21 @@ class Notifications(unittest.IsolatedAsyncioTestCase):
         await setup.RuntimeDashboard.asyncSetUp(self)
         async def account(request):return {'user_id':str(self.bob if request.headers.get('Authorization')=='Bearer bob' else self.uid)}
         p=patch('services.notifications.account',account);p.start();self.patches.append(p)
+        # Midnight delivery tests explicitly opt out of quiet hours.
+        async with unit_of_work() as session:
+            await session.execute(insert(StoredPreferences).values(user_id=self.uid,settings={'quiet_start':0,'quiet_end':0})
+                .on_conflict_do_update(index_elements=['user_id'],set_={'settings':{'quiet_start':0,'quiet_end':0}}))
+
+    async def test_quiet_hours_prevent_claim_without_consuming_reminder(self):
+        row=await self.create(scheduled_time='23:59',repeat='daily')
+        async with unit_of_work() as session:
+            prefs=await session.scalar(select(StoredPreferences).where(StoredPreferences.user_id==self.uid))
+            prefs.settings={'quiet_start':22,'quiet_end':8}
+        with patch('services.notifications.utc_now',return_value=datetime(2026,10,5,2,59,tzinfo=timezone.utc)):
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check')),[])
+        async with unit_of_work() as session:
+            saved=await session.get(Notification,UUID(row['notification_id']))
+            self.assertIsNone(saved.last_sent);self.assertIsNone(saved.last_occurrence)
 
     async def create(self,**values):
         return self.ok(await self.http.post('/api/notifications',json={'title':'Reminder','message':'Study',**values}))

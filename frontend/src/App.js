@@ -95,7 +95,7 @@ function App() {
       <BrowserRouter>
         <AnimatedRoutes />
         <NotificationManager />
-        <Toaster position="top-right" richColors />
+        <Toaster position="top-right" richColors visibleToasts={2} closeButton />
         <GeminiKeyModal />
       </BrowserRouter>
     </div>

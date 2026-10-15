@@ -1,145 +1,105 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-const POLL_INTERVAL = 60000; // Check every 60 seconds
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const NOTICE = 'sirius-owned-notice';
+const POLL_INTERVAL = 60000;
+
+function Preview({ item, onRendered }) {
+  useEffect(() => { onRendered(); }, [onRendered]);
+  return <span className="block break-words">{item.preview}{item.grouped_count > 0 && ` Outros ${item.grouped_count} avisos estão na central.`}</span>;
+}
 
 export default function NotificationManager() {
-  const intervalRef = useRef(null);
-  const permissionRef = useRef(typeof Notification === 'undefined' ? 'denied' : Notification.permission);
-  const generationRef = useRef(0);
-  const alertsRef = useRef(new Map());
-  const enabledRef = useRef(false);
-
-  const requestPermission = useCallback(async () => {
-    if (!('Notification' in window)) return false;
-    if (Notification.permission === 'granted') return true;
-    if (Notification.permission === 'denied') return false;
-
-    const permission = await Notification.requestPermission();
-    permissionRef.current = permission;
-    return permission === 'granted';
-  }, []);
-
-  const showNotification = useCallback((title, options = {}) => {
-    if (permissionRef.current !== 'granted') return;
-
-    try {
-      const notification = new Notification(title, {
-        icon: '/logo192.png',
-        badge: '/logo192.png',
-        vibrate: [200, 100, 200],
-        tag: options.tag || 'sirius-notification',
-        ...options,
-      });
-
-      notification.onclick = () => {
-        window.focus();
-        if (options.url) {
-          window.location.href = options.url;
-        }
-        notification.close();
-      };
-
-      // Auto-close after 8 seconds
-      setTimeout(() => notification.close(), 8000);
-    } catch (e) {
-      console.warn('Notification failed:', e);
-    }
-  }, []);
-
-  const checkNotifications = useCallback(async () => {
-    const generation = generationRef.current;
-    try {
-      const inbox = enabledRef.current ? await axios.get(`${API}/automations/inbox`, { withCredentials: true }) : { data: [] };
-      if (generation !== generationRef.current) return;
-      const unseen = Array.isArray(inbox.data) ? inbox.data.find(n => !alertsRef.current.has(n.delivery_id)) : null;
-      if (unseen) {
-        const key = crypto.randomUUID();
-        alertsRef.current.set(unseen.delivery_id, key);
-        if (alertsRef.current.size > 50) alertsRef.current.delete(alertsRef.current.keys().next().value);
-        toast(unseen.title, {
-          id: `automation-${unseen.delivery_id}`, description: unseen.message.slice(0, 240), duration: 8000,
-          action: { label: 'Marcar como lido', onClick: async () => {
-            if (generation !== generationRef.current) return;
-            try { await axios.post(`${API}/automations/deliveries/${unseen.delivery_id}`, { action: 'read' },
-              { withCredentials: true, headers: { 'Idempotency-Key': key } }); }
-            catch(e) { if (generation === generationRef.current) toast.error('Leitura não confirmada. Abra Notificações para tentar novamente.'); }
-          } },
-        });
-      }
-    } catch(e) { /* Unauthenticated sessions have no owned inbox. Console shows request failures. */ }
-    if (permissionRef.current !== 'granted') return;
-    try {
-      const timezoneOffset = new Date().getTimezoneOffset();
-      const res = await axios.get(
-        `${API}/notifications/check?timezone_offset=${timezoneOffset}`,
-        { withCredentials: true }
-      );
-
-      const notifications = res.data;
-      if (generation !== generationRef.current) return;
-      if (Array.isArray(notifications) && notifications.length > 0) {
-        notifications.forEach((notif, idx) => {
-          setTimeout(() => {
-            if (generation !== generationRef.current) return;
-            showNotification(notif.title || 'Sirius', {
-              body: notif.message || notif.body || '',
-              tag: notif.notification_id || `notif-${idx}`,
-              url: notif.action_link || '/dashboard',
-            });
-          }, idx * 1500); // Stagger notifications
-        });
-      }
-    } catch (e) {
-      // Silently fail - user may not be logged in
-    }
-  }, [showNotification]);
-
   useEffect(() => {
-    const reset = () => {
-      generationRef.current += 1;
-      enabledRef.current = false;
-      for (const identity of alertsRef.current.keys()) toast.dismiss(`automation-${identity}`);
-      alertsRef.current.clear();
-    };
-    let active = true;
-    const configure = async () => {
-      const generation = generationRef.current;
+    let active = true, generation = 0, pending = false, timer, state, nextKey;
+    let abort = new AbortController(), shown = new Set(), nativeNotice;
+    let toastId = `${NOTICE}-${crypto.randomUUID()}`;
+    const current = stamp => active && generation === stamp && !abort.signal.aborted;
+    const options = () => ({ withCredentials: true, signal: abort.signal, timeout: 15000 });
+    const central = () => window.location.assign('/notifications');
+    const closeNative = () => { if (nativeNotice) nativeNotice.close(); nativeNotice = null; };
+    const action = stamp => ({ label: 'Ver na central', onClick: () => { if (current(stamp)) central(); } });
+    async function check() {
+      if (!active || pending || document.visibilityState !== 'visible') return;
+      pending = true;
+      const stamp = generation;
       try {
-        const state = await axios.get(`${API}/automations/state`, { withCredentials: true });
-        if (!active || generation !== generationRef.current) return;
-        enabledRef.current = state.data.enabled === true;
-        if (enabledRef.current) checkNotifications();
-      } catch(e) { /* Console exposes configuration errors; unavailable/anonymous state does not opt in. */ }
-    };
-    const onAuth = () => { reset(); configure(); };
-    window.addEventListener('sirius-auth-changed', onAuth);
-    window.addEventListener('sirius-automations-changed', configure);
-    const onStorage = event => { if(event.key === 'sirius_session_token' || event.key === null) onAuth(); };
-    window.addEventListener('storage', onStorage);
-    configure();
-    intervalRef.current = setInterval(checkNotifications, POLL_INTERVAL);
-    // Request permission on mount
-    requestPermission().then(granted => {
-        if (!active) return;
-        if (granted) checkNotifications();
-    });
-
-    return () => {
-      active = false;
-      reset();
-      window.removeEventListener('sirius-auth-changed', onAuth);
-      window.removeEventListener('sirius-automations-changed', configure);
-      window.removeEventListener('storage', onStorage);
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+        const configuration = await axios.get(`${API}/automations/state`, options());
+        if (!current(stamp)) return;
+        if (state?.user_id && state.user_id !== configuration.data?.user_id) { reset(); return; }
+        state = configuration.data;
+        // No personal notice before the server identifies the current account.
+        if (typeof state?.user_id !== 'string') { state = null; return; }
+        let item;
+        if (state.enabled) {
+          nextKey ||= crypto.randomUUID();
+          const key = nextKey;
+          const response = await axios.post(`${API}/automations/presentations/claim`, {}, {
+            ...options(), headers: { 'Idempotency-Key': key },
+          });
+          if (!current(stamp)) return;
+          item = response.data?.item;
+          nextKey = null;
+          if (item && !shown.has(item.delivery_id)) {
+            shown.add(item.delivery_id);
+            if (shown.size > 50) shown.delete(shown.values().next().value);
+            let acknowledged = false;
+            const onRendered = () => {
+              if (acknowledged || !current(stamp)) return;
+              acknowledged = true;
+              // Render confirmation is deliberately independent from reading.
+              void axios.post(`${API}/automations/presentations/${item.delivery_id}`, { key }, options()).catch(() => {});
+            };
+            toast(item.title, { id: toastId, description: <Preview item={item} onRendered={onRendered} />,
+              duration: 6000, action: action(stamp) });
+          }
+        }
+        const response = await axios.get(`${API}/notifications/check`, options());
+        if (!current(stamp)) return;
+        const reminders = Array.isArray(response.data) ? response.data : [];
+        const inApp = reminders.filter(n => n.channels?.includes('in_app'));
+        if (!item && inApp.length) toast(inApp.length > 1 ? `${inApp.length} lembretes disponíveis` : inApp[0].title,
+          { id: toastId, description: 'Confira os detalhes na central de Notificações.', duration: 6000, action: action(stamp) });
+        const browser = reminders.filter(n => n.channels?.includes('browser'));
+        // Permission is requested only by the explicit control in Notifications.
+        if (browser.length && 'Notification' in window && Notification.permission === 'granted') {
+          closeNative();
+          nativeNotice = new Notification(browser.length > 1 ? `${browser.length} lembretes disponíveis` : browser[0].title,
+            { body: 'Confira os detalhes na central de Notificações.', tag: NOTICE, icon: '/favicon.ico' });
+          const notice = nativeNotice;
+          notice.onclick = () => { if (current(stamp)) { window.focus(); central(); } notice.close(); };
+          setTimeout(() => notice.close(), 6000);
+        }
+      } catch (e) {
+        // Keep an uncertain claim key; server history prevents automatic replays.
+        // Configuration and history failures remain visible in the central UI.
+      } finally {
+        if (current(stamp)) { pending = false; clearTimeout(timer); timer = setTimeout(check, POLL_INTERVAL); }
       }
+    }
+    const reset = () => {
+      generation += 1; abort.abort(); abort = new AbortController();
+      pending = false; state = null; nextKey = null; shown = new Set();
+      clearTimeout(timer); toast.dismiss(toastId); toastId = `${NOTICE}-${crypto.randomUUID()}`; closeNative(); void check();
     };
-  }, [requestPermission, checkNotifications]);
-
-  // No visible UI
+    const visible = () => { if (document.visibilityState === 'visible') { clearTimeout(timer); void check(); } };
+    const storage = event => { if (event.key === 'sirius_session_token' || event.key === null) reset(); };
+    window.addEventListener('sirius-auth-changed', reset);
+    window.addEventListener('sirius-automations-changed', reset);
+    window.addEventListener('storage', storage);
+    window.addEventListener('online', visible);
+    document.addEventListener('visibilitychange', visible);
+    void check();
+    return () => {
+      active = false; generation += 1; abort.abort(); clearTimeout(timer); toast.dismiss(toastId); closeNative();
+      window.removeEventListener('sirius-auth-changed', reset);
+      window.removeEventListener('sirius-automations-changed', reset);
+      window.removeEventListener('storage', storage);
+      window.removeEventListener('online', visible);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, []);
   return null;
 }

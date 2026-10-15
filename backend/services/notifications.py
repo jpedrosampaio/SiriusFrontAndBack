@@ -11,6 +11,9 @@ from db.models.notifications import Notification,NotificationDelivery
 from db.models.studies import StudyProgram,StudySchedule,Notebook
 from db.repositories.identity import IdentityRepository
 from services.auth_routes import account
+from ai.actions import Preferences
+from db.repositories.agent import AgentRepository
+from services.event_queue import quiet_at
 
 router=APIRouter()
 DAYS=['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
@@ -99,6 +102,8 @@ async def create(request:Request,body:NotificationInput):
 async def due(request,claim,window):
     async with unit_of_work() as session:
         user=await owner(request,session,claim);now=utc_now();local=now.astimezone(ZoneInfo(user.timezone))
+        prefs=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
+        if quiet_at(now,user,prefs):return []
         slots=[local+timedelta(minutes=n) for n in range(-window,window+1)]
         rows=(await session.scalars(select(Notification).where(Notification.user_id==user.id,Notification.enabled.is_(True),
             Notification.scheduled_time.in_([s.time().replace(second=0,microsecond=0,tzinfo=None) for s in slots]),*active()).order_by(Notification.created_at,Notification.id))).all()
