@@ -243,11 +243,12 @@ async def improve_workout_plan(request: Request, plan_id: str, session_token: Op
         try: gen_data=WorkoutPlanGenerate.model_validate(payload)
         except ValidationError:
             raise HTTPException(422,'Confira os parâmetros salvos antes de revisar o treino. O plano original foi preservado.') from None
-        prior=[{'label':base.get('label'),'exercises':[
-            {field:exercise.get(field) for field in ('name','sets','reps','muscle_group')} for exercise in base.get('exercises',[])[:10]]}
-            for base in (plan.get('base_sessions') or [])[:6]]
+        from workout_generation_contract import plan_revision_context,GenerationInvalid,MESSAGES
+        try: context=plan_revision_context(plan,performance_summary)
+        except GenerationInvalid as error:
+            raise HTTPException(422,{'code':'workout_'+error.code,'message':MESSAGES[error.code]}) from None
         try:
-            document=await _generated_document(gen_data,user.user_id,{'recorded_history':performance_summary,'prior_bases':prior})
+            document=await _generated_document(gen_data,user.user_id,context)
             document.update(improved_from=plan_id,improvements_summary='Proposta revisada para comparação com o histórico, respeitando as condições declaradas e sem aumento automático de cargas.')
             result=await sql_plans.save(user.user_id,key,fingerprint,document,3)
             return {**result,'improvements_summary':result['plan']['improvements_summary']}

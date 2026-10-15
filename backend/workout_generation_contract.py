@@ -35,6 +35,7 @@ MESSAGES = {
     'invalid_splits':'Informe divisões únicas e completas; descanso não é uma sessão de treino.',
     'insufficient_split_slots':'O calendário precisa incluir todas as divisões. Aumente a duração ou a frequência, ou escolha menos divisões.',
     'single_alternating_cardio':'Para uma sessão única, combine força e condicionamento na mesma sessão ou escolha um planejamento com mais sessões.',
+    'revision_context_too_large':'O plano atual excede o limite de contexto da revisão automática. Revise um plano menor; o original foi preservado.',
     'medical_claim':'A proposta contém orientação clínica que não pode ser validada pelo gerador. Procure avaliação profissional.',
     'insufficient_variety':'A IA não justificou bases variadas e coerentes com o foco solicitado.',
     'needs_resistance_equipment':'Para musculação, declare equipamentos de resistência. Você pode escolher calistenia explicitamente para treinar apenas com o corpo.',
@@ -212,6 +213,7 @@ def validate_conditioning(exercise,request):
     is_conditioning=(identified or exercise.muscle_group in ('cardio','cardiorespiratorio') or
         exercise.exercise_kind in ('corrida','cardio') or exercise.conditioning_type is not None)
     if not is_conditioning: return
+    if request.workout_type!='corrida' and not hybrid_request(request): raise GenerationInvalid('modality_mismatch')
     if exercise.muscle_group not in ('cardio','cardiorespiratorio') or exercise.exercise_kind not in ('corrida','cardio'):
         raise GenerationInvalid('modality_mismatch')
     actual=normalized(exercise.conditioning_type or ('corrida' if exercise.exercise_kind=='corrida' else ''))
@@ -225,6 +227,24 @@ def validate_conditioning(exercise,request):
         raise GenerationInvalid('modality_mismatch')
     required=CONDITIONING_EQUIPMENT.get(actual)
     if required and required not in apparatus: raise GenerationInvalid('equipment_mismatch')
+
+
+def plan_revision_context(plan,recorded_history):
+    """Compress current saved prescriptions without substituting stale AI bases."""
+    templates=[];calendar=[];known={}
+    for day in plan.get('days') or []:
+        exercises=[{field:exercise.get(field) for field in Exercise.model_fields if field!='video_url'} for exercise in day.get('exercises') or []]
+        signature=json.dumps(exercises,ensure_ascii=False,sort_keys=True)
+        if signature not in known:
+            known[signature]=len(templates)
+            templates.append({'template':known[signature],'exercises':exercises})
+        calendar.append({**{field:day.get(field) for field in ('day_name','day_label','week','split_label','progression_focus','progression_notes')},
+            'template':known[signature]})
+    context={'recorded_history':recorded_history,'current_saved_prescriptions':{'templates':templates,'calendar':calendar}}
+    # Reject explicitly instead of silently omitting edited sessions/exercises.
+    if len(json.dumps(context,ensure_ascii=False).encode('utf-8'))>120000:
+        raise GenerationInvalid('revision_context_too_large')
+    return context
 
 
 def validate_bases(data,request,labels=None):

@@ -215,6 +215,57 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan['muscle_groups'],['pernas']);self.assertEqual(len(plan['days']),12)
         self.assertTrue(all(ex['muscle_group']=='pernas' for day in plan['days'] for ex in day['exercises']))
 
+    async def test_revision_context_uses_all_current_edits_not_stale_generation_bases(self):
+        for mode in ('days','flat'):
+            self.llm.return_value=json.dumps(bases())
+            source=self.ok(await self.create(self.request(workout_type='musculacao',available_equipment=['halteres']),key=f'postlaunch-edited-source-{mode}'))['plan']
+            edited=copy.deepcopy(source['days'])
+            for day in edited:
+                for ex in day['exercises']:
+                    if ex['name']=='Exercício A-0': ex['name']='Agachamento editado manualmente'
+            edited[-1]['exercises'][-1].update(name='Última alteração manual do ciclo',rest_seconds=71,reps='11-13',weight='25 kg')
+            payload={'name':source['name'],'days':edited} if mode=='days' else {
+                'name':source['name'],'exercises':[ex for day in edited for ex in day['exercises']]}
+            self.assertEqual((await self.http.patch(f"/api/workout-plans/{source['plan_id']}",json=payload)).status_code,200)
+            current=next(plan for plan in self.ok(await self.http.get('/api/workout-plans')) if plan['plan_id']==source['plan_id'])
+            self.assertEqual(current['plan_duration'],'mes','PATCH must preserve an omitted duration')
+            self.assertTrue(any(ex['name']=='Exercício A-0' for base in current['base_sessions'] for ex in base['exercises']))
+            self.llm.reset_mock();self.llm.return_value=json.dumps(bases())
+            revised=self.ok(await self.http.post(f"/api/workout-plans/{source['plan_id']}/improve"))['plan']
+            prompt=self.llm.call_args.args[0]
+            self.assertIn('Agachamento editado manualmente',prompt);self.assertIn('Última alteração manual do ciclo',prompt)
+            self.assertIn('25 kg',prompt);self.assertIn('11-13',prompt);self.assertNotIn('Exercício A-0',prompt)
+            self.assertEqual(len(revised['days']),12);self.llm.assert_awaited_once()
+            parent=next(plan for plan in self.ok(await self.http.get('/api/workout-plans')) if plan['plan_id']==source['plan_id'])
+            self.assertEqual(parent['days'],current['days'])
+
+    async def test_unselected_conditioning_is_rejected_without_plan_or_xp(self):
+        data=bases()
+        extra=bases(labels=('CARDIO',),kind='corrida',equipment=[],count=1)['base_sessions'][0]['exercises']
+        for base in data['base_sessions']:
+            base['exercises']+=copy.deepcopy(extra);base['session_kind']='misto'
+        self.llm.return_value=json.dumps(data)
+        response=await self.create(self.request(workout_type='musculacao',available_equipment=['halteres'],include_cardio=False))
+        self.assertEqual(response.status_code,502,response.text)
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+
+    async def test_oversized_current_revision_is_rejected_instead_of_using_stale_bases(self):
+        self.llm.return_value=json.dumps(bases())
+        source=self.ok(await self.create(self.request(workout_type='musculacao',available_equipment=['halteres'])))['plan']
+        days=copy.deepcopy(source['days'])
+        for index,day in enumerate(days):
+            for ordinal,ex in enumerate(day['exercises']):
+                ex.update(name=f'Exercício editado {index}-{ordinal}',tutorial='PRIVATE_TUTORIAL_SOURCE'+'á'*5000)
+        self.assertEqual((await self.http.patch(f"/api/workout-plans/{source['plan_id']}",json={'name':source['name'],'days':days})).status_code,200)
+        self.llm.reset_mock()
+        response=await self.http.post(f"/api/workout-plans/{source['plan_id']}/improve")
+        self.assertEqual(response.status_code,422,response.text);self.assertNotIn('PRIVATE_TUTORIAL_SOURCE',response.text)
+        self.llm.assert_not_awaited()
+        self.assertEqual(len(self.ok(await self.http.get('/api/workout-plans'))),1)
+        async with unit_of_work() as session: self.assertEqual((await session.get(User,self.uid)).xp,5)
+
     async def test_running_implicitly_selects_running_not_another_cardio_activity(self):
         body=self.request(workout_type='corrida',available_equipment=['bicicleta'],preferred_terrain='asfalto')
         for index,activity in enumerate(('bike','caminhada')):

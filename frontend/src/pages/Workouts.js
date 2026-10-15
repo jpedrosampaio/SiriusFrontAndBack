@@ -1,4 +1,5 @@
 import WorkoutGeneratorDialog from '@/components/WorkoutGeneratorDialog';
+import { editableExercises, editPlanExercises, planEditPayload } from '@/lib/workout-plan-editor';
 import { createDailyWorkoutQueue } from '@/lib/daily-workout-queue';
 import WorkoutTutorial from '@/components/WorkoutTutorial';
 import { cachedGet, queryClient, cacheKey, sessionVersion } from '@/lib/query-cache';
@@ -67,6 +68,8 @@ export default function Workouts() {
   const [openPlan, setOpenPlan] = useState(false);
   const [openEditPlan, setOpenEditPlan] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
+  const [editingDay, setEditingDay] = useState(0);
+  const editingExercises = editableExercises(editingPlan, editingDay);
   const [activeTab, setActiveTab] = useState("log");
   useEffect(() => { if (activeTab === 'session') window.scrollTo({ top: 0, behavior: 'auto' }); }, [activeTab]);
   const [expandedWorkouts, setExpandedWorkouts] = useState({});
@@ -375,12 +378,12 @@ export default function Workouts() {
       toast.error("Nome da ficha é obrigatório");
       return;
     }
+    if (editingPlan.composition_policy?.version === 1 && editingPlan.days?.some(day => !day.exercises?.length)) {
+      toast.error('Cada sessão planejada precisa de ao menos um exercício.');
+      return;
+    }
     try {
-      await axios.patch(`${API}/workout-plans/${editingPlan.plan_id}`, {
-        name: editingPlan.name,
-        description: editingPlan.description,
-        exercises: editingPlan.exercises
-      }, { withCredentials: true });
+      await axios.patch(`${API}/workout-plans/${editingPlan.plan_id}`, planEditPayload(editingPlan), { withCredentials: true });
       toast.success("Ficha atualizada!");
       setOpenEditPlan(false);
       setEditingPlan(null);
@@ -402,6 +405,7 @@ export default function Workouts() {
 
   const openEditDialog = (plan) => {
     setEditingPlan({ ...plan });
+    setEditingDay(0);
     setEditExercise({ name: "", sets: 3, reps: 12, weight: "" });
     setOpenEditPlan(true);
   };
@@ -418,18 +422,17 @@ export default function Workouts() {
 
   const addExerciseToEditPlan = () => {
     if (!editExercise.name.trim()) return;
-    setEditingPlan({ ...editingPlan, exercises: [...editingPlan.exercises, { ...editExercise }] });
+    setEditingPlan(previous => editPlanExercises(previous, editingDay, exercises => [...exercises, { ...editExercise }]));
     setEditExercise({ name: "", sets: 3, reps: 12, weight: "" });
   };
 
   const removeExerciseFromEditPlan = (index) => {
-    setEditingPlan({ ...editingPlan, exercises: editingPlan.exercises.filter((_, i) => i !== index) });
+    setEditingPlan(previous => editPlanExercises(previous, editingDay, exercises => exercises.filter((_, i) => i !== index)));
   };
 
   const updateExerciseInEditPlan = (index, field, value) => {
-    const updated = [...editingPlan.exercises];
-    updated[index] = { ...updated[index], [field]: field === 'sets' || field === 'reps' ? parseInt(value) || 0 : value };
-    setEditingPlan({ ...editingPlan, exercises: updated });
+    setEditingPlan(previous => editPlanExercises(previous, editingDay, exercises => exercises.map((exercise, position) =>
+      position === index ? { ...exercise, [field]: field === 'sets' ? parseInt(value) || 0 : value } : exercise)));
   };
 
   const toggleWorkoutExpanded = (logId) => {
@@ -1046,20 +1049,22 @@ export default function Workouts() {
                     />
                   </div>
                   
-                  {editingPlan.exercises.length > 0 && (
+                  {editingPlan.days?.length > 1 && <label className="block space-y-2 text-sm">Sessão para editar<select aria-label="Sessão para editar" className="w-full min-h-11 rounded-xl border border-border bg-background px-3" value={editingDay} onChange={event => setEditingDay(Number(event.target.value))}>{editingPlan.days.map((day, index) => <option key={index} value={index}>{day.day_label || day.day_name || `Sessão ${index + 1}`}</option>)}</select><span className="block text-xs text-muted-foreground">Alterações ficam nesta sessão. As demais semanas são preservadas.</span></label>}
+                  {editingExercises.length > 0 && (
                     <div className="border-t border-[#27272A] pt-4">
                       <Label className="text-xs uppercase tracking-wider mb-3 block">Exercícios da Ficha</Label>
                       <div className="space-y-3">
-                        {editingPlan.exercises.map((ex, idx) => (
+                        {editingExercises.map((ex, idx) => (
                           <div key={idx} className="bg-[#121212] p-3 rounded border border-[#27272A]">
                             <div className="flex items-center justify-between mb-2">
                               <Input 
+                                aria-label={`Exercício ${idx + 1}`}
                                 value={ex.name} 
                                 onChange={(e) => updateExerciseInEditPlan(idx, 'name', e.target.value)}
                                 className="bg-[#0A0A0A] border-[#27272A] text-white flex-1 mr-2"
                                 placeholder="Nome do exercício"
                               />
-                              <Button variant="ghost" size="sm" onClick={() => removeExerciseFromEditPlan(idx)} className="text-red-500 h-8 w-8 p-0">
+                              <Button aria-label={`Remover exercício ${idx + 1}`} variant="ghost" size="sm" onClick={() => removeExerciseFromEditPlan(idx)} className="text-red-500 h-11 w-11 p-0">
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>
@@ -1067,7 +1072,7 @@ export default function Workouts() {
                               <div>
                                 <Label className="text-xs text-[#A1A1AA]">Séries</Label>
                                 <Input 
-                                  type="number" 
+                                  type="number" min="1" max="100" aria-label={`Séries ${idx + 1}`}
                                   value={ex.sets} 
                                   onChange={(e) => updateExerciseInEditPlan(idx, 'sets', e.target.value)}
                                   className="bg-[#0A0A0A] border-[#27272A] text-white"
@@ -1076,7 +1081,7 @@ export default function Workouts() {
                               <div>
                                 <Label className="text-xs text-[#A1A1AA]">Reps</Label>
                                 <Input 
-                                  type="number" 
+                                  type="text" aria-label={`Repetições ${idx + 1}`}
                                   value={ex.reps} 
                                   onChange={(e) => updateExerciseInEditPlan(idx, 'reps', e.target.value)}
                                   className="bg-[#0A0A0A] border-[#27272A] text-white"
@@ -1102,6 +1107,7 @@ export default function Workouts() {
                     <Label className="text-xs uppercase tracking-wider mb-2 block">Adicionar Novo Exercício</Label>
                     <div className="space-y-2">
                       <Input 
+                        aria-label="Novo exercício"
                         value={editExercise.name} 
                         onChange={(e) => setEditExercise({...editExercise, name: e.target.value})} 
                         placeholder="Nome do exercício" 
@@ -1120,9 +1126,9 @@ export default function Workouts() {
                         <div>
                           <Label className="text-xs text-[#A1A1AA]">Reps</Label>
                           <Input 
-                            type="number" 
+                            type="text"
                             value={editExercise.reps} 
-                            onChange={(e) => setEditExercise({...editExercise, reps: parseInt(e.target.value) || 0})} 
+                            onChange={(e) => setEditExercise({...editExercise, reps: e.target.value})}
                             className="bg-[#121212] border-[#27272A] text-white" 
                           />
                         </div>
@@ -1345,15 +1351,15 @@ export default function Workouts() {
                     const isCompleted = status.completed;
                     
                     return (
-                      <Card key={plan.plan_id} className={`bg-[#0A0A0A] border-[#27272A] p-4 ${isCompleted ? 'border-green-900 bg-[#0a1a0a]' : ''} ${plan.generated_by_ai ? 'border-l-2 border-l-[#A855F7]' : ''}`}>
+                      <Card key={plan.plan_id} className={`min-w-0 bg-[#0A0A0A] border-[#27272A] p-4 ${isCompleted ? 'border-green-900 bg-[#0a1a0a]' : ''} ${plan.generated_by_ai ? 'border-l-2 border-l-[#A855F7]' : ''}`}>
                         <div 
                           className="cursor-pointer"
                           onClick={() => togglePlanExpanded(plan.plan_id)}
                         >
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+                            <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="font-heading text-lg">{plan.name}</h3>
+                                <h3 className="font-heading break-words text-lg">{plan.name}</h3>
                                 {isCompleted && <Check className="w-5 h-5 text-green-500" />}
                                 {plan.generated_by_ai && (
                                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#A855F7]/20 text-[#A855F7] border border-[#A855F7]/30">
@@ -1397,12 +1403,12 @@ export default function Workouts() {
                                 )}
                               </p>
                             </div>
-                            <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex max-w-full shrink-0 flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
                               {plan.generated_by_ai && (
                                 <Button 
                                   variant="ghost" size="sm" 
                                   onClick={() => handleImproveWorkout(plan.plan_id)}
-                                  className="text-[#A855F7] h-8 px-2 text-xs gap-1"
+                                  className="text-[#A855F7] h-11 px-2 text-xs gap-1"
                                   title="Melhorar treino com IA"
                                   disabled={improvingPlan === plan.plan_id}
                                 >
@@ -1416,16 +1422,16 @@ export default function Workouts() {
                               <Button 
                                 variant="ghost" size="sm" 
                                 onClick={() => handleStartWorkout(plan, selectedDayIndex)} 
-                                className="text-green-400 h-8 w-8 p-0"
+                                className="text-green-400 h-11 w-11 p-0"
                                 title="Iniciar treino com timer"
                                 disabled={!!activeSession}
                               >
                                 <Play className="w-4 h-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => openEditDialog(plan)} className="text-[#00F0FF] h-8 w-8 p-0">
+                              <Button aria-label={`Editar ${plan.name}`} variant="ghost" size="sm" onClick={() => openEditDialog(plan)} className="text-[#00F0FF] h-11 w-11 p-0">
                                 <Edit2 className="w-4 h-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => handleDeletePlan(plan.plan_id)} className="text-red-500 h-8 w-8 p-0">
+                              <Button variant="ghost" size="sm" onClick={() => handleDeletePlan(plan.plan_id)} className="text-red-500 h-11 w-11 p-0">
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>

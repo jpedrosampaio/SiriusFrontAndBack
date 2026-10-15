@@ -79,7 +79,8 @@ async def update(request: Request,plan_id: UUID,body: PlanBody):
     async def apply(session,owner):
         repo=HealthRepository(session); row=await repo.plan(owner.id,plan_id)
         if row is None: raise HTTPException(404,'Plano de treino não encontrado.')
-        row.name=body.name; row.description=body.description; row.plan_duration=body.plan_duration
+        row.name=body.name; row.description=body.description
+        if 'plan_duration' in body.model_fields_set: row.plan_duration=body.plan_duration
         await repo.replace_days(row,[d.model_dump() for d in body.days] if body.days else None,[ex.model_dump() for ex in body.exercises])
         return {'message':'Workout plan updated'}
     return await run_activity(UUID(user['user_id']),request.headers.get('Idempotency-Key'),['update-workout-plan',str(plan_id),body.model_dump(mode='json')],apply)
