@@ -17,6 +17,12 @@ CONDITIONING_NAMES = {'corrida':r'^(?:corrida|running|jogging)\b', 'caminhada':r
     'bike':r'^(?:bicicleta|ciclismo|bike|cycling)\b', 'natacao':r'^(?:natacao|swimming)\b',
     'pular_corda':r'^(?:pular corda|jump rope)\b', 'eliptico':r'^(?:eliptico|elliptical)\b',
     'remo':r'^(?:remo ergometrico|remo indoor|rowing machine|rowing ergometer)\b'}
+SKILL_TARGETS = {
+    'controle_corporal':('controle corporal',r'^(?:hollow|arch hold|prancha|plank|dead bug)\b'),
+    'equilibrio':('equilíbrio',r'^(?:equilibrio|balance|frog stand|crow stand|parada de maos|handstand)\b'),
+    'apoios':('apoios',r'^(?:apoio|support hold|l.?sit|frog stand|planche|parada de maos|handstand)\b'),
+    'suspensao':('suspensão',r'^(?:suspensao|hang|escapular|scapular|front lever|back lever)\b'),
+}
 LEVELS = {'iniciante':0,'intermediario':1,'avancado':2}
 LEGACY_EQUIPMENT = {'nenhum':[], 'solo':[], 'barra':['barra_fixa'], 'paralelas':['paralelas'], 'argolas':['argolas']}
 MESSAGES = {
@@ -64,6 +70,8 @@ class BaseSession(BaseModel):
     name: str = Field(min_length=1,max_length=150)
     estimated_minutes: int = Field(ge=1,le=180)
     session_kind: Literal['forca','corrida','cardio','misto','mobilidade']
+    training_method: Literal['series','circuito','tecnica'] = 'series'
+    skill_target: Literal['controle_corporal','equilibrio','apoios','suspensao'] | None = None
     exercises: list[GeneratedExercise] = Field(min_length=1,max_length=10)
 
 
@@ -100,6 +108,8 @@ def requested_conditioning(request):
 
 
 def validate_request(request):
+    if request.workout_type=='calistenia' and request.calisthenics_focus not in (None,'full_body','forca_upper','forca_lower','condicionamento','habilidades'):
+        raise GenerationInvalid('focus_mismatch')
     if calendar_shape(request)[1]==1 and alternating_cardio(request):
         raise GenerationInvalid('single_alternating_cardio')
     if request.weekly_frequency is not None and request.training_days_per_week is not None and request.weekly_frequency!=request.training_days_per_week:
@@ -162,6 +172,9 @@ def generation_prompt(request,labels=None):
     example={'name':'Nome da proposta','description':'Objetivo e justificativa da variedade',
         'base_sessions':[{'label':labels[0],'name':'Nome da sessão','estimated_minutes':request.session_minutes or 30,
             'session_kind':'corrida' if request.workout_type=='corrida' else 'forca',
+            'training_method':'circuito' if request.workout_type=='calistenia' and request.calisthenics_focus=='condicionamento' else
+                'tecnica' if request.workout_type=='calistenia' and request.calisthenics_focus=='habilidades' else 'series',
+            'skill_target':'controle_corporal' if request.workout_type=='calistenia' and request.calisthenics_focus=='habilidades' else None,
             'exercises':[{'name':'Nome compatível com os dados declarados','sets':2,'reps':'8-10',
                 'weight':'A definir','rest_seconds':60,'muscle_group':'pernas','tutorial':'Instruções concisas de execução.',
                 'required_equipment':[],'difficulty':request.level,
@@ -178,6 +191,10 @@ def generation_prompt(request,labels=None):
         'Mantenha variedade coerente entre bases e justifique sua repetição para aprendizagem/consistência. '
         'Para iniciante use até seis exercícios e no máximo quatro séries por exercício, sem habilidades avançadas ou falha obrigatória. '
         'No foco Full Body, cada base deve registrar membros inferiores e superiores nos grupos primários dos exercícios. '
+        'Na calistenia com foco condicionamento, use training_method circuito, com ao menos dois exercícios peso_corporal e '
+        'o mesmo número de séries (ao menos duas rodadas) nos exercícios do circuito. Mobilidade pode preparar a sessão. '
+        'No foco habilidades, use training_method tecnica e skill_target controle_corporal, equilibrio, apoios ou suspensao; '
+        'o primeiro exercício peso_corporal deve praticar de forma identificável essa habilidade/fundamento, conforme nível e equipamentos. '
         'Tutorial conciso, no máximo três frases. Inclua preparação e recuperação no tempo estimado, sem contabilizar descanso como sessão. '
         'Para corrida use apenas session_kind corrida e exercícios cardio, sem impor pace/FC individuais. '
         'Para híbrido inclua força e condicionamento; no modo alternado a base CARDIO será corrida/condicionamento. '
@@ -247,6 +264,29 @@ def plan_revision_context(plan,recorded_history):
     return context
 
 
+def validate_calisthenics_method(session,request):
+    if request.workout_type!='calistenia': return
+    active=[exercise for exercise in session.exercises if exercise.exercise_kind=='peso_corporal']
+    if request.calisthenics_focus=='condicionamento':
+        if session.training_method!='circuito' or len(active)<2 or len({exercise.sets for exercise in active})!=1 or active[0].sets<2:
+            raise GenerationInvalid('focus_mismatch')
+    if request.calisthenics_focus=='habilidades':
+        target=SKILL_TARGETS.get(session.skill_target)
+        if session.training_method!='tecnica' or not target or not active or not re.search(target[1],normalized(active[0].name)):
+            raise GenerationInvalid('focus_mismatch')
+        if session.skill_target=='suspensao' and not set(active[0].required_equipment).intersection({'barra_fixa','argolas'}):
+            raise GenerationInvalid('equipment_mismatch')
+
+
+def method_note(session,request):
+    if request.workout_type!='calistenia': return ''
+    if request.calisthenics_focus=='condicionamento':
+        return 'Método: circuito. Faça uma série de cada exercício de peso corporal na ordem e repita as rodadas indicadas, respeitando as pausas. A mobilidade prepara a sessão. '
+    if request.calisthenics_focus=='habilidades' and session.skill_target:
+        return f'Prática técnica de {SKILL_TARGETS[session.skill_target][0]}. Priorize o controle nos fundamentos propostos. '
+    return ''
+
+
 def validate_bases(data,request,labels=None):
     try: plan=BasePlan.model_validate(data)
     except ValidationError: raise GenerationInvalid('invalid_sessions') from None
@@ -263,6 +303,7 @@ def validate_bases(data,request,labels=None):
     if len(plan.base_sessions)>1 and len(signatures)<2:
         raise GenerationInvalid('insufficient_variety')
     for session in plan.base_sessions:
+        validate_calisthenics_method(session,request)
         if request.session_minutes and session.estimated_minutes>request.session_minutes:
             raise GenerationInvalid('duration_mismatch')
         if request.session_minutes and sum(max(0,ex.sets-1)*ex.rest_seconds for ex in session.exercises)>request.session_minutes*60:
@@ -288,7 +329,7 @@ def validate_bases(data,request,labels=None):
                 raise GenerationInvalid('equipment_mismatch')
             if LEVELS[exercise.difficulty]>LEVELS[request.level] or exercise.sets>{'iniciante':4,'intermediario':6,'avancado':8}[request.level]:
                 raise GenerationInvalid('level_mismatch')
-            if request.level=='iniciante' and re.search(r'planche|muscle.up|handstand push|front lever|back lever|pistol',normalized(exercise.name)):
+            if request.level=='iniciante' and re.search(r'planche|muscle.up|handstand|parada de maos|front lever|back lever|pistol|\bl[- ]?sit\b',normalized(exercise.name)):
                 raise GenerationInvalid('level_mismatch')
             if any(normalized(avoid) in normalized(exercise.name) for avoid in request.avoid_exercises):
                 raise GenerationInvalid('excluded_exercise')
@@ -332,15 +373,17 @@ def compose_calendar(plan,request):
                 if label!='CARDIO': strength_counter+=1
             else: label=labels[counter%len(labels)]
             base=bases[label]; counter+=1
+            session_note=method_note(base,request)
             exercises=[]
             for ex in base.exercises:
                 prescribed={key:getattr(ex,key) for key in Exercise.model_fields}
                 prescribed['weight']=('A definir' if ex.exercise_kind=='resistencia' else
                     'Intensidade a definir' if ex.exercise_kind in ('corrida','cardio') else 'Peso corporal')
+                if session_note and ex.exercise_kind=='peso_corporal': prescribed['notes']=session_note+(prescribed.get('notes') or '')
                 exercises.append(copy.deepcopy(prescribed))
             days.append({'week':week,'day_name':f'sem{week}_dia{ordinal+1}',
                 'day_label':f'Semana {week} - Dia {ordinal+1}: Treino {label}', 'split_label':label,
-                'progression_focus':focus,'progression_notes':note,'exercises':exercises})
+                'progression_focus':focus,'progression_notes':session_note+note,'exercises':exercises})
     description=f'{weeks} semana(s), {frequency} sessões por semana. Bases variadas; repetição para familiarização e comparação. Progressão depende de registros e confirmação, sem aumento automático de cargas.'
     if request.session_minutes: description+=f' Tempo disponível: {request.session_minutes} min por sessão; a duração das bases é estimada.'
     if request.health_condition: description+=' Há limitações relatadas: procure avaliação profissional antes de movimentos potencialmente problemáticos. Esta proposta não garante segurança clínica.'

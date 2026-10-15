@@ -337,6 +337,47 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutSession).where(WorkoutSession.user_id==self.uid)),0)
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutLog).where(WorkoutLog.user_id==self.uid)),0)
 
+    async def test_calisthenics_conditioning_requires_an_actual_circuit_proposal(self):
+        ordinary=bases(kind='peso_corporal',equipment=[])
+        self.llm.return_value=json.dumps(ordinary)
+        body=self.request(calisthenics_focus='condicionamento')
+        self.assertEqual((await self.create(body,key='postlaunch-conditioning-ordinary')).status_code,502)
+        single=bases(kind='peso_corporal',equipment=[],count=1)
+        for base in single['base_sessions']: base['training_method']='circuito'
+        self.llm.return_value=json.dumps(single)
+        self.assertEqual((await self.create(body,key='postlaunch-conditioning-one-station')).status_code,502)
+        for base in ordinary['base_sessions']: base['training_method']='circuito'
+        self.llm.return_value=json.dumps(ordinary)
+        plan=self.ok(await self.create(body,key='postlaunch-conditioning-valid-circuit'))['plan']
+        self.assertEqual(len(plan['days']),12)
+        self.assertTrue(all(day['progression_notes'].startswith('Método: circuito.') for day in plan['days']))
+        self.assertTrue(all('Método: circuito.' in ex['notes'] for day in plan['days'] for ex in day['exercises']))
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),1)
+            self.assertEqual((await session.get(User,self.uid)).xp,5)
+
+    async def test_calisthenics_skills_require_technical_practice_and_identifiable_content(self):
+        ordinary=bases(kind='peso_corporal',equipment=[])
+        body=self.request(calisthenics_focus='habilidades')
+        for index,method in enumerate(('series','tecnica')):
+            for base in ordinary['base_sessions']: base.update(training_method=method,skill_target='controle_corporal')
+            self.llm.return_value=json.dumps(ordinary)
+            self.assertEqual((await self.create(body,key=f'postlaunch-skills-ordinary-{index}')).status_code,502)
+        advanced=copy.deepcopy(ordinary)
+        for base in advanced['base_sessions']:
+            base['skill_target']='equilibrio';base['exercises'][0]['name']='Handstand'
+        self.llm.return_value=json.dumps(advanced)
+        self.assertEqual((await self.create(body,key='postlaunch-skills-novice-advanced')).status_code,502)
+        for base,name in zip(ordinary['base_sessions'],('Hollow hold básico','Prancha baixa controlada','Dead bug controlado')):
+            base['exercises'][0].update(name=name,muscle_group='abdomen')
+        self.llm.return_value=json.dumps(ordinary)
+        plan=self.ok(await self.create(body,key='postlaunch-skills-valid-practice'))['plan']
+        self.assertEqual(len(plan['days']),12)
+        self.assertTrue(all(day['progression_notes'].startswith('Prática técnica de controle corporal.') for day in plan['days']))
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),1)
+            self.assertEqual((await session.get(User,self.uid)).xp,5)
+
     async def test_B_and_C_declared_resistance_equipment_and_frequency(self):
         for frequency,equipment,location in [(4,['halteres','banco'],'casa'),(5,['halteres','banco','maquinas','polias'],'academia')]:
             data=bases(kind='resistencia',equipment=['halteres','banco'])
