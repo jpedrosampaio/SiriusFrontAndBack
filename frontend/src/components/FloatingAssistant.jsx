@@ -16,13 +16,19 @@ export default function FloatingAssistant() {
   const [loaded, setLoaded] = useState(false);
   const [context, setContext] = useState({});
   const trigger = useRef(null);
-  const restoreFocus = () => requestAnimationFrame(() => {
-    let target = trigger.current;
-    if (!target?.isConnected || target === document.body || !target.getClientRects().length) {
-      target = Array.from(document.querySelectorAll('button[aria-label="Abrir assistente Sirius"]')).find(element => element.getClientRects().length);
-    }
-    target?.focus();
-  });
+  const restoreFocus = () => {
+    const deadline = performance.now() + 500;
+    const visible = element => element?.isConnected && element !== document.body && element.getClientRects().length && getComputedStyle(element).visibility === 'visible';
+    const attempt = () => {
+      // A newly opened dialog owns focus, including palette -> assistant handoffs.
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+      const target = visible(trigger.current) ? trigger.current
+        : Array.from(document.querySelectorAll('button[aria-label="Abrir assistente Sirius"]')).find(visible);
+      target?.focus({ preventScroll: true });
+      if ((!target || document.activeElement !== target) && performance.now() < deadline) requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
+  };
   // Radix restores focus after removing the modal focus trap. Restoring here
   // as well can race that teardown and send focus back into the closing panel.
   const close = () => setOpen(false);

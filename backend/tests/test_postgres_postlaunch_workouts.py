@@ -59,6 +59,51 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(ex['muscle_group']=='cardio' for ex in plan['days'][0]['exercises']))
         self.assertTrue(any(ex['muscle_group']=='peito' for ex in plan['days'][0]['exercises']))
 
+    async def test_conditioning_selection_is_preserved_in_combined_and_alternating_plans(self):
+        activities={'corrida':('Corrida leve',[]),'bike':('Bicicleta ergométrica',['bicicleta']),
+            'HIIT':('Intervalos de movimentos corporais',[]),'caminhada':('Caminhada',[]),
+            'natacao':('Natação',['piscina']),'pular_corda':('Pular corda',['corda']),
+            'eliptico':('Elíptico',['eliptico']),'remo':('Remo ergométrico',['remo'])}
+        for activity,(name,apparatus) in activities.items():
+            for mode in ('hibrido','hibrido_alternado'):
+                cardio=bases(labels=('CARDIO',),kind='corrida',equipment=apparatus)
+                cardio['base_sessions'][0]['session_kind']='corrida' if activity=='corrida' else 'cardio'
+                for ex in cardio['base_sessions'][0]['exercises']:
+                    ex.update(name=name,conditioning_type=activity,exercise_kind='corrida' if activity=='corrida' else 'cardio')
+                force=bases()
+                if mode=='hibrido':
+                    for base in force['base_sessions']:
+                        base['exercises']+=copy.deepcopy(cardio['base_sessions'][0]['exercises'])
+                        base['session_kind']='misto'
+                    self.llm.side_effect=None;self.llm.return_value=json.dumps(force)
+                else: self.llm.side_effect=[json.dumps(force),json.dumps(cardio)]
+                body=self.request(workout_type='musculacao',available_equipment=['halteres',*apparatus],
+                    include_cardio=True,cardio_type=activity,cardio_mode=mode)
+                plan=self.ok(await self.create(body,key=f'postlaunch-conditioning-{activity}-{mode}'))['plan']
+                executed_cardio=[ex for day in plan['days'] for ex in day['exercises'] if ex['muscle_group']=='cardio']
+                self.assertTrue(executed_cardio);self.assertTrue(all(ex['name']==name for ex in executed_cardio))
+                self.assertTrue(all(ex['weight']=='Intensidade a definir' for ex in executed_cardio))
+
+                # A wrong generic running response must not replace the visible activity.
+                if mode=='hibrido':
+                    wrong=copy.deepcopy(force)
+                    for base in wrong['base_sessions']:
+                        for ex in base['exercises']:
+                            if ex['muscle_group']=='cardio':
+                                ex.update(name='Corrida leve' if activity!='corrida' else 'Caminhada',
+                                    conditioning_type='corrida' if activity!='corrida' else 'caminhada',
+                                    exercise_kind='corrida' if activity!='corrida' else 'cardio',required_equipment=[])
+                    self.llm.side_effect=None;self.llm.return_value=json.dumps(wrong)
+                    response=await self.create(body,key=f'postlaunch-conditioning-wrong-{activity}')
+                    self.assertEqual(response.status_code,502,response.text)
+
+    async def test_conditioning_requires_declared_apparatus_before_provider(self):
+        for activity in ('bike','natacao','pular_corda','eliptico','remo'):
+            response=await self.create(self.request(workout_type='hibrido',available_equipment=['halteres'],
+                include_cardio=True,cardio_type=activity,cardio_mode='hibrido'),key=f'postlaunch-cardio-no-gear-{activity}')
+            self.assertEqual(response.status_code,422,response.text)
+        self.llm.assert_not_awaited()
+
     async def test_odd_frequency_alternation_includes_every_declared_split_in_order(self):
         first=bases(labels=('A','B','C'))
         second=bases(labels=('D','E'))
