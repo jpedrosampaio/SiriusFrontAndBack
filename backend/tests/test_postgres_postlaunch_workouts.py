@@ -298,7 +298,7 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
             self.assertEqual((await session.get(User,self.uid)).xp,0)
-        self.llm.return_value=json.dumps(bases(kind='corrida',equipment=[]))
+        self.llm.return_value=json.dumps(bases(kind='corrida',equipment=[],terrain='asfalto'))
         self.assertEqual(len(self.ok(await self.create(body,key='postlaunch-running-compatible'))['plan']['days']),12)
 
     async def test_strength_row_names_do_not_become_a_different_conditioning_activity(self):
@@ -423,6 +423,16 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         self.llm.side_effect=[json.dumps(force),json.dumps(cardio)]
         body=self.request(workout_type='hibrido',available_equipment=['halteres'],include_cardio=True,
             cardio_mode='hibrido_alternado',cardio_type='corrida')
+        mixed=copy.deepcopy(force)
+        for base in mixed['base_sessions']:
+            base['session_kind']='misto';base['exercises']+=copy.deepcopy(cardio['base_sessions'][0]['exercises'][:1])
+        self.llm.side_effect=[json.dumps(mixed),json.dumps(mixed),json.dumps(cardio)]
+        invalid=await self.create(body,key='postlaunch-mixed-alternating')
+        self.assertEqual(invalid.status_code,502);self.assertEqual(invalid.json()['detail']['code'],'workout_generation_modality_mismatch')
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+        self.llm.side_effect=[json.dumps(force),json.dumps(cardio)]
         plan=self.ok(await self.create(body))['plan']
         self.assertEqual(len(plan['days']),12)
         for week in range(1,5):
@@ -431,11 +441,50 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(ex['muscle_group']=='descanso' for d in plan['days'] for ex in d['exercises']))
 
     async def test_F_running_no_devices_exact_duration_frequency(self):
-        self.llm.return_value=json.dumps(bases(kind='corrida',equipment=[]))
+        self.llm.return_value=json.dumps(bases(kind='corrida',equipment=[],terrain='asfalto'))
         body=self.request(workout_type='corrida',training_location='ar_livre',running_goal='5km',preferred_terrain='asfalto')
         plan=self.ok(await self.create(body))['plan']
         self.assertEqual(len(plan['days']),12);self.assertEqual(plan['workout_type'],'corrida')
         self.assertEqual(plan['training_days_per_week'],3);self.assertEqual(plan['available_equipment'],[])
+
+    async def test_running_terrain_matches_both_names_and_apparatus_in_both_directions(self):
+        for requested in ('asfalto','trilha','esteira'):
+            body=self.request(workout_type='corrida',available_equipment=['esteira'],preferred_terrain=requested)
+            wrong='asfalto' if requested=='esteira' else 'esteira'
+            data=bases(kind='corrida',equipment=['esteira'] if wrong=='esteira' else [],terrain=wrong)
+            for base in data['base_sessions']:
+                for ex in base['exercises']: ex['name']=('Corrida na esteira — ' if wrong=='esteira' else 'Corrida no asfalto — ')+ex['name']
+            self.llm.return_value=json.dumps(data)
+            invalid=await self.create(body,key=f'postlaunch-wrong-terrain-{requested}')
+            self.assertEqual(invalid.status_code,502);self.assertEqual(invalid.json()['detail']['code'],'workout_generation_terrain_mismatch')
+            # Matching metadata cannot conceal the opposite surface in the name/device.
+            for base in data['base_sessions']:
+                for ex in base['exercises']: ex['running_terrain']=requested
+            self.llm.return_value=json.dumps(data)
+            invalid=await self.create(body,key=f'postlaunch-disguised-terrain-{requested}')
+            self.assertEqual(invalid.status_code,502);self.assertEqual(invalid.json()['detail']['code'],'workout_generation_terrain_mismatch')
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+        for requested in ('asfalto','trilha','esteira','misto'):
+            data=bases(kind='corrida',equipment=['esteira'] if requested=='esteira' else [],terrain=requested)
+            self.llm.return_value=json.dumps(data)
+            plan=self.ok(await self.create(self.request(workout_type='corrida',available_equipment=['esteira'],preferred_terrain=requested),
+                key=f'postlaunch-valid-terrain-{requested}'))['plan']
+            self.assertEqual(len(plan['days']),12)
+            self.assertTrue(all(f'Terreno proposto: {requested}.' in ex['notes'] for day in plan['days'] for ex in day['exercises']))
+        combined=bases()
+        run=bases(labels=('CARDIO',),kind='corrida',equipment=[],terrain='asfalto',count=1)['base_sessions'][0]['exercises']
+        for base in combined['base_sessions']:
+            base['session_kind']='misto';base['exercises'][1].update(exercise_kind='peso_corporal',required_equipment=[])
+            base['exercises']+=copy.deepcopy(run)
+        self.llm.return_value=json.dumps(combined)
+        plan=self.ok(await self.create(self.request(workout_type='hibrido',available_equipment=['halteres'],
+            cardio_type='corrida',cardio_mode='hibrido',preferred_terrain='asfalto'),key='postlaunch-terrain-mixed-session'))['plan']
+        for day in plan['days']:
+            self.assertIn('Terrenos propostos: asfalto.',day['progression_notes'])
+            self.assertNotIn('Terreno',day['exercises'][1]['notes'])
+            self.assertIn('Terreno proposto: asfalto.',day['exercises'][-1]['notes'])
 
     async def test_G_invalid_json_missing_bases_apparatus_level_duration_never_save(self):
         invalid=[]
