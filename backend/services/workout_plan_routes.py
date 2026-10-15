@@ -76,6 +76,9 @@ async def create(request: Request,body: PlanBody):
 @router.patch('/workout-plans/{plan_id}')
 async def update(request: Request,plan_id: UUID,body: PlanBody):
     user=await account(request)
+    fingerprint_body=body.model_dump(mode='json')
+    if 'plan_duration' not in body.model_fields_set:
+        fingerprint_body['plan_duration']={'preserve_existing':True}
     async def apply(session,owner):
         repo=HealthRepository(session); row=await repo.plan(owner.id,plan_id)
         if row is None: raise HTTPException(404,'Plano de treino não encontrado.')
@@ -83,7 +86,7 @@ async def update(request: Request,plan_id: UUID,body: PlanBody):
         if 'plan_duration' in body.model_fields_set: row.plan_duration=body.plan_duration
         await repo.replace_days(row,[d.model_dump() for d in body.days] if body.days else None,[ex.model_dump() for ex in body.exercises])
         return {'message':'Workout plan updated'}
-    return await run_activity(UUID(user['user_id']),request.headers.get('Idempotency-Key'),['update-workout-plan',str(plan_id),body.model_dump(mode='json')],apply)
+    return await run_activity(UUID(user['user_id']),request.headers.get('Idempotency-Key'),['update-workout-plan',str(plan_id),fingerprint_body],apply)
 
 
 @router.delete('/workout-plans/{plan_id}')

@@ -266,6 +266,18 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.ok(await self.http.get('/api/workout-plans'))),1)
         async with unit_of_work() as session: self.assertEqual((await session.get(User,self.uid)).xp,5)
 
+    async def test_omitted_and_explicit_duration_are_distinct_idempotent_edits(self):
+        self.llm.return_value=json.dumps(bases())
+        source=self.ok(await self.create(self.request(workout_type='musculacao',available_equipment=['halteres'])))['plan']
+        url=f"/api/workout-plans/{source['plan_id']}";body={'name':source['name'],'days':source['days']}
+        headers={'Idempotency-Key':'postlaunch-patch-duration'}
+        self.assertEqual((await self.http.patch(url,json=body,headers=headers)).status_code,200)
+        self.assertEqual((await self.http.patch(url,json=body,headers=headers)).status_code,200)
+        self.assertEqual((await self.http.patch(url,json={**body,'plan_duration':'dia'},headers=headers)).status_code,409)
+        self.assertEqual(self.ok(await self.http.get('/api/workout-plans'))[0]['plan_duration'],'mes')
+        self.assertEqual((await self.http.patch(url,json={**body,'plan_duration':'dia'},headers={'Idempotency-Key':'postlaunch-patch-explicit-duration'})).status_code,200)
+        self.assertEqual(self.ok(await self.http.get('/api/workout-plans'))[0]['plan_duration'],'dia')
+
     async def test_running_implicitly_selects_running_not_another_cardio_activity(self):
         body=self.request(workout_type='corrida',available_equipment=['bicicleta'],preferred_terrain='asfalto')
         for index,activity in enumerate(('bike','caminhada')):
