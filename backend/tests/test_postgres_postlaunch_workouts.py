@@ -142,6 +142,7 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(plan['days']),12)
             self.assertEqual(sum(d['split_label']=='CARDIO' for d in plan['days']),4)
             self.assertEqual({d['split_label'] for d in plan['days']},{'A','B','CARDIO'})
+            self.assertTrue(plan['include_cardio'])
         short=bases(labels=('A',))
         short['base_sessions']+=bases(labels=('CARDIO',),kind='corrida',equipment=[])['base_sessions']
         self.llm.return_value=json.dumps(short)
@@ -149,6 +150,58 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             'cycle_weeks':1,'duration':'semana','training_days_per_week':2},key='postlaunch-short-alternating'))['plan']
         self.assertEqual([day['split_label'] for day in plan['days']],['A','CARDIO'])
         self.assertEqual({base['label'] for base in plan['base_sessions']},{day['split_label'] for day in plan['days']})
+
+    async def test_hybrid_revision_preserves_declared_constraints_receipts_and_parent(self):
+        data=bases(labels=('A','B'))
+        cardio=bases(labels=('CARDIO',),kind='corrida',equipment=['bicicleta'],count=1)['base_sessions'][0]
+        cardio['session_kind']='cardio'
+        cardio['exercises'][0].update(name='Bicicleta ergométrica',exercise_kind='cardio',conditioning_type='bike')
+        data['base_sessions'].append(cardio)
+        self.llm.return_value=json.dumps(data)
+        body=self.request(workout_type='hibrido',available_equipment=['halteres','bicicleta'],generation_mode='tipo_treino',
+            split_type='AB',split_config=[{'label':label,'muscle_groups':['peito']} for label in 'AB'],
+            cardio_type='bike',cardio_mode='hibrido_alternado',avoid_exercises=['Paralelas'])
+        original=self.ok(await self.create(body))['plan'];pid=original['plan_id']
+        self.assertTrue(original['include_cardio']);self.assertEqual(original['avoid_exercises'],['Paralelas'])
+        url=f'/api/workout-plans/{pid}/improve'
+        self.llm.reset_mock()
+        self.assertEqual((await self.http.post(url,headers={'Authorization':'Bearer bob'})).status_code,404)
+        self.llm.assert_not_awaited()
+        wrong=copy.deepcopy(data);wrong['base_sessions'][0]['exercises'][0]['name']='Paralelas'
+        self.llm.return_value=json.dumps(wrong)
+        self.assertEqual((await self.http.post(url,headers={'Idempotency-Key':'postlaunch-revision-invalid'})).status_code,502)
+        self.llm.reset_mock();self.llm.return_value=json.dumps(data)
+        result=self.ok(await self.http.post(url,headers={'Idempotency-Key':'postlaunch-revision-valid'}));plan=result['plan']
+        replay=self.ok(await self.http.post(url,headers={'Idempotency-Key':'postlaunch-revision-valid'}))
+        self.assertTrue(replay['replayed']);self.assertEqual(replay['plan']['plan_id'],plan['plan_id']);self.llm.assert_awaited_once()
+        self.assertIn('não informada',self.llm.call_args.args[0])
+        self.assertEqual(plan['improved_from'],pid);self.assertEqual(len(plan['days']),12)
+        self.assertEqual(sum(day['split_label']=='CARDIO' for day in plan['days']),4)
+        self.assertFalse(any(ex['muscle_group']=='descanso' for day in plan['days'] for ex in day['exercises']))
+        for field in ('available_equipment','training_location','session_minutes','avoid_exercises','cardio_type','cardio_mode'):
+            self.assertEqual(plan[field],original[field])
+        self.assertTrue(plan['include_cardio']);self.assertTrue(plan['composition_policy']['proposal_only'])
+        self.assertTrue(all(ex['weight'] in ('A definir','Intensidade a definir') for day in plan['days'] for ex in day['exercises']))
+        saved=self.ok(await self.http.get('/api/workout-plans'))
+        self.assertEqual(len(saved),2);self.assertEqual(next(p for p in saved if p['plan_id']==pid)['days'],original['days'])
+        async with unit_of_work() as session:
+            self.assertEqual((await session.get(User,self.uid)).xp,8)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutSession).where(WorkoutSession.user_id==self.uid)),0)
+
+    async def test_historical_plan_revision_keeps_legacy_full_calendar_contract(self):
+        from services import workout_plan_writes
+        days=[{'week':i//3+1,'day_name':f'sem{i//3+1}_dia{i%3+1}',
+            'day_label':f'Semana {i//3+1} - Dia {i%3+1}',
+            'exercises':[{'name':'Supino legado','sets':3,'reps':'10','muscle_group':'peito'}]} for i in range(12)]
+        original=(await workout_plan_writes.save(str(self.uid),None,['legacy-fixture'],{
+            'name':'Plano anterior','days':days,'objective':'hipertrofia','level':'intermediario',
+            'workout_type':'musculacao','plan_duration':'mes','generation_mode':'periodo',
+            'training_days_per_week':3,'cycle_weeks':4},0))['plan']
+        self.llm.return_value=json.dumps({'name':'Nova versão legada','days':days,'improvements_summary':'Variações para revisão'})
+        plan=self.ok(await self.http.post(f"/api/workout-plans/{original['plan_id']}/improve"))['plan']
+        self.assertEqual(len(plan['days']),12);self.assertEqual(plan['improved_from'],original['plan_id'])
+        self.assertFalse(plan.get('composition_policy'));self.assertEqual(plan['improvements_summary'],'Variações para revisão')
+        self.llm.assert_awaited_once()
 
     async def test_running_implicitly_selects_running_not_another_cardio_activity(self):
         body=self.request(workout_type='corrida',available_equipment=['bicicleta'],preferred_terrain='asfalto')

@@ -6,7 +6,7 @@ import unicodedata
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from workout_exercise_contract import Exercise
-from workout_calendar import calendar_shape, normalize_days
+from workout_calendar import calendar_shape, normalize_days, includes_conditioning
 
 Equipment = Literal['halteres','barra_anilhas','banco','elasticos','barra_fixa','paralelas','argolas',
     'kettlebell','maquinas','smith','polias','esteira','bicicleta','corda','colchonete','eliptico','remo','piscina']
@@ -86,7 +86,7 @@ def equipment_for(request):
 
 
 def hybrid_request(request):
-    return request.workout_type=='hibrido' or request.include_cardio
+    return includes_conditioning(request)
 
 
 def alternating_cardio(request):

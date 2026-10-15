@@ -16,12 +16,12 @@ from workout_generation_fixtures import bases
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from workout_calendar import calendar_shape, validate_ai_calendar
+from workout_calendar import calendar_shape, validate_ai_calendar, expand_splits
 
 TREE = ast.parse((ROOT / 'server.py').read_text(encoding='utf-8'))
 NODES = [n for n in TREE.body if getattr(n, 'name', '') in ('WorkoutPlanGenerate', 'generate_workout_plan', 'improve_workout_plan', 'start_workout_session', '_strip_json_fences')]
 GENERATION_TREE=ast.parse((ROOT/'services/workout_generation_routes.py').read_text(encoding='utf-8'))
-NODES=[n for n in GENERATION_TREE.body if getattr(n,'name','') in ('WorkoutPlanGenerate','generate_workout_plan')]+NODES
+NODES=[n for n in GENERATION_TREE.body if getattr(n,'name','') in ('WorkoutPlanGenerate','generate_workout_plan','_generated_document')]+NODES
 
 
 def route_context():
@@ -45,6 +45,17 @@ def period(count=20):
 
 
 class CalendarTests(unittest.IsolatedAsyncioTestCase):
+    async def test_historical_hybrid_improvement_requires_and_retains_cardio_split(self):
+        request=SimpleNamespace(generation_mode='tipo_treino',workout_type='hibrido',include_cardio=False,
+            cardio_mode='hibrido_alternado',split_config=[{'label':'A'},{'label':'B'}],cycle_weeks=4,training_days_per_week=3)
+        splits=[{'split_label':label,'exercises':[{'name':f'Exercício {label}'}]} for label in ('A','B')]
+        with self.assertRaises(ValueError): validate_ai_calendar({'splits':splits},request)
+        data=validate_ai_calendar({'splits':[*splits,{'split_label':'CARDIO','exercises':[{'name':'Corrida'}]}]},request)
+        days=expand_splits(data,request)
+        self.assertEqual(len(days),12)
+        self.assertEqual(sum(day['split_label']=='Cardio' for day in days),4)
+        self.assertEqual(sum(day['split_label']=='Descanso' for day in days),4,'Historical expansion keeps its legacy rest-day behavior')
+
     async def generate(self, responses, **kwargs):
         self.ns = route_context()
         self.ns['call_llm'] = AsyncMock(side_effect=[json.dumps(r) for r in responses])

@@ -12,7 +12,8 @@ from services.planning import apply_xp
 
 PARAMETERS=('weekly_progression','workout_type','generation_mode','split_type','split_config','training_days_per_week',
     'cycle_weeks','include_cardio','cardio_type','cardio_mode','health_condition','source','source_filename',
-    'training_location','available_equipment','session_minutes','base_sessions','composition_policy','professional_review_required')
+    'training_location','available_equipment','session_minutes','base_sessions','composition_policy','professional_review_required',
+    'calisthenics_focus','calisthenics_equipment','running_goal','preferred_terrain','avoid_exercises')
 
 
 async def replay(uid,key,fingerprint):
@@ -50,5 +51,6 @@ async def improvement_context(uid,plan_id):
                 WorkoutSession.user_id==uid,WorkoutSession.plan_id==pid))).one()
         days=await session.scalar(select(func.count(func.distinct(WorkoutLog.date))).where(
             WorkoutLog.user_id==uid,WorkoutLog.plan_id==pid,WorkoutLog.completed.is_(True)))
-        summary=f'Total de sessões: {total}, Completadas: {completed}, Duração média: {float(seconds or 0)/60:.0f} min, Dias concluídos: {days}'
+        average=f'{float(seconds)/60:.0f} min' if seconds is not None else 'não informada'
+        summary=f'Total de sessões: {total}, Completadas: {completed}, Duração média: {average}, Dias concluídos: {days}'
         return plan_json(plan),summary

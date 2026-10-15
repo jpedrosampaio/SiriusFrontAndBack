@@ -90,10 +90,10 @@ class RuntimeWorkoutGeneration(unittest.IsolatedAsyncioTestCase):
         url='/api/workout-plans/'+pid+'/improve'
         self.assertEqual((await self.http.post(url,headers={'Authorization':'Bearer bob'})).status_code,404)
         self.llm.assert_not_awaited()
-        self.llm.side_effect=[json.dumps({'days':original['days'][:10]}),json.dumps({'days':original['days'],'improvements_summary':'Progressão controlada'})]
+        self.llm.side_effect=[json.dumps(bases(labels=('A','B'),count=8)),json.dumps(self.period())]
         result=self.ok(await self.http.post(url))
         self.assertEqual(len(result['plan']['days']),20); self.assertEqual(result['plan']['cycle_weeks'],4)
-        self.assertEqual(result['plan']['improved_from'],pid); self.assertEqual(result['improvements_summary'],'Progressão controlada')
+        self.assertEqual(result['plan']['improved_from'],pid); self.assertIn('Proposta revisada',result['improvements_summary'])
         self.assertEqual(self.llm.await_count,2); self.assertEqual(self.llm.call_args.kwargs['user_id'],str(self.uid))
         plans=self.ok(await self.http.get('/api/workout-plans')); self.assertEqual(len(plans),2)
         self.assertEqual(next(p for p in plans if p['plan_id']==pid)['days'],original['days'])
