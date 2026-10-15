@@ -32,6 +32,7 @@ export function generationPayload(form) {
   if (![1, 4, 8, 12].includes(weeks) || !Number.isInteger(frequency) || frequency < 2 || frequency > 7) throw new Error('Confira a duração e a frequência.');
   const split = !form.single && ['musculacao', 'hibrido'].includes(form.workout_type) && form.generation_mode === 'tipo_treino';
   const strength = ['musculacao', 'hibrido'].includes(form.workout_type);
+  if (form.single && strength && (form.workout_type === 'hibrido' || form.include_cardio) && form.cardio_mode === 'hibrido_alternado') throw new Error('Para uma sessão única, combine força e condicionamento na mesma sessão ou escolha um planejamento com mais sessões.');
   if (split) {
     if (form.split_config.some(s => !s.muscle_groups.length)) throw new Error('Selecione os grupos musculares de cada divisão.');
     const strengthSlots = weeks * ((form.workout_type === 'hibrido' || form.include_cardio) && form.cardio_mode === 'hibrido_alternado' ? Math.ceil(frequency / 2) : frequency);

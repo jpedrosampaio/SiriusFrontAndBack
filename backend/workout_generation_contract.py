@@ -28,6 +28,7 @@ MESSAGES = {
     'weeks_conflict':'A duração e a quantidade de semanas estão em conflito.',
     'invalid_splits':'Informe divisões únicas e completas; descanso não é uma sessão de treino.',
     'insufficient_split_slots':'O calendário precisa incluir todas as divisões. Aumente a duração ou a frequência, ou escolha menos divisões.',
+    'single_alternating_cardio':'Para uma sessão única, combine força e condicionamento na mesma sessão ou escolha um planejamento com mais sessões.',
     'medical_claim':'A proposta contém orientação clínica que não pode ser validada pelo gerador. Procure avaliação profissional.',
     'insufficient_variety':'A IA não justificou bases variadas e coerentes com o foco solicitado.',
     'needs_resistance_equipment':'Para musculação, declare equipamentos de resistência. Você pode escolher calistenia explicitamente para treinar apenas com o corpo.',
@@ -78,6 +79,8 @@ def equipment_for(request):
 
 
 def validate_request(request):
+    if calendar_shape(request)[1]==1 and (request.workout_type=='hibrido' or request.include_cardio) and request.cardio_mode=='hibrido_alternado':
+        raise GenerationInvalid('single_alternating_cardio')
     if request.weekly_frequency is not None and request.training_days_per_week is not None and request.weekly_frequency!=request.training_days_per_week:
         raise GenerationInvalid('frequency_conflict')
     if request.generation_mode=='periodo' and request.cycle_weeks is not None and request.duration in ('dia','semana','mes'):

@@ -658,12 +658,12 @@ export default function Dashboard({ embedded = false }) {
           {analytics && analytics.days !== analyticsDays && <p role="status" className="mb-4 text-sm text-amber-200">Exibindo a última consulta de {analytics.days} dias. A consulta de {analyticsDays} dias ainda não foi confirmada.</p>}
           {analytics && analytics.data && analytics.data.length > 0 && (
             <div className="mt-8">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
+              <div data-testid="analytics-toolbar" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+                <div className="flex min-w-0 items-center gap-3">
                   <Activity className="w-6 h-6 text-[#007AFF]" />
                   <h2 className="font-heading text-lg md:text-xl">ANÁLISE DE EVOLUÇÃO</h2>
                 </div>
-                <div className="flex gap-1 bg-[#0A0A0A] border border-[#27272A] rounded-lg p-1">
+                <div className="flex w-fit shrink-0 gap-1 bg-[#0A0A0A] border border-[#27272A] rounded-lg p-1">
                   {[7, 14, 30].map(d => (
                     <button
                       key={d}

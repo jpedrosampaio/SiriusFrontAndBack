@@ -38,6 +38,13 @@ test('Every split needs groups and enough strength slots, including alternating-
   assert.throws(() => c.generationPayload(form), /todas as divisões/);
   form.training_days_per_week = 3; assert.equal(c.generationPayload(form).split_config.length, 5);
 });
+test('A single session cannot silently drop its requested alternating conditioning', () => {
+  for (const type of ['musculacao', 'hibrido']) {
+    const form = { ...c.initialGenerationForm(), workout_type: type, single: true, training_location: 'casa', available_equipment: ['halteres'], include_cardio: true, cardio_mode: 'hibrido_alternado' };
+    assert.throws(() => c.generationPayload(form), /sessão única/);
+    form.cardio_mode = 'hibrido'; assert.equal(c.generationPayload(form).include_cardio, true);
+  }
+});
 test('Lost/internal response locks a snapshot, prevents simultaneous requests and replays the exact key', () => {
   let sequence = 0; const request = c.createGenerationRequest(() => `generation-${++sequence}`), payload = { equipment: ['halteres'], health: 'private' };
   const first = request.begin(payload); payload.equipment.push('banco');

@@ -23,7 +23,9 @@ export default function FloatingAssistant() {
     }
     target?.focus();
   });
-  const close = () => { setOpen(false); restoreFocus(); };
+  // Radix restores focus after removing the modal focus trap. Restoring here
+  // as well can race that teardown and send focus back into the closing panel.
+  const close = () => setOpen(false);
   useEffect(() => { setOpen(false); setContext({}); }, [pathname]);
   useEffect(() => {
     const show = event => { trigger.current = document.activeElement; setContext(event.detail || {}); setLoaded(true); setOpen(true); };
@@ -37,6 +39,6 @@ export default function FloatingAssistant() {
       aria-expanded={open} aria-controls="sirius-assistant-panel" title="Conversar com Sirius"
       style={{ right: 24, bottom: 24, cursor: 'pointer', visibility: open ? 'hidden' : 'visible' }}
       onClick={event => { trigger.current = event.currentTarget; setContext({}); setLoaded(true); setOpen(true); }}><Sparkles aria-hidden="true" className="w-6 h-6" /></button>}
-    {loaded && <Suspense fallback={open ? <button className="sirius-assistant-loading" onClick={close}>Carregando Sirius… Fechar</button> : null}><Chat open={open} onClose={close} onRestoreFocus={restoreFocus} context={context} /></Suspense>}
+    {loaded && <Suspense fallback={open ? <button className="sirius-assistant-loading" onClick={() => { close(); restoreFocus(); }}>Carregando Sirius… Fechar</button> : null}><Chat open={open} onClose={close} onRestoreFocus={restoreFocus} context={context} /></Suspense>}
   </>, document.body);
 }

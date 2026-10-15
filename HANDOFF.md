@@ -8,7 +8,7 @@ Recheck Git/PR/deploy state at session start; the functional publication SHA is 
 
 ## Next phase and authorization
 
-Phase 14 authorization is fulfilled. The original fourteen-phase plan remains intact; **there is no Phase 15**. On 2026-10-14 the owner authorized post-launch maintenance for workout generation/form, recoverable edital errors and Meu dia/Análises navigation. Base main `dc4f3cf12ed6e14f666fe2575ca6204911df1d05`; branch `fix/postlaunch-workouts-edital-dashboard`; [PR52](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/52), audit and gates: [POSTLAUNCH_MAINTENANCE](docs/POSTLAUNCH_MAINTENANCE.md). Review corrections and a CI-only 320 px overflow are under validation; final green CI, clean Codex review and publication remain pending. No new migration is required. Earlier integrated acceptance boundaries remain in [INTEGRATED_HARDENING](docs/INTEGRATED_HARDENING.md).
+Phase 14 authorization is fulfilled. The original fourteen-phase plan remains intact; **there is no Phase 15**. On 2026-10-14 the owner authorized post-launch maintenance for workout generation/form, recoverable edital errors and Meu dia/Análises navigation. Base main `dc4f3cf12ed6e14f666fe2575ca6204911df1d05`; branch `fix/postlaunch-workouts-edital-dashboard`; [PR52](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/52), audit and gates: [POSTLAUNCH_MAINTENANCE](docs/POSTLAUNCH_MAINTENANCE.md). Review corrections are under validation; the earlier head passed all four workflows, but final-head green CI, clean Codex review and publication remain pending. No new migration is required. Earlier integrated acceptance boundaries remain in [INTEGRATED_HARDENING](docs/INTEGRATED_HARDENING.md).
 
 ## Migrations and blockers
 

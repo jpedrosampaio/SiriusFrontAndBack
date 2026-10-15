@@ -29,16 +29,18 @@ class EditalJobs:
         content=await file.read(20*1024*1024+1)
         if len(content)>20*1024*1024 or not content.startswith(b'%PDF-'): raise HTTPException(422,'PDF inválido ou maior que 20 MB.')
         uid=UUID(user.user_id)
-        try: stored=await self.storage.put(uid,content)
-        except StorageUnavailable:
-            # This code is only emitted BEFORE any job can exist: direct fallback is safe.
-            raise HTTPException(503,{'code':'durable_storage_unavailable','message':'Análise em segundo plano indisponível.'})
+        stored = None
         duplicate_cleanup = None
-        shared_input = False
         try:
             async with unit_of_work() as session:
                 owner=await session.scalar(select(User).where(User.id==uid).with_for_update())
                 if owner is None: raise HTTPException(401,'Usuário não encontrado.')
+                # Serialize object creation/reference attachment with terminal cleanup.
+                # Content-addressed stores may reuse a key, including across force modes.
+                try: stored=await self.storage.put(uid,content)
+                except StorageUnavailable:
+                    # No job exists for this upload: direct fallback remains safe.
+                    raise HTTPException(503,{'code':'durable_storage_unavailable','message':'Análise em segundo plano indisponível.'})
                 previous = await session.scalar(select(EditalJob).where(EditalJob.user_id==uid,
                     EditalJob.content_hash==stored.sha256, EditalJob.force==force,
                     EditalJob.status.in_(['queued','running'])).order_by(EditalJob.created_at).limit(1))
@@ -48,8 +50,6 @@ class EditalJobs:
                     # Never delete that shared input when reclaiming a duplicate.
                     if (stored.provider, stored.key) != (previous.storage_provider, previous.storage_key):
                         duplicate_cleanup = stored.key
-                    else:
-                        shared_input = True
                 else:
                     result = None
                 if result is None:
@@ -59,12 +59,12 @@ class EditalJobs:
                         content_hash=stored.sha256,force=force)
                     session.add(job); await session.flush(); result={'job_id':str(job.id),'status':job.status}
         except BaseException:
-            if not shared_input:
-                try: await self.storage.delete(uid,stored.key)
+            if stored is not None:
+                try: await self.release_input(uid,stored.provider,stored.key)
                 except Exception: logging.warning('edital_input orphan cleanup required')
             raise
         if duplicate_cleanup:
-            try: await self.storage.delete(uid,duplicate_cleanup)
+            try: await self.release_input(uid,stored.provider,duplicate_cleanup)
             except Exception: logging.warning('edital_input duplicate cleanup required')
         self.wake.set()
         return result
@@ -115,16 +115,27 @@ class EditalJobs:
                 .values(status=status,phase=phase,analysis_id=UUID(analysis_id) if analysis_id else None,
                     finished_at=datetime.now(timezone.utc),lease_until=None))
 
+    async def release_input(self,uid,provider,key):
+        """Delete only after the last active reference, under the submit owner lock."""
+        async with unit_of_work() as session:
+            await session.scalar(select(User).where(User.id==uid).with_for_update())
+            active=await session.scalar(select(EditalJob.id).where(EditalJob.user_id==uid,
+                EditalJob.storage_provider==provider,EditalJob.storage_key==key,
+                EditalJob.status.in_(['queued','running'])).limit(1))
+            if active is not None: return
+            await self.storage.delete(uid,key)
+            await session.execute(update(EditalJob).where(EditalJob.user_id==uid,
+                EditalJob.storage_provider==provider,EditalJob.storage_key==key,
+                EditalJob.status.in_(['completed','failed'])).values(storage_key=None))
+
     async def cleanup(self):
         async with unit_of_work() as session:
-            rows=(await session.execute(select(EditalJob.id,EditalJob.user_id,EditalJob.storage_key).where(
+            rows=(await session.execute(select(EditalJob.user_id,EditalJob.storage_provider,EditalJob.storage_key).where(
                 EditalJob.status.in_(['completed','failed']),EditalJob.storage_key.is_not(None)).limit(20))).all()
-        for job_id,uid,key in rows:
-            try: await self.storage.delete(uid,key)
+        for uid,provider,key in set(rows):
+            try: await self.release_input(uid,provider,key)
             except Exception:
                 logging.warning('edital_input cleanup pending'); continue
-            async with unit_of_work() as session:
-                await session.execute(update(EditalJob).where(EditalJob.id==job_id,EditalJob.storage_key==key).values(storage_key=None))
 
     async def run(self,job):
         heartbeat=asyncio.create_task(self.heartbeat(job['id']))

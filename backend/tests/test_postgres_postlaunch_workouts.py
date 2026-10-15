@@ -43,6 +43,22 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
             self.assertEqual((await session.get(User,self.uid)).xp,0)
 
+    async def test_single_session_requires_combined_not_alternating_conditioning(self):
+        for modality in ('musculacao','hibrido'):
+            body=self.request(workout_type=modality,available_equipment=['halteres'],duration='dia',cycle_weeks=1,
+                include_cardio=True,cardio_mode='hibrido_alternado')
+            response=await self.create(body,key=f'postlaunch-single-alternating-{modality}')
+            self.assertEqual(response.status_code,422,response.text)
+        self.llm.assert_not_awaited()
+        data=bases(labels=('A',))
+        data['base_sessions'][0]['session_kind']='misto'
+        data['base_sessions'][0]['exercises']+=bases(labels=('CARDIO',),kind='corrida',equipment=[])['base_sessions'][0]['exercises']
+        self.llm.return_value=json.dumps(data)
+        plan=self.ok(await self.create({**body,'cardio_mode':'hibrido'},key='postlaunch-single-combined'))['plan']
+        self.assertEqual(len(plan['days']),1)
+        self.assertTrue(any(ex['muscle_group']=='cardio' for ex in plan['days'][0]['exercises']))
+        self.assertTrue(any(ex['muscle_group']=='peito' for ex in plan['days'][0]['exercises']))
+
     async def test_odd_frequency_alternation_includes_every_declared_split_in_order(self):
         first=bases(labels=('A','B','C'))
         second=bases(labels=('D','E'))
