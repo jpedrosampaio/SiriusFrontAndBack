@@ -47,8 +47,8 @@ class WorkoutPlanGenerate(BaseModel):
     @field_validator('avoid_exercises')
     @classmethod
     def validate_exclusions(cls, value):
-        if any(not name.strip() or len(name)>300 for name in value):
-            raise ValueError('Informe nomes de exercícios entre 1 e 300 caracteres.')
+        if any(not name.strip() or not any(character.isalnum() for character in name) or len(name)>300 for name in value):
+            raise ValueError('Informe nomes de exercícios com letras ou números, entre 1 e 300 caracteres.')
         return [name.strip() for name in value]
 
 

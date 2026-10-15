@@ -104,6 +104,13 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code,422,response.text)
         self.llm.assert_not_awaited()
 
+    async def test_punctuation_only_exclusion_is_rejected_before_provider(self):
+        response=await self.create(self.request(avoid_exercises=['---']))
+        self.assertEqual(response.status_code,422,response.text);self.llm.assert_not_awaited()
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+
     async def test_conditioning_cannot_hide_behind_strength_tags_or_conflicting_kinds(self):
         for index,(group,kind,activity) in enumerate([
                 ('pernas','corrida','corrida'),('pernas','corrida',None),
@@ -363,11 +370,13 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
             for base in ordinary['base_sessions']: base.update(training_method=method,skill_target='controle_corporal')
             self.llm.return_value=json.dumps(ordinary)
             self.assertEqual((await self.create(body,key=f'postlaunch-skills-ordinary-{index}')).status_code,502)
-        advanced=copy.deepcopy(ordinary)
-        for base in advanced['base_sessions']:
-            base['skill_target']='equilibrio';base['exercises'][0]['name']='Handstand'
-        self.llm.return_value=json.dumps(advanced)
-        self.assertEqual((await self.create(body,key='postlaunch-skills-novice-advanced')).status_code,502)
+        for index,name in enumerate(('Handstand','Apoio invertido','Bananeira','Parada de mão','  Apoio-invertido  ')):
+            advanced=copy.deepcopy(ordinary)
+            for base in advanced['base_sessions']:
+                base['skill_target']='apoios' if 'Apoio' in name else 'equilibrio'
+                base['exercises'][0]['name']=name
+            self.llm.return_value=json.dumps(advanced)
+            self.assertEqual((await self.create(body,key=f'postlaunch-skills-novice-advanced-{index}')).status_code,502)
         for base,name in zip(ordinary['base_sessions'],('Hollow hold básico','Prancha baixa controlada','Dead bug controlado')):
             base['exercises'][0].update(name=name,muscle_group='abdomen')
         self.llm.return_value=json.dumps(ordinary)
@@ -377,6 +386,16 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
         async with unit_of_work() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),1)
             self.assertEqual((await session.get(User,self.uid)).xp,5)
+        secondary=copy.deepcopy(ordinary)
+        for base in secondary['base_sessions']: base['exercises'][1]['name']='Apoio-invertido'
+        self.llm.return_value=json.dumps(secondary)
+        self.assertEqual((await self.create(body,key='postlaunch-skills-inversion-after-foundation')).status_code,502)
+        advanced=copy.deepcopy(ordinary)
+        for base in advanced['base_sessions']:
+            base['skill_target']='apoios';base['exercises'][0].update(name='Apoio invertido',difficulty='avancado')
+        self.llm.return_value=json.dumps(advanced)
+        advanced_plan=self.ok(await self.create({**body,'level':'avancado'},key='postlaunch-skills-declared-advanced'))['plan']
+        self.assertTrue(all(day['exercises'][0]['name']=='Apoio invertido' for day in advanced_plan['days']))
 
     async def test_B_and_C_declared_resistance_equipment_and_frequency(self):
         for frequency,equipment,location in [(4,['halteres','banco'],'casa'),(5,['halteres','banco','maquinas','polias'],'academia')]:

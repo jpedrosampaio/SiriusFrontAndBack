@@ -23,6 +23,8 @@ SKILL_TARGETS = {
     'apoios':('apoios',r'^(?:apoio|support hold|l.?sit|frog stand|planche|parada de maos|handstand)\b'),
     'suspensao':('suspensão',r'^(?:suspensao|hang|escapular|scapular|front lever|back lever)\b'),
 }
+NOVICE_SKILL_FOUNDATION = r'(?:hollow(?: body)? hold(?: (?:basico|controlado))?|prancha(?: (?:baixa|alta|frontal|com joelhos))?(?: (?:basica|controlada))?|dead bug(?: (?:basico|controlado))?)'
+ADVANCED_NOVICE_NAMES = r'planche|muscle.up|hand\s*stand|parada de maos?|apoio\s+invertido|inverted support|bananeira|head\s*stand|front lever|back lever|pistol|\bl[- ]?sit\b'
 LEVELS = {'iniciante':0,'intermediario':1,'avancado':2}
 LEGACY_EQUIPMENT = {'nenhum':[], 'solo':[], 'barra':['barra_fixa'], 'paralelas':['paralelas'], 'argolas':['argolas']}
 MESSAGES = {
@@ -84,6 +86,10 @@ class BasePlan(BaseModel):
 
 def normalized(value):
     return ''.join(c for c in unicodedata.normalize('NFKD',str(value)).lower() if not unicodedata.combining(c))
+
+
+def movement_name(value):
+    return re.sub(r'[\s_-]+',' ',normalized(value)).strip()
 
 
 def equipment_for(request):
@@ -195,6 +201,7 @@ def generation_prompt(request,labels=None):
         'o mesmo número de séries (ao menos duas rodadas) nos exercícios do circuito. Mobilidade pode preparar a sessão. '
         'No foco habilidades, use training_method tecnica e skill_target controle_corporal, equilibrio, apoios ou suspensao; '
         'o primeiro exercício peso_corporal deve praticar de forma identificável essa habilidade/fundamento, conforme nível e equipamentos. '
+        'Para iniciante em habilidades, abra com controle_corporal e um fundamento reconhecido em solo: Hollow hold, Prancha baixa/alta/frontal/com joelhos ou Dead bug. Não inclua inversões ou aliases de parada de mãos. '
         'Tutorial conciso, no máximo três frases. Inclua preparação e recuperação no tempo estimado, sem contabilizar descanso como sessão. '
         'Para corrida use apenas session_kind corrida e exercícios cardio, sem impor pace/FC individuais. '
         'Para híbrido inclua força e condicionamento; no modo alternado a base CARDIO será corrida/condicionamento. '
@@ -210,7 +217,7 @@ def generation_prompt(request,labels=None):
 
 
 def inferred_equipment(exercise):
-    name=normalized(exercise.name)
+    name=movement_name(exercise.name)
     patterns={'halteres':r'halter|dumbbell','barra_fixa':r'barra fixa|pull.up|chin.up|barra australiana',
         'paralelas':r'paralela|\bdips\b','argolas':r'argola|\brings\b','elasticos':r'elastico|resistance band',
         'kettlebell':r'kettlebell','smith':r'\bsmith\b','polias':r'polia|crossover|\bcable\b',
@@ -226,7 +233,7 @@ def inferred_equipment(exercise):
 
 
 def validate_conditioning(exercise,request):
-    identified={kind for kind,pattern in CONDITIONING_NAMES.items() if re.search(pattern,normalized(exercise.name))}
+    identified={kind for kind,pattern in CONDITIONING_NAMES.items() if re.search(pattern,movement_name(exercise.name))}
     is_conditioning=(identified or exercise.muscle_group in ('cardio','cardiorespiratorio') or
         exercise.exercise_kind in ('corrida','cardio') or exercise.conditioning_type is not None)
     if not is_conditioning: return
@@ -272,8 +279,10 @@ def validate_calisthenics_method(session,request):
             raise GenerationInvalid('focus_mismatch')
     if request.calisthenics_focus=='habilidades':
         target=SKILL_TARGETS.get(session.skill_target)
-        if session.training_method!='tecnica' or not target or not active or not re.search(target[1],normalized(active[0].name)):
+        if session.training_method!='tecnica' or not target or not active or not re.search(target[1],movement_name(active[0].name)):
             raise GenerationInvalid('focus_mismatch')
+        if request.level=='iniciante' and (session.skill_target!='controle_corporal' or not re.fullmatch(NOVICE_SKILL_FOUNDATION,movement_name(active[0].name))):
+            raise GenerationInvalid('level_mismatch')
         if session.skill_target=='suspensao' and not set(active[0].required_equipment).intersection({'barra_fixa','argolas'}):
             raise GenerationInvalid('equipment_mismatch')
 
@@ -329,9 +338,9 @@ def validate_bases(data,request,labels=None):
                 raise GenerationInvalid('equipment_mismatch')
             if LEVELS[exercise.difficulty]>LEVELS[request.level] or exercise.sets>{'iniciante':4,'intermediario':6,'avancado':8}[request.level]:
                 raise GenerationInvalid('level_mismatch')
-            if request.level=='iniciante' and re.search(r'planche|muscle.up|handstand|parada de maos|front lever|back lever|pistol|\bl[- ]?sit\b',normalized(exercise.name)):
+            if request.level=='iniciante' and re.search(ADVANCED_NOVICE_NAMES,movement_name(exercise.name)):
                 raise GenerationInvalid('level_mismatch')
-            if any(normalized(avoid) in normalized(exercise.name) for avoid in request.avoid_exercises):
+            if any(movement_name(avoid) in movement_name(exercise.name) for avoid in request.avoid_exercises):
                 raise GenerationInvalid('excluded_exercise')
             if request.workout_type=='calistenia' and exercise.exercise_kind not in ('peso_corporal','mobilidade'):
                 raise GenerationInvalid('modality_mismatch')
