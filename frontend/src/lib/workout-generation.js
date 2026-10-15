@@ -31,19 +31,25 @@ export function generationPayload(form) {
   const weeks = Number(form.weeks), frequency = Number(form.training_days_per_week);
   if (![1, 4, 8, 12].includes(weeks) || !Number.isInteger(frequency) || frequency < 2 || frequency > 7) throw new Error('Confira a duração e a frequência.');
   const split = !form.single && ['musculacao', 'hibrido'].includes(form.workout_type) && form.generation_mode === 'tipo_treino';
+  const strength = ['musculacao', 'hibrido'].includes(form.workout_type);
+  if (split) {
+    if (form.split_config.some(s => !s.muscle_groups.length)) throw new Error('Selecione os grupos musculares de cada divisão.');
+    const strengthSlots = weeks * ((form.workout_type === 'hibrido' || form.include_cardio) && form.cardio_mode === 'hibrido_alternado' ? Math.ceil(frequency / 2) : frequency);
+    if (strengthSlots < form.split_config.length) throw new Error('O calendário precisa incluir todas as divisões. Aumente a duração ou a frequência, ou escolha menos divisões.');
+  }
   const body = { objective: form.objective, level: form.level, workout_type: form.workout_type,
     training_location: form.training_location, available_equipment: [...form.available_equipment].sort(),
     session_minutes: Number(form.session_minutes), health_condition: form.health_condition.trim() || null,
     avoid_exercises: form.avoid_text.split('\n').map(s => s.trim()).filter(Boolean),
     generation_mode: split ? 'tipo_treino' : 'periodo',
     duration: form.single ? 'dia' : split ? 'ciclo' : ({ 1: 'semana', 4: 'mes' }[weeks] || 'ciclo'),
-    cycle_weeks: form.single ? 1 : weeks, muscle_groups: form.muscle_groups,
+    cycle_weeks: form.single ? 1 : weeks, muscle_groups: strength && !split ? form.muscle_groups : [],
   };
   if (!form.single) body.training_days_per_week = frequency;
   if (split) Object.assign(body, { split_type: form.split_type, split_config: form.split_config });
   if (form.workout_type === 'calistenia') body.calisthenics_focus = form.calisthenics_focus;
   if (form.workout_type === 'corrida') Object.assign(body, { running_goal: form.running_goal, preferred_terrain: form.preferred_terrain });
-  if (form.workout_type === 'hibrido' || form.include_cardio) Object.assign(body, {
+  if (form.workout_type === 'hibrido' || (form.workout_type === 'musculacao' && form.include_cardio)) Object.assign(body, {
     include_cardio: true, cardio_type: form.cardio_type, cardio_mode: form.cardio_mode,
   });
   return body;

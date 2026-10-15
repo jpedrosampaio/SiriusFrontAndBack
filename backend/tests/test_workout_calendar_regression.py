@@ -75,14 +75,14 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_splits_expanded_exactly(self):
         data = bases(labels=('A',))
-        result = await self.generate([data], generation_mode='tipo_treino', split_config=[{'label': 'A'}], cycle_weeks=4, training_days_per_week=3)
+        result = await self.generate([data], generation_mode='tipo_treino', split_config=[{'label': 'A', 'muscle_groups': ['peito']}], cycle_weeks=4, training_days_per_week=3)
         self.assertEqual(len(result['plan']['days']), 12)
         self.assertEqual(result['plan']['days'][-1]['week'], 4)
         self.assertIsNot(result['plan']['days'][0]['exercises'], result['plan']['days'][1]['exercises'])
 
     async def test_missing_splits_not_silently_replaced_by_partial_days(self):
         with self.assertRaises(HTTPException):
-            await self.generate([period(10), period(10)], generation_mode='tipo_treino', split_config=[{'label': 'A'}])
+            await self.generate([period(10), period(10)], generation_mode='tipo_treino', split_config=[{'label': 'A', 'muscle_groups': ['peito']}])
         self.ns['db'].workout_plans.insert_one.assert_not_awaited()
 
     async def test_conflicting_week_rejected(self):

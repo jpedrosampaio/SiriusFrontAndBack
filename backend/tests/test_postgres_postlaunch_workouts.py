@@ -24,6 +24,38 @@ class PostlaunchWorkouts(unittest.IsolatedAsyncioTestCase):
     async def create(self,body,key='postlaunch-workout-001',headers=None):
         return await self.http.post('/api/workout-plans/generate',json=body,headers={'Idempotency-Key':key,**(headers or {})})
 
+    async def test_invalid_or_unrepresented_splits_fail_before_provider_or_writes(self):
+        body=self.request(workout_type='musculacao',available_equipment=['halteres'],generation_mode='tipo_treino',
+            split_type='ABCDE',split_config=[{'label':label,'muscle_groups':['peito']} for label in 'ABCDE'],
+            include_cardio=True,cardio_mode='hibrido_alternado',training_days_per_week=2)
+        for index,changes in enumerate([
+                {},
+                {'split_type':'AB','split_config':[{'label':'A','muscle_groups':['peito']},{'label':'B','muscle_groups':[]}]},
+                {'split_type':'A','split_config':[{'label':'A'}]},
+                {'split_type':'A','split_config':[{'label':'A','muscle_groups':[' ']}]},
+                {'split_type':None,'split_config':[{'label':[],'muscle_groups':['peito']}]},
+                {'include_cardio':False,'cycle_weeks':1,'duration':'ciclo'},
+            ]):
+            response=await self.create({**body,**changes},key=f'postlaunch-invalid-split-{index}')
+            self.assertEqual(response.status_code,422,response.text)
+        self.llm.assert_not_awaited()
+        async with unit_of_work() as session:
+            self.assertEqual(await session.scalar(select(func.count()).select_from(WorkoutPlan).where(WorkoutPlan.user_id==self.uid)),0)
+            self.assertEqual((await session.get(User,self.uid)).xp,0)
+
+    async def test_odd_frequency_alternation_includes_every_declared_split_in_order(self):
+        first=bases(labels=('A','B','C'))
+        second=bases(labels=('D','E'))
+        second['base_sessions']+=bases(labels=('CARDIO',),kind='corrida',equipment=[])['base_sessions']
+        self.llm.side_effect=[json.dumps(first),json.dumps(second)]
+        body=self.request(workout_type='musculacao',available_equipment=['halteres'],generation_mode='tipo_treino',
+            split_type='ABCDE',split_config=[{'label':label,'muscle_groups':['peito']} for label in 'ABCDE'],
+            include_cardio=True,cardio_mode='hibrido_alternado',training_days_per_week=3)
+        plan=self.ok(await self.create(body))['plan']
+        self.assertEqual(len(plan['days']),12)
+        self.assertEqual([d['split_label'] for d in plan['days'] if d['split_label']!='CARDIO'],list('ABCDEABC'))
+        self.assertEqual(sum(d['split_label']=='CARDIO' for d in plan['days']),4)
+
     async def test_A_declared_none_four_weeks_three_days_complete_not_performance(self):
         data=bases(kind='peso_corporal',equipment=[])
         names=[['Agachamento livre','Flexão de joelhos','Ponte de glúteos'],

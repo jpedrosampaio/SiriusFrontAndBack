@@ -27,6 +27,7 @@ MESSAGES = {
     'frequency_conflict':'As duas frequências informadas estão em conflito.',
     'weeks_conflict':'A duração e a quantidade de semanas estão em conflito.',
     'invalid_splits':'Informe divisões únicas e completas; descanso não é uma sessão de treino.',
+    'insufficient_split_slots':'O calendário precisa incluir todas as divisões. Aumente a duração ou a frequência, ou escolha menos divisões.',
     'medical_claim':'A proposta contém orientação clínica que não pode ser validada pelo gerador. Procure avaliação profissional.',
     'insufficient_variety':'A IA não justificou bases variadas e coerentes com o foco solicitado.',
     'needs_resistance_equipment':'Para musculação, declare equipamentos de resistência. Você pode escolher calistenia explicitamente para treinar apenas com o corpo.',
@@ -85,9 +86,16 @@ def validate_request(request):
     if request.generation_mode=='tipo_treino' and request.workout_type!='corrida':
         splits=request.split_config or []
         labels=[s.get('label') for s in splits]
-        if not labels or len(labels)>5 or len(labels)!=len(set(labels)) or any(not isinstance(v,str) or not re.fullmatch(r'[A-Z][A-Z0-9_-]{0,9}',v) or v in ('CARDIO','DESCANSO') for v in labels):
+        if not labels or len(labels)>5 or any(not isinstance(v,str) or not re.fullmatch(r'[A-Z][A-Z0-9_-]{0,9}',v) or v in ('CARDIO','DESCANSO') for v in labels) or len(labels)!=len(set(labels)):
             raise GenerationInvalid('invalid_splits')
         if request.split_type and request.split_type!=''.join(labels):raise GenerationInvalid('invalid_splits')
+        if any(not isinstance(s.get('muscle_groups'),list) or not s['muscle_groups'] or
+                any(not isinstance(group,str) or not group.strip() for group in s['muscle_groups']) for s in splits):
+            raise GenerationInvalid('invalid_splits')
+        weeks,frequency=calendar_shape(request)
+        alternating=(request.workout_type=='hibrido' or request.include_cardio) and request.cardio_mode=='hibrido_alternado'
+        if weeks*((frequency+1)//2 if alternating else frequency)<len(labels):
+            raise GenerationInvalid('insufficient_split_slots')
     inventory=equipment_for(request)
     if inventory is None and request.workout_type!='corrida':
         raise GenerationInvalid('equipment_unknown')
@@ -236,7 +244,7 @@ def compose_calendar(plan,request):
     weeks,frequency=calendar_shape(request)
     labels=base_labels(request)
     bases={session.label:session for session in plan.base_sessions}
-    progression=[];days=[];counter=0
+    progression=[];days=[];counter=0;strength_counter=0
     phases=['Familiarização e técnica','Consistência e recuperação','Revisão de evidências','Consolidar e reavaliar']
     for week in range(1,weeks+1):
         focus=phases[min(week-1,3)]
@@ -247,7 +255,8 @@ def compose_calendar(plan,request):
         progression.append({'week':week,'focus':focus,'notes':note})
         for ordinal in range(frequency):
             if 'CARDIO' in labels:
-                label='CARDIO' if ordinal%2 else labels[(counter//2)%(len(labels)-1)]
+                label='CARDIO' if ordinal%2 else labels[strength_counter%(len(labels)-1)]
+                if label!='CARDIO': strength_counter+=1
             else: label=labels[counter%len(labels)]
             base=bases[label]; counter+=1
             exercises=[]

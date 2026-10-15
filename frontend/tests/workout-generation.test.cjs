@@ -20,6 +20,24 @@ test('Unknown inventory and location require an explicit declaration; split/hist
   form.health_condition = ' Relato privado '; form.avoid_text = 'Paralelas\n\nSupino';
   assert.equal(c.generationPayload(form).health_condition, 'Relato privado'); assert.equal(c.generationPayload(form).avoid_exercises.length, 2);
 });
+test('Hidden strength focus and cardio options do not leak into another modality or split', () => {
+  const form = { ...c.initialGenerationForm(), training_location: 'casa', available_equipment: ['halteres'], muscle_groups: ['peito'], include_cardio: true, cardio_mode: 'hibrido_alternado' };
+  assert.equal(c.generationPayload(form).muscle_groups[0], 'peito');
+  for (const type of ['corrida', 'calistenia']) {
+    const body = c.generationPayload({ ...form, workout_type: type });
+    assert.equal(body.muscle_groups.length, 0); assert.equal(body.include_cardio, undefined);
+  }
+  assert.equal(c.generationPayload({ ...form, generation_mode: 'tipo_treino' }).muscle_groups.length, 0);
+});
+test('Every split needs groups and enough strength slots, including alternating-cardio calendars', () => {
+  const form = { ...c.initialGenerationForm(), training_location: 'casa', available_equipment: ['halteres'], generation_mode: 'tipo_treino' };
+  form.split_config[1].muscle_groups = [];
+  assert.throws(() => c.generationPayload(form), /grupos musculares/);
+  form.split_type = 'ABCDE'; form.split_config = c.splitConfig('ABCDE');
+  form.training_days_per_week = 2; form.weeks = 4; form.include_cardio = true; form.cardio_mode = 'hibrido_alternado';
+  assert.throws(() => c.generationPayload(form), /todas as divisões/);
+  form.training_days_per_week = 3; assert.equal(c.generationPayload(form).split_config.length, 5);
+});
 test('Lost/internal response locks a snapshot, prevents simultaneous requests and replays the exact key', () => {
   let sequence = 0; const request = c.createGenerationRequest(() => `generation-${++sequence}`), payload = { equipment: ['halteres'], health: 'private' };
   const first = request.begin(payload); payload.equipment.push('banco');
