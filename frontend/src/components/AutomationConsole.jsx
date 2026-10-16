@@ -104,6 +104,8 @@ export default function AutomationConsole() {
         <div className={panel}><h3 className="font-medium">Resumo da sua rotina</h3><label className="block text-sm">Período do resumo<select aria-label="Período do resumo" value={mode} onChange={e=>setMode(e.target.value)} className={field}><option value="morning">Daily Briefing · Hoje</option><option value="night">Night Review · Hoje</option><option value="weekly">Weekly Coach · Últimos 7 dias</option></select></label><Report report={report}/></div>
         <div className={panel}><h3 className="font-medium">Preferências de automação</h3>
           <label className="flex gap-3 items-center text-sm"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/>Ativar automações</label>
+          <label className="flex gap-3 items-center text-sm"><input type="checkbox" checked={policy.routine_popups===true} onChange={e=>setPolicy(p=>({...p,routine_popups:e.target.checked}))}/>Receber pop-ups de resumos rotineiros</label>
+          <p className="text-xs text-slate-400">Resumos continuam disponíveis nesta central com os pop-ups desativados. Exibir ou fechar um aviso não marca sua leitura.</p>
           <p className="text-xs text-slate-400">Fuso da conta: {state.timezone}. Nenhuma regra ignora o horário silencioso, inclusive as de prioridade alta.</p>
           {!state.runtime_enabled&&<p className="text-amber-300 text-sm">Worker desativado no servidor. Próximas execuções dependem da sua reativação.</p>}
           {state.simulation_only&&<p className="text-amber-300 text-sm">Modo de simulação do servidor: alertas disponíveis no Sirius; Telegram não será enviado automaticamente.</p>}
@@ -134,8 +136,10 @@ export default function AutomationConsole() {
           {e.candidate?.reasons?.map((reason,i)=><p key={i} className="text-sm text-slate-300">{reason}</p>)}
           {e.candidate?.facts?.title&&<p className="text-sm">{e.candidate.facts.title}</p>}
           {e.candidate&&<Evidence facts={e.candidate.facts}/>}
+          {e.message&&<details><summary className="text-sm cursor-pointer">Ver mensagem completa</summary><p className="text-sm whitespace-pre-wrap break-words">{e.message}</p></details>}
           {state.catalog.find(c=>c.event_type===e.event_type)?.link&&<Link className="text-xs text-sky-300 underline" to={state.catalog.find(c=>c.event_type===e.event_type).link}>Abrir módulo e revisar dados</Link>}
           {e.deliveries.map(d=><div key={d.delivery_id} className="rounded-lg bg-slate-900 p-3 space-y-2"><p className="text-sm">{d.channel==='telegram'?'Telegram':'Sirius'} · {deliveryLabels[d.status]||d.status} · {d.attempts} tentativa(s)</p>{d.last_error&&<p className="text-xs text-amber-300">{deliveryError(d.last_error)}</p>}
+            {d.channel==='in_app'&&<p className="text-xs text-slate-400">Apresentação: {({not_presented:'ainda não apresentada',claimed:'tentativa reservada; exibição não confirmada',grouped:'agrupada na central',presented:'exibição confirmada, independente da leitura'})[d.presentation?.state]||'sem confirmação histórica'}{d.presentation?.presented_at&&` · ${d.presentation.presented_at}`}</p>}
             {d.status==='available'&&<Button variant="outline" disabled={busy} onClick={()=>receipt(d,'read')}>Marcar como lido</Button>}
             {d.retry_allowed&&<Button variant="outline" disabled={busy} onClick={()=>receipt(d,'retry')}>Reenviar com confirmação</Button>}
             {d.history?.length>0&&<details><summary className="text-xs cursor-pointer text-slate-400">Histórico de tentativas</summary>{d.history.map((h,i)=><p key={i} className="text-xs text-slate-400">{h.at} · {deliveryLabels[h.outcome]||h.outcome}{h.receipt&&` · recibo ${h.receipt}`}</p>)}</details>}

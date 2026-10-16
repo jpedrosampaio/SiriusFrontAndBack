@@ -46,6 +46,7 @@ class Rule(Contract):
 
 
 class AutomationPolicy(Contract):
+    routine_popups: bool = Field(default=False,strict=True)
     # None inherits the existing Agent preference; there is one opt-in policy.
     quiet_start: str | None = None
     quiet_end: str | None = None

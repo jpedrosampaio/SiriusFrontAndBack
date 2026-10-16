@@ -5,12 +5,17 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter,HTTPException,Request,Query
 from pydantic import BaseModel,Field,field_validator
-from sqlalchemy import select,or_,exists
+from sqlalchemy import select,or_,and_,exists,case,cast,Date,Time,func
 from db.session import unit_of_work
 from db.models.notifications import Notification,NotificationDelivery
 from db.models.studies import StudyProgram,StudySchedule,Notebook
 from db.repositories.identity import IdentityRepository
 from services.auth_routes import account
+from ai.actions import Preferences
+from db.repositories.agent import AgentRepository
+from services.event_queue import quiet_at
+from services import notification_native as native
+from db.activity import run_activity
 
 router=APIRouter()
 DAYS=['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
@@ -86,7 +91,8 @@ def active():
 async def listing(request:Request):
     async with unit_of_work() as session:
         user=await owner(request,session)
-        return [public(n) for n in (await session.scalars(select(Notification).where(Notification.user_id==user.id,*active()).order_by(Notification.created_at,Notification.id))).all()]
+        presentations=await native.latest(session,user.id)
+        return [{**public(n),'native_presentation':presentations.get(str(n.id))} for n in (await session.scalars(select(Notification).where(Notification.user_id==user.id,*active()).order_by(Notification.created_at,Notification.id))).all()]
 
 
 @router.post('/notifications')
@@ -96,20 +102,57 @@ async def create(request:Request,body:NotificationInput):
         return public(row)
 
 
-async def due(request,claim,window):
+def due_date(user,now,window,prefs):
+    """Latest due occurrence, including a durable backlog across quiet/offline time.
+
+    Repeats coalesce missed dates into their most recent occurrence. A one-shot
+    retains the first scheduled date after creation instead of being lost.
+    SQL filters eligibility before the bounded batch, so future reminders do
+    not occupy the result limit or starve currently due ones.
+    """
+    upper=now+timedelta(minutes=window)
+    # Lookahead must not reserve a future occurrence whose quiet period has
+    # not started yet. Past deferred occurrences remain eligible after silence.
+    if window and quiet_at(upper,user,prefs):upper=now
+    day=upper.astimezone(ZoneInfo(user.timezone)).date()
+    created_local=func.timezone(user.timezone,Notification.created_at)
+    # Inputs have HH:MM precision: creating a reminder during that same minute
+    # must not push a one-shot to the following day because of server seconds.
+    first=cast(created_local,Date).op('+')(case((Notification.scheduled_time<cast(func.date_trunc('minute',created_local),Time),1),else_=0))
+    def scheduled(date_value):return func.timezone(user.timezone,date_value.op('+')(Notification.scheduled_time))
+    choices=[(and_(Notification.repeat=='none',Notification.last_sent.is_(None),scheduled(first)<=upper),first)]
+    for offset in range(8):
+        date_value=day-timedelta(days=offset);expression=cast(date_value,Date)
+        slot=scheduled(expression)
+        choices.append((and_(or_(Notification.repeat=='daily',and_(Notification.repeat.in_(('weekly','custom')),
+            Notification.repeat_days.contains([DAYS[date_value.weekday()]]))),
+            or_(Notification.last_occurrence.is_(None),Notification.last_occurrence<date_value),
+            Notification.created_at<=slot,slot<=upper),expression))
+    return case(*choices,else_=None)
+
+
+async def due(request,claim,window,browser_allowed=False):
     async with unit_of_work() as session:
-        user=await owner(request,session,claim);now=utc_now();local=now.astimezone(ZoneInfo(user.timezone))
-        slots=[local+timedelta(minutes=n) for n in range(-window,window+1)]
-        rows=(await session.scalars(select(Notification).where(Notification.user_id==user.id,Notification.enabled.is_(True),
-            Notification.scheduled_time.in_([s.time().replace(second=0,microsecond=0,tzinfo=None) for s in slots]),*active()).order_by(Notification.created_at,Notification.id))).all()
+        user=await owner(request,session,claim);now=utc_now()
+        prefs=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
+        if quiet_at(now,user,prefs):return []
+        occurrence=due_date(user,now,window,prefs)
+        channels=[] if not claim else [or_(Notification.channels.contains(['in_app']),
+            and_(browser_allowed,Notification.channels.contains(['browser']),~native.unavailable(occurrence)))]
+        rows=(await session.execute(select(Notification,occurrence.label('occurrence')).where(Notification.user_id==user.id,
+            Notification.enabled.is_(True),Notification.scheduled_time.is_not(None),occurrence.is_not(None),*channels,*active())
+            .order_by(occurrence.desc(),Notification.scheduled_time.desc(),Notification.created_at.desc(),Notification.id.desc()).limit(50))).all()
         result=[]
-        for row in rows:
-            slot=next(s for s in slots if s.hour==row.scheduled_time.hour and s.minute==row.scheduled_time.minute)
-            if row.repeat=='none' and row.last_sent:continue
-            if row.last_occurrence and row.last_occurrence>=slot.date():continue
-            if row.repeat in ('weekly','custom') and DAYS[slot.weekday()] not in row.repeat_days:continue
-            result.append(public(row))
-            if claim:row.last_sent=now;row.last_occurrence=slot.date()
+        for row,slot_day in rows:
+            item={**public(row),'occurrence_date':slot_day.isoformat()}
+            if claim:
+                if 'in_app' in row.channels:
+                    row.last_sent=now;row.last_occurrence=slot_day
+                else:
+                    reservation=await native.reserve(session,row,slot_day,now)
+                    if reservation is None:continue
+                    item['native_claim']=reservation
+            result.append(item)
         return result
 
 
@@ -118,9 +161,43 @@ async def pending(request:Request):return await due(request,False,0)
 
 
 @router.get('/notifications/check')
-async def check(request:Request,timezone_offset:int=0):
+async def check(request:Request,timezone_offset:int=0,browser_allowed:bool=False):
     # Compatibility parameter: persisted IANA timezone handles DST consistently.
-    return await due(request,True,1)
+    return await due(request,True,1,browser_allowed)
+
+
+@router.post('/notifications/native-presentations')
+async def native_outcome(request:Request,body:native.NativeOutcome):
+    async with unit_of_work() as session:
+        user=await owner(request,session,True);now=utc_now();items=[]
+        for claim in body.claims:
+            row=await owned(session,user.id,claim.notification_id)
+            items.append(await native.finish(session,row,claim,body.outcome,now))
+        return {'user_id':str(user.id),'items':items}
+
+
+@router.post('/notifications/{notification_id}/retry-native')
+async def retry_native(request:Request,notification_id:str,body:native.NativeRetry):
+    auth=await account(request);uid=UUID(auth['user_id']);key=request.headers.get('Idempotency-Key')
+    try:UUID(key)
+    except (ValueError,TypeError):raise HTTPException(422,'Idempotency-Key UUID required')
+    async def apply(session,user):
+        row=await owned(session,user.id,notification_id)
+        if not row.enabled or 'browser' not in row.channels or 'in_app' in row.channels:
+            raise HTTPException(409,'Lembrete não elegível para aviso nativo')
+        if not await session.scalar(select(Notification.id).where(Notification.user_id==user.id,Notification.id==row.id,*active())):
+            raise HTTPException(409,'Origem do lembrete não está ativa')
+        prefs=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
+        if quiet_at(utc_now(),user,prefs):raise HTTPException(409,'Horário de silêncio ativo')
+        slot=await native.receipt(session,user.id,row.id,body.occurrence)
+        if slot is None or slot.result['attempted_at']!=body.attempted_at.isoformat():
+            raise HTTPException(409,'Atualize a central antes de tentar novamente')
+        if slot.result['state']=='accepted':raise HTTPException(409,'Aviso já aceito pelo navegador')
+        if slot.result['state']!='failed' and not body.duplicate_risk_accepted:
+            raise HTTPException(409,'A tentativa anterior pode ter aparecido. Confirme o risco de repetição')
+        slot.result=native.reserve_result(row.id,body.occurrence,utc_now(),slot.result,manual=True)
+        return {'user_id':str(user.id),'item':{**public(row),'native_claim':native.claim(slot.result)}}
+    return await run_activity(uid,key,['retry_native',notification_id,body.model_dump(mode='json')],apply)
 
 
 @router.patch('/notifications/{notification_id}')

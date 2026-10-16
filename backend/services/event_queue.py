@@ -39,6 +39,11 @@ def period_key(day, frequency):
     return str(day-timedelta(days=day.weekday())) if frequency=='weekly' else str(day)
 
 
+def insight_rule(item):
+    source_key=f'{item.event_type}:{item.entity_type}:{item.entity_id}:{item.occurrence}'
+    return 'budget:'+item.facts['category'] if item.event_type.startswith('budget.') else 'event:'+hashlib.sha256(source_key.encode()).hexdigest()
+
+
 async def enqueue(session, uid, item, day, frequency='daily', priority='medium'):
     occurrence=period_key(day,frequency) if item.entity_type in ('routine','nutrition') else item.occurrence
     period=period_key(day,frequency)
@@ -141,8 +146,7 @@ async def publish(event, item, *, dry_run):
             if not fresh:return 'resolved',None
             item=fresh[0]
         # Historical generic budget insights and typed events share a single cooldown.
-        source_key=f'{item.event_type}:{item.entity_type}:{item.entity_id}:{item.occurrence}'
-        rule_id='budget:'+item.facts['category'] if item.event_type.startswith('budget.') else 'event:'+hashlib.sha256(source_key.encode()).hexdigest()
+        rule_id=insight_rule(item)
         previous=await session.scalar(select(Insight).where(Insight.user_id==uid,Insight.rule==rule_id,Insight.date==day))
         blocked=await session.scalar(select(Insight.id).where(Insight.user_id==uid,Insight.rule==rule_id,
             (Insight.feedback=='never')|((Insight.feedback=='snooze')&(Insight.snoozed_until>instant))).limit(1))

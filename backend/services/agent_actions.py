@@ -52,9 +52,11 @@ class Actions:
         if any(name not in TOOLS for name in body.blocked_tools):
             raise HTTPException(422, 'Ferramenta desconhecida.')
         async def apply(session, user):
+            current=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
             if 'event_automation' not in body.model_fields_set:
-                current=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
                 body.event_automation=current.event_automation
+            elif 'routine_popups' not in body.event_automation.model_fields_set:
+                body.event_automation=body.event_automation.model_copy(update={'routine_popups':current.event_automation.routine_popups})
             await session.execute(insert(StoredPreferences).values(user_id=user.id, settings=body.model_dump())
                 .on_conflict_do_update(index_elements=['user_id'], set_={'settings': body.model_dump()}))
             return body.model_dump()

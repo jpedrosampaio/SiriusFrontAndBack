@@ -30,7 +30,7 @@ async def state(uid):
         link=await session.scalar(select(TelegramLink.id).where(TelegramLink.user_id==uid))
         scan=await session.scalar(select(Event).where(Event.user_id==uid,Event.dedup_key=='event-engine-scan/2'))
         settings=Settings()
-        return {'enabled':prefs.automations,'daily_cap':prefs.daily_cap,'policy':prefs.event_automation.model_dump(mode='json'),
+        return {'user_id':str(uid),'enabled':prefs.automations,'daily_cap':prefs.daily_cap,'policy':prefs.event_automation.model_dump(mode='json'),
             'timezone':user.timezone,'inherited_quiet_start':f'{prefs.quiet_start:02}:00','inherited_quiet_end':f'{prefs.quiet_end:02}:00',
             'runtime_enabled':settings.automations,'simulation_only':settings.dry_run,
             'channels':{'in_app':True,'telegram':bool(link and os.getenv('TELEGRAM_BOT_TOKEN') and not settings.dry_run)},
@@ -53,20 +53,39 @@ async def save_policy(request:Request,body:PolicyUpdate):
     if not request.headers.get('Idempotency-Key'):raise HTTPException(400,'Configuração exige chave de idempotência.')
     async def apply(session,user):
         prefs=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
-        prefs.automations=body.enabled;prefs.daily_cap=body.daily_cap;prefs.event_automation=body.policy
+        prefs.automations=body.enabled;prefs.daily_cap=body.daily_cap
+        policy=body.policy
+        if 'routine_popups' not in policy.model_fields_set:
+            policy=policy.model_copy(update={'routine_popups':prefs.event_automation.routine_popups})
+        prefs.event_automation=policy
         settings=prefs.model_dump(mode='json')
         await session.execute(insert(StoredPreferences).values(user_id=user.id,settings=settings).on_conflict_do_update(
             index_elements=['user_id'],set_={'settings':settings}))
         if body.enabled:await ensure_scan(session,user.id,restart=True)
-        return {'enabled':body.enabled,'daily_cap':body.daily_cap,'policy':body.policy.model_dump(mode='json')}
-    return await run_activity(UUID(auth['user_id']),request.headers.get('Idempotency-Key'),['automation_policy',body.model_dump(mode='json')],apply)
+        return {'enabled':body.enabled,'daily_cap':body.daily_cap,'policy':policy.model_dump(mode='json')}
+    intent=body.model_dump(mode='json')
+    # Preserve recovery of pre-upgrade receipts; omission and explicit opt-out differ.
+    if 'routine_popups' not in body.policy.model_fields_set:intent['policy'].pop('routine_popups')
+    return await run_activity(UUID(auth['user_id']),request.headers.get('Idempotency-Key'),['automation_policy',intent],apply)
 
 
 def public_delivery(row):
+    from services.notification_presentations import presentation_state,public_history
     return {'delivery_id':str(row.id),'channel':row.channel,'status':row.status,'attempts':row.attempts,
         'available_at':row.available_at.isoformat(),'delivered_at':row.delivered_at.isoformat() if row.delivered_at else None,
-        'provider_receipt':row.provider_receipt,'last_error':row.last_error,'history':row.history,
+        'provider_receipt':row.provider_receipt,'last_error':row.last_error,'history':public_history(row),'presentation':presentation_state(row),
         'retry_allowed':row.channel=='telegram' and row.status in ('failed','uncertain') and row.attempts<8}
+
+
+def event_message(row):
+    from event_contracts import EventCandidate
+    from services.event_delivery import message_for
+    try:return message_for(EventCandidate.model_validate(row.payload.get('candidate')))
+    except (ValueError,TypeError,AttributeError,KeyError,IndexError):
+        # Queued/cancelled routines can legitimately have no materialized
+        # briefing. Preserve that historical record, without inventing a report
+        # or letting one incomplete candidate break the whole history page.
+        return None
 
 
 @router.get('/events')
@@ -85,7 +104,7 @@ async def events(request:Request,before:UUID|None=None,limit:int=20):
         return {'items':[{'event_id':str(row.id),'event_type':row.event_type,'title':CATALOG.get(row.event_type,('','Evento histórico',''))[1],
             'status':row.status,'attempts':row.attempts,'created_at':row.created_at.isoformat(),
             'available_at':row.available_at.isoformat(),'last_error':row.last_error,'outcome':row.payload.get('outcome'),
-            'candidate':row.payload.get('candidate'),'deliveries':[public_delivery(d) for d in deliveries if d.event_id==row.id]}
+                'candidate':row.payload.get('candidate'),'message':event_message(row),'deliveries':[public_delivery(d) for d in deliveries if d.event_id==row.id]}
             for row in rows[:limit]],'next_cursor':str(rows[limit-1].id) if len(rows)>limit else None}
 
 
@@ -117,6 +136,25 @@ class Receipt(BaseModel):
     model_config=ConfigDict(extra='forbid')
     action:Literal['read','dismiss','retry']
     accept_duplicate_risk:bool=Field(default=False,strict=True)
+
+
+class PresentationReceipt(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    key:UUID
+
+
+@router.post('/presentations/claim')
+async def claim_presentation(request:Request):
+    auth=await account(request)
+    from services.notification_presentations import claim
+    return {'user_id':auth['user_id'],**await claim(auth['user_id'],request.headers.get('Idempotency-Key'))}
+
+
+@router.post('/presentations/{identity}')
+async def confirm_presentation(request:Request,identity:UUID,body:PresentationReceipt):
+    auth=await account(request)
+    from services.notification_presentations import acknowledge
+    return await acknowledge(auth['user_id'],identity,body.key)
 
 
 def public_reply(row):
@@ -190,7 +228,7 @@ async def receipt(request:Request,identity:UUID,body:Receipt):
             row.status='delivered' if body.action=='read' else 'cancelled'
             row.delivered_at=utc_now() if body.action=='read' else None
             row.provider_receipt='owner_read' if body.action=='read' else None
-            row.history=[{'at':utc_now().isoformat(),'outcome':row.status,'receipt':row.provider_receipt}]
+            row.history=[*(row.history or []),{'at':utc_now().isoformat(),'outcome':row.status,'receipt':row.provider_receipt}][-32:]
         return public_delivery(row)
     return await run_activity(UUID(auth['user_id']),request.headers.get('Idempotency-Key'),
         ['automation_receipt',str(identity),body.model_dump()],apply)
