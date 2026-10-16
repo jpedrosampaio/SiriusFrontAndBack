@@ -1,6 +1,6 @@
 # Universal edital analyzer — structural maintenance
 
-Authorized maintenance; not a new master-plan phase. Base audited: main `70de336c09b5f7f290103a3840afd978f827453a`. This document is a design/audit record, not a publication or real-provider validation claim.
+Authorized maintenance; not a new master-plan phase. Initial audit: main `70de336c09b5f7f290103a3840afd978f827453a`; implementation rebased onto published PDF-security merge `516a5fb4028173f71aa7bf9e97f72a55fd33213d`. **Feature branch in validation, not published. No real Gemini/Groq inference has been authorized or performed.**
 
 ## Proven causes and limits before architecture changes
 
@@ -17,7 +17,7 @@ Dependency audit found the declared pdfplumber0.11.6/miner20250327 below the mai
 
 Renewed measurement with those exact patched versions, relative-font/paragraph hints and the same local file: 6.96 seconds; same70textpages/229422characters/2772blocks/62table rows and zero unmatched/extra alphanumeric characters per-page against the original pypdf baseline. These are two local runs, not a controlled performance benchmark or a production speed guarantee. Private intermediate output remains outside Git. Nine synthetic extraction/security/admission tests and nine pure semantic-gate tests passed; durable orchestration, provider simulations and product integration are not yet implemented/validated by those tests.
 
-## Planned contracts and risks
+## Implemented contracts and risks (feature branch)
 
 1. Validate/extract in a bounded subprocess before provider access. Preserve page/block text, ordering, bounding boxes, table cells and recurring header/footer hints in a versioned intermediate representation. Heuristics are routing hints, never verified facts. Encrypted/corrupt/oversized/resource-limited and OCR-required inputs have different safe diagnostics.
 2. Persist extracted input in PostgreSQL before acknowledging durable ingestion. Extracted text is resumable input, not durable original-PDF storage; the UI must not promise original download after restart. Hash/version dedup is account-scoped.
@@ -31,6 +31,62 @@ Renewed measurement with those exact patched versions, relative-font/paragraph h
 
 Local supplied PDF structural evidence plus heterogeneous fixtures must test extraction/layout, scanned and mixed pages, inventory before depth, bounded/truncated/invalid model output, provenance mismatches, incomplete coverage, ownership, replay/concurrency, worker loss/recovery, quota and human-version conflicts. Provider tests are mocked; real Gemini/Groq calls require separate express authorization and available quota. Report structural metrics separately from mock semantic results and real-provider validation, which remains unperformed until actually authorized/executed.
 
-Current local prototype evidence (not a release): six intake PostgreSQL tests preserve extracted input before acceptance, account/hash idempotency and parser fencing. Nine additional PostgreSQL tests cover semantic leases, concurrent claims, owner fairness before the discovery limit, per-model fallback budgets, missing/invalid evidence, interrupted-worker recovery, truncation splitting, cancellation/generation fences, and absence of a held SQL transaction during a mock provider wait. Fifty-four edital regression tests (including pre-existing cases) passed with patched PDF dependencies. New deterministic consolidation tests keep distinct roles from the same table cell, preserve explicit human corrections, flag contradictory dates/salaries, retain topic hierarchy and keep group weights/counts on their group. These synthetic/mocked results do not prove semantic generalization or real-provider success. The worker is not yet connected to the product orchestrator/routes; scope scheduling, human review/import safeguards, compatibility projection and responsive workspace remain required before a feature PR.
+Local evidence is recorded per command/commit before PR. An initial full run passed 451 PostgreSQL tests from an empty database with Alembic/model agreement, 230 backend regressions, 5 security tests, 12 protected-migration safety tests and 79 frontend unit tests. Subsequent targeted tests cover quota-selection bypass prevention, split verification, summary-only history, manual group rules and lexical retrieval/Agent context. Final totals/checks must be renewed for the submitted head. Synthetic fixtures/mock proposals do **not** prove semantic generalization or real-provider success.
+
+Latest local targeted run: 38 PostgreSQL edital tests, 232 backend regressions (including 63 edital cases and 10 actual parser tests), six mocked YouTube tests, clean lint/build, all 21 browser suites, plus a final recheck of the new workflow at all five widths after its last UI adjustment. The supplied private PDF was re-extracted with the final parser: same SHA above, 70 text pages, 229422 characters, 2772 blocks, no detected image pages, 9.16s in one local Windows run, **zero provider calls**. This is extraction evidence, not an AI completion rate or a production benchmark. Remote checks, Codex and protected migration approval are still pending.
+
+| Homologation axis | Executable evidence and limitation |
+|---|---|
+| Roles, specialties, shared/specific content, missing data, unknown structure | Semantic/consolidation/spec fixtures, exact source coverage and role ownership; these are annotated proposals, not proof that a provider discovers every role |
+| Tables, two columns, recurring margins and nontraditional headings | Generated PDF/layout fixtures and bounded semantic contracts; layout order remains a hint |
+| Scanned/mixed pages, digital header over scan, blank/low-text, encrypted/corrupt | Real local subprocess parser fixtures; no OCR service is claimed |
+| Annex-only candidates, groups versus disciplines, stage/group quantities/weights | Annex routing, section association, canonical compilation and SQL import tests; no total is multiplied across disciplines |
+| Long output, truncation, timeout, worker restart, reupload, concurrent users/jobs | Checkpoint/split/budget/lease/admission and HTTP tests against disposable PostgreSQL; provider IO mocked |
+| Human edits followed by reanalysis, confirmations and later imports | Owned revision/receipt conflicts, structural overlays, immutable audit snapshots, generation fences and program/XP dedup tests |
+| Complementary documents/rectifications | Typed unapplied relationship only; cross-document reconciliation explicitly deferred |
+
+Role/discipline/topic discovery recall, semantic association precision, factual hallucination rate, real-provider completion rate and real token cost are **unmeasured** without authorized provider runs. Automated coverage checks prove only that every supplied source ID is accounted for in a valid checkpoint, not that the model interpreted every fact correctly. No synthetic percentage is presented as calibrated confidence or generalization.
 
 Preserve full PostgreSQL/regression/security/frontend CI, all existing browser suites and new targeted five-width tests. Self-review before PR; clean exact-head Codex and four green checks. Any schema change uses protected production-migrations with mandatory owner approval, then expected-head merge, exact Vercel/Northflank deployments and read-only production checks. Notifications are implemented/released in a separate PR. No publication is claimed here.
+
+## Runtime and operational boundaries
+
+- `edital_pipeline_contracts.py`: canonical `edital/universal/6` and intermediate `pdf-layout/1`. `edital_semantics` checks exact primary coverage, cited values, role associations and topic ownership/hierarchy. A provider cannot write confirmed states or owner corrections.
+- `edital_pdf`: credential-free bounded parser child, patched parser dependencies, no original bytes persisted. Pages retain blocks, bounding boxes, cells, paragraph/numbering/column/continuation hints. OCR-required and low-text pages remain explicit. Layout hints are not evidence of semantic completeness.
+- `edital_pipeline_store/units/progress/specs/compile/worker`: owned IR, leased checkpoints, small source windows, semantic section associations, deterministic merging and bounded comparison units. The **existing** `EditalJobs` orchestrator injects the incremental handler; there is no second queue or planner. No database connection/transaction spans provider transport or parsing.
+- PDF limits: 20 MiB, 400 pages, 2 million extracted characters, 20,000 blocks; one admitted parser globally, two active analyses per account, 64 MiB extracted source storage per account. Parser child has a 60s deadline; cancelled HTTP intake keeps its 90s durable admission until expiry. An HTTP 202 is returned only after the IR commits; pre-IR replicas return 409.
+- Large raster regions lacking sufficient overlapping selectable text require OCR even if a digital header has more than fifty characters. Image/low-text pages are separately visible; detection remains a conservative heuristic. Small/complex image regions can still require manual inspection. Parser stderr is discarded, not accumulated or logged by the supervisor. Linux additionally limits child CPU/address space; Windows validation proves byte/output/deadline admission, not an OS memory isolation guarantee.
+- Primary extraction windows: 6,000 characters, at most 3,000 context characters, 3,072 output tokens; comparison output: 1,536 tokens. Prompt ceilings are 24,000/36,000 characters. Truncation splits extraction or comparison windows; completed leaves remain immutable. Scope-association units are separately bounded. Defaults: 120 provider attempts, explicit owner extension up to 200; three executions/twelve model calls per unit; 200 leaf checkpoints by default. These limits can cause a truthful pause/failure on a large/complex document; completion is not guaranteed.
+- Every actual fallback attempt reserves budget before external IO. Diagnostics distinguish last observed attempt from last validated model, show safe category/reference and provider-reported usage. Failed/unreported usage remains unknown. Diagnostics do not test providers or prove account/model/quota availability.
+
+## HTTP and review lifecycle
+
+Authenticated routes are under `/study/edital-pipeline`:
+
+| Action | Contract |
+|---|---|
+| POST PDF | Multipart `file`, optional `force`, mandatory UUID `Idempotency-Key`; lost-response recovery/account-scoped content reuse |
+| GET `/{id}` | Owned revision/ETag check before manifest/source loading; unchanged response 304, private/no-store |
+| GET `/{id}/source/{page}` | One owned extracted page, text/blocks/quality; not an original PDF download |
+| POST select-role/cancel/resume | Expected revision and UUID receipt, account serialization, safe lease fences; selection cannot bypass a provider/quota pause |
+| POST facts/general-facts/structure/rules | Explicit owner declarations and structural overlays, separate from automatic proposals; source alternatives/history retained |
+| POST binding/reanalyze | Explicit justified association/selected-section reanalysis; new generation fences old results, reuses unaffected completed leaves/checks, preserves corrections and cumulative budget; at most eight generations per role |
+| POST resolve/confirm/reopen | Justified human resolution and final attestation; no OCR gaps, unfinished leaves, ambiguous section associations/values, unresolved findings/issues or empty discipline content may be confirmed |
+| POST import | Confirmed content digest and owned area; one transactional catalog import, durable import/XP dedup, explicit consent for a separate revised program |
+| GET history/history/{audit} | Paginated small audit summaries; full immutable owned before/after snapshot loaded individually |
+
+States distinguish processing, provider wait, quota pause, review, completed **per selected role**, recoverable failure, cancellation and OCR required. Discovery remains exploratory even after its machine comparisons. An empty comparison finding list never confirms data. Human corrections require provenance notes and remain identifiable as human declarations. Confirmation snapshots and corrections are stored in the existing owned CommandAudit; reanalysis cannot silently overwrite them. Topic additions/removals/parent edits and rule additions/removals survive reanalysis through typed overlays.
+
+The workspace supports early role selection, real checkpoint counts, close/reload/resume, evidence/page views, field/structure/rule edits, source associations, pending findings, final confirmation and read-only diagnostics/history. The incremental-capable backend is preferred by the existing upload dialog; a pipeline failure never silently retries the monolithic provider request. Existing historical flows remain compatible. All 20 existing browser suites stay enabled; the 21st covers the new workflow/failures at 320/390/768/1024/1440 px with synthetic intercepted HTTP only.
+
+## Integration and preserved history
+
+Confirmed imports reuse `edital_programs.create`, StudyProgram/Target/Notebook/Topic and the existing planning engines. They do not ask an LLM for a weekly schedule or create fixed 08:00 commitments. Unknown discipline counts remain SQL NULL. Unknown weights use the legacy non-null internal neutral factor but are exposed as unknown, with no official weight/priority claim. Group/stage rules remain in canonical program metadata and are never allocated to individual disciplines without evidence. A personal study goal cannot become an official exam countdown; only an unambiguous confirmed date feeds that projection. Literal non-ISO dates remain visible for explicit correction.
+
+Canonical topics retain full hierarchy/provenance and stable canonical IDs. The existing two-level numeric public keys remain compatible through a flattened display projection, with the full parent relationships on StudyTopic and canonical metadata. Imports never overwrite an existing program/history; a changed confirmed version requires explicit separate-program consent. Repeated content or receipt replay cannot create another program or XP award, including another analysis of the same document; later versions of the same document/role do not award import XP again.
+
+Preparation/Adaptive/Global Planner receive existing canonical study records, known/unknown priority inputs and real histories. Agent selection carries explicit pipeline/confirmation limitations; owned extracted blocks remain available to the existing lexical retrieval service. Legacy review/import endpoints reject canonical edits/import bypasses. Legacy PDF deletion cannot remove newer incremental analyses sharing the same hash.
+
+Complementary-document relationships have a typed, owned, unapplied contract. Automatic reconciliation, cross-document amendments, OCR execution and semantic generalization with real providers are **not implemented/validated by this maintenance** and remain separate increments. No external URL in an edital is fetched or executed as an instruction. Large histories/analyses are paginated; original private PDFs, prompts, provider bodies and credentials are not logged or committed.
+
+Draft additive revision: `a61015ed902b`, parent `f13c8a7b902d`, owned checkpoint table/job lease token. It has only been applied to disposable local PostgreSQL. Production requires registry approval, protected workflow and mandatory owner Environment approval **before** feature merge. The fourteen-phase master plan is unchanged.
