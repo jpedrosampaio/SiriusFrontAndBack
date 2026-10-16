@@ -143,7 +143,7 @@ class PresentationReceipt(BaseModel):
 async def claim_presentation(request:Request):
     auth=await account(request)
     from services.notification_presentations import claim
-    return await claim(auth['user_id'],request.headers.get('Idempotency-Key'))
+    return {'user_id':auth['user_id'],**await claim(auth['user_id'],request.headers.get('Idempotency-Key'))}
 
 
 @router.post('/presentations/{identity}')

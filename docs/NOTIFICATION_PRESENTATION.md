@@ -18,6 +18,10 @@ Use bounded recent candidate selection, current rule/channel/quiet-hour checks, 
 
 Persist claim, grouped and rendered receipts in the owned in-app delivery history under account serialization; keep read/dismiss history. No provider text, credentials or personal facts go in presentation audit metadata. A replay only recovers the same brief claim window, never an already-rendered or obsolete popup. Noop polls do not create activity receipts. Manual reads retain existing idempotent receipt behavior.
 
+A lost claim response gets one same-key retry after one second, without spending its 30-second replay window reloading configuration. Claim responses identify their owner; an ownership change invalidates the shared UI session. Later failures return to normal polling and central history rather than an unbounded retry queue.
+
+Legacy scheduled reminders retain their due occurrence through quiet/offline periods. Missed repeats coalesce into the latest due date; a one-shot keeps its first date after creation. SQL applies ownership, recurrence/day, creation, occurrence and supported-channel eligibility before the 50-row limit. All dates use the account timezone, including DST. The client explicitly reports browser permission: browser-only reminders remain unclaimed without it, and unsupported channels are never silently consumed. Reminders with in-app enabled can still appear there without browser permission.
+
 One global manager owns polling/presentation. Serialize its requests, abort and fence on account change, suppress hidden-tab pop-ups, coordinate across tabs/devices through server claims, and render one compact automation/reminder toast with a central-history action. The notifications page manages reminders/history/preferences, not a second presentation poller. Browser permission remains explicit. Closing a toast is not read confirmation.
 
 ## Acceptance

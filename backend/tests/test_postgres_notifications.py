@@ -27,16 +27,65 @@ class Notifications(unittest.IsolatedAsyncioTestCase):
             await session.execute(insert(StoredPreferences).values(user_id=self.uid,settings={'quiet_start':0,'quiet_end':0})
                 .on_conflict_do_update(index_elements=['user_id'],set_={'settings':{'quiet_start':0,'quiet_end':0}}))
 
-    async def test_quiet_hours_prevent_claim_without_consuming_reminder(self):
-        row=await self.create(scheduled_time='23:59',repeat='daily')
+    async def test_quiet_hours_defer_one_shot_daily_weekly_and_claim_after_silence(self):
+        rows=[await self.create(scheduled_time='23:59',repeat=repeat,repeat_days=['sunday'] if repeat=='weekly' else [])
+            for repeat in ('none','daily','weekly')]
+        instant=datetime(2026,10,5,2,59,tzinfo=timezone.utc)
         async with unit_of_work() as session:
             prefs=await session.scalar(select(StoredPreferences).where(StoredPreferences.user_id==self.uid))
             prefs.settings={'quiet_start':22,'quiet_end':8}
-        with patch('services.notifications.utc_now',return_value=datetime(2026,10,5,2,59,tzinfo=timezone.utc)):
+            for row in rows:(await session.get(Notification,UUID(row['notification_id']))).created_at=instant-timedelta(minutes=10)
+        with patch('services.notifications.utc_now',return_value=instant):
             self.assertEqual(self.ok(await self.http.get('/api/notifications/check')),[])
         async with unit_of_work() as session:
-            saved=await session.get(Notification,UUID(row['notification_id']))
-            self.assertIsNone(saved.last_sent);self.assertIsNone(saved.last_occurrence)
+            for row in rows:
+                saved=await session.get(Notification,UUID(row['notification_id']))
+                self.assertIsNone(saved.last_sent);self.assertIsNone(saved.last_occurrence)
+        with patch('services.notifications.utc_now',return_value=datetime(2026,10,5,11,tzinfo=timezone.utc)):
+            results=[self.ok(r) for r in await asyncio.gather(*(self.http.get('/api/notifications/check') for _ in range(6)))]
+            self.assertEqual(sum(len(r) for r in results),3)
+            self.assertEqual({r['occurrence_date'] for batch in results for r in batch},{'2026-10-04'})
+        with patch('services.notifications.utc_now',return_value=datetime(2026,10,6,11,tzinfo=timezone.utc)):
+            self.assertEqual([r['repeat'] for r in self.ok(await self.http.get('/api/notifications/check'))],['daily'])
+        with patch('services.notifications.utc_now',return_value=datetime(2026,10,12,11,tzinfo=timezone.utc)):
+            self.assertEqual({r['repeat'] for r in self.ok(await self.http.get('/api/notifications/check'))},{'daily','weekly'})
+
+    async def test_browser_only_occurrence_waits_for_permission_and_other_channels_are_not_consumed(self):
+        instant=datetime(2026,10,15,12,tzinfo=timezone.utc)
+        browser=await self.create(scheduled_time='08:59',channels=['browser'])
+        email=await self.create(scheduled_time='08:59',channels=['email'])
+        async with unit_of_work() as session:
+            for row in (browser,email):(await session.get(Notification,UUID(row['notification_id']))).created_at=instant-timedelta(days=1)
+        with patch('services.notifications.utc_now',return_value=instant):
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check')),[])
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check?browser_allowed=true',headers={'Authorization':'Bearer bob'})),[])
+            values=self.ok(await self.http.get('/api/notifications/check?browser_allowed=true'))
+            self.assertEqual([r['notification_id'] for r in values],[browser['notification_id']])
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check?browser_allowed=true')),[])
+        async with unit_of_work() as session:
+            self.assertIsNone((await session.get(Notification,UUID(email['notification_id']))).last_sent)
+
+    async def test_future_rows_do_not_starve_old_due_one_shot_in_bounded_query(self):
+        instant=datetime(2026,10,15,12,tzinfo=timezone.utc)
+        old=await self.create(scheduled_time='08:30')
+        async with unit_of_work() as session:
+            (await session.get(Notification,UUID(old['notification_id']))).created_at=instant-timedelta(days=2,hours=2)
+            session.add_all([Notification(user_id=self.uid,title='Future',message='Not due',type='reminder',category='custom',
+                repeat='daily',scheduled_time=time(18),created_at=instant-timedelta(hours=1)) for _ in range(500)])
+        with patch('services.notifications.utc_now',return_value=instant):
+            values=self.ok(await self.http.get('/api/notifications/check'))
+            self.assertEqual([r['notification_id'] for r in values],[old['notification_id']])
+
+    async def test_ambiguous_dst_occurrence_is_claimed_once_in_account_timezone(self):
+        from db.models.identity import User
+        row=await self.create(scheduled_time='01:30',repeat='daily')
+        async with unit_of_work() as session:
+            (await session.get(User,self.uid)).timezone='America/New_York'
+            (await session.get(Notification,UUID(row['notification_id']))).created_at=datetime(2026,11,1,4,tzinfo=timezone.utc)
+        with patch('services.notifications.utc_now',return_value=datetime(2026,11,1,6,31,tzinfo=timezone.utc)):
+            self.assertEqual(len(self.ok(await self.http.get('/api/notifications/check?timezone_offset=999'))),1)
+        with patch('services.notifications.utc_now',return_value=datetime(2026,11,1,7,tzinfo=timezone.utc)):
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check')),[])
 
     async def create(self,**values):
         return self.ok(await self.http.post('/api/notifications',json={'title':'Reminder','message':'Study',**values}))
@@ -59,6 +108,8 @@ class Notifications(unittest.IsolatedAsyncioTestCase):
         instant=datetime(2026,10,5,2,59,tzinfo=timezone.utc) # Sunday 23:59, next slot Monday midnight
         row=await self.create(scheduled_time='00:00',repeat='weekly',repeat_days=['monday'])
         once=await self.create(scheduled_time='23:59')
+        async with unit_of_work() as session:
+            for value in (row,once):(await session.get(Notification,UUID(value['notification_id']))).created_at=instant-timedelta(minutes=10)
         with patch('services.notifications.utc_now',return_value=instant):
             results=[self.ok(r) for r in await asyncio.gather(*(self.http.get('/api/notifications/check?timezone_offset=0') for _ in range(6)))]
             self.assertEqual(sum(len(r) for r in results),2)

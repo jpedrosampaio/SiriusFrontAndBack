@@ -13,7 +13,7 @@ function Preview({ item, onRendered }) {
 
 export default function NotificationManager() {
   useEffect(() => {
-    let active = true, generation = 0, pending = false, timer, state, nextKey;
+    let active = true, generation = 0, pending = false, timer, state, nextKey, recoveryAttempts = 0;
     let abort = new AbortController(), shown = new Set(), nativeNotice;
     let toastId = `${NOTICE}-${crypto.randomUUID()}`;
     const current = stamp => active && generation === stamp && !abort.signal.aborted;
@@ -21,25 +21,29 @@ export default function NotificationManager() {
     const central = () => window.location.assign('/notifications');
     const closeNative = () => { if (nativeNotice) nativeNotice.close(); nativeNotice = null; };
     const action = stamp => ({ label: 'Ver na central', onClick: () => { if (current(stamp)) central(); } });
-    async function check() {
+    async function check(recovering = false) {
       if (!active || pending || document.visibilityState !== 'visible') return;
       pending = true;
       const stamp = generation;
+      let nextDelay = POLL_INTERVAL;
       try {
-        const configuration = await axios.get(`${API}/automations/state`, options());
-        if (!current(stamp)) return;
-        if (state?.user_id && state.user_id !== configuration.data?.user_id) { reset(); return; }
-        state = configuration.data;
+        if (!recovering || !state?.user_id || !nextKey) {
+          const configuration = await axios.get(`${API}/automations/state`, options());
+          if (!current(stamp)) return;
+          if (state?.user_id && state.user_id !== configuration.data?.user_id) { window.dispatchEvent(new Event('sirius-auth-changed')); return; }
+          state = configuration.data;
+        }
         // No personal notice before the server identifies the current account.
         if (typeof state?.user_id !== 'string') { state = null; return; }
         let item;
         if (state.enabled) {
-          nextKey ||= crypto.randomUUID();
+          if (!nextKey) { nextKey = crypto.randomUUID(); recoveryAttempts = 0; }
           const key = nextKey;
           const response = await axios.post(`${API}/automations/presentations/claim`, {}, {
             ...options(), headers: { 'Idempotency-Key': key },
           });
           if (!current(stamp)) return;
+          if (response.data?.user_id !== state.user_id) { window.dispatchEvent(new Event('sirius-auth-changed')); return; }
           item = response.data?.item;
           nextKey = null;
           if (item && !shown.has(item.delivery_id)) {
@@ -56,7 +60,8 @@ export default function NotificationManager() {
               duration: 6000, action: action(stamp) });
           }
         }
-        const response = await axios.get(`${API}/notifications/check`, options());
+        const browserAllowed = 'Notification' in window && Notification.permission === 'granted';
+        const response = await axios.get(`${API}/notifications/check`, { ...options(), params: { browser_allowed: browserAllowed } });
         if (!current(stamp)) return;
         const reminders = Array.isArray(response.data) ? response.data : [];
         const inApp = reminders.filter(n => n.channels?.includes('in_app'));
@@ -74,14 +79,19 @@ export default function NotificationManager() {
         }
       } catch (e) {
         // Keep an uncertain claim key; server history prevents automatic replays.
+        // One prompt retry fits the server's 30s recovery window even after the
+        // 15s request timeout. Further failures return to normal bounded polling.
+        if (nextKey && recoveryAttempts < 1 && (!e.response || e.response.status >= 500)) {
+          recoveryAttempts += 1; nextDelay = 1000;
+        }
         // Configuration and history failures remain visible in the central UI.
       } finally {
-        if (current(stamp)) { pending = false; clearTimeout(timer); timer = setTimeout(check, POLL_INTERVAL); }
+        if (current(stamp)) { pending = false; clearTimeout(timer); timer = setTimeout(() => check(nextDelay === 1000), nextDelay); }
       }
     }
     const reset = () => {
       generation += 1; abort.abort(); abort = new AbortController();
-      pending = false; state = null; nextKey = null; shown = new Set();
+      pending = false; state = null; nextKey = null; recoveryAttempts = 0; shown = new Set();
       clearTimeout(timer); toast.dismiss(toastId); toastId = `${NOTICE}-${crypto.randomUUID()}`; closeNative(); void check();
     };
     const visible = () => { if (document.visibilityState === 'visible') { clearTimeout(timer); void check(); } };

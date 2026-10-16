@@ -5,7 +5,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter,HTTPException,Request,Query
 from pydantic import BaseModel,Field,field_validator
-from sqlalchemy import select,or_,exists
+from sqlalchemy import select,or_,and_,exists,case,cast,Date,Time,func
 from db.session import unit_of_work
 from db.models.notifications import Notification,NotificationDelivery
 from db.models.studies import StudyProgram,StudySchedule,Notebook
@@ -99,22 +99,45 @@ async def create(request:Request,body:NotificationInput):
         return public(row)
 
 
-async def due(request,claim,window):
+def due_date(user,now,window):
+    """Latest due occurrence, including a durable backlog across quiet/offline time.
+
+    Repeats coalesce missed dates into their most recent occurrence. A one-shot
+    retains the first scheduled date after creation instead of being lost.
+    SQL filters eligibility before the bounded batch, so future reminders do
+    not occupy the result limit or starve currently due ones.
+    """
+    upper=now+timedelta(minutes=window)
+    day=upper.astimezone(ZoneInfo(user.timezone)).date()
+    created_local=func.timezone(user.timezone,Notification.created_at)
+    first=cast(created_local,Date).op('+')(case((Notification.scheduled_time<cast(created_local,Time),1),else_=0))
+    def scheduled(date_value):return func.timezone(user.timezone,date_value.op('+')(Notification.scheduled_time))
+    choices=[(and_(Notification.repeat=='none',Notification.last_sent.is_(None),scheduled(first)<=upper),first)]
+    for offset in range(8):
+        date_value=day-timedelta(days=offset);expression=cast(date_value,Date)
+        slot=scheduled(expression)
+        choices.append((and_(or_(Notification.repeat=='daily',and_(Notification.repeat.in_(('weekly','custom')),
+            Notification.repeat_days.contains([DAYS[date_value.weekday()]]))),
+            or_(Notification.last_occurrence.is_(None),Notification.last_occurrence<date_value),
+            Notification.created_at<=slot,slot<=upper),expression))
+    return case(*choices,else_=None)
+
+
+async def due(request,claim,window,browser_allowed=False):
     async with unit_of_work() as session:
-        user=await owner(request,session,claim);now=utc_now();local=now.astimezone(ZoneInfo(user.timezone))
+        user=await owner(request,session,claim);now=utc_now()
         prefs=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
         if quiet_at(now,user,prefs):return []
-        slots=[local+timedelta(minutes=n) for n in range(-window,window+1)]
-        rows=(await session.scalars(select(Notification).where(Notification.user_id==user.id,Notification.enabled.is_(True),
-            Notification.scheduled_time.in_([s.time().replace(second=0,microsecond=0,tzinfo=None) for s in slots]),*active()).order_by(Notification.created_at,Notification.id))).all()
+        occurrence=due_date(user,now,window)
+        channels=[] if not claim else [or_(Notification.channels.contains(['in_app']),
+            and_(browser_allowed,Notification.channels.contains(['browser'])))]
+        rows=(await session.execute(select(Notification,occurrence.label('occurrence')).where(Notification.user_id==user.id,
+            Notification.enabled.is_(True),Notification.scheduled_time.is_not(None),occurrence.is_not(None),*channels,*active())
+            .order_by(occurrence.desc(),Notification.scheduled_time.desc(),Notification.created_at.desc(),Notification.id.desc()).limit(50))).all()
         result=[]
-        for row in rows:
-            slot=next(s for s in slots if s.hour==row.scheduled_time.hour and s.minute==row.scheduled_time.minute)
-            if row.repeat=='none' and row.last_sent:continue
-            if row.last_occurrence and row.last_occurrence>=slot.date():continue
-            if row.repeat in ('weekly','custom') and DAYS[slot.weekday()] not in row.repeat_days:continue
-            result.append(public(row))
-            if claim:row.last_sent=now;row.last_occurrence=slot.date()
+        for row,slot_day in rows:
+            result.append({**public(row),'occurrence_date':slot_day.isoformat()})
+            if claim:row.last_sent=now;row.last_occurrence=slot_day
         return result
 
 
@@ -123,9 +146,9 @@ async def pending(request:Request):return await due(request,False,0)
 
 
 @router.get('/notifications/check')
-async def check(request:Request,timezone_offset:int=0):
+async def check(request:Request,timezone_offset:int=0,browser_allowed:bool=False):
     # Compatibility parameter: persisted IANA timezone handles DST consistently.
-    return await due(request,True,1)
+    return await due(request,True,1,browser_allowed)
 
 
 @router.patch('/notifications/{notification_id}')
