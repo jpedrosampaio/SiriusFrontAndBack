@@ -99,7 +99,7 @@ async def create(request:Request,body:NotificationInput):
         return public(row)
 
 
-def due_date(user,now,window):
+def due_date(user,now,window,prefs):
     """Latest due occurrence, including a durable backlog across quiet/offline time.
 
     Repeats coalesce missed dates into their most recent occurrence. A one-shot
@@ -108,9 +108,14 @@ def due_date(user,now,window):
     not occupy the result limit or starve currently due ones.
     """
     upper=now+timedelta(minutes=window)
+    # Lookahead must not reserve a future occurrence whose quiet period has
+    # not started yet. Past deferred occurrences remain eligible after silence.
+    if window and quiet_at(upper,user,prefs):upper=now
     day=upper.astimezone(ZoneInfo(user.timezone)).date()
     created_local=func.timezone(user.timezone,Notification.created_at)
-    first=cast(created_local,Date).op('+')(case((Notification.scheduled_time<cast(created_local,Time),1),else_=0))
+    # Inputs have HH:MM precision: creating a reminder during that same minute
+    # must not push a one-shot to the following day because of server seconds.
+    first=cast(created_local,Date).op('+')(case((Notification.scheduled_time<cast(func.date_trunc('minute',created_local),Time),1),else_=0))
     def scheduled(date_value):return func.timezone(user.timezone,date_value.op('+')(Notification.scheduled_time))
     choices=[(and_(Notification.repeat=='none',Notification.last_sent.is_(None),scheduled(first)<=upper),first)]
     for offset in range(8):
@@ -128,7 +133,7 @@ async def due(request,claim,window,browser_allowed=False):
         user=await owner(request,session,claim);now=utc_now()
         prefs=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
         if quiet_at(now,user,prefs):return []
-        occurrence=due_date(user,now,window)
+        occurrence=due_date(user,now,window,prefs)
         channels=[] if not claim else [or_(Notification.channels.contains(['in_app']),
             and_(browser_allowed,Notification.channels.contains(['browser'])))]
         rows=(await session.execute(select(Notification,occurrence.label('occurrence')).where(Notification.user_id==user.id,

@@ -65,6 +65,27 @@ class Notifications(unittest.IsolatedAsyncioTestCase):
         async with unit_of_work() as session:
             self.assertIsNone((await session.get(Notification,UUID(email['notification_id']))).last_sent)
 
+    async def test_lookahead_cannot_cross_into_quiet_hours_or_starve_already_due_rows(self):
+        instant=datetime(2026,10,16,0,59,tzinfo=timezone.utc) # 21:59 in the account timezone
+        future=await self.create(scheduled_time='22:00')
+        past=await self.create(scheduled_time='21:58')
+        async with unit_of_work() as session:
+            prefs=await session.scalar(select(StoredPreferences).where(StoredPreferences.user_id==self.uid))
+            prefs.settings={'quiet_start':22,'quiet_end':8}
+            for row in (future,past):(await session.get(Notification,UUID(row['notification_id']))).created_at=instant-timedelta(minutes=10)
+            session.add_all([Notification(user_id=self.uid,title='Future quiet slot',message='Defer',type='reminder',category='custom',
+                repeat='daily',scheduled_time=time(22),created_at=instant-timedelta(minutes=9)) for _ in range(50)])
+        with patch('services.notifications.utc_now',return_value=instant):
+            self.assertEqual([r['notification_id'] for r in self.ok(await self.http.get('/api/notifications/check'))],[past['notification_id']])
+        with patch('services.notifications.utc_now',return_value=instant+timedelta(minutes=1)):
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check')),[])
+        async with unit_of_work() as session:self.assertIsNone((await session.get(Notification,UUID(future['notification_id']))).last_sent)
+        with patch('services.notifications.utc_now',return_value=datetime(2026,10,16,11,tzinfo=timezone.utc)):
+            values=[*self.ok(await self.http.get('/api/notifications/check')),*self.ok(await self.http.get('/api/notifications/check'))]
+            self.assertEqual(len(values),51)
+            self.assertEqual({r['occurrence_date'] for r in values},{'2026-10-15'})
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check')),[])
+
     async def test_future_rows_do_not_starve_old_due_one_shot_in_bounded_query(self):
         instant=datetime(2026,10,15,12,tzinfo=timezone.utc)
         old=await self.create(scheduled_time='08:30')
@@ -75,6 +96,16 @@ class Notifications(unittest.IsolatedAsyncioTestCase):
         with patch('services.notifications.utc_now',return_value=instant):
             values=self.ok(await self.http.get('/api/notifications/check'))
             self.assertEqual([r['notification_id'] for r in values],[old['notification_id']])
+
+    async def test_one_shot_created_during_its_scheduled_minute_is_not_delayed_a_day(self):
+        instant=datetime(2026,10,15,12,0,45,tzinfo=timezone.utc)
+        row=await self.create(scheduled_time='09:00')
+        async with unit_of_work() as session:(await session.get(Notification,UUID(row['notification_id']))).created_at=instant-timedelta(seconds=15)
+        with patch('services.notifications.utc_now',return_value=instant):
+            values=self.ok(await self.http.get('/api/notifications/check'))
+            self.assertEqual([r['notification_id'] for r in values],[row['notification_id']])
+            self.assertEqual(values[0]['occurrence_date'],'2026-10-15')
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check')),[])
 
     async def test_ambiguous_dst_occurrence_is_claimed_once_in_account_timezone(self):
         from db.models.identity import User
