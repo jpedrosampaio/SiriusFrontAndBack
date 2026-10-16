@@ -107,6 +107,94 @@ class Notifications(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(values[0]['occurrence_date'],'2026-10-15')
             self.assertEqual(self.ok(await self.http.get('/api/notifications/check')),[])
 
+    async def native_row(self):
+        instant=datetime(2026,10,15,12,tzinfo=timezone.utc)
+        row=await self.create(scheduled_time='08:59',channels=['browser'])
+        async with unit_of_work() as session:
+            (await session.get(Notification,UUID(row['notification_id']))).created_at=instant-timedelta(days=1)
+        return row,instant
+
+    async def test_native_reservation_confirmation_and_lost_ack_are_separate_and_idempotent(self):
+        row,instant=await self.native_row()
+        with patch('services.notifications.utc_now',return_value=instant):
+            values=[self.ok(r) for r in await asyncio.gather(*(self.http.get('/api/notifications/check?browser_allowed=true') for _ in range(5)))]
+            self.assertEqual(sum(map(len,values)),1)
+            claim=next(batch[0]['native_claim'] for batch in values if batch)
+            async with unit_of_work() as session:
+                saved=await session.get(Notification,UUID(row['notification_id']))
+                self.assertIsNone(saved.last_sent);self.assertIsNone(saved.last_occurrence)
+            listing=self.ok(await self.http.get('/api/notifications'))[0]
+            self.assertEqual(listing['native_presentation']['state'],'reserved')
+            self.assertNotIn('claim_id',listing['native_presentation'])
+            ack={'claims':[claim],'outcome':'accepted'}
+            for response in await asyncio.gather(*(self.http.post('/api/notifications/native-presentations',json=ack) for _ in range(4))):self.ok(response)
+            self.assertEqual(self.ok(await self.http.get('/api/notifications/check?browser_allowed=true')),[])
+            self.assertEqual((await self.http.post('/api/notifications/native-presentations',json={**ack,'outcome':'failed'})).status_code,409)
+        async with unit_of_work() as session:
+            saved=await session.get(Notification,UUID(row['notification_id']));self.assertEqual(saved.last_sent,instant)
+            self.assertEqual(await session.scalar(select(func.count()).select_from(NotificationDelivery).where(NotificationDelivery.user_id==self.uid)),1)
+
+    async def test_failed_native_attempt_preserves_occurrence_for_another_capable_device_and_fences_old_nonce(self):
+        row,instant=await self.native_row()
+        with patch('services.notifications.utc_now',return_value=instant):
+            old=self.ok(await self.http.get('/api/notifications/check?browser_allowed=true'))[0]['native_claim']
+            self.ok(await self.http.post('/api/notifications/native-presentations',json={'claims':[old],'outcome':'failed'}))
+            async with unit_of_work() as session:self.assertIsNone((await session.get(Notification,UUID(row['notification_id']))).last_sent)
+            new=self.ok(await self.http.get('/api/notifications/check?browser_allowed=true'))[0]['native_claim']
+            self.assertNotEqual(old['claim_id'],new['claim_id'])
+            self.assertEqual((await self.http.post('/api/notifications/native-presentations',json={'claims':[old],'outcome':'accepted'})).status_code,409)
+            self.ok(await self.http.post('/api/notifications/native-presentations',json={'claims':[new],'outcome':'accepted'}))
+
+    async def test_native_batch_foreign_owner_rolls_back_all_acknowledgements(self):
+        from uuid import uuid4
+        row,instant=await self.native_row()
+        with patch('services.notifications.utc_now',return_value=instant):
+            claim=self.ok(await self.http.get('/api/notifications/check?browser_allowed=true'))[0]['native_claim']
+            foreign={**claim,'notification_id':str(uuid4())}
+            self.assertEqual((await self.http.post('/api/notifications/native-presentations',json={'claims':[claim,foreign],'outcome':'accepted'})).status_code,404)
+            self.assertEqual((await self.http.post('/api/notifications/native-presentations',headers={'Authorization':'Bearer bob'},json={'claims':[claim],'outcome':'accepted'})).status_code,404)
+            async with unit_of_work() as session:self.assertIsNone((await session.get(Notification,UUID(row['notification_id']))).last_sent)
+            self.assertEqual(self.ok(await self.http.get('/api/notifications'))[0]['native_presentation']['state'],'reserved')
+
+    async def test_native_uncertain_retry_requires_explicit_risk_and_preserves_history(self):
+        from uuid import uuid4
+        from db.models.identity import ActivityReceipt
+        row,instant=await self.native_row()
+        with patch('services.notifications.utc_now',return_value=instant):
+            claim=self.ok(await self.http.get('/api/notifications/check?browser_allowed=true'))[0]['native_claim']
+            self.ok(await self.http.post('/api/notifications/native-presentations',json={'claims':[claim],'outcome':'uncertain'}))
+            prior=self.ok(await self.http.get('/api/notifications'))[0]['native_presentation']
+            url='/api/notifications/'+row['notification_id']+'/retry-native'
+            body={'occurrence':prior['occurrence'],'attempted_at':prior['attempted_at']}
+            self.assertEqual((await self.http.post(url,json=body,headers={'Idempotency-Key':str(uuid4())})).status_code,409)
+            headers={'Idempotency-Key':str(uuid4())};body['duplicate_risk_accepted']=True
+            first=self.ok(await self.http.post(url,json=body,headers=headers))
+            replay=self.ok(await self.http.post(url,json=body,headers=headers))
+            self.assertEqual(first['item']['native_claim'],replay['item']['native_claim'])
+            self.assertNotEqual(first['item']['native_claim']['claim_id'],claim['claim_id'])
+            self.assertEqual((await self.http.post('/api/notifications/native-presentations',json={'claims':[claim],'outcome':'accepted'})).status_code,409)
+        async with unit_of_work() as session:
+            ledger=await session.scalar(select(ActivityReceipt).where(ActivityReceipt.user_id==self.uid,ActivityReceipt.request_key.like('native_notice_%')))
+            self.assertEqual([h['state'] for h in ledger.result['history']],['reserved','uncertain','reserved'])
+
+    async def test_native_reserved_rows_do_not_starve_other_channels_and_failures_have_bounded_retries(self):
+        _,instant=await self.native_row()
+        async with unit_of_work() as session:
+            session.add_all([Notification(user_id=self.uid,title='Native',message='Private',type='reminder',category='custom',
+                channels=['browser'],repeat='none',scheduled_time=time(8,59),created_at=instant-timedelta(days=1)) for _ in range(50)])
+        with patch('services.notifications.utc_now',return_value=instant):
+            first=self.ok(await self.http.get('/api/notifications/check?browser_allowed=true'))
+            second=self.ok(await self.http.get('/api/notifications/check?browser_allowed=true'))
+            self.assertEqual(len(first),50);self.assertEqual(len(second),1)
+            claim=second[0]['native_claim']
+            for attempt in range(3):
+                self.ok(await self.http.post('/api/notifications/native-presentations',json={'claims':[claim],'outcome':'failed'}))
+                values=self.ok(await self.http.get('/api/notifications/check?browser_allowed=true'))
+                if attempt<2:claim=values[0]['native_claim']
+                else:self.assertEqual(values,[])
+            async with unit_of_work() as session:
+                self.assertEqual(await session.scalar(select(func.count()).select_from(Notification).where(Notification.user_id==self.uid,Notification.last_sent.is_not(None))),0)
+
     async def test_ambiguous_dst_occurrence_is_claimed_once_in_account_timezone(self):
         from db.models.identity import User
         row=await self.create(scheduled_time='01:30',repeat='daily')

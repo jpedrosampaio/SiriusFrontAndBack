@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/api";
-import { useEffect, useState, useCallback, lazy, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, lazy, Suspense } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +43,8 @@ export default function Notifications() {
   const [activeTab, setActiveTab] = useState("active");
   const [browserPermission, setBrowserPermission] = useState("default");
   const [recentAlerts, setRecentAlerts] = useState([]);
+  const [retrying, setRetrying] = useState(null);
+  const retryKeys = useRef(new Map());
   
   const [newNotification, setNewNotification] = useState({
     title: "",
@@ -98,6 +100,7 @@ export default function Notifications() {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
     const load = async () => {
       try {
         const [userRes, notifsRes, templatesRes] = await Promise.all([
@@ -105,6 +108,7 @@ export default function Notifications() {
           axios.get(`${API}/notifications`, { withCredentials: true }),
           axios.get(`${API}/notification-templates`, { withCredentials: true })
         ]);
+        if (!mounted) return;
         setUser(userRes.data);
         setNotifications(Array.isArray(notifsRes.data) ? notifsRes.data : []);
         setTemplates(Array.isArray(templatesRes.data) ? templatesRes.data : []);
@@ -116,7 +120,34 @@ export default function Notifications() {
     if ("Notification" in window) {
       setBrowserPermission(Notification.permission);
     }
+    const refresh = () => { void axios.get(`${API}/notifications`, { withCredentials: true }).then(response => {
+      if (mounted) setNotifications(Array.isArray(response.data) ? response.data : []);
+    }).catch(() => {}); };
+    window.addEventListener('sirius-native-status-changed', refresh);
+    return () => { mounted = false; window.removeEventListener('sirius-native-status-changed', refresh); };
   }, []);
+
+  const retryNative = async notif => {
+    if (retrying) return;
+    if (!("Notification" in window) || Notification.permission !== 'granted') {
+      toast.error('Ative a permissão de notificações do navegador antes de tentar.'); return;
+    }
+    const prior = notif.native_presentation;
+    const risk = prior.state !== 'failed';
+    if (risk && !window.confirm('O navegador pode ter apresentado a tentativa anterior sem confirmar. Tentar novamente pode repetir o aviso. Continuar?')) return;
+    const identity = `${notif.notification_id}-${prior.attempted_at}`;
+    if (!retryKeys.current.has(identity)) retryKeys.current.set(identity, crypto.randomUUID());
+    setRetrying(notif.notification_id);
+    try {
+      const response = await axios.post(`${API}/notifications/${notif.notification_id}/retry-native`, {
+        occurrence: prior.occurrence, attempted_at: prior.attempted_at, duplicate_risk_accepted: risk,
+      }, { withCredentials: true, headers: { 'Idempotency-Key': retryKeys.current.get(identity) } });
+      if (response.data.user_id !== user?.user_id) return;
+      window.dispatchEvent(new CustomEvent('sirius-native-retry', { detail: response.data }));
+      retryKeys.current.delete(identity);
+    } catch (error) { toast.error(error.response?.data?.detail || 'Tentativa não confirmada. Tente novamente.'); }
+    finally { setRetrying(null); }
+  };
 
   const requestBrowserPermission = async () => {
     if ("Notification" in window) {
@@ -377,6 +408,14 @@ export default function Notifications() {
                             </Button>
                           </div>
                         </div>
+                        {notif.native_presentation && <div className="mt-3 text-sm text-[#A1A1AA] space-y-2">
+                          <p>{notif.native_presentation.state === 'accepted' ? 'Aviso aceito pelo navegador; isso não confirma leitura.' :
+                            notif.native_presentation.state === 'failed' ? 'O navegador recusou o aviso. O lembrete foi preservado.' :
+                              'Tentativa sem confirmação. O aviso pode ter aparecido no navegador.'}</p>
+                          <p>Ocorrência: {notif.native_presentation.occurrence} · Tentativas: {notif.native_presentation.attempts}</p>
+                          {notif.native_presentation.state !== 'accepted' && notif.enabled &&
+                            <Button variant="outline" size="sm" disabled={!!retrying} onClick={() => retryNative(notif)}>Tentar aviso no navegador</Button>}
+                        </div>}
                       </Card>
                     );
                   })

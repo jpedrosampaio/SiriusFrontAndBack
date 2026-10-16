@@ -14,6 +14,8 @@ from services.auth_routes import account
 from ai.actions import Preferences
 from db.repositories.agent import AgentRepository
 from services.event_queue import quiet_at
+from services import notification_native as native
+from db.activity import run_activity
 
 router=APIRouter()
 DAYS=['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
@@ -89,7 +91,8 @@ def active():
 async def listing(request:Request):
     async with unit_of_work() as session:
         user=await owner(request,session)
-        return [public(n) for n in (await session.scalars(select(Notification).where(Notification.user_id==user.id,*active()).order_by(Notification.created_at,Notification.id))).all()]
+        presentations=await native.latest(session,user.id)
+        return [{**public(n),'native_presentation':presentations.get(str(n.id))} for n in (await session.scalars(select(Notification).where(Notification.user_id==user.id,*active()).order_by(Notification.created_at,Notification.id))).all()]
 
 
 @router.post('/notifications')
@@ -135,14 +138,21 @@ async def due(request,claim,window,browser_allowed=False):
         if quiet_at(now,user,prefs):return []
         occurrence=due_date(user,now,window,prefs)
         channels=[] if not claim else [or_(Notification.channels.contains(['in_app']),
-            and_(browser_allowed,Notification.channels.contains(['browser'])))]
+            and_(browser_allowed,Notification.channels.contains(['browser']),~native.unavailable(occurrence)))]
         rows=(await session.execute(select(Notification,occurrence.label('occurrence')).where(Notification.user_id==user.id,
             Notification.enabled.is_(True),Notification.scheduled_time.is_not(None),occurrence.is_not(None),*channels,*active())
             .order_by(occurrence.desc(),Notification.scheduled_time.desc(),Notification.created_at.desc(),Notification.id.desc()).limit(50))).all()
         result=[]
         for row,slot_day in rows:
-            result.append({**public(row),'occurrence_date':slot_day.isoformat()})
-            if claim:row.last_sent=now;row.last_occurrence=slot_day
+            item={**public(row),'occurrence_date':slot_day.isoformat()}
+            if claim:
+                if 'in_app' in row.channels:
+                    row.last_sent=now;row.last_occurrence=slot_day
+                else:
+                    reservation=await native.reserve(session,row,slot_day,now)
+                    if reservation is None:continue
+                    item['native_claim']=reservation
+            result.append(item)
         return result
 
 
@@ -154,6 +164,40 @@ async def pending(request:Request):return await due(request,False,0)
 async def check(request:Request,timezone_offset:int=0,browser_allowed:bool=False):
     # Compatibility parameter: persisted IANA timezone handles DST consistently.
     return await due(request,True,1,browser_allowed)
+
+
+@router.post('/notifications/native-presentations')
+async def native_outcome(request:Request,body:native.NativeOutcome):
+    async with unit_of_work() as session:
+        user=await owner(request,session,True);now=utc_now();items=[]
+        for claim in body.claims:
+            row=await owned(session,user.id,claim.notification_id)
+            items.append(await native.finish(session,row,claim,body.outcome,now))
+        return {'user_id':str(user.id),'items':items}
+
+
+@router.post('/notifications/{notification_id}/retry-native')
+async def retry_native(request:Request,notification_id:str,body:native.NativeRetry):
+    auth=await account(request);uid=UUID(auth['user_id']);key=request.headers.get('Idempotency-Key')
+    try:UUID(key)
+    except (ValueError,TypeError):raise HTTPException(422,'Idempotency-Key UUID required')
+    async def apply(session,user):
+        row=await owned(session,user.id,notification_id)
+        if not row.enabled or 'browser' not in row.channels or 'in_app' in row.channels:
+            raise HTTPException(409,'Lembrete não elegível para aviso nativo')
+        if not await session.scalar(select(Notification.id).where(Notification.user_id==user.id,Notification.id==row.id,*active())):
+            raise HTTPException(409,'Origem do lembrete não está ativa')
+        prefs=Preferences.model_validate(await AgentRepository(session).preferences(user.id))
+        if quiet_at(utc_now(),user,prefs):raise HTTPException(409,'Horário de silêncio ativo')
+        slot=await native.receipt(session,user.id,row.id,body.occurrence)
+        if slot is None or slot.result['attempted_at']!=body.attempted_at.isoformat():
+            raise HTTPException(409,'Atualize a central antes de tentar novamente')
+        if slot.result['state']=='accepted':raise HTTPException(409,'Aviso já aceito pelo navegador')
+        if slot.result['state']!='failed' and not body.duplicate_risk_accepted:
+            raise HTTPException(409,'A tentativa anterior pode ter aparecido. Confirme o risco de repetição')
+        slot.result=native.reserve_result(row.id,body.occurrence,utc_now(),slot.result,manual=True)
+        return {'user_id':str(user.id),'item':{**public(row),'native_claim':native.claim(slot.result)}}
+    return await run_activity(uid,key,['retry_native',notification_id,body.model_dump(mode='json')],apply)
 
 
 @router.patch('/notifications/{notification_id}')

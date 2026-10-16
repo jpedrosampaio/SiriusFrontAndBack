@@ -115,6 +115,7 @@ self.addEventListener('push', (event) => {
 // Notification click
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/';
-  event.waitUntil(self.clients.openWindow(url));
+  if (event.action === 'close') return;
+  // Notification payloads cannot redirect a signed-in user off origin.
+  event.waitUntil(self.clients.openWindow('/notifications'));
 });

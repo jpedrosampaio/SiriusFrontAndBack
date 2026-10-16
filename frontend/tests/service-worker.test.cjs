@@ -43,7 +43,7 @@ function harness(network = async () => new Response('online')) {
       location: { origin: 'https://app.test' },
       addEventListener(name, fn) { listeners[name] = fn; },
       async skipWaiting() { calls.skipped = true; },
-      clients: { async claim() { calls.claimed = true; } }
+      clients: { async claim() { calls.claimed = true; }, async openWindow(url) { calls.opened = url; } }
     },
     caches, URL, Response, console,
     fetch: async (request, options) => {
@@ -57,7 +57,7 @@ function harness(network = async () => new Response('online')) {
       const pending = [];
       let response;
       listeners[name]({
-        request,
+        request, ...(name === 'notificationclick' ? request : {}),
         waitUntil(promise) { pending.push(promise); },
         respondWith(promise) { response = promise; }
       });
@@ -72,6 +72,15 @@ function request(url, options = {}) {
            headers: new Headers(options.headers) };
 }
 const offline = async () => { throw new TypeError('Network unavailable'); };
+
+test('native click opens only the central and close action never navigates', async () => {
+  const h = harness(); let closed = 0;
+  await h.dispatch('notificationclick', { notification: { data: { url: 'https://untrusted.test' }, close() { closed++; } } });
+  assert.equal(h.calls.opened, '/notifications'); assert.equal(closed, 1);
+  delete h.calls.opened;
+  await h.dispatch('notificationclick', { action: 'close', notification: { close() { closed++; } } });
+  assert.equal(h.calls.opened, undefined); assert.equal(closed, 2);
+});
 
 test('activation purges all old Sirius private/static caches but preserves unrelated caches', async () => {
   const h = harness();

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
+import { presentNativeNotice } from '@/lib/native-notice';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const NOTICE = 'sirius-owned-notice';
@@ -15,12 +16,32 @@ export default function NotificationManager() {
   useEffect(() => {
     let active = true, generation = 0, pending = false, timer, state, nextKey, recoveryAttempts = 0;
     let abort = new AbortController(), shown = new Set(), nativeNotice;
+    let nativeCapable = true, nativeAcks = [], manualItems = [], nativeClaims = new Set();
     let toastId = `${NOTICE}-${crypto.randomUUID()}`;
     const current = stamp => active && generation === stamp && !abort.signal.aborted;
     const options = () => ({ withCredentials: true, signal: abort.signal, timeout: 15000 });
     const central = () => window.location.assign('/notifications');
     const closeNative = () => { if (nativeNotice) nativeNotice.close(); nativeNotice = null; };
     const action = stamp => ({ label: 'Ver na central', onClick: () => { if (current(stamp)) central(); } });
+    async function flushNative(stamp) {
+      for (const entry of nativeAcks.slice(0, 1)) {
+        if (!current(stamp)) return;
+        try {
+          await axios.post(`${API}/notifications/native-presentations`, entry, options());
+          if (!current(stamp)) return;
+          nativeAcks = nativeAcks.filter(value => value !== entry);
+          window.dispatchEvent(new Event('sirius-native-status-changed'));
+        } catch (error) {
+          if (current(stamp) && [404, 409].includes(error.response?.status)) {
+            // Deleted/stale reservations cannot be acknowledged. The central
+            // retains any unresolved peers; never retry the OS presentation.
+            nativeAcks = nativeAcks.filter(value => value !== entry);
+            window.dispatchEvent(new Event('sirius-native-status-changed'));
+          }
+          // Transient failure retains the ACK and pauses new native claims.
+        }
+      }
+    }
     async function check(recovering = false) {
       if (!active || pending || document.visibilityState !== 'visible') return;
       pending = true;
@@ -35,6 +56,8 @@ export default function NotificationManager() {
         }
         // No personal notice before the server identifies the current account.
         if (typeof state?.user_id !== 'string') { state = null; return; }
+        await flushNative(stamp);
+        if (!current(stamp)) return;
         let item, presentationKey;
         if (state.enabled) {
           if (!nextKey) { nextKey = crypto.randomUUID(); recoveryAttempts = 0; }
@@ -48,7 +71,7 @@ export default function NotificationManager() {
           presentationKey = key;
           nextKey = null;
         }
-        const browserAllowed = 'Notification' in window && Notification.permission === 'granted';
+        const browserAllowed = nativeCapable && !nativeAcks.length && 'Notification' in window && Notification.permission === 'granted';
         let reminders = [];
         try {
           const response = await axios.get(`${API}/notifications/check`, { ...options(), params: { browser_allowed: browserAllowed } });
@@ -70,15 +93,31 @@ export default function NotificationManager() {
             duration: 6000, action: action(stamp) });
         } else if (inApp.length) toast(inApp.length > 1 ? `${inApp.length} lembretes disponíveis` : inApp[0].title,
           { id: toastId, description: 'Confira os detalhes na central de Notificações.', duration: 6000, action: action(stamp) });
-        const browser = reminders.filter(n => n.channels?.includes('browser'));
+        const manuallyRequested = manualItems.filter(n => n.user_id === state.user_id);
+        manualItems = [];
+        const browser = [...reminders, ...manuallyRequested].filter(n => n.channels?.includes('browser') &&
+          (!n.native_claim || !nativeClaims.has(n.native_claim.claim_id)));
         // Permission is requested only by the explicit control in Notifications.
         if (browser.length && 'Notification' in window && Notification.permission === 'granted') {
           closeNative();
-          nativeNotice = new Notification(browser.length > 1 ? `${browser.length} lembretes disponíveis` : browser[0].title,
-            { body: 'Confira os detalhes na central de Notificações.', tag: NOTICE, icon: '/favicon.ico' });
-          const notice = nativeNotice;
-          notice.onclick = () => { if (current(stamp)) { window.focus(); central(); } notice.close(); };
-          setTimeout(() => notice.close(), 6000);
+          const claims = browser.map(n => n.native_claim).filter(Boolean);
+          claims.forEach(claim => nativeClaims.add(claim.claim_id));
+          const result = await presentNativeNotice(browser.length > 1 ? `${browser.length} lembretes disponíveis` : browser[0].title,
+            { body: 'Confira os detalhes na central de Notificações.', tag: `${NOTICE}-${state.user_id}`, icon: '/favicon.ico',
+              data: { presentation_token: crypto.randomUUID(), url: '/notifications' } },
+            () => current(stamp), () => { window.focus(); central(); });
+          if (!current(stamp)) { result.close(); return; }
+          nativeNotice = result;
+          if (result.outcome === 'accepted') setTimeout(() => result.close(), 6000);
+          else {
+            nativeCapable = false;
+            toast.error('Aviso do navegador não confirmado', { id: `${toastId}-native-error`,
+              description: 'O lembrete foi preservado. Confira a tentativa na central.', action: action(stamp) });
+          }
+          if (claims.length) {
+            nativeAcks.push({ claims, outcome: result.outcome });
+            await flushNative(stamp);
+          }
         }
       } catch (e) {
         // Keep an uncertain claim key; server history prevents automatic replays.
@@ -89,28 +128,35 @@ export default function NotificationManager() {
         }
         // Configuration and history failures remain visible in the central UI.
       } finally {
-        if (current(stamp)) { pending = false; clearTimeout(timer); timer = setTimeout(() => check(nextDelay === 1000), nextDelay); }
+        if (current(stamp)) { pending = false; clearTimeout(timer); timer = setTimeout(() => check(nextDelay === 1000), manualItems.length ? 0 : nextDelay); }
       }
     }
     const reset = () => {
       generation += 1; abort.abort(); abort = new AbortController();
       pending = false; state = null; nextKey = null; recoveryAttempts = 0; shown = new Set();
-      clearTimeout(timer); toast.dismiss(toastId); toastId = `${NOTICE}-${crypto.randomUUID()}`; closeNative(); void check();
+      nativeCapable = true; nativeAcks = []; manualItems = []; nativeClaims = new Set();
+      clearTimeout(timer); toast.dismiss(toastId); toast.dismiss(`${toastId}-native-error`); toastId = `${NOTICE}-${crypto.randomUUID()}`; closeNative(); void check();
     };
     const visible = () => { if (document.visibilityState === 'visible') { clearTimeout(timer); void check(); } };
     const storage = event => { if (event.key === 'sirius_session_token' || event.key === null) reset(); };
+    const manual = event => {
+      if (!event.detail?.item || event.detail.user_id !== state?.user_id) return;
+      nativeCapable = true; manualItems.push(event.detail.item); clearTimeout(timer); void check();
+    };
     window.addEventListener('sirius-auth-changed', reset);
     window.addEventListener('sirius-automations-changed', reset);
     window.addEventListener('storage', storage);
     window.addEventListener('online', visible);
+    window.addEventListener('sirius-native-retry', manual);
     document.addEventListener('visibilitychange', visible);
     void check();
     return () => {
-      active = false; generation += 1; abort.abort(); clearTimeout(timer); toast.dismiss(toastId); closeNative();
+      active = false; generation += 1; abort.abort(); clearTimeout(timer); toast.dismiss(toastId); toast.dismiss(`${toastId}-native-error`); closeNative();
       window.removeEventListener('sirius-auth-changed', reset);
       window.removeEventListener('sirius-automations-changed', reset);
       window.removeEventListener('storage', storage);
       window.removeEventListener('online', visible);
+      window.removeEventListener('sirius-native-retry', manual);
       document.removeEventListener('visibilitychange', visible);
     };
   }, []);

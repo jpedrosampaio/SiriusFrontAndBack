@@ -8,16 +8,20 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
   try{for(const width of [320,390,768,1024,1440]){
     const owner='a1010000-0000-4000-8000-000000000001',identity='a1010000-0000-4000-8000-000000000002';
     const errors=[],writes=[],readKeys=[],claimKeys=[],reservations=new Map();let rendered=0,reads=0,status='available',claims=0,inFlight=0,maxInFlight=0,reminderAvailable=false,pairedReminders=true,legacyFailureTested=false,uncertainResponse=false;
+    const nativeSlots=new Map();let nativeScenario='desktop',nativeAckLost=false,nativeAckCount=0;
     const rule={enabled:true,frequency:'daily',priority:'high',channels:['in_app']};
     const state={user_id:owner,enabled:true,daily_cap:3,timezone:'America/Sao_Paulo',policy:{routine_popups:false,quiet_start:'00:00',quiet_end:'00:00',morning_time:'08:00',night_time:'21:00',weekly_time:'18:00',weekly_weekday:6,rules:{}},inherited_quiet_start:'22:00',inherited_quiet_end:'08:00',runtime_enabled:true,simulation_only:true,channels:{in_app:true,telegram:false},catalog:[{event_type:'task.overdue',title:'Tarefa pendente',domain:'tasks',rule}]};
     const fullMessage='Mensagem completa preservada na central. '+('Detalhe do registro original. '.repeat(80));
     const event=()=>({event_id:'event-own',event_type:'task.overdue',title:'Tarefa pendente',status:'processed',attempts:1,created_at:'2026-10-15T12:00:00Z',message:fullMessage,candidate:{facts:{title:'Revisão registrada'},reasons:['Ocorrência registrada vencida.']},deliveries:[{delivery_id:identity,channel:'in_app',status,attempts:0,history:[],retry_allowed:false,presentation:{state:rendered?'presented':'claimed'}}]});
     const contexts=[];
-    const newContext=async(permission='default')=>{
+    const newContext=async(permission='default',nativeMode='desktop')=>{
       const context=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block'});contexts.push(context);
-      await context.addInitScript(({permission})=>{localStorage.setItem('sirius_onboarding_complete','true');window.__permissionRequests=0;window.__nativeNotices=[];
+      await context.addInitScript(({permission,nativeMode})=>{localStorage.setItem('sirius_onboarding_complete','true');window.__permissionRequests=0;window.__nativeNotices=[];window.__nativeMode=nativeMode;
+        Object.defineProperty(navigator.serviceWorker,'getRegistration',{configurable:true,value:async()=>window.__nativeMode==='desktop'?undefined:{
+          async showNotification(title,options){if(window.__nativeMode==='broken')throw new TypeError('SW unavailable');window.__nativeNotices.push({title,...options,transport:'service-worker',closed:false});},
+          async getNotifications({tag}){return window.__nativeNotices.filter(n=>n.tag===tag).map(n=>({...n,close(){n.closed=true;}}));}}});
         window.Notification=class {static permission=permission;static async requestPermission(){window.__permissionRequests++;return permission;}
-          constructor(title,options){this.record={title,...options,closed:false};window.__nativeNotices.push(this.record);}close(){this.record.closed=true;}};},{permission});
+          constructor(title,options){if(window.__nativeMode!=='desktop')throw new TypeError('Use service worker');this.record={title,...options,closed:false};window.__nativeNotices.push(this.record);}close(){this.record.closed=true;}};},{permission,nativeMode});
       await context.route('**/*',async r=>{const request=r.request(),url=new URL(request.url()),p=url.pathname;
         if(!p.startsWith('/api/'))return url.hostname==='127.0.0.1'?r.continue():r.abort();let data=[];
         const fulfill=(body,code=200)=>r.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
@@ -25,6 +29,7 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
         if(p==='/api/auth/me')data={user_id:state.user_id,name:'Owned account',xp:0,rank:'Recruta'};
         if(p==='/api/automations/state'){assert.equal(uncertainResponse,false,'immediate recovery must not spend its replay window refetching configuration');data=state;}
         if(p==='/api/automations/events')data={items:[event()],next_cursor:null};
+        if(p==='/api/notifications')data=[...nativeSlots.values()].map(n=>({...n,native_presentation:{state:n.nativeState,occurrence:'2026-10-15',attempted_at:'2026-10-15T12:00:00+00:00',attempts:n.attempts},native_claim:undefined}));
         if(p==='/api/automations/telegram-replies')data={items:[],next_cursor:null};
         if(p==='/api/dashboard/daily-briefing')data={date:'2026-10-15',timezone:'America/Sao_Paulo',mode:'morning',facts:{tasks:{recorded_completed:0,pending_count:1,pending:[]},preparation:{recorded_minutes:0,planned_minutes:0},training:{recorded_completed:0,recorded_minutes:0},finance:{recorded_expense:'0.00'},tomorrow:{commitments:[]}},proposals:[],limitations:[]};
         if(p==='/api/automations/presentations/claim'){
@@ -46,8 +51,19 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
           const allowed=url.searchParams.get('browser_allowed');assert.ok(['true','false'].includes(allowed));
           if(state.user_id!=='a1010000-0000-4000-8000-000000000001'&&!legacyFailureTested){legacyFailureTested=true;return fulfill({detail:'Lembretes temporariamente indisponíveis'},503);}
           if(pairedReminders&&state.user_id===owner){pairedReminders=false;data=[{notification_id:'in-app-once',title:'Lembrete único',message:'Detalhes na central',channels:['in_app']},{notification_id:'hybrid-once',title:'Lembrete sem permissão nativa',message:'Detalhes na central',channels:['in_app','browser']}];}
-          if(reminderAvailable&&allowed==='true'){reminderAvailable=false;data=[1,2].map(n=>({notification_id:`reminder-${n}`,title:`Lembrete ${n}`,message:'Texto completo reservado à central',channels:['browser']}));}
+          if(reminderAvailable&&allowed==='true'){reminderAvailable=false;data=[1,2].map(n=>{
+            const notification_id=`${nativeScenario}-reminder-${n}`,row={notification_id,user_id:state.user_id,title:`Lembrete ${n}`,enabled:true,repeat:'none',scheduled_time:'09:00',created_at:'2026-10-14T12:00:00Z',last_sent:null,
+              message:'Texto completo reservado à central',channels:['browser'],nativeState:'reserved',attempts:1,native_claim:{notification_id,claim_id:`${nativeScenario}-claim-${n}`,occurrence:'2026-10-15'}};
+            nativeSlots.set(notification_id,row);return row;});}
         }
+        if(p==='/api/notifications/native-presentations'){
+          nativeAckCount++;const body=request.postDataJSON();
+          for(const claim of body.claims){const row=nativeSlots.get(claim.notification_id);assert.equal(row.native_claim.claim_id,claim.claim_id);row.nativeState=body.outcome;if(body.outcome==='accepted')row.last_sent='2026-10-15T12:00:01Z';}
+          if(nativeScenario==='desktop'&&!nativeAckLost){nativeAckLost=true;return fulfill({detail:'Resposta do ACK perdida após commit'},503);}
+          data={user_id:state.user_id,items:[]};
+        }
+        if(p.endsWith('/retry-native')){const row=nativeSlots.get(p.split('/')[3]);assert.ok(row);assert.match(request.headers()['idempotency-key'],/^[\da-f-]{36}$/);
+          row.native_claim={...row.native_claim,claim_id:row.native_claim.claim_id+'-retry'};row.nativeState='reserved';row.attempts++;data={user_id:state.user_id,item:row};}
         if(p===`/api/automations/deliveries/${identity}`){
           reads++;readKeys.push(request.headers()['idempotency-key']);
           if(reads===1)return fulfill({detail:'Leitura não confirmada. Tente novamente.'},503);
@@ -101,13 +117,33 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
     await page.getByText('Aviso da segunda conta',{exact:true}).waitFor({state:'hidden'});
     state.user_id='b1010000-0000-4000-8000-000000000001';reminderAvailable=true;
     const nativeContext=await newContext('granted'),nativePage=await nativeContext.newPage();
+    const firstNativeAck=nativePage.waitForResponse(r=>new URL(r.url()).pathname==='/api/notifications/native-presentations');
     await nativePage.goto('http://127.0.0.1:4191/notifications');
     await nativePage.waitForFunction(()=>window.__nativeNotices.length===1);
     const native=await nativePage.evaluate(()=>window.__nativeNotices);
     assert.equal(native[0].title,'2 lembretes disponíveis');assert.equal(native[0].body,'Confira os detalhes na central de Notificações.');
+    await firstNativeAck;
+    const recoveredAck=nativePage.waitForResponse(r=>new URL(r.url()).pathname==='/api/notifications/native-presentations'&&r.status()===200);
+    await nativePage.evaluate(()=>window.dispatchEvent(new Event('online')));await recoveredAck;
+    assert.equal(await nativePage.evaluate(()=>window.__nativeNotices.length),1,'lost ACK retries the receipt, not the OS presentation');assert.equal(nativeAckCount,2);
+    nativeScenario='mobile';reminderAvailable=true;
+    const mobileContext=await newContext('granted','mobile'),mobilePage=await mobileContext.newPage();
+    await mobilePage.goto('http://127.0.0.1:4191/notifications');await mobilePage.waitForFunction(()=>window.__nativeNotices.length===1);
+    assert.equal((await mobilePage.evaluate(()=>window.__nativeNotices))[0].transport,'service-worker');
+    await mobilePage.getByText('Aviso aceito pelo navegador; isso não confirma leitura.',{exact:true}).first().waitFor();
+    nativeScenario='broken';reminderAvailable=true;
+    const brokenContext=await newContext('granted','broken'),brokenPage=await brokenContext.newPage();
+    await brokenPage.goto('http://127.0.0.1:4191/notifications');
+    await brokenPage.getByText('O navegador recusou o aviso. O lembrete foi preservado.',{exact:true}).first().waitFor();
+    assert.equal(await brokenPage.evaluate(()=>window.__nativeNotices.length),0);
+    for(const row of nativeSlots.values())if(row.notification_id.startsWith('broken'))assert.equal(row.last_sent,null);
+    await brokenPage.evaluate(()=>{window.__nativeMode='mobile';});
+    await brokenPage.getByRole('button',{name:'Tentar aviso no navegador',exact:true}).first().click();
+    await brokenPage.waitForFunction(()=>window.__nativeNotices.length===1);
+    assert.equal((await brokenPage.evaluate(()=>window.__nativeNotices))[0].transport,'service-worker');
     assert.equal(await nativePage.evaluate(()=>window.__permissionRequests),0);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow ${width}`);
-    assert.deepEqual(errors,[]);assert.ok(writes.every(p=>p.startsWith('/api/automations/')));
+    assert.deepEqual(errors,[]);assert.ok(writes.every(p=>p.startsWith('/api/automations/')||p==='/api/notifications/native-presentations'||p.endsWith('/retry-native')));
     await fs.promises.mkdir(path.join('test-results','notification-presentation'),{recursive:true});await page.screenshot({path:path.join('test-results','notification-presentation',`${width}.png`),fullPage:true});
     for(const c of contexts)await c.close();console.log(`Notification presentation ${width}: passed`);
   }}finally{await browser.close();await new Promise(r=>server.close(r));}
