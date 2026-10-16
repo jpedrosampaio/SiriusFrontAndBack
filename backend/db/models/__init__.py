@@ -14,3 +14,4 @@ from db.models.question_insights import QuestionInsight
 from db.models.notifications import Notification, NotificationDelivery
 from db.models.telegram import TelegramLink, TelegramCode, TelegramUpdate
 from db.models.command import CommandAudit
+from db.models.edital_units import EditalUnit

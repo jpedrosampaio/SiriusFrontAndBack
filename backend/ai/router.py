@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 import time
 from collections import OrderedDict
@@ -31,7 +32,7 @@ class AIRouter:
         self.cooldown_errors = {}
         self.reserve = reserve
 
-    async def generate(self, *, task, keys, user_id='', prompt='', system='', schema=None, output_type=None, **kwargs):
+    async def generate(self, *, task, keys, user_id='', prompt='', system='', schema=None, output_type=None, on_attempt=None, **kwargs):
         schema = normalize_schema(output_type.model_json_schema() if output_type else schema)
         if schema:
             try:
@@ -63,6 +64,10 @@ class AIRouter:
                 continue
             if self.reserve and not await self.reserve(user_id, model):
                 last = AIError('quota'); continue
+            # Optional durable callers fence/account for each model attempt,
+            # including fallback, before any provider IO. No document data/key
+            # is passed to this hook and no transaction spans the provider call.
+            if on_attempt is not None:await on_attempt(model)
             started = time.perf_counter()
             attempted += 1
             status = 'success'
@@ -93,6 +98,12 @@ class AIRouter:
                     while len(self.cooldowns) > 1000:
                         expired, _ = self.cooldowns.popitem(last=False)
                         self.cooldown_errors.pop(expired, None)
+            except asyncio.CancelledError:
+                status = 'cancelled'
+                raise
+            except Exception:
+                status = 'internal_error'
+                raise
             finally:
                 logging.info('ai provider=%s model=%s task=%s latency_ms=%.1f fallback=%s status=%s tokens=%s', model.provider, model.name, task, (time.perf_counter()-started)*1000, attempted > 1, status,
                              {k:v for k,v in (result.usage if result else {}).items() if k in ('total_tokens', 'totalTokenCount', 'prompt_tokens', 'completion_tokens')})

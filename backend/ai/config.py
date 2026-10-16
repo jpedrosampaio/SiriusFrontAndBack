@@ -32,6 +32,7 @@ TASKS = {
     'structured_extraction': ('flash', 'reasoning', 'lite'),
     'edital_extract': ('flash', 'lite'),
     'edital_verify': ('reasoning', 'fast'),
+    'edital_audit': ('reasoning', 'flash', 'fast', 'lite'),
     'document_analysis': ('flash', 'lite'),
     'image_analysis': ('flash', 'vision', 'lite'),
     'report_analysis': ('reasoning', 'flash', 'lite'),
