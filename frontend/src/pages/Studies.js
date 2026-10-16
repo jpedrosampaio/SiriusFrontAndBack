@@ -10,6 +10,8 @@ const StudyProgressCharts = lazy(() => import('@/components/tabs/StudyProgressCh
 import { lazy, Suspense } from 'react';
 import EditalJobs from '@/components/EditalJobs';
 import EditalImportDialog from '@/components/EditalImportDialog';
+import { EDITAL_PIPELINE_STATUSES } from '@/lib/edital-analysis';
+import { sessionVersion } from '@/lib/query-cache';
 import { getCurrentUser } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
 const PomodoroTimer = lazy(() => import("@/components/PomodoroTimer"));
@@ -242,6 +244,9 @@ export default function Studies() {
   const [editaisList, setEditaisList] = useState([]);
   const [editaisDeleting, setEditaisDeleting] = useState(null);
   const [editaisLoading, setEditaisLoading] = useState(false);
+  const [editaisNextOffset, setEditaisNextOffset] = useState(null);
+  const editaisRequest = useRef(null);
+  useEffect(() => () => editaisRequest.current?.abort(), []);
   const [compareA, setCompareA] = useState("");
   const [compareB, setCompareB] = useState("");
   const [compareResult, setCompareResult] = useState(null);
@@ -718,15 +723,21 @@ export default function Studies() {
     setWorkspaceParams({ analysis });
   };
 
-  const refreshEditaisList = async () => {
+  const refreshEditaisList = async requestedOffset => {
+    if (editaisRequest.current) return;
+    const offset = typeof requestedOffset === 'number' ? requestedOffset : 0;
+    const controller = new AbortController(), version = sessionVersion();editaisRequest.current = controller;
     setEditaisLoading(true);
     try {
-      const res = await axios.get(`${API}/study/programs/editais`, { withCredentials: true });
-      setEditaisList(res.data.editais || []);
+      const res = await axios.get(`${API}/study/programs/editais${offset ? `?offset=${offset}` : ''}`, { withCredentials: true, signal: controller.signal, timeout: 20000 });
+      if (controller.signal.aborted || version !== sessionVersion()) return;
+      setEditaisList(previous => offset ? Array.from(new Map([...previous, ...(res.data.editais || [])].map(item => [item.analysis_id, item])).values()) : res.data.editais || []);
+      setEditaisNextOffset(res.data.next_offset ?? null);
     } catch (err) {
-      toast.error("Falha ao carregar editais salvos");
+      if (!controller.signal.aborted && version === sessionVersion()) toast.error("Falha ao carregar editais salvos");
     } finally {
-      setEditaisLoading(false);
+      if (editaisRequest.current === controller) editaisRequest.current = null;
+      if (!controller.signal.aborted && version === sessionVersion()) setEditaisLoading(false);
     }
   };
 
@@ -1116,6 +1127,7 @@ export default function Studies() {
     return <EditalAnalysisWorkspace user={user} api={API} analysisId={workspaceParams.get("analysis") || editalAnalysis?.analysis_id}
       initialAnalysis={editalAnalysis} areas={areas} defaultAreaId={selectedArea?.area_id} form={editalForm} onFormChange={setEditalForm}
       creating={creatingFromCargo} onCreate={handleCreateFromCargo}
+      onImported={result => { setEditalAnalysis(null); setShowCargoSelection(false); setWorkspaceParams({ program: result.program.program_id }); fetchAllData(); toast.success(result.message || 'Programa confirmado disponível em Meus estudos.'); }}
       onBack={() => { setEditalAnalysis(null); setWorkspaceParams({}); setShowCargoSelection(false); }}
       onReanalyze={() => { setWorkspaceParams({}); setShowCargoSelection(false); setActiveTab("programas"); setEditalForceReanalyze(true); setShowEditalDialog(true); }} />;
   }
@@ -1221,7 +1233,8 @@ export default function Studies() {
               <div><h2 className="text-xl font-semibold">Meus editais</h2><p className="text-sm text-[#A1A1AA] mt-1">Abra a análise, confira o cargo e organize seu plano de estudos.</p></div>
               <div className="flex gap-2"><Button variant="outline" disabled={editaisLoading} onClick={refreshEditaisList}>Atualizar</Button><Button onClick={() => { setActiveTab("programas"); setShowEditalDialog(true); }}>Analisar novo edital</Button></div>
             </div>
-            {editaisLoading ? <Loader2 className="animate-spin mx-auto my-10" /> : editaisList.length === 0 ? <p className="rounded-xl border border-[#27272A] p-6 text-[#A1A1AA]">Nenhuma análise salva. Comece enviando um edital em PDF.</p> : <div className="grid gap-4 md:grid-cols-2">{editaisList.map(edital => <article key={edital.analysis_id} className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><span className="text-xs text-purple-300">EDITAL ANALISADO</span><h3 className="font-semibold">{edital.concurso?.nome || edital.pdf_filename}</h3><p className="text-sm text-[#A1A1AA]">{edital.concurso?.banca || 'Banca não informada'} · {edital.num_cargos} cargos</p><p className="text-xs text-[#71717A] break-words">{edital.pdf_filename}</p><Button variant="outline" onClick={() => openSavedEdital(edital.analysis_id)}>Visualizar análise<ChevronRight className="w-4 h-4 ml-2" /></Button></article>)}</div>}
+            {editaisLoading ? <Loader2 className="animate-spin mx-auto my-10" /> : editaisList.length === 0 ? <p className="rounded-xl border border-[#27272A] p-6 text-[#A1A1AA]">Nenhuma análise salva. Comece enviando um edital em PDF.</p> : <div className="grid gap-4 md:grid-cols-2">{editaisList.map(edital => <article key={edital.analysis_id} className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><span className="text-xs text-purple-300">{edital.pipeline ? 'ANÁLISE INCREMENTAL SALVA' : 'EDITAL ANALISADO'}</span>{edital.pipeline_status && <p className="text-xs text-blue-200">{EDITAL_PIPELINE_STATUSES[edital.pipeline_status] || 'Análise parcial salva'}</p>}<h3 className="font-semibold">{edital.concurso?.nome || edital.pdf_filename}</h3><p className="text-sm text-[#A1A1AA]">{edital.concurso?.banca || 'Banca não informada'} · {edital.num_cargos} cargos</p><p className="text-xs text-[#71717A] break-words">{edital.pdf_filename}</p><Button variant="outline" onClick={() => openSavedEdital(edital.analysis_id)}>Visualizar análise<ChevronRight className="w-4 h-4 ml-2" /></Button></article>)}</div>}
+            {editaisNextOffset !== null && <Button variant="outline" disabled={editaisLoading} onClick={() => refreshEditaisList(editaisNextOffset)}>Carregar editais anteriores</Button>}
           </TabsContent>
 
           {/* ========== PROGRAMAS TAB ========== */}
