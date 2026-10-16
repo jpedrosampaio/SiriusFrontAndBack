@@ -243,6 +243,23 @@ from services.edital_pipeline_import import Import,create as import_program
 async def create_program(request:Request,analysis_id:str,body:Import):return await command(request,analysis_id,body,import_program)
 
 
+@router.get('/{analysis_id}/import-candidates')
+async def prior_programs(request:Request,analysis_id:str,offset:int=Query(0,ge=0,le=10000)):
+    from services.edital_pipeline_import import document_programs
+    from db.models.studies import StudyProgram
+    auth=await account(request);uid=store.uuid(auth['user_id']);identity=store.uuid(analysis_id)
+    async with unit_of_work() as session:
+        document_hash=await session.scalar(select(EditalAnalysis.content_hash).where(EditalAnalysis.user_id==uid,
+            EditalAnalysis.id==identity,EditalAnalysis.analysis_version=='6'))
+        if document_hash is None:raise HTTPException(404,'Análise não encontrada.')
+        rows=(await session.execute(select(StudyProgram.id,StudyProgram.name,StudyProgram.created_at,StudyProgram.archived_at)
+            .where(*document_programs(uid,document_hash)).order_by(StudyProgram.created_at.desc(),StudyProgram.id.desc())
+            .offset(offset).limit(21))).all()
+        return JSONResponse(jsonable_encoder({'programs':[{'program_id':str(r.id),'name':r.name,'created_at':r.created_at,
+            'archived':r.archived_at is not None} for r in rows[:20]],'next_offset':offset+20 if len(rows)>20 else None}),
+            headers={'Cache-Control':'private, no-store'})
+
+
 @router.get('/{analysis_id}/history')
 async def history(request:Request,analysis_id:str,offset:int=Query(0,ge=0,le=10000),limit:int=Query(20,ge=1,le=30)):
     from db.models.command import CommandAudit

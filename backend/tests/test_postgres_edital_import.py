@@ -110,15 +110,17 @@ class ConfirmedImport(unittest.IsolatedAsyncioTestCase):
                 target='Conhecimentos comuns',value=value,note='Regra declarada para o grupo inteiro.')
         await self.command(controls.change_rule,controls.RuleChange,action='add',target_scope='discipline',kind='weight',
             target=disc.name.value,value='3',note='Peso desta disciplina conferido pelo proprietário.')
+        await self.command(controls.change_rule,controls.RuleChange,action='add',target_scope='discipline',kind='question_count',
+            target=disc.name.value,value='1.000',note='Quantidade inteira com separador de milhar brasileiro.')
         await self.command(controls.confirm,controls.Confirm,note='Conferi as regras e seus destinos.',acknowledge_document_limits=True)
         body=await self.payload();result=await imports.create(self.uid,self.identity,str(uuid4()),body)
         async with unit_of_work() as session:
             books=(await session.scalars(select(Notebook).where(Notebook.user_id==self.uid))).all()
             known=next(b for b in books if b.name==disc.name.value);unknown=next(b for b in books if b.name!=disc.name.value)
             self.assertEqual(known.weight,3);self.assertEqual(known.peso_status,'informado_pelo_usuario')
-            self.assertIsNone(public(unknown)['weight']);self.assertIsNone(known.num_questoes_edital);self.assertIsNone(unknown.num_questoes_edital)
+            self.assertIsNone(public(unknown)['weight']);self.assertEqual(known.num_questoes_edital,1000);self.assertIsNone(unknown.num_questoes_edital)
             program=await session.get(StudyProgram,UUID(result['program']['program_id']))
-            self.assertEqual(len(program.edital_data['universal_edital']['rules']),3)
+            self.assertEqual(len(program.edital_data['universal_edital']['rules']),4)
 
     async def test_agent_receives_partial_status_and_owned_text_remains_retrievable(self):
         from services.retrieval import Retrieval
@@ -133,3 +135,17 @@ class ConfirmedImport(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context['analysis']['selected_role_status'],'awaiting_review')
         self.assertIsNone(context['analysis']['confirmed_digest']);self.assertIn('não confirmadas',context['analysis']['limitation'])
         self.assertNotIn('analysis',await page_context(self.other,{'analysis_id':self.identity}))
+
+    async def test_role_alias_on_forced_analysis_requires_explicit_new_program_without_more_xp(self):
+        await self.fixture()
+        await self.command(controls.confirm,controls.Confirm,note='Conferi o primeiro resultado.',acknowledge_document_limits=True)
+        first_body=await self.payload();first=await imports.create(self.uid,self.identity,str(uuid4()),first_body);first_role=self.role
+        self.force_reanalysis=True;self.role_name='Cargo A: Analista'
+        await self.fixture();self.assertNotEqual(self.role,first_role)
+        await self.command(controls.confirm,controls.Confirm,note='Conferi a nova grafia do mesmo cargo.',acknowledge_document_limits=True)
+        second_body=await self.payload()
+        with self.assertRaises(HTTPException) as error:await imports.create(self.uid,self.identity,str(uuid4()),second_body)
+        self.assertEqual(error.exception.detail['code'],'explicit_new_version_required')
+        second=await imports.create(self.uid,self.identity,str(uuid4()),second_body.model_copy(update={'create_new_version':True}))
+        self.assertNotEqual(first['program']['program_id'],second['program']['program_id']);self.assertEqual(second['xp_earned'],0)
+        async with unit_of_work() as session:self.assertEqual((await session.get(User,self.uid)).xp,25)

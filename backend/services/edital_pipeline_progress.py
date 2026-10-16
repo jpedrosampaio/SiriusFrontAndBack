@@ -110,6 +110,7 @@ async def advance_selected(session, analysis, job_id, state):
     if await unfinished(session, analysis, scope.generation, 'verify'):
         state.status = scope.status = 'processing'; state.phase = 'evidence'; return
     state.status = scope.status = 'awaiting_review'; state.phase = 'review'
+    compiler.review_integrity(scope)
     if ambiguous:
         state.error_kind = 'section_associations_require_review'
     elif not scope.program.disciplines:

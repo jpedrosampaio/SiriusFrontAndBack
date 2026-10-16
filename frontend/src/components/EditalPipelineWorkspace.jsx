@@ -94,6 +94,27 @@ function AuditEntry({ item, api, analysisId }) {
   </details>;
 }
 
+
+function PriorPrograms({ api, analysisId, onImported }) {
+  const [data, setData] = useState(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
+  const request = useRef(null);
+  useEffect(() => () => request.current?.abort(), []);
+  const load = async (offset = 0) => {
+    if (request.current) return;
+    const controller = new AbortController(), version = sessionVersion();request.current = controller;setLoading(true);setError('');
+    try { const response = await axios.get(`${api}/study/edital-pipeline/${analysisId}/import-candidates?offset=${offset}`, { signal: controller.signal, timeout: 20000 });
+      if (!controller.signal.aborted && version === sessionVersion()) setData(previous => ({ ...response.data, programs: offset ? [...previous.programs, ...response.data.programs] : response.data.programs }));
+    } catch (failure) { if (!controller.signal.aborted && version === sessionVersion()) setError(getApiErrorMessage(failure, 'Não foi possível consultar os programas anteriores.')); }
+    finally { if (request.current === controller) request.current = null;if (!controller.signal.aborted && version === sessionVersion()) setLoading(false); }
+  };
+  return <div className="space-y-3"><Button variant="outline" disabled={loading} onClick={() => load()}>Ver programas já criados deste PDF</Button>
+    {error && <p role="alert" className="text-sm text-amber-200">{error}</p>}{data && !data.programs.length && <p className="text-xs text-slate-400">Nenhum programa anterior identificado com este documento.</p>}
+    {data?.programs.map(program => <div className="rounded-xl border border-slate-700 p-3 text-sm [overflow-wrap:anywhere]" key={program.program_id}><p>{program.name}{program.archived ? ' · arquivado' : ''}</p>
+      {!program.archived && <Button size="sm" variant="ghost" onClick={() => onImported?.({ program, message: 'Programa anterior aberto. A nova análise permanece salva; nenhum conteúdo ou histórico foi sobrescrito.' })}>Abrir programa anterior</Button>}</div>)}
+    {data?.next_offset != null && <Button variant="ghost" disabled={loading} onClick={() => load(data.next_offset)}>Mais programas anteriores</Button>}
+  </div>;
+}
+
 export default function EditalPipelineWorkspace({ api, analysisId, areas, defaultAreaId, form, onFormChange, onBack, onImported }) {
   const query = useEditalPipeline(api, analysisId), { command, pending } = query;
   const [roleId, setRoleId] = useState(''), [disciplineId, setDisciplineId] = useState(''), [source, setSource] = useState(null);
@@ -110,7 +131,10 @@ export default function EditalPipelineWorkspace({ api, analysisId, areas, defaul
   const data = query.data, state = data?.manifest, scope = state?.scopes?.[state?.selected_role_id];
   const role = state?.inventory.roles.find(r => r.id === (roleId || state.selected_role_id)) || state?.inventory.roles[0];
   const disciplines = scope?.program.disciplines || [], discipline = disciplines.find(d => d.id === disciplineId) || disciplines[0];
-  const editable = state?.status === 'awaiting_review' && scope?.status === 'awaiting_review';
+  const editingSelectedRole = role?.id === state?.selected_role_id;
+  const editable = state?.status === 'awaiting_review' && scope?.status === 'awaiting_review' && editingSelectedRole;
+  const unresolved = state && scope && [[state.inventory, data.review?.inventory_issues], [scope, data.review?.program_issues]].some(([value, issues]) =>
+    Object.keys(value.findings || {}).some(identity => !value.finding_resolutions?.[identity]) || (issues || []).some(issue => !value.issue_resolutions?.[issue.id]));
   const facts = { editable, revision: data?.revision, command, pending, onSource: setSource };
   const topicNames = Object.fromEntries((discipline?.topics || []).map(t => [t.id, t.title.value]));
   const sectionRows = data?.review?.sections || [];
@@ -163,6 +187,7 @@ export default function EditalPipelineWorkspace({ api, analysisId, areas, defaul
           </form>}</details>
       </section>
       {scope && <>
+        {!editingSelectedRole && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">O conteúdo abaixo pertence ao cargo em análise. Para conferir o cargo escolhido na lista, clique em “Abrir análise deste cargo”.</p>}
         <section className={panel}><h2 className="font-semibold">Edital verticalizado do cargo em análise</h2><p className="text-sm text-slate-400">{disciplines.length} disciplinas extraídas para {state.inventory.roles.find(r => r.id === state.selected_role_id)?.name.value}. Campos desconhecidos e regras por grupo permanecem separados.</p>
           {!!disciplines.length && <label className="block text-sm">Disciplina<select className={`${field} mt-2`} value={discipline?.id || ''} onChange={e => { setDisciplineId(e.target.value);setTopicPage(0); }}>{disciplines.map(d => <option key={d.id} value={d.id}>{d.name.value}</option>)}</select></label>}
           {discipline && <div className="space-y-3"><Fact key={`${discipline.id}:name`} {...facts} title="Disciplina" fact={discipline.name} target="discipline" identity={discipline.id} field="name" />
@@ -203,9 +228,11 @@ export default function EditalPipelineWorkspace({ api, analysisId, areas, defaul
             <label className="block text-xs">Decisão de associação<select className={field} value={decision} onChange={e => setDecision(e.target.value)}><option value="include">Exigida neste cargo</option><option value="exclude">Não se aplica a este cargo</option><option value="ambiguous">Ainda ambígua</option></select></label>
             <label className="block text-xs">Motivo da decisão ou reanálise<Textarea minLength={3} maxLength={1000} className={field} value={sectionNote} onChange={e => setSectionNote(e.target.value)} /></label>
             <div className="flex flex-wrap gap-2"><Button disabled={!editable || pending || sectionNote.trim().length < 3} onClick={() => command('binding', { section_key: section, decision, note: sectionNote })}>Corrigir associação</Button>
-              <Button variant="outline" disabled={pending || sectionNote.trim().length < 3 || state.inventory.status !== 'awaiting_review'} onClick={() => command('reanalyze', { section_keys: [section], note: sectionNote })}>Reanalisar esta seção</Button></div></>}
+              <Button variant="outline" disabled={!editingSelectedRole || pending || sectionNote.trim().length < 3 || state.inventory.status !== 'awaiting_review'} onClick={() => command('reanalyze', { section_keys: [section], note: sectionNote })}>Reanalisar esta seção</Button></div></>}
         </section>
         <section className={panel}><h2 className="font-semibold">Pendências de conferência</h2><p className="text-xs text-slate-400">Uma comparação automática sem apontamentos não confirma a análise. Resolva os problemas reais e registre como conferiu cada pendência.</p>
+          {!!scope.unapplied_corrections?.length && <div className="rounded-xl border border-amber-500/40 p-3 space-y-2"><p className="text-sm text-amber-200">Há alterações humanas preservadas que não foram associadas ao novo resultado. Confira o histórico e transfira ou justifique cada decisão antes de confirmar.</p>
+            {scope.unapplied_corrections.map(path => <p key={path} className="text-xs text-amber-100 [overflow-wrap:anywhere]">Correção preservada: {scope.corrections?.[path]?.value || 'Alteração estrutural registrada'} · {scope.corrections?.[path]?.note || 'Consulte os dados da revisão anterior.'}</p>)}</div>}
           {[['inventory', state.inventory, data.review.inventory_issues], ['scope', scope, data.review.program_issues]].map(([target, value, issues]) => <div key={target} className="space-y-3">
             {Object.entries(value.findings || {}).map(([identity, finding]) => <div key={identity} className="space-y-2"><p className="text-sm [overflow-wrap:anywhere]">{finding.description}</p><Sources fact={finding} onSource={setSource} />{value.finding_resolutions?.[identity] ? <p className="text-xs text-emerald-300">Conferido: {value.finding_resolutions[identity].note}</p> : editable && <ReviewAction {...{ command, pending, identity, target }} action="finding" />}</div>)}
             {(issues || []).map(issue => <div key={issue.id}><p className="text-sm [overflow-wrap:anywhere]">{issue.message}</p>{value.issue_resolutions?.[issue.id] ? <p className="text-xs text-emerald-300">Conferido: {value.issue_resolutions[issue.id].note}</p> : editable && <ReviewAction {...{ command, pending, target }} identity={issue.id} action="issue" />}</div>)}
@@ -213,17 +240,18 @@ export default function EditalPipelineWorkspace({ api, analysisId, areas, defaul
           {editable && <form className="space-y-3" onSubmit={async e => { e.preventDefault();if (await command('confirm', { note, acknowledge_document_limits: true })) { setNote('');setAcknowledged(false); } }}>
             <label className="block text-sm">Registro da conferência final<Textarea required minLength={3} maxLength={1000} className={field} value={note} onChange={e => setNote(e.target.value)} /></label>
             <label className="flex items-start gap-3 text-xs text-slate-300"><input type="checkbox" checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)} className="mt-1" /><span>Conferi o cargo, as associações, as fontes e o conteúdo no edital. Entendo as limitações da extração e que dados ausentes permanecem desconhecidos.</span></label>
-            <Button disabled={pending || !acknowledged || note.trim().length < 3}>Confirmar cargo e conteúdo conferidos</Button>
+            <Button disabled={pending || unresolved || !acknowledged || note.trim().length < 3}>Confirmar cargo e conteúdo conferidos</Button>
           </form>}
           {scope.status === 'completed' && <Button variant="outline" disabled={pending} onClick={() => window.confirm('Reabrir a revisão? O programa importado e a confirmação anterior permanecem no histórico; será necessária nova confirmação.') && command('reopen', { note: 'Reabertura explícita da revisão pelo proprietário.' })}>Reabrir revisão do cargo</Button>}
         </section>
       </>}
       <section className={panel}><h2 className="font-semibold">Criar programa no meu planejamento</h2><p className="text-sm text-slate-400">O conteúdo confirmado entra em Meus estudos. Depois, use o planejamento existente para propor horários com sua disponibilidade real. Compromissos fixos não são movidos.</p>
+        <PriorPrograms {...{ api, analysisId, onImported }} />
         <div className="grid sm:grid-cols-2 gap-4"><label className="text-xs">Área de estudos<select aria-label="Área de estudos" className={field} value={areaId} onChange={e => setAreaId(e.target.value)}><option value="">Selecione</option>{areas.map(a => <option key={a.area_id} value={a.area_id}>{a.name}</option>)}</select></label>
           <label className="text-xs">Meta pessoal de estudo (opcional)<Input type="date" className={field} value={form.target_date} onChange={e => onFormChange({ ...form, target_date: e.target.value })} /></label>
           <label className="text-xs">Horas disponíveis por dia<Input type="number" min="0.25" max="12" step="0.25" className={field} value={form.hours_per_day} onChange={e => onFormChange({ ...form, hours_per_day: Number(e.target.value) })} /></label>
           <label className="text-xs">Dias disponíveis por semana<Input type="number" min="1" max="7" step="1" className={field} value={form.days_per_week} onChange={e => onFormChange({ ...form, days_per_week: Number(e.target.value) })} /></label></div>
-        <label className="flex gap-3 items-start text-xs text-slate-400"><input className="mt-1" type="checkbox" checked={newVersion} onChange={e => setNewVersion(e.target.checked)} /><span>Se já importei uma versão anterior, autorizo criar outro programa, preservando integralmente o anterior. O mesmo conteúdo não será duplicado.</span></label>
+        <label className="flex gap-3 items-start text-xs text-slate-400"><input className="mt-1" type="checkbox" checked={newVersion} onChange={e => setNewVersion(e.target.checked)} /><span>Conferi os programas já criados deste PDF e autorizo criar outro programa separado, preservando os anteriores e sem novo XP. O mesmo conteúdo não será duplicado.</span></label>
         <Button disabled={pending || !available || !areaId} onClick={async () => { const result = await command('import', { role_id: state.selected_role_id, confirmed_digest: scope.confirmed_digest, area_id: areaId, target_date: form.target_date || null, hours_per_day: form.hours_per_day, days_per_week: form.days_per_week, create_new_version: newVersion });if (result) onImported?.(result); }}>Criar programa com conteúdo confirmado</Button>
         {!available && <p className="text-xs text-amber-200">Abra o cargo desejado, conclua os lotes e confirme a revisão antes de criar o programa.</p>}
       </section>

@@ -121,6 +121,7 @@ def program(scope, proposal):
     rules = {r.id: r for r in scope.program.rules}
     for item in proposal.rules:
         identity = digest(item.target_scope, normalized(item.target.value or ''), item.kind)
+        if identity not in scope.observed_rule_ids:scope.observed_rule_ids.append(identity)
         previous = rules.get(identity)
         fact = canonical(previous.fact if previous else None, item.fact)
         target = canonical(previous.target if previous else None, item.target)
@@ -155,3 +156,31 @@ def overlay(scope):
     for rule in scope.program.rules:
         for field in ('target','fact'):
             setattr(rule,field,corrected(getattr(rule,field),scope.corrections.get(f'rules/{rule.id}/{field}')))
+
+
+def review_integrity(scope):
+    """Changed AI identities must not silently hide earlier human changes."""
+    present=set()
+    for discipline in scope.program.disciplines:
+        present.update(f'disciplines/{discipline.id}/{f}' for f in ('name','stage','group'))
+        present.update(f'topics/{topic.id}/title' for topic in discipline.topics)
+    for rule in scope.program.rules:present.update(f'rules/{rule.id}/{f}' for f in ('target','fact'))
+    removed={'disciplines':set(scope.edits.removed_disciplines),'topics':set(scope.edits.removed_topics),'rules':set(scope.edits.removed_rules)}
+    missing=[path for path in scope.corrections if path not in present and
+        path.split('/')[1] not in removed.get(path.split('/')[0],set())]
+    topic_ids={t.id for d in scope.program.disciplines for t in d.topics}
+    missing += [f'parents/{identity}' for identity in scope.edits.topic_parents if identity not in topic_ids and identity not in removed['topics']]
+    discipline_ids={d.id for d in scope.program.disciplines}
+    missing += [f'added_topics/{identity}' for identity in scope.edits.added_topics if identity not in discipline_ids and identity not in removed['disciplines']]
+    documentary_disciplines={key.partition('|')[0] for key in scope.topic_keys}
+    documentary_topics=set(scope.topic_keys.values())
+    manual_disciplines={d.id for d in scope.edits.added_disciplines}
+    manual_topics={t.id for nodes in scope.edits.added_topics.values() for t in nodes}
+    manual_rules={r.id for r in scope.edits.added_rules}
+    missing += [f'removed_disciplines/{identity}' for identity in removed['disciplines'] if identity not in documentary_disciplines|manual_disciplines]
+    missing += [f'removed_topics/{identity}' for identity in removed['topics'] if identity not in documentary_topics|manual_topics]
+    missing += [f'removed_rules/{identity}' for identity in removed['rules'] if identity not in set(scope.observed_rule_ids)|manual_rules]
+    scope.unapplied_corrections=sorted(set(missing))
+    prefix='Correções humanas preservadas sem associação ao novo resultado'
+    scope.program.issues=[issue for issue in scope.program.issues if not issue.startswith(prefix)]
+    if missing:add_issue(scope.program.issues,f'{prefix} ({digest(*scope.unapplied_corrections)}). Confira os valores preservados e o histórico antes de confirmar.')

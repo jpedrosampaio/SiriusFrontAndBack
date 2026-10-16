@@ -244,6 +244,7 @@ async def edit_structure(user_id,analysis_id,key,body):
             discipline=find(scope.program.disciplines,body.discipline_id)
             if body.action=='remove_discipline':
                 before=discipline.model_dump(mode='json');scope.edits.removed_disciplines.append(discipline.id)
+                scope.edits.removed_topics.extend(t.id for t in discipline.topics if t.id not in scope.edits.removed_topics)
             elif body.action=='add_topic':
                 if body.parent_id:find(discipline.topics,body.parent_id)
                 added=ProgramTopic(id='human-'+uuid4().hex,parent_id=body.parent_id,
@@ -251,7 +252,13 @@ async def edit_structure(user_id,analysis_id,key,body):
                 scope.edits.added_topics.setdefault(discipline.id,[]).append(added);after=added.model_dump(mode='json')
             else:
                 topic=find(discipline.topics,body.topic_id);before=topic.model_dump(mode='json')
-                if body.action=='remove_topic':scope.edits.removed_topics.append(topic.id)
+                if body.action=='remove_topic':
+                    removed={topic.id}
+                    while True:
+                        expanded=removed|{t.id for t in discipline.topics if t.parent_id in removed}
+                        if expanded==removed:break
+                        removed=expanded
+                    scope.edits.removed_topics.extend(identity for identity in sorted(removed) if identity not in scope.edits.removed_topics)
                 else:
                     if body.parent_id:find(discipline.topics,body.parent_id)
                     scope.edits.topic_parents[topic.id]=body.parent_id
@@ -310,6 +317,7 @@ async def confirm(user_id,analysis_id,key,body):
         from services.edital_pipeline_specs import detail_specs
         from services.edital_semantics import blocks_from_pages
         scope=editable(state)
+        compiler.review_integrity(scope)
         if state.inventory.status not in ('awaiting_review','completed') or state.source.ocr_required_pages:
             raise HTTPException(409,'A cobertura do documento ainda exige processamento.')
         generations=[state.inventory.generation,scope.generation]
@@ -346,7 +354,7 @@ async def confirm(user_id,analysis_id,key,body):
 async def regenerate(session,analysis,job,state,section_keys,note,*,keep_binding_decisions=False):
     from copy import deepcopy
     from services.edital_pipeline_specs import selected_sections,range_ids
-    from services.edital_semantics import blocks_from_pages
+    from services.edital_semantics import blocks_from_pages,discipline_key
     from edital_pipeline_contracts import CompiledProgram,DetailUnit,VerificationUnit
     scope=selected(state)
     if state.inventory.status not in ('awaiting_review','completed'):
@@ -368,13 +376,32 @@ async def regenerate(session,analysis,job,state,section_keys,note,*,keep_binding
         EditalUnit.generation==old_generation,EditalUnit.status.in_(('pending','running','waiting_provider','quota','failed')))
         .values(status='cancelled',lease_token=None,lease_until=None,finished_at=store.utc_now()))
     if scope.confirmed_at:scope.previous_confirmed=scope.program.model_copy(deep=True)
-    scope.generation=uuid4();scope.program=CompiledProgram();scope.topic_keys={};scope.findings={}
+    scope.generation=uuid4();scope.program=CompiledProgram();scope.topic_keys={};scope.observed_rule_ids=[];scope.findings={}
     scope.confirmed_at=None;scope.confirmed_digest=None;scope.status=state.status='processing'
     if not keep_binding_decisions:
         for identity in section_keys:
             if identity not in scope.binding_corrections:scope.bindings.pop(identity,None)
     state.error_kind=None;state.retry_at=None
     reusable=sorted([u for u in old if u.kind=='detail' and not affected.intersection(u.source_blocks)],key=lambda u:u.source_blocks[0])
+    # A later untouched window may depend on a parent in the changed section.
+    # Recompute the transitive dependency closure rather than reuse an orphan.
+    def topic_dependencies(unit):
+        detail=DetailUnit.model_validate(unit.result)
+        provided={(discipline_key(d),t.key) for d in detail.disciplines for t in d.topics}
+        needed={(discipline_key(d),t.parent_key) for d in detail.disciplines for t in d.topics if t.parent_key}
+        return provided,needed
+    dependencies={u.id:topic_dependencies(u) for u in reusable}
+    while reusable:
+        available=set().union(*(dependencies[u.id][0] for u in reusable))
+        retained=[u for u in reusable if dependencies[u.id][1].issubset(available)]
+        if len(retained)==len(reusable):break
+        reusable=retained
+    ordered=[];known=set()
+    while reusable:
+        ready=next((u for u in reusable if dependencies[u.id][1].issubset(known|dependencies[u.id][0])),None)
+        if ready is None:break # inconsistent old hierarchy is reprocessed, not trusted
+        ordered.append(ready);known.update(dependencies[ready.id][0]);reusable.remove(ready)
+    reusable=ordered
     keys={u.unit_key for u in reusable}
     reusable.extend(u for u in old if u.kind=='verify' and u.result.get('reviewed_unit_key') in keys)
     for prior in reusable:

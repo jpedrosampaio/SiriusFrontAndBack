@@ -48,19 +48,19 @@ class HumanControls(unittest.IsolatedAsyncioTestCase):
                 'covered_block_ids':[b['id'] for b in data['primary']],'findings':[]})
 
     async def fixture(self):
-        self.lines=['Cargo A: Analista.','Programa de todos os cargos: Português e redação oficial.',
-            'Disposições administrativas.','Programa de todos os cargos: Informática e redes.']
+        self.lines=getattr(self,'custom_lines',['Cargo A: Analista.','Programa de todos os cargos: Português e redação oficial.',
+            'Disposições administrativas.','Programa de todos os cargos: Informática e redes.'])
         blocks=[SourceBlock(id=f'p0001-b{i:04d}',page=1,text=t,bbox=(0,i*20,500,i*20+15)) for i,t in enumerate(self.lines,1)]
         doc=DocumentIR(sha256=hashlib.sha256('\n'.join(self.lines).encode()).hexdigest(),size_bytes=500,
             pages=[SourcePage(page=1,width=600,height=800,quality='text',characters=sum(map(len,self.lines)),blocks=blocks)])
-        reserved=await store.reserve_intake(self.uid,doc.sha256,'synthetic.pdf',False,str(uuid4()))
+        reserved=await store.reserve_intake(self.uid,doc.sha256,'synthetic.pdf',getattr(self,'force_reanalysis',False),str(uuid4()))
         accepted=await store.persist_input(self.uid,reserved['job_id'],reserved['token'],doc);self.identity=accepted['analysis_id']
         claim=await units.claim_next()
-        await self.accept(claim,{'roles':[{'name':self.fact('Analista',1)}],
+        await self.accept(claim,{'roles':[{'name':self.fact(getattr(self,'role_name','Analista'),1)}],
             'classifications':[{'block_id':'p0001-b0001','kind':'roles'},{'block_id':'p0001-b0003','kind':'other'},*[
                 {'block_id':f'p0001-b{p:04d}','kind':'program','level':'discipline',
                 'title':self.fact(title,p),'scope':'all_roles','scope_sources':self.fact(title,p)['sources']}
-                for p,title in ((2,'Português'),(4,'Informática'))]]})
+                for p,title in ((2,'Português'),(4,'Português' if getattr(self,'cross_batch_parent',False) else 'Informática'))]]})
         await self.checks();_,state=await self.state();self.role=state.inventory.roles[0].id
         await self.command(controls.select_role,controls.SelectRole,role_id=self.role)
         claim=await units.claim_next();data=await units.snapshot(claim)
@@ -84,9 +84,13 @@ class HumanControls(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(claim.kind,'detail');data=await units.snapshot(claim)
             point=2 if any(b['id'].endswith('0002') for b in data['primary']) else 4
             title,topic=('Português','redação oficial') if point==2 else ('Informática','redes')
+            if point==4 and getattr(self,'cross_batch_parent',False):title,topic='Português','ortografia'
+            if point==4 and getattr(self,'changed_discipline_identity',False):title='Informática e redes'
+            node={'key':f'p0001-b{point:04d}-topic','title':self.fact(topic,point)}
+            if point==4 and getattr(self,'cross_batch_parent',False):node['parent_key']='p0001-b0002-topic'
             await self.accept(claim,{'applicability':'shared','scope_sources':self.fact(title,point)['sources'],
                 'covered_block_ids':[b['id'] for b in data['primary']],
-                'disciplines':[{'name':self.fact(title,point),'topics':[{'key':f'p0001-b{point:04d}-topic','title':self.fact(topic,point)}]}]})
+                'disciplines':[{'name':self.fact(title,point),'topics':[node]}]})
 
     async def test_review_ownership_stale_writes_replay_and_confirmed_history(self):
         await self.fixture();revision,state=await self.state();disc=state.scopes[self.role].program.disciplines[0]
@@ -188,3 +192,39 @@ class HumanControls(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sorted(p for child in children for p in child),[f'p0001-b{i:04d}' for i in range(1,5)])
         self.assertEqual(len(children),2);self.assertIsNone(await units.claim_next())
         _,state=await self.state();self.assertEqual(state.status,'awaiting_review')
+
+    async def test_reanalysis_includes_later_units_whose_topic_parent_is_in_the_changed_section(self):
+        self.cross_batch_parent=True
+        self.custom_lines=['Cargo A: Analista.','Programa de todos os cargos: Português e redação oficial.',
+            'Disposições administrativas.','Programa de todos os cargos: Português e ortografia.']
+        await self.fixture();_,state=await self.state();self.assertEqual(len(state.scopes[self.role].program.disciplines),1)
+        section=next(s for s in state.inventory.sections if s.block_id.endswith('0002'))
+        result=await self.command(controls.reanalyze,controls.Reanalyze,section_keys=[compiler.section_key(section)],note='Conferir raiz e seus conteúdos dependentes.')
+        self.assertEqual(result['reused_completed_units'],0)
+        await self.finish_details();_,state=await self.state();topics=state.scopes[self.role].program.disciplines[0].topics
+        self.assertEqual(len(topics),2);root=next(t for t in topics if t.title.value=='redação oficial')
+        self.assertEqual(next(t for t in topics if t.title.value=='ortografia').parent_id,root.id)
+
+    async def test_changed_model_identity_does_not_silently_discard_an_earlier_human_correction(self):
+        await self.fixture();_,state=await self.state();disc=next(d for d in state.scopes[self.role].program.disciplines if d.name.value=='Informática')
+        await self.command(controls.edit_fact,controls.FactEdit,target='discipline',identity=disc.id,field='name',
+            value='Computação conferida',note='Nome corrigido com conferência do proprietário.')
+        self.changed_discipline_identity=True
+        section=next(s for s in state.inventory.sections if s.block_id.endswith('0004'))
+        await self.command(controls.reanalyze,controls.Reanalyze,section_keys=[compiler.section_key(section)],note='Rever esta seção sem perder correções.')
+        await self.finish_details();_,state=await self.state();scope=state.scopes[self.role]
+        path=f'disciplines/{disc.id}/name';self.assertIn(path,scope.unapplied_corrections)
+        self.assertEqual(scope.corrections[path].value,'Computação conferida')
+        self.assertTrue(any('sem associação' in issue for issue in scope.program.issues))
+        with self.assertRaises(HTTPException):await self.command(controls.confirm,controls.Confirm,note='Conferi os conteúdos.',acknowledge_document_limits=True)
+
+    async def test_changed_model_identity_cannot_silently_reintroduce_a_removed_topic(self):
+        await self.fixture();_,state=await self.state();disc=next(d for d in state.scopes[self.role].program.disciplines if d.name.value=='Informática')
+        topic=disc.topics[0]
+        await self.command(controls.edit_structure,controls.StructureEdit,action='remove_topic',discipline_id=disc.id,
+            topic_id=topic.id,note='Assunto removido após conferência do proprietário.')
+        self.changed_discipline_identity=True;section=next(s for s in state.inventory.sections if s.block_id.endswith('0004'))
+        await self.command(controls.reanalyze,controls.Reanalyze,section_keys=[compiler.section_key(section)],note='Reanalisar mantendo a decisão de remoção auditável.')
+        await self.finish_details();_,state=await self.state()
+        self.assertIn(f'removed_topics/{topic.id}',state.scopes[self.role].unapplied_corrections)
+        with self.assertRaises(HTTPException):await self.command(controls.confirm,controls.Confirm,note='Conferi os conteúdos.',acknowledge_document_limits=True)

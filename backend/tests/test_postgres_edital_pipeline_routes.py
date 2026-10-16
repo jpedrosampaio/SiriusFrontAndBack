@@ -148,3 +148,20 @@ class PipelineHTTP(unittest.IsolatedAsyncioTestCase):
         for suffix in ('','/'+str(audit_id)):
             self.assertEqual((await self.http.get(base+suffix,headers={'Authorization':'Bearer bob'})).status_code,404)
         self.assertEqual((await self.http.get(base+'/'+str(uuid4()))).status_code,404)
+
+    async def test_prior_program_candidates_are_owned_and_match_document_not_model_role_spelling(self):
+        from db.models.studies import StudyArea,StudyProgram
+        result=(await self.submit()).json();identity=UUID(result['analysis_id'])
+        async with unit_of_work() as session:
+            analysis=await store.owned_analysis(session,self.uid,identity)
+            for uid in (self.uid,self.other):
+                area=StudyArea(user_id=uid,name='Concursos');session.add(area);await session.flush()
+                session.add(StudyProgram(user_id=uid,area_id=area.id,name='Programa anterior',edital_data={
+                    'universal_edital':{'document_hash':analysis.content_hash,'role_id':'model-name-from-another-analysis'}}))
+                if uid==self.uid:session.add(StudyProgram(user_id=uid,area_id=area.id,name='Programa histórico',edital_data={'analysis_id':str(identity)}))
+        response=await self.http.get(f'/api/study/edital-pipeline/{identity}/import-candidates')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual({p['name'] for p in response.json()['programs']},{'Programa anterior','Programa histórico'})
+        self.assertTrue(all('document_hash' not in p and 'edital_data' not in p for p in response.json()['programs']))
+        foreign=await self.http.get(f'/api/study/edital-pipeline/{identity}/import-candidates',headers={'Authorization':'Bearer bob'})
+        self.assertEqual(foreign.status_code,404)

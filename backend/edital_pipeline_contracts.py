@@ -312,6 +312,7 @@ class ContentScope(Contract):
     status: PipelineStatus = 'not_started'
     program: CompiledProgram = Field(default_factory=CompiledProgram)
     topic_keys: dict[str,str] = Field(default_factory=dict,max_length=30000)
+    observed_rule_ids: list[str] = Field(default_factory=list,max_length=300)
     findings: dict[str,VerificationFinding] = Field(default_factory=dict,max_length=1000)
     finding_resolutions: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=1000)
     bindings: dict[str,SectionBinding] = Field(default_factory=dict,max_length=10000)
@@ -321,6 +322,7 @@ class ContentScope(Contract):
     corrections: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=10000)
     edits: ProgramEdits = Field(default_factory=ProgramEdits)
     issue_resolutions: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=100)
+    unapplied_corrections: list[str] = Field(default_factory=list,max_length=10000)
     confirmed_at: datetime | None = None
     confirmed_digest: str | None = Field(default=None,max_length=64)
     imports: dict[str,str] = Field(default_factory=dict,max_length=100)

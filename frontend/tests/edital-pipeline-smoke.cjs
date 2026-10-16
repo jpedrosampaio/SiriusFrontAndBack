@@ -40,6 +40,7 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
       }
       if(p===base+'/source/1'){sourceReads++;return respond(route,{page:1,original_available:false,blocks:[{id:'p0001-b0001',text:'Cargo A: Analista.'},{id:citation.block_id,text:citation.quote}],quality:'text'});}
       if(p===base+'/history')return respond(route,{history:[{id:'audit-1',at:'2026-10-16T10:00:00Z',action:'correct_fact',before:{value:'Português'},after:{value:'Língua Portuguesa'}}],has_more:false});
+      if(p===base+'/import-candidates')return respond(route,{programs:[{program_id:'preserved-v5',name:'Programa preservado da primeira análise',archived:false}],next_offset:null});
       if(p.startsWith(base+'/')&&method==='POST'){
         const action=p.slice(base.length+1),body=route.request().postDataJSON(),key=route.request().headers()['idempotency-key'];
         writes.push({action,body,key});assert.match(key,/^[a-f0-9-]{36}$/);
@@ -56,7 +57,8 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
         }else if(action==='facts'){
           if(!staleFact){staleFact=true;data.revision++;return respond(route,{detail:{code:'stale_revision',message:'A análise mudou em outra aba. Atualize antes de salvar.'}},409);}
           state.scopes['role-a'].program.disciplines[0].name={...fact(body.value),state:'corrected_by_user',origin:'human_declared',human_note:body.note,verification:'confirmed'};
-        }else if(action==='confirm'){assert.equal(body.acknowledge_document_limits,true);state.status=state.scopes['role-a'].status='completed';state.phase='result';state.scopes['role-a'].confirmed_digest='a'.repeat(64);}
+        }else if(action==='resolve'){assert.equal(body.identity,'orphaned-correction');state.scopes['role-a'].issue_resolutions[body.identity]={value:'reviewed',note:body.note};}
+        else if(action==='confirm'){assert.equal(body.acknowledge_document_limits,true);assert.ok(state.scopes['role-a'].issue_resolutions['orphaned-correction']);state.status=state.scopes['role-a'].status='completed';state.phase='result';state.scopes['role-a'].confirmed_digest='a'.repeat(64);}
         else if(action==='import'){imported=body;return respond(route,{success:true,program:{program_id:'created-v6',name:'Programa conferido'},message:'Programa conferido criado.'});}
         else throw Error('Unhandled action '+action);
         data.revision++;const result={analysis_id:data.analysis_id,revision:data.revision,status:state.status};receipts.set(key,result);
@@ -64,6 +66,8 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
       }
       if(p==='/api/study/programs/created-v6/cronograma')return respond(route,{program:{name:'Programa conferido'},cronograma:[],disciplinas:[]});
       if(p==='/api/study/programs/created-v6/edital-verticalizado')return respond(route,{program_name:'Programa conferido',disciplinas:[],concurso:{nome:'Concurso conferido'}});
+      if(p==='/api/study/programs/preserved-v5/cronograma')return respond(route,{program:{name:'Programa preservado da primeira análise'},cronograma:[],disciplinas:[]});
+      if(p==='/api/study/programs/preserved-v5/edital-verticalizado')return respond(route,{program_name:'Programa preservado da primeira análise',disciplinas:[],concurso:{nome:'Concurso anterior'}});
       if(p.endsWith('/state'))return respond(route,{target:{name:'Programa conferido'},coverage:{total:0,studied:0},domains:[],candidates:[],priorities:[],notices:[],warnings:[],syllabus_graph:{disciplines:[],topics:[]},readiness:{components:[]},recent_evidence:[],upcoming:[]});
       if(p==='/api/agent/preferences')return respond(route,{enabled:false});
       if(p.includes('stats')||p.includes('streak')||p==='/api/study/v2/today')return respond(route,{});
@@ -86,12 +90,21 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     await page.getByText('Língua Portuguesa',{exact:true}).first().waitFor();assert.equal(await create.isDisabled(),true);
     await page.getByText('Evidências e alternativas',{exact:true}).first().click();await page.getByRole('button',{name:'Consultar página 1',exact:true}).first().click();
     await page.getByRole('dialog').getByRole('heading',{name:'Página 1 · texto extraído',exact:true}).waitFor();await page.getByRole('dialog').getByText(citation.quote,{exact:true}).waitFor();await page.getByRole('button',{name:'Fechar página',exact:true}).click();assert.equal(sourceReads,1);
+    data.manifest.scopes['role-a'].unapplied_corrections=['disciplines/old/name'];data.manifest.scopes['role-a'].corrections={'disciplines/old/name':{value:'Correção humana anterior',note:'Valor preservado da revisão anterior.'}};
+    data.review.program_issues=[{id:'orphaned-correction',message:'Uma correção anterior exige associação explícita.'}];data.revision++;
+    await page.getByRole('button',{name:'Atualizar andamento',exact:true}).click();await page.getByText(/Correção preservada: Correção humana anterior/).waitFor();
     await page.getByLabel('Registro da conferência final',{exact:true}).fill('Conferi o cargo, os conteúdos, as fontes e as limitações.');await page.getByRole('checkbox',{name:/Conferi o cargo, as associações/}).check();
+    assert.equal(await page.getByRole('button',{name:'Confirmar cargo e conteúdo conferidos',exact:true}).isDisabled(),true);
+    await page.getByLabel('Como você conferiu esta pendência?',{exact:true}).fill('Transferi a correção conferida para a disciplina atual.');await page.getByRole('button',{name:'Registrar conferência',exact:true}).click();
     await page.getByRole('button',{name:'Confirmar cargo e conteúdo conferidos',exact:true}).click();await page.getByRole('heading',{name:'Cargo confirmado por você',exact:true}).waitFor();
     await page.getByLabel('Área de estudos',{exact:true}).selectOption('area-a');await page.getByLabel('Meta pessoal de estudo (opcional)',{exact:true}).fill('2027-03-01');assert.equal(await create.isEnabled(),true);
     await page.getByText('Diagnóstico seguro e histórico',{exact:true}).click();await page.getByRole('button',{name:'Consultar histórico de revisões',exact:true}).click();await page.getByText(/Correção de informação/).waitFor();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);fs.mkdirSync('test-results/edital-pipeline',{recursive:true});await page.screenshot({path:`test-results/edital-pipeline/review-${width}.png`,fullPage:true});
-    await create.click();await page.getByRole('heading',{name:'Programa conferido',exact:true}).first().waitFor();assert.equal(imported.role_id,'role-a');assert.equal(imported.target_date,'2027-03-01');assert.equal(imported.confirmed_digest,'a'.repeat(64));assert.equal(legacyPosts,0);
+    await page.getByRole('button',{name:'Ver programas já criados deste PDF',exact:true}).click();await page.getByText('Programa preservado da primeira análise',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Abrir programa anterior',exact:true}).click();await page.getByRole('heading',{name:'Programa preservado da primeira análise',exact:true}).first().waitFor();assert.equal(imported,null);
+    await page.goBack();await page.getByRole('heading',{name:'Cargo confirmado por você',exact:true}).waitFor();await page.getByLabel('Área de estudos',{exact:true}).selectOption('area-a');
+    await page.getByRole('checkbox',{name:/Conferi os programas já criados deste PDF/}).check();
+    await create.click();await page.getByRole('heading',{name:'Programa conferido',exact:true}).first().waitFor();assert.equal(imported.role_id,'role-a');assert.equal(imported.target_date,'2027-03-01');assert.equal(imported.confirmed_digest,'a'.repeat(64));assert.equal(imported.create_new_version,true);assert.equal(legacyPosts,0);
     assert.deepEqual(errors,[]);console.log(JSON.stringify({width,uploadReplay:true,resumeReplay:true,staleWriteRejected:true,sourceReads,confirmed:true,legacyPosts,overflow:false}));await context.close();
   }}finally{await browser.close();server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;server.close();});

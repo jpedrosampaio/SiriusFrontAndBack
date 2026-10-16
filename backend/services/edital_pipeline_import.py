@@ -4,15 +4,16 @@ No provider or schedule generator runs here. The established study/global
 planners remain responsible for proposals using real availability.
 """
 from datetime import date
-from decimal import Decimal,InvalidOperation
 from uuid import UUID
 from fastapi import HTTPException
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import select,or_,cast,String
+from db.models.files import EditalAnalysis
 from db.models.studies import StudyProgram
 from services import edital_programs as programs,edital_pipeline_store as store,edital_pipeline_controls as controls
 from services.edital_semantics import normalized
 from services.studies_catalog import public
+from edital_values import number
 
 
 class Import(controls.Version):
@@ -25,15 +26,10 @@ class Import(controls.Version):
     create_new_version:bool=False
 
 
-def number(value,*,integer=False):
-    if value is None:return None
-    try:
-        # Normalize only a complete numeric value, never guess from prose.
-        numeric=Decimal(value.strip().replace(',','.'))
-        if not numeric.is_finite() or numeric<0 or numeric>(10000 if integer else 1000):return None
-        if integer:return int(numeric) if numeric==numeric.to_integral_value() else None
-        return float(numeric) if numeric>0 else None
-    except (InvalidOperation,ValueError,AttributeError):return None
+def document_programs(uid,document_hash):
+    analyses=select(cast(EditalAnalysis.id,String)).where(EditalAnalysis.user_id==uid,EditalAnalysis.content_hash==document_hash)
+    return (StudyProgram.user_id==uid,or_(StudyProgram.edital_data['universal_edital']['document_hash'].astext==document_hash,
+        StudyProgram.edital_data['analysis_id'].astext.in_(analyses)))
 
 
 def projection(state,role_id,analysis_id):
@@ -103,9 +99,10 @@ async def create(user_id,analysis_id,key,body):
         analysis=await store.owned_analysis(session,uid,identity,lock=True);current=store.manifest(analysis);scope=current.scopes.get(body.role_id)
         if scope is None or scope.status!='completed' or scope.confirmed_digest!=body.confirmed_digest or controls.content_digest(current,body.role_id)!=body.confirmed_digest:
             raise HTTPException(409,'A confirmação mudou. Atualize antes de importar.')
-        matching=(StudyProgram.user_id==uid,
-            StudyProgram.edital_data['universal_edital']['document_hash'].astext==current.source.hash,
-            StudyProgram.edital_data['universal_edital']['role_id'].astext==body.role_id)
+        # Model-selected role spelling/quotes are not cross-analysis identity.
+        # Any prior program from this document requires explicit reconciliation
+        # through owner consent for a separate program; XP is per document.
+        matching=document_programs(uid,current.source.hash)
         existing=await session.scalar(select(StudyProgram.id).where(*matching,
             StudyProgram.edital_data['universal_edital']['confirmed_digest'].astext==body.confirmed_digest).limit(1))
         any_previous=existing or await session.scalar(select(StudyProgram.id).where(*matching).limit(1))
@@ -117,7 +114,7 @@ async def create(user_id,analysis_id,key,body):
                 'message':'Este conteúdo já foi importado. O programa e seu histórico foram preservados.','archived':previous.archived_at is not None}
         if analysis.revision!=body.revision:raise HTTPException(409,'A análise mudou; atualize antes de criar o programa.')
         if (scope.imports or any_previous) and not body.create_new_version:raise HTTPException(409,{'code':'explicit_new_version_required',
-            'message':'Uma versão anterior deste cargo já foi importada. Confirme a criação de um programa separado, preservando o anterior.'})
+            'message':'Este PDF já originou um programa. Confira os programas anteriores e confirme explicitamente a criação de outro programa separado, sem novo XP.'})
         context.update(analysis=analysis,state=current,first_import=not(scope.imports or any_previous))
     async def after(session,user,program,result):
         current=context['state'];current.scopes[body.role_id].imports[body.confirmed_digest]=str(program.id)
