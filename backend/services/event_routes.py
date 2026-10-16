@@ -81,7 +81,11 @@ def event_message(row):
     from event_contracts import EventCandidate
     from services.event_delivery import message_for
     try:return message_for(EventCandidate.model_validate(row.payload.get('candidate')))
-    except (ValueError,TypeError,AttributeError):return None  # Historical untyped events retain their original fields.
+    except (ValueError,TypeError,AttributeError,KeyError,IndexError):
+        # Queued/cancelled routines can legitimately have no materialized
+        # briefing. Preserve that historical record, without inventing a report
+        # or letting one incomplete candidate break the whole history page.
+        return None
 
 
 @router.get('/events')

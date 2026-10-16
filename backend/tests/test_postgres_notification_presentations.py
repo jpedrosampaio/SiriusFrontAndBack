@@ -30,6 +30,28 @@ class NotificationPresentations(unittest.IsolatedAsyncioTestCase):
             row=await session.scalar(select(EventDelivery).where(EventDelivery.user_id==self.uid))
             return event,row.id
 
+    async def test_unmaterialized_routine_history_does_not_break_complete_messages_or_owner_isolation(self):
+        from services.event_reports import briefing
+        report=await briefing(self.uid,now=self.now)
+        incomplete=[]
+        async with unit_of_work() as session:
+            for kind in ('brief.daily','review.night','coach.weekly'):
+                for status in ('queued','cancelled','resolved'):
+                    item=candidate(kind,'routine',self.day,{},'Rotina ainda sem relatório materializado.')
+                    row=Event(user_id=self.uid,event_type=kind,status=status,dedup_key=str(uuid4()),
+                        payload={'candidate':item.model_dump(mode='json')})
+                    session.add(row);await session.flush();incomplete.append(str(row.id))
+            item=candidate('brief.daily','routine',self.day,report.model_dump(mode='json'),'Relatório efetivamente gerado.')
+            complete=Event(user_id=self.uid,event_type=item.event_type,status='processed',dedup_key=str(uuid4()),
+                payload={'candidate':item.model_dump(mode='json')})
+            session.add(complete);await session.flush();complete_id=str(complete.id)
+        rows={r['event_id']:r for r in self.ok(await self.api.get('/automations/events?limit=50'))['items']}
+        for identity in incomplete:
+            self.assertIn(identity,rows);self.assertIsNone(rows[identity]['message'])
+            self.assertEqual(rows[identity]['candidate']['facts'],{})
+        self.assertIn('Despesas registradas no período:',rows[complete_id]['message'])
+        self.assertEqual(self.ok(await self.api.get('/automations/events',headers={'Authorization':'Bearer bob'}))['items'],[])
+
     async def prefs(self,**changes):
         async with unit_of_work() as session:
             row=await session.scalar(select(StoredPreferences).where(StoredPreferences.user_id==self.uid))
