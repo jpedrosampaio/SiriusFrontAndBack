@@ -18,6 +18,22 @@ class Output(BaseModel):
 
 
 class RouterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_durable_attempt_fence_runs_for_each_actual_model_fallback(self):
+        fake=FakeAIProvider(AIError('malformed_output'),'{"count":3}')
+        attempted=[]
+        async def record(model):attempted.append((model.provider,model.name))
+        result=await AIRouter(providers={'gemini':fake}).generate(task='edital_extract',keys={'gemini':'fake'},output_type=Output,on_attempt=record)
+        self.assertEqual(result.data.count,3)
+        self.assertEqual(attempted,[('gemini',MODELS['flash'].name),('gemini',MODELS['lite'].name)])
+        self.assertEqual(len(fake.calls),2)
+
+    async def test_lost_durable_lease_blocks_provider_io(self):
+        fake=FakeAIProvider('{"count":3}')
+        fence=AsyncMock(side_effect=RuntimeError('lease_lost'))
+        with self.assertRaisesRegex(RuntimeError,'lease_lost'):
+            await AIRouter(providers={'gemini':fake}).generate(task='edital_extract',keys={'gemini':'fake'},on_attempt=fence)
+        self.assertEqual(fake.calls,[]);self.assertEqual(fence.await_count,1)
+
     async def test_reasoning_provider_then_free_cross_provider_fallback(self):
         groq, gemini = FakeAIProvider(AIError('timeout')), FakeAIProvider('calculated summary')
         router = AIRouter(providers={'groq': groq, 'gemini': gemini})

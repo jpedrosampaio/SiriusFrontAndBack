@@ -123,6 +123,8 @@ async def import_edital_with_cargo(
 
     # Get stored analysis
     analysis = await sql_edital.get(user.user_id,analysis_id,include_source=True)
+    if analysis.get('pipeline')=='edital/universal/6':
+        raise HTTPException(409,{'code':'canonical_import_required','message':'Use a revisão incremental e confirme o cargo antes de importar este edital.'})
     if not analysis:
         raise HTTPException(status_code=404, detail="Análise não encontrada. Faça upload do edital novamente.")
 

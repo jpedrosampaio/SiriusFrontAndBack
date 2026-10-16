@@ -47,7 +47,10 @@ class Retrieval:
             await IdentityRepository(session).by_id(uid,lock=True)
             row=await session.scalar(select(EditalAnalysis).where(EditalAnalysis.user_id==uid,EditalAnalysis.id==sid).with_for_update())
             if row is None: raise HTTPException(404,'Análise não encontrada.')
-            return await self._index(session,uid,sid,'edital',row.pages or [row.extracted_text or ''])
+            pages=row.pages or [row.extracted_text or '']
+            if row.analysis_version=='6':
+                pages=[{'page':p['page'],'text':'\n'.join(b['text'] for b in p.get('blocks',[]))} for p in pages]
+            return await self._index(session,uid,sid,'edital',pages)
 
     async def index_notebook(self, user_id, source_id):
         uid,sid=identity(user_id),identity(source_id)

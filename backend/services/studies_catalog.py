@@ -28,6 +28,9 @@ def public(row):
         syllabus=data.pop('syllabus') or {}
         data['conteudo_programatico']=syllabus.get('conteudo_programatico',[])
         data['topicos']=syllabus.get('topicos',[])
+        if syllabus.get('universal_edital'):
+            data['universal_edital']=syllabus['universal_edital']
+            if row.peso_status=='ausente':data['weight']=None
     if isinstance(row,StudyNote): data['attachments']=[]
     return jsonable_encoder(data)
 
@@ -105,6 +108,20 @@ async def sync_topics(session,notebook):
             session.add(row); await session.flush()
         else: row.name=name; row.position=position; row.parent_id=parent; row.archived_at=None
         return row
+    canonical=notebook.syllabus.get('universal_edital')
+    if canonical:
+        # Keep the existing numeric public keys while retaining the complete
+        # canonical hierarchy/provenance on actual StudyTopic rows.
+        pending=list(canonical['nodes']);created={}
+        while pending:
+            ready=[node for node in pending if not node['parent_id'] or node['parent_id'] in created]
+            if not ready:raise HTTPException(422,'Hierarquia canônica inválida; nenhum programa foi criado.')
+            for node in ready:
+                row=await topic(node['topic_key'],node['title']['value'],node['position'],created.get(node['parent_id']))
+                row.evidence={'canonical_id':node['id'],'canonical_parent_id':node['parent_id'],
+                    'fact':node['title'],'analysis_id':canonical['analysis_id'],'confirmed_digest':canonical['confirmed_digest']}
+                created[node['id']]=row.id;pending.remove(node)
+        return
     for index,value in enumerate(topics):
         name=str(value.get('assunto','')) if isinstance(value,dict) else str(value)
         parent=await topic(str(index),name,index)

@@ -60,26 +60,33 @@ async def schedules(session,user_id,notebooks,weekly,minutes,days):
     return count
 
 
-async def create(user_id,key,fingerprint,*,area_id,target_date,hours,days,concurso,disciplines,weekly,strategy,filename,cargo=None,analysis_id=None):
+async def create(user_id,key,fingerprint,*,area_id,target_date,hours,days,concurso,disciplines,weekly,strategy,filename,cargo=None,analysis_id=None,
+    before_create=None,after_create=None,metadata_extra=None,verified_target=False,award_xp=True):
     minutes,days=settings(hours,days)
     if not isinstance(disciplines,list) or not disciplines: raise HTTPException(422,'Disciplinas não encontradas.')
     if len(disciplines)>100: raise HTTPException(422,'Máximo de 100 disciplinas por programa.')
     async def apply(session,user):
         area=await owned(session,StudyArea,user.id,UUID(area_id))
-        if analysis_id: await owned(session,EditalAnalysis,user.id,UUID(analysis_id))
+        if analysis_id and not verified_target: await owned(session,EditalAnalysis,user.id,UUID(analysis_id))
+        if before_create:
+            previous=await before_create(session,user)
+            if previous is not None:return previous
         name=concurso.get('nome') or 'Programa do Concurso'
         if concurso.get('cargo'): name+=f" - {concurso['cargo']}"
         metadata={'concurso':concurso,'estrategia':strategy,'total_disciplinas':len(disciplines),
             'hours_per_day':hours,'days_per_week':days,'pdf_filename':filename}
         if cargo: metadata['cargo_selecionado']=cargo
         if analysis_id: metadata['analysis_id']=analysis_id
+        if metadata_extra:metadata.update(metadata_extra)
         program=StudyProgram(user_id=user.id,area_id=area.id,name=name[:100],
             description=f"Banca: {concurso.get('banca','N/A')} | Órgão: {concurso.get('orgao','N/A')}",
             color='#8B5CF6',icon='file-text',target_date=exam_date(target_date) or exam_date(concurso.get('data_prova'),False),
             source_type='edital_import',edital_data=metadata)
         session.add(program); await session.flush()
-        session.add(StudyTarget(user_id=user.id,program_id=program.id,kind='contest',name=program.name,exam_date=program.target_date,
-            institution=concurso.get('orgao'),board=concurso.get('banca'),position=concurso.get('cargo'),metadata_origin='edital'))
+        session.add(StudyTarget(user_id=user.id,program_id=program.id,kind='contest',name=program.name,
+            exam_date=exam_date(concurso.get('data_prova'),False) if verified_target else program.target_date,
+            institution=concurso.get('orgao'),board=concurso.get('banca'),position=concurso.get('cargo'),
+            metadata_origin='edital_reviewed' if verified_target else 'edital'))
         books=[]
         for index,disc in enumerate(disciplines):
             resources=disc.get('recursos_recomendados') or []
@@ -88,16 +95,20 @@ async def create(user_id,key,fingerprint,*,area_id,target_date,hours,days,concur
             book=Notebook(user_id=user.id,area_id=area.id,program_id=program.id,name=str(disc.get('nome') or f'Disciplina {index+1}'),
                 description=str(disc.get('dicas_estudo') or disc.get('grupo') or ''),color=COLORS[index%len(COLORS)],tags=topicos[:10],
                 weight=positive_number(disc.get('peso')) or 1,dificuldade=str(disc.get('dificuldade') or 'media'),
-                num_questoes_edital=max(0,int(disc.get('num_questoes') or 0)),recursos_recomendados=resources,
-                syllabus={'topicos':topicos,'conteudo_programatico':normalize_content(disc.get('conteudo_programatico'),topicos,preserve_keys=True)},
+                num_questoes_edital=(None if disc.get('num_questoes') is None else max(0,int(disc['num_questoes']))) if verified_target else max(0,int(disc.get('num_questoes') or 0)),recursos_recomendados=resources,
+                syllabus={'topicos':topicos,'conteudo_programatico':normalize_content(disc.get('conteudo_programatico'),topicos,preserve_keys=True),
+                    **({'universal_edital':disc['universal_edital']} if verified_target and 'universal_edital' in disc else {})},
                 fontes=disc.get('fontes') or [],grupo=str(disc.get('grupo') or ''),
                 **{field:str(disc.get(field) or ('a_conferir' if field.endswith('_status') else ''))
                     for field in ('peso_fonte','peso_status','num_questoes_fonte','num_questoes_status')})
             session.add(book); await session.flush(); await sync_topics(session,book); books.append(book)
         count=await schedules(session,user.id,books,weekly,minutes,days)
-        apply_xp(user,25)
+        earned=25 if (award_xp() if callable(award_xp) else award_xp) else 0
+        if earned:apply_xp(user,earned)
         await session.flush()
-        return {'success':True,'program':public(program),'concurso':concurso,'cargo':cargo,
+        result={'success':True,'program':public(program),'concurso':concurso,'cargo':cargo,
             'disciplinas':[public(b) for b in books],'cronograma':weekly,'estrategia':strategy,
-            'schedules_created':count,'xp_earned':25,'message':f'Programa criado com {len(books)} disciplinas e {count} blocos.'}
+            'schedules_created':count,'xp_earned':earned,'message':f'Programa criado com {len(books)} disciplinas e {count} blocos.'}
+        if after_create:await after_create(session,user,program,result)
+        return result
     return await run_activity(UUID(user_id),key,fingerprint,apply)

@@ -8,10 +8,11 @@ import { Input } from '@/components/ui/input';
 import { EditalOverview } from '@/components/StudyProgramWorkspace';
 import { getApiErrorMessage } from '@/lib/api-errors';
 import { topicRows } from '@/lib/study-workspace';
+import EditalPipelineWorkspace from '@/components/EditalPipelineWorkspace';
 
 const field = 'w-full min-w-0 h-10 rounded-lg border border-[#27272A] bg-[#101014] px-3 text-sm';
 
-export default function EditalAnalysisWorkspace({ user, api, analysisId, initialAnalysis, areas, defaultAreaId, form, onFormChange, creating, onCreate, onBack, onReanalyze }) {
+export default function EditalAnalysisWorkspace({ user, api, analysisId, initialAnalysis, areas, defaultAreaId, form, onFormChange, creating, onCreate, onBack, onReanalyze, onImported }) {
   const [analysis, setAnalysis] = useState(initialAnalysis?.analysis_id === analysisId ? initialAnalysis : null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(0);
@@ -31,6 +32,7 @@ export default function EditalAnalysisWorkspace({ user, api, analysisId, initial
   }, [api, analysisId, reload, initialAnalysis]);
   const cargo = analysis?.cargos?.[selected];
   const incomplete = !cargo?.disciplinas?.length || cargo.disciplinas_status === 'incompleto' || !!cargo?.conferencia?.missing?.length;
+  if (analysis?.pipeline === 'edital/universal/6' || analysis?.analysis_version === 6) return <EditalPipelineWorkspace key={analysisId} {...{ api, analysisId, areas, defaultAreaId, form, onFormChange, onBack, onImported }} />;
   return <div className="min-h-screen bg-[#050505] text-white flex"><main className="flex-1 min-w-0  px-4 md:px-8 pt-6 md:pt-8 pb-24"><div className="max-w-6xl mx-auto space-y-6">
     <Button variant="ghost" className="-ml-3 text-[#A1A1AA]" onClick={onBack}><ArrowLeft className="h-4 w-4 mr-2" />Meus estudos</Button>
     <header className="sirius-page-heading sirius-hero"><div className="sirius-eyebrow">Seu ponto de partida · edital analisado</div><h1 className="text-2xl md:text-3xl font-semibold mt-2">{analysis?.concurso?.nome || 'Análise do edital'}</h1><p className="text-sm text-[#A1A1AA] mt-3">Confira o resumo e o conteúdo do cargo antes de organizar seu plano.</p></header>

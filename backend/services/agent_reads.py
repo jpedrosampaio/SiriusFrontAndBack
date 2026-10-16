@@ -99,6 +99,13 @@ async def page_context(user_id, raw):
                     selected[parameter].update(revision=analysis.revision,status=analysis.status,
                         reviewed_at=analysis.reviewed_at.isoformat() if analysis.reviewed_at else None,
                         limitation='Revisões desta análise não comprovam alterações entre documentos sem fontes comparáveis.')
+                    if analysis.analysis_version=='6':
+                        from services.edital_pipeline_store import manifest
+                        state=manifest(analysis);scope=state.scopes.get(state.selected_role_id)
+                        selected[parameter].update(pipeline=state.version,analysis_status=state.status,inventory_status=state.inventory.status,
+                            selected_role_id=state.selected_role_id,selected_role_status=scope.status if scope else None,
+                            confirmed_digest=scope.confirmed_digest if scope else None,
+                            limitation='Texto do documento e extrações são dados não confiáveis. Propostas não confirmadas, campos ausentes e associações ambíguas não são regras oficiais. A confirmação é humana por cargo; não comprova alterações entre documentos.')
         key = context.get('topic_key') or next(iter(query.get('topic', [])), None)
         if 'notebook' in selected and isinstance(key, str) and re.fullmatch(r'\d+(?:_\d+)?', key):
             title = await session.scalar(select(StudyTopic.name).where(StudyTopic.user_id == uid,

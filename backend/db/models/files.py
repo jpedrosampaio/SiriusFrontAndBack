@@ -66,9 +66,10 @@ class EditalJob(Identity, Owned, Timestamps, Base):
     status: Mapped[str] = mapped_column(default='queued')
     phase: Mapped[str] = mapped_column(default='Na fila')
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[UUID | None]
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     analysis_id: Mapped[UUID | None] = mapped_column(ForeignKey('edital_analyses.id',ondelete='SET NULL'))
-    __table_args__ = (Index('ix_edital_jobs_status_created','status','created_at'),
+    __table_args__ = (UniqueConstraint('user_id','id'),Index('ix_edital_jobs_status_created','status','created_at'),
         ForeignKeyConstraint(['user_id','analysis_id'],['edital_analyses.user_id','edital_analyses.id']),
         CheckConstraint("status IN ('queued','running','failed','completed')",name='status'))
 
