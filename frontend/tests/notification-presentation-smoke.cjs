@@ -8,7 +8,7 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
   try{for(const width of [320,390,768,1024,1440]){
     const owner='a1010000-0000-4000-8000-000000000001',identity='a1010000-0000-4000-8000-000000000002';
     const errors=[],writes=[],readKeys=[],claimKeys=[],reservations=new Map();let rendered=0,reads=0,status='available',claims=0,inFlight=0,maxInFlight=0,reminderAvailable=false,pairedReminders=true,legacyFailureTested=false,uncertainResponse=false;
-    const nativeSlots=new Map();let nativeScenario='desktop',nativeAckLost=false,nativeAckCount=0,nativeConflictDone=false;
+    const nativeSlots=new Map();let nativeScenario='desktop',nativeAckLost=false,nativeAckCount=0,nativeConflictDone=false,configurationFailure=false;
     const rule={enabled:true,frequency:'daily',priority:'high',channels:['in_app']};
     const state={user_id:owner,enabled:true,daily_cap:3,timezone:'America/Sao_Paulo',policy:{routine_popups:false,quiet_start:'00:00',quiet_end:'00:00',morning_time:'08:00',night_time:'21:00',weekly_time:'18:00',weekly_weekday:6,rules:{}},inherited_quiet_start:'22:00',inherited_quiet_end:'08:00',runtime_enabled:true,simulation_only:true,channels:{in_app:true,telegram:false},catalog:[{event_type:'task.overdue',title:'Tarefa pendente',domain:'tasks',rule}]};
     const fullMessage='Mensagem completa preservada na central. '+('Detalhe do registro original. '.repeat(80));
@@ -27,7 +27,7 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
         const fulfill=(body,code=200)=>r.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
         if(request.method()!=='GET')writes.push(p);
         if(p==='/api/auth/me')data={user_id:state.user_id,name:'Owned account',xp:0,rank:'Recruta'};
-        if(p==='/api/automations/state'){assert.equal(uncertainResponse,false,'immediate recovery must not spend its replay window refetching configuration');data=state;}
+        if(p==='/api/automations/state'){assert.equal(uncertainResponse,false,'immediate recovery must not spend its replay window refetching configuration');if(configurationFailure)return fulfill({detail:'Estado temporariamente indisponível'},503);data=state;}
         if(p==='/api/automations/events')data={items:[event()],next_cursor:null};
         if(p==='/api/notifications')data=[...nativeSlots.values()].map(n=>({...n,native_presentation:{state:n.nativeState,occurrence:'2026-10-15',attempted_at:'2026-10-15T12:00:00+00:00',attempts:n.attempts},native_claim:undefined}));
         if(p==='/api/automations/telegram-replies')data={items:[],next_cursor:null};
@@ -149,6 +149,21 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
     await conflictPage.goto('http://127.0.0.1:4191/notifications');await peerAck;
     assert.equal(nativeSlots.get('conflict-reminder-2').nativeState,'accepted','a deleted group peer must not discard valid ACKs');
     assert.equal(await conflictPage.evaluate(()=>window.__nativeNotices.length),1,'ACK decomposition must never re-show the OS notice');
+    configurationFailure=true;
+    const queuedContext=await newContext('granted','mobile'),queuedPage=await queuedContext.newPage();
+    const failedConfiguration=queuedPage.waitForResponse(r=>new URL(r.url()).pathname==='/api/automations/state'&&r.status()===503);
+    await queuedPage.goto('http://127.0.0.1:4191/notifications');await failedConfiguration;
+    await queuedPage.evaluate(()=>window.dispatchEvent(new CustomEvent('sirius-native-retry',{detail:{user_id:'another-owner',item:{notification_id:'foreign',title:'Aviso de outra conta',channels:['browser']}}})));
+    const queuedRetry=queuedPage.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/retry-native'));
+    await queuedPage.getByRole('button',{name:'Tentar aviso no navegador',exact:true}).first().click();await queuedRetry;
+    assert.equal(await queuedPage.evaluate(()=>window.__nativeNotices.length),0,'unidentified account must not present personal notices');
+    configurationFailure=false;await queuedPage.evaluate(()=>window.dispatchEvent(new Event('online')));
+    await queuedPage.waitForFunction(()=>window.__nativeNotices.length===1);
+    assert.equal((await queuedPage.evaluate(()=>window.__nativeNotices))[0].transport,'service-worker','queued manual retry survives configuration failure');
+    assert.notEqual((await queuedPage.evaluate(()=>window.__nativeNotices))[0].title,'Aviso de outra conta');
+    for(const nativeView of [nativePage,mobilePage,brokenPage,queuedPage,conflictPage])assert.equal(await nativeView.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`native central overflow ${width}`);
+    await fs.promises.mkdir(path.join('test-results','notification-presentation'),{recursive:true});
+    await queuedPage.screenshot({path:path.join('test-results','notification-presentation',`native-${width}.png`),fullPage:true});
     assert.equal(await nativePage.evaluate(()=>window.__permissionRequests),0);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow ${width}`);
     assert.deepEqual(errors,[]);assert.ok(writes.every(p=>p.startsWith('/api/automations/')||p==='/api/notifications/native-presentations'||p.endsWith('/retry-native')));

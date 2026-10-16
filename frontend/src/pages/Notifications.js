@@ -339,7 +339,7 @@ export default function Notifications() {
                   <CheckCircle2 className="w-6 h-6 text-green-400" />
                   <div>
                     <p className="font-medium text-green-300">Notificações ativadas</p>
-                    <p className="text-sm text-[#A1A1AA]">Verificando lembretes a cada 30 segundos</p>
+                  <p className="text-sm text-[#A1A1AA]">Os avisos seguem os canais configurados.</p>
                   </div>
                 </div>
                 <Button onClick={() => {

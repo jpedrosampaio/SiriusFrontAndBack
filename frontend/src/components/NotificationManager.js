@@ -135,7 +135,7 @@ export default function NotificationManager() {
         }
         // Configuration and history failures remain visible in the central UI.
       } finally {
-        if (current(stamp)) { pending = false; clearTimeout(timer); timer = setTimeout(() => check(nextDelay === 1000), manualItems.length ? 0 : nextDelay); }
+        if (current(stamp)) { pending = false; clearTimeout(timer); timer = setTimeout(() => check(nextDelay === 1000), manualItems.length ? Math.min(nextDelay, 5000) : nextDelay); }
       }
     }
     const reset = () => {
@@ -147,8 +147,12 @@ export default function NotificationManager() {
     const visible = () => { if (document.visibilityState === 'visible') { clearTimeout(timer); void check(); } };
     const storage = event => { if (event.key === 'sirius_session_token' || event.key === null) reset(); };
     const manual = event => {
-      if (!event.detail?.item || event.detail.user_id !== state?.user_id) return;
-      nativeCapable = true; manualItems.push(event.detail.item); clearTimeout(timer); void check();
+      if (!event.detail?.item || typeof event.detail.user_id !== 'string') return;
+      if (state?.user_id && event.detail.user_id !== state.user_id) return;
+      // The page may commit a retry before configuration finishes loading.
+      // Keep its owner envelope; check() verifies it against fresh server state
+      // before presenting. Account invalidation still clears the entire queue.
+      nativeCapable = true; manualItems.push({ ...event.detail.item, user_id: event.detail.user_id }); clearTimeout(timer); void check();
     };
     window.addEventListener('sirius-auth-changed', reset);
     window.addEventListener('sirius-automations-changed', reset);
