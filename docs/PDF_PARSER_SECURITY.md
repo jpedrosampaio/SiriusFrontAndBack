@@ -1,0 +1,9 @@
+# PDF parser dependency maintenance
+
+Separate prerequisite for the authorized universal edital analyzer; no migration or new service. It updates the existing PDF libraries and aligns the isolated regression workflow with production requirements. Runtime application behavior/contracts and the four validation workflows remain in place.
+
+The previous `pdfplumber==0.11.6` resolved `pdfminer.six==20250327`. The maintainers describe unsafe CMap deserialization/path issues in [GHSA-wf5f-4jwr-ppcp](https://github.com/pdfminer/pdfminer.six/security/advisories/GHSA-wf5f-4jwr-ppcp) and [GHSA-f83h-ghpp-7wcc](https://github.com/pdfminer/pdfminer.six/security/advisories/GHSA-f83h-ghpp-7wcc), with fixes in 20251230. Pin `pdfminer.six==20260107`, compatible `pdfplumber==0.11.10`, and `pypdf==6.20.1`; the [pypdf release](https://github.com/py-pdf/pypdf/releases/tag/6.20.1) includes cyclic-tree protections. This is a dependency audit, not evidence of an incident in the owner's document.
+
+This change is integrated before the analyzer feature because the protected migration preflight requires the three original CI workflows to match trusted main. The feature must subsequently use these same workflow bytes, rather than bypass that check. [PRODUCTION_MIGRATIONS](PRODUCTION_MIGRATIONS.md) remains authoritative.
+
+Use an isolated local environment and disposable PostgreSQL for validation. Preserve syntax/regressions/security, model/migration checks, PostgreSQL, all frontend suites and the five widths. No original private PDF is committed or uploaded, no real AI provider is called, and production verification is read-only. Dependency and synthetic parser tests do not prove semantic generalization or real-provider behavior; the separate analyzer must still complete its own implementation, review and publication gates.
