@@ -20,6 +20,26 @@ async def emit(session, analysis, job_id, state, role_id, specs):
     scope_key = f'role:{role_id}' if role_id else 'inventory'
     existing = set((await session.scalars(select(EditalUnit.unit_key).where(EditalUnit.user_id == analysis.user_id,
         EditalUnit.analysis_id == analysis.id, EditalUnit.generation == scope.generation))).all())
+    # Reanalysis seeds immutable, unaffected leaves in a new generation. Emit
+    # only uncovered source intervals, including when old parent lots split.
+    covered=set();checked={}
+    if any(spec.kind in ('detail','verify') for spec in specs):
+        sources=(await session.execute(select(EditalUnit.kind,EditalUnit.source_blocks,EditalUnit.diagnostics).where(EditalUnit.user_id==analysis.user_id,
+            EditalUnit.analysis_id==analysis.id,EditalUnit.generation==scope.generation,EditalUnit.kind.in_(('detail','verify')),
+            EditalUnit.status!='split'))).all()
+        for kind,source,diagnostics in sources:
+            if kind=='detail':covered.update(source)
+            else:checked.setdefault(diagnostics.get('validation',{}).get('expected_reviewed_unit_key'),set()).update(source)
+        residual=[]
+        for spec in specs:
+            if spec.kind not in ('detail','verify'):residual.append(spec);continue
+            excluded=covered if spec.kind=='detail' else checked.get(spec.validation.get('expected_reviewed_unit_key'),set())
+            current=[]
+            for point in [*spec.primary,None]:
+                if point is None or point in excluded:
+                    if current:residual.append(UnitSpec(spec.kind,current,spec.context,spec.validation,spec.metadata));current=[]
+                else:current.append(point)
+        specs=residual
     planned = []
     for spec in specs:
         context = {'validation': spec.validation, 'metadata': spec.metadata}

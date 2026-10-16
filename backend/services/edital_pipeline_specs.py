@@ -43,7 +43,7 @@ def selected_sections(state, scope):
     # Unknown classifications are made visible for association review. Owners
     # can include another classified interval explicitly; no title regex or
     # board/page/count assumption decides its meaning.
-    return [s for s in state.inventory.sections if s.kind in ('program', 'exam_rules', 'uncertain')
+    return [s for s in state.inventory.sections if s.kind in ('program', 'exam_rules', 'annex', 'uncertain')
         or section_key(s) in scope.binding_corrections]
 
 
@@ -75,7 +75,7 @@ def scope_specs(state, role_id, blocks):
         info = {'section_key': identity, 'first': section.block_id, 'last': section.end_block_id,
             'kind_proposal': section.kind, 'level_proposal': section.level, 'title_proposal': section.title.value,
             'scope_proposal': section.scope, 'role_reference_proposals': [r.value for r in section.role_references],
-            'evidence_window_limited': len(selected) < len(set(candidates))}
+            'evidence_window_limited': not set(ids).issubset(selected)}
         combined = set(primary) | set(selected)
         if keys and (len(keys) >= 8 or sum(len(by_id[i]['text']) + 80 for i in combined) > 6000
                 or len(json.dumps([*metadata, info], ensure_ascii=False)) > 8000): flush()

@@ -65,3 +65,10 @@ class SelectedRoleSpecs(unittest.TestCase):
         with self.assertRaises(EvidenceError): detail_specs(state, 'another', blocks)
         state.inventory.sections[0].end_block_id = 'missing'
         with self.assertRaises(EvidenceError): detail_specs(state, 'analyst', blocks)
+
+    def test_annex_is_semantically_assessed_even_without_a_program_heading(self):
+        state,blocks=self.fixture();section=state.inventory.sections[0];section.kind='annex'
+        specs=scope_specs(state,'analyst',blocks)
+        match=next(info for spec in specs for info in spec.metadata['sections'] if info['section_key']==section_key(section))
+        self.assertEqual(match['kind_proposal'],'annex')
+        self.assertTrue(match['evidence_window_limited']) # first/last are not the middle of this interval

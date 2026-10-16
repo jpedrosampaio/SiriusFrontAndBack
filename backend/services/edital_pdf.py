@@ -120,7 +120,7 @@ def extract_local(content):
             for number,page in enumerate(pdf.pages,1):
                 if not all(math.isfinite(float(n)) and 0<float(n)<=20000 for n in (page.width,page.height)):
                     raise PDFInputError('page_dimensions_limit')
-                if len(page.chars)+len(page.lines)+len(page.rects)+len(page.curves)>50000:
+                if len(page.chars)+len(page.lines)+len(page.rects)+len(page.curves)>50000 or len(page.images)>1000:
                     raise PDFInputError('page_complexity_limit')
                 words=page.extract_words(x_tolerance=2,y_tolerance=3,extra_attrs=['size'])
                 typical=median(float(w['size']) for w in words) if words else 12
@@ -128,7 +128,10 @@ def extract_local(content):
                 characters+=len(plain)
                 if characters>MAX_TEXT:raise PDFInputError('text_limit')
                 image_area=max((max(0,i['x1']-i['x0'])*max(0,i['bottom']-i['top']) for i in page.images),default=0)
+                image_text_gap=any(max(0,i['x1']-i['x0'])*max(0,i['bottom']-i['top'])>page.width*page.height*.3
+                    and sum(len(w['text']) for w in words if contains((i['x0'],i['top'],i['x1'],i['bottom']),w))<50 for i in page.images)
                 if not plain.strip() and not (page.images or page.chars or page.curves or page.lines or page.rects):quality='blank'
+                elif image_text_gap:quality='requires_ocr'
                 elif len(plain.strip())<50 and (image_area>page.width*page.height*.3 or not words):quality='requires_ocr'
                 elif plain.count('\ufffd')/max(len(plain),1)>.05:quality='requires_ocr'
                 elif len(plain.strip())<50:quality='low_text'
@@ -175,7 +178,7 @@ def extract_local(content):
                 block_count+=len(blocks)
                 if block_count>MAX_BLOCKS or len(blocks)>2000:raise PDFInputError('block_limit')
                 pages.append(SourcePage(page=number,width=page.width,height=page.height,quality=quality,
-                    characters=len(plain),column_hint=columns,blocks=blocks))
+                    characters=len(plain),column_hint=columns,image_count=len(page.images),blocks=blocks))
                 page.close()
         if len(pages)!=count:raise PDFInputError('page_coverage')
         margin_counts=Counter()
@@ -213,7 +216,7 @@ def supervised(content):
     env={key:value for key,value in os.environ.items() if key.upper() in ('PATH','SYSTEMROOT','WINDIR','TEMP','TMP','LANG','LC_ALL')}
     env.update(PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1')
     try:
-        result=subprocess.run([sys.executable,'-m','services.edital_pdf'],input=content,capture_output=True,
+        result=subprocess.run([sys.executable,'-m','services.edital_pdf'],input=content,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
             timeout=EXTRACTION_SECONDS,cwd=Path(__file__).resolve().parents[1],env=env,check=False)
     except subprocess.TimeoutExpired:raise PDFInputError('extraction_timeout') from None
     if result.returncode!=0 or len(result.stdout)>MAX_RESULT:raise PDFInputError('extraction_resource_limit')

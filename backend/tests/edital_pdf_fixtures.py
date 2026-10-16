@@ -16,13 +16,14 @@ def pdf(pages,password=None):
         font=DictionaryObject({NameObject('/Type'):NameObject('/Font'),NameObject('/Subtype'):NameObject('/Type1'),
             NameObject('/BaseFont'):NameObject('/Helvetica'),NameObject('/Encoding'):NameObject('/WinAnsiEncoding')})
         resources=DictionaryObject({NameObject('/Font'):DictionaryObject({NameObject('/F1'):writer._add_object(font)})})
-        if commands is None:
+        if commands is None or isinstance(commands,dict):
+            extra=commands.get('text',[]) if isinstance(commands,dict) else []
             image=DecodedStreamObject();image.set_data(b'\xff\xff\xff')
             image.update({NameObject('/Type'):NameObject('/XObject'),NameObject('/Subtype'):NameObject('/Image'),
                 NameObject('/Width'):NumberObject(1),NameObject('/Height'):NumberObject(1),
                 NameObject('/ColorSpace'):NameObject('/DeviceRGB'),NameObject('/BitsPerComponent'):NumberObject(8)})
             resources[NameObject('/XObject')]=DictionaryObject({NameObject('/Im1'):writer._add_object(image)})
-            commands=['q 500 0 0 650 40 40 cm /Im1 Do Q']
+            commands=['q 500 0 0 650 40 40 cm /Im1 Do Q',*extra]
         page[NameObject('/Resources')]=resources
         stream=DecodedStreamObject();stream.set_data('\n'.join(commands).encode('cp1252'))
         page[NameObject('/Contents')]=writer._add_object(stream)

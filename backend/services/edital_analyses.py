@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete,func,or_,cast
+from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import defer
 from db.models.files import EditalAnalysis
 from db.session import unit_of_work
@@ -65,6 +66,7 @@ async def replace_cargo(user_id, analysis_id, index, cargo, revision=None):
         row=await session.scalar(select(EditalAnalysis).where(EditalAnalysis.user_id==identity(user_id),
             EditalAnalysis.id==identity(analysis_id)).with_for_update())
         if row is None: raise HTTPException(404,'Análise não encontrada.')
+        if row.analysis_version=='6':raise HTTPException(409,'A análise incremental exige revisão canônica.')
         if revision is not None and row.revision != revision:
             raise HTTPException(409,'A análise mudou em outra aba. Recarregue antes de salvar.')
         payload=deepcopy(row.structured_payload)
@@ -72,20 +74,28 @@ async def replace_cargo(user_id, analysis_id, index, cargo, revision=None):
         payload['cargos'][index]=deepcopy(cargo); row.structured_payload=payload; row.revision+=1
 
 
-async def list_owned(user_id):
+async def list_owned(user_id,offset=0):
     async with unit_of_work() as session:
-        rows=(await session.scalars(select(EditalAnalysis).where(EditalAnalysis.user_id==identity(user_id),
-            EditalAnalysis.status=='completed').options(defer(EditalAnalysis.extracted_text),defer(EditalAnalysis.pages))
-            .order_by(EditalAnalysis.created_at.desc()).limit(200))).all()
+        # Poll/list summaries must not load source IR or canonical programs.
+        rows=(await session.execute(select(EditalAnalysis.id,EditalAnalysis.content_hash,EditalAnalysis.filename,
+            EditalAnalysis.created_at,EditalAnalysis.expires_at,EditalAnalysis.analysis_version,EditalAnalysis.status,
+            EditalAnalysis.structured_payload['concurso'],
+            func.jsonb_path_query_array(EditalAnalysis.structured_payload['cargos'],cast('$[*].nome',JSONPATH)),
+            func.jsonb_path_query_array(EditalAnalysis.structured_payload['universal']['inventory']['roles'],cast('$[*].name.value',JSONPATH)),
+            func.jsonb_path_query_array(EditalAnalysis.structured_payload['universal']['inventory']['facts'],
+                cast('$[*] ? (@.key == "exam_name").fact.value',JSONPATH))).where(EditalAnalysis.user_id==identity(user_id),
+            or_(EditalAnalysis.status=='completed',EditalAnalysis.analysis_version=='6'))
+            .order_by(EditalAnalysis.created_at.desc(),EditalAnalysis.id.desc()).offset(offset).limit(201))).all()
         seen=set(); result=[]
-        for row in rows:
-            cargos=row.structured_payload.get('cargos') or []
-            if not cargos or row.content_hash in seen: continue
-            seen.add(row.content_hash)
-            result.append(jsonable_encoder({'analysis_id':row.id,'pdf_filename':row.filename,'pdf_hash':row.content_hash,
-                'concurso':row.structured_payload.get('concurso',{}),'num_cargos':len(cargos),
-                'cargos_names':[c.get('nome','') for c in cargos],'created_at':row.created_at,'expires_at':row.expires_at}))
-        return {'editais':result,'total':len(result)}
+        for identity_,content_hash,filename,created,expires,version,status,concurso,legacy_names,role_names,exam_names in rows[:200]:
+            names=(role_names if version=='6' else legacy_names) or []
+            if version!='6' and (not names or content_hash in seen):continue
+            seen.add(content_hash)
+            result.append(jsonable_encoder({'analysis_id':identity_,'pdf_filename':filename,'pdf_hash':content_hash,
+                'concurso':({'nome':(exam_names or [None])[0]} if version=='6' else concurso) or {},'num_cargos':len(names),
+                'cargos_names':names,'created_at':created,'expires_at':expires,'analysis_version':int(version),
+                'pipeline':'edital/universal/6' if version=='6' else None,'pipeline_status':status if version=='6' else None}))
+        return {'editais':result,'total':len(result),'has_more':len(rows)>200,'next_offset':offset+200 if len(rows)>200 else None}
 
 
 async def remove(user_id, analysis_id):
@@ -93,5 +103,7 @@ async def remove(user_id, analysis_id):
         uid=identity(user_id)
         row=await session.scalar(select(EditalAnalysis).where(EditalAnalysis.user_id==uid,EditalAnalysis.id==identity(analysis_id)))
         if row is None: raise HTTPException(404,'Análise não encontrada.')
-        removed=await session.execute(delete(EditalAnalysis).where(EditalAnalysis.user_id==uid,EditalAnalysis.content_hash==row.content_hash))
+        condition=EditalAnalysis.id==row.id if row.analysis_version=='6' else (
+            (EditalAnalysis.content_hash==row.content_hash)&(EditalAnalysis.analysis_version!='6'))
+        removed=await session.execute(delete(EditalAnalysis).where(EditalAnalysis.user_id==uid,condition))
         return {'success':True,'deleted_count':removed.rowcount,'message':f'{removed.rowcount} análise(s) removida(s).'}

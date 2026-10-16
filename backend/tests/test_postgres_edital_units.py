@@ -147,7 +147,7 @@ class DurableUnits(unittest.IsolatedAsyncioTestCase):
             calls.append(kwargs)
             await kwargs['on_attempt'](SimpleNamespace(provider='mock', name='synthetic-no-network'))
             entered.set(); await release.wait()
-            return AIResult(data=self.proposal(['p0001-b0001']), usage={'total_tokens': 30})
+            return AIResult(provider='mock',model='synthetic-no-network',data=self.proposal(['p0001-b0001']), usage={'total_tokens': 30})
         async def credentials(uid):
             self.assertEqual(uid, str(self.uid)); return {'mock': 'synthetic-not-a-real-credential'}
         async def consolidate(session, analysis, unit, state):
@@ -165,6 +165,10 @@ class DurableUnits(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 1); self.assertEqual(calls[0]['max_tokens'], 3072)
         self.assertNotIn('pages', calls[0]['prompt'])
         self.assertFalse(await handler.run_one()); self.assertEqual(len(calls), 1)
+        async with unit_of_work() as session:
+            completed=await session.scalar(select(EditalUnit).where(EditalUnit.user_id==self.uid))
+            self.assertEqual(completed.diagnostics['completed_model']['model'],'synthetic-no-network')
+            self.assertRegex(completed.diagnostics['attempts'][0]['input_hash'],r'^[0-9a-f]{64}$')
 
     async def test_worker_truncation_splits_without_saving_unvalidated_partial_json(self):
         from services.edital_pipeline_worker import IncrementalHandler

@@ -107,7 +107,8 @@ def program(scope, proposal):
             parent = local.get(topic.parent_key) or scope.topic_keys.get(f'{identity}|{topic.parent_key}') if topic.parent_key else None
             if topic.parent_key and parent is None: raise EvidenceError('unknown_canonical_topic_parent')
             previous = topics.get(canonical_id)
-            if previous and previous.parent_id != parent: raise EvidenceError('conflicting_topic_parent')
+            if previous and previous.parent_id != parent and canonical_id not in scope.edits.topic_parents:
+                raise EvidenceError('conflicting_topic_parent')
             title = canonical(previous.title if previous else None, topic.title)
             topics[canonical_id] = ProgramTopic(id=canonical_id, parent_id=parent, numbering=topic.numbering,
                 title=corrected(title, scope.corrections.get(f'topics/{canonical_id}/title')))
@@ -126,3 +127,31 @@ def program(scope, proposal):
         rules[identity] = ProgramRule(id=identity, target_scope=item.target_scope, target=target, kind=item.kind,
             fact=corrected(fact, scope.corrections.get(f'rules/{identity}/fact')))
     scope.program.rules = sorted(rules.values(), key=lambda r: r.id)
+    overlay(scope)
+
+
+def overlay(scope):
+    """Preserve explicit structural edits without hiding newly extracted facts."""
+    disciplines={d.id:d for d in scope.program.disciplines}
+    for added in scope.edits.added_disciplines:disciplines.setdefault(added.id,added.model_copy(deep=True))
+    for identity,discipline in disciplines.items():
+        for field in ('name','stage','group'):
+            setattr(discipline,field,corrected(getattr(discipline,field),scope.corrections.get(f'disciplines/{identity}/{field}')))
+        topics={t.id:t for t in discipline.topics}
+        for added in scope.edits.added_topics.get(identity,[]):topics.setdefault(added.id,added.model_copy(deep=True))
+        removed=set(scope.edits.removed_topics)
+        for topic in topics.values():
+            if topic.id in scope.edits.topic_parents:topic.parent_id=scope.edits.topic_parents[topic.id]
+            topic.title=corrected(topic.title,scope.corrections.get(f'topics/{topic.id}/title'))
+        changed=True
+        while changed:
+            descendants={t.id for t in topics.values() if t.parent_id in removed}
+            changed=not descendants.issubset(removed);removed.update(descendants)
+        discipline.topics=[t for t in topics.values() if t.id not in removed]
+    scope.program.disciplines=[d for d in disciplines.values() if d.id not in scope.edits.removed_disciplines]
+    rules={r.id:r for r in scope.program.rules}
+    for added in scope.edits.added_rules:rules.setdefault(added.id,added.model_copy(deep=True))
+    scope.program.rules=[r for r in rules.values() if r.id not in scope.edits.removed_rules]
+    for rule in scope.program.rules:
+        for field in ('target','fact'):
+            setattr(rule,field,corrected(getattr(rule,field),scope.corrections.get(f'rules/{rule.id}/{field}')))

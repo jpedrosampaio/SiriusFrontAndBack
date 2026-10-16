@@ -74,10 +74,13 @@ class EditalJobs:
     async def list_jobs(self,request: Request,session_token: Optional[str]=Cookie(None)):
         user=await self.authenticate(authorization=request.headers.get('Authorization'),session_token=session_token)
         async with unit_of_work() as session:
-            rows=(await session.scalars(select(EditalJob).where(EditalJob.user_id==UUID(user.user_id)).order_by(EditalJob.created_at.desc()).limit(10))).all()
+            rows=(await session.execute(select(EditalJob,EditalAnalysis.status,EditalAnalysis.analysis_version)
+                .outerjoin(EditalAnalysis,(EditalAnalysis.id==EditalJob.analysis_id)&(EditalAnalysis.user_id==EditalJob.user_id))
+                .where(EditalJob.user_id==UUID(user.user_id)).order_by(EditalJob.created_at.desc()).limit(10))).all()
             return {'jobs':[jsonable_encoder({'job_id':r.id,'filename':r.filename,'status':r.status,'phase':r.phase,
-                'created_at':r.created_at,'finished_at':r.finished_at,'analysis_id':r.analysis_id}) for r in rows],
-                'upload_available':not isinstance(self.storage,UnconfiguredStorage)}
+                'created_at':r.created_at,'finished_at':r.finished_at,'analysis_id':r.analysis_id,
+                'pipeline_status':status if version=='6' else None,'analysis_version':version}) for r,status,version in rows],
+                'upload_available':not isinstance(self.storage,UnconfiguredStorage),'incremental_available':self.incremental is not None}
 
     async def start(self):
         if (self.incremental is not None or not isinstance(self.storage,UnconfiguredStorage)) and self.task is None:

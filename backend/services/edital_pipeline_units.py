@@ -39,6 +39,12 @@ def generation(state, unit):
     return scope.generation if scope else None
 
 
+def record_pause(state,unit):
+    if state.status in ('waiting_provider','quota_paused','recoverable_failure'):
+        target=state.inventory if unit.scope_key=='inventory' else state.scopes[unit.scope_key.removeprefix('role:')]
+        target.status=state.status
+
+
 async def locked(session, claim, require_live=True):
     user = await session.scalar(select(User).where(User.id == claim.user_id).with_for_update())
     if user is None: raise LeaseLost()
@@ -51,6 +57,7 @@ async def locked(session, claim, require_live=True):
     state = store.manifest(analysis)
     if job is None or unit is None or unit.status != 'running' or unit.lease_token != claim.token or \
             unit.generation != claim.generation or generation(state, unit) != claim.generation or \
+            (unit.scope_key!='inventory' and unit.scope_key!=f'role:{state.selected_role_id}') or \
             state.status != 'processing' or (require_live and unit.lease_until <= store.utc_now()):
         raise LeaseLost()
     return analysis, job, unit, state
@@ -94,6 +101,7 @@ async def expire_leases():
             elif unit.attempts >= 3:
                 unit.status = 'failed'; unit.finished_at = now
                 state.status = 'recoverable_failure'; state.error_kind = 'worker_restart_retry_limit'
+                record_pause(state,unit)
                 store.write_manifest(analysis, state)
             else:
                 unit.status = 'pending'; unit.available_at = now + timedelta(seconds=10 * unit.attempts)
@@ -136,13 +144,16 @@ async def claim_next(kind=None):
                 EditalUnit.id == identity).with_for_update())
             state = store.manifest(analysis)
             if job is None or unit is None or unit.status != 'pending' or unit.available_at > now or state.status != 'processing': continue
+            if unit.scope_key!='inventory' and unit.scope_key!=f'role:{state.selected_role_id}':continue
             if generation(state, unit) != unit.generation:
                 unit.status = 'cancelled'; unit.finished_at = now; continue
             if unit.attempts >= 3:
                 unit.status = 'failed'; unit.finished_at = now; state.status = 'recoverable_failure'; state.error_kind = 'unit_retry_limit'
+                record_pause(state,unit)
                 store.write_manifest(analysis, state); continue
             if state.budget.reserved_attempts >= state.budget.provider_limit:
                 state.status = 'quota_paused'; state.error_kind = 'analysis_provider_budget'
+                record_pause(state,unit)
                 store.write_manifest(analysis, state); continue
             token = uuid4(); unit.status = 'running'; unit.attempts += 1
             unit.lease_token = token; unit.lease_until = now + timedelta(seconds=LEASE_SECONDS)
@@ -229,10 +240,11 @@ async def provider_attempt(claim, model, input_hash=None):
         history = unit.diagnostics.get('attempts', [])
         unit.diagnostics = {**unit.diagnostics, 'attempts': [*history, {'provider': model.provider,
             'model': model.name, 'at': store.utc_now().isoformat(), 'input_hash': input_hash}]}
+        record_pause(state,unit)
         store.write_manifest(analysis, state)
 
 
-async def complete(claim, result, usage=None, consolidate=None):
+async def complete(claim, result, usage=None, consolidate=None, *, provider=None, model=None):
     async with unit_of_work() as session:
         analysis, job, unit, state = await locked(session, claim)
         primary = await source_blocks(session, claim.user_id, claim.analysis_id, unit.source_blocks)
@@ -241,6 +253,9 @@ async def complete(claim, result, usage=None, consolidate=None):
         validate_unit(proposal, primary, context, **validation_context(unit, state))
         unit.result = proposal.model_dump(mode='json'); unit.status = 'completed'; unit.finished_at = store.utc_now()
         unit.lease_token = unit.lease_until = None
+        if provider and model:
+            unit.diagnostics={**unit.diagnostics,'completed_model':{'provider':provider,'model':model,
+                'at':unit.finished_at.isoformat()}}
         allowed = {'total_tokens', 'prompt_tokens', 'completion_tokens', 'totalTokenCount', 'promptTokenCount', 'candidatesTokenCount'}
         reported = {k: v for k, v in (usage or {}).items() if k in allowed and isinstance(v, int) and not isinstance(v, bool) and v >= 0}
         for name, count in reported.items(): state.budget.reported_usage[name] = state.budget.reported_usage.get(name, 0) + count
@@ -259,8 +274,8 @@ async def complete(claim, result, usage=None, consolidate=None):
 
 async def fail(claim, kind, retry_after=30):
     """Safe categories only: no provider body, prompt or exception string."""
-    known = {'quota', 'rate_limit', 'invalid_key', 'permission_denied', 'model_unavailable', 'unavailable',
-        'timeout', 'network_error', 'malformed_output', 'output_truncated', 'input_limit', 'evidence_invalid', 'invalid_request', 'internal_error'}
+    from ai.errors import FAILURES
+    known = set(FAILURES) | {'input_limit','evidence_invalid','internal_error'}
     if kind not in known: kind = 'internal_error'
     async with unit_of_work() as session:
         analysis, job, unit, state = await locked(session, claim)
@@ -268,7 +283,7 @@ async def fail(claim, kind, retry_after=30):
         unit.diagnostics = {**unit.diagnostics, 'last_error': kind, 'reference': str(uuid4()), 'failed_at': now.isoformat()}
         state.error_kind = kind
         if unit.provider_calls: state.budget.usage_incomplete = True
-        if kind in ('malformed_output', 'output_truncated', 'input_limit') and unit.kind not in ('scope','verify') and len(unit.source_blocks) > 1:
+        if kind in ('malformed_output', 'output_truncated', 'input_limit') and unit.kind != 'scope' and len(unit.source_blocks) > 1:
             count = await session.scalar(select(func.count()).select_from(EditalUnit).where(
                 EditalUnit.user_id == claim.user_id, EditalUnit.analysis_id == claim.analysis_id,
                 EditalUnit.generation == claim.generation, EditalUnit.status != 'split'))
@@ -295,7 +310,8 @@ async def fail(claim, kind, retry_after=30):
                         generation=claim.generation, scope_key=claim.scope_key, kind=claim.kind,
                         unit_key=unit_key(claim.kind, claim.scope_key, ids, context,
                             {k: unit.diagnostics[k] for k in ('validation', 'metadata') if k in unit.diagnostics}), source_blocks=ids,
-                        context_blocks=context, diagnostics=dict(unit.diagnostics)))
+                        context_blocks=context, diagnostics={**{k:unit.diagnostics[k] for k in ('validation','metadata') if k in unit.diagnostics},
+                            'split_from':str(unit.id)}))
                     prior = ids
             else:
                 unit.status = 'failed'; unit.finished_at = now; state.status = 'recoverable_failure'; state.error_kind = 'leaf_unit_limit'
@@ -307,6 +323,7 @@ async def fail(claim, kind, retry_after=30):
             unit.status = 'pending'; unit.available_at = now + timedelta(seconds=max(10 * 2 ** (unit.attempts - 1), min(300, retry_after)))
         else:
             unit.status = 'failed'; unit.finished_at = now; state.status = 'recoverable_failure'
+        record_pause(state,unit)
         store.write_manifest(analysis, state)
         job.status = 'queued' if state.status == 'processing' else 'completed'
         job.lease_token = job.lease_until = None

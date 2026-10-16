@@ -161,7 +161,8 @@ async def persist_input(user_id,job_id,token,document):
         if document.sha256!=job.content_hash:raise HTTPException(409,'O arquivo extraído diverge do envio.')
         source=DocumentSummary(hash=document.sha256,pages=len(document.pages),characters=sum(p.characters for p in document.pages),
             blocks=len(all_blocks),size_bytes=document.size_bytes,ocr_required_pages=[p.page for p in document.pages if p.quality=='requires_ocr'],
-            warnings=document.warnings)
+            low_text_pages=[p.page for p in document.pages if p.quality=='low_text'],
+            image_pages=[p.page for p in document.pages if p.image_count],warnings=document.warnings)
         state=PipelineManifest(source=source,inventory=InventoryState(generation=uuid4()),status='processing',phase='inventory')
         if source.ocr_required_pages:state.status='ocr_required';state.phase='layout';state.error_kind='requires_selective_ocr_unavailable'
         elif not all_blocks:state.status='recoverable_failure';state.phase='layout';state.error_kind='empty_text_document'

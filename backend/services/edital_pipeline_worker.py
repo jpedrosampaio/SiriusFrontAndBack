@@ -45,7 +45,11 @@ section_key solicitado, decida include/exclude/ambiguous com fonte documental.
 Considere regras compartilhadas, nomes, códigos, exceções e continuidade. Não
 deduza aplicabilidade apenas pela proximidade da página. Títulos já descobertos
 são propostas não confirmadas. Não extraia o conteúdo profundo dos demais cargos.
-Uma associação sem prova deve permanecer ambiguous, sem omitir a seção.''',
+Include significa conteúdo exigido ou regras de avaliação aplicáveis; anexos de
+cadastro/cronograma sem esse conteúdo podem ser excluídos com evidência explícita.
+Quando evidence_window_limited=true, a amostra não mostra todo o intervalo:
+ausência de conteúdo nessa amostra não comprova ausência no restante. Sem regra
+explícita de aplicação/exclusão, mantenha ambiguous, sem omitir a seção.''',
     'detail': '''Extraia somente conteúdos e regras aplicáveis ao cargo selecionado.
 Declare shared/selected_role/other_role/ambiguous com evidência de aplicabilidade.
 Cubra os IDs primários exatamente uma vez, inclusive blocos sem conteúdo exigido.
@@ -97,7 +101,7 @@ class IncrementalHandler:
                 prompt=content, system=SYSTEM, output_type=units.CONTRACTS[claim.kind],
                 max_tokens=VERIFICATION_OUTPUT_TOKENS if claim.kind == 'verify' else UNIT_OUTPUT_TOKENS, timeout=45,
                 on_attempt=lambda model: units.provider_attempt(claim, model, sha256(content.encode('utf-8')).hexdigest()))
-            await units.complete(claim, result.data, result.usage, self.consolidate)
+            await units.complete(claim, result.data, result.usage, self.consolidate,provider=result.provider,model=result.model)
         except units.LeaseLost:
             pass
         except AIError as error:

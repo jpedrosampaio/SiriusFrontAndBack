@@ -275,7 +275,9 @@ async def recommendations(request: Request,program_id: UUID):
         rows=await attempts(session,uid,user['timezone'],program_id=program_id)
         reviews=await latest_reviews(session,uid,program_id=program_id,due=today)
         studied=await coverage(session,uid,[UUID(n['notebook_id']) for n in notebooks])
-        days_left=(program.target_date-today).days if program.target_date else None
+        from preparation_core import exam_day
+        target=await session.scalar(select(StudyTarget).where(StudyTarget.user_id==uid,StudyTarget.program_id==program.id))
+        deadline=exam_day(program,target);days_left=(deadline-today).days if deadline else None
     groups=defaultdict(list)
     for row in rows: groups[(row['notebook_id'],row['topic_key'])].append(row)
     overdue={(row['notebook_id'],row['topic_key']) for row in reviews}; suggestions=[]
@@ -284,6 +286,9 @@ async def recommendations(request: Request,program_id: UUID):
             key=(nb['notebook_id'],str(index)); evidence=groups[key]; estimate=mastery(evidence,today)
             priority=topic_priority(weight=nb['weight'],question_count=nb['num_questoes_edital'],estimate=estimate['score'],
                 errors=sum(not row['correct'] for row in evidence),overdue=key in overdue,studied=studied.get(key,False),days_left=days_left)
+            if nb.get('universal_edital') and nb['weight'] is None:
+                priority['reasons']=[r for r in priority['reasons'] if not r.startswith('peso ')]
+                priority['reasons'].append('peso desconhecido; fator neutro de planejamento')
             suggestions.append({'notebook_id':key[0],'topic_key':key[1],'title':topic.get('assunto','') if isinstance(topic,dict) else str(topic),
                 'discipline':nb['name'],'mastery':estimate,**priority})
     return {'items':sorted(suggestions,key=lambda row:(-row['priority'],row['title']))[:10],'requires_confirmation':True,
@@ -307,7 +312,8 @@ async def overview(request: Request,program_id: UUID):
         for row in rows: groups[(row['notebook_id'],row['topic_key'])].append(row)
         topics=[{'title':evidence[0]['title'],'notebook_id':key[0],'topic_key':key[1],**mastery(evidence,today)} for key,evidence in groups.items()]
         total=sum(row['total_questions'] for row in notebooks); correct=sum(row['correct_questions'] for row in notebooks)
-        target_date=(target.exam_date if target else None) or program.target_date
+        from preparation_core import exam_day
+        target_date=exam_day(program,target)
         return {'target':target_json(target,program) if target else {},'target_date':target_date.isoformat() if target_date else None,
             'days_remaining':(target_date-today).days if target_date else None,
             'coverage':{'studied':sum(covered.values()),'total':len(covered),'percent':round(100*sum(covered.values())/len(covered)) if covered else None},

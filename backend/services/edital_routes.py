@@ -1,6 +1,6 @@
 from typing import Optional
 import unicodedata
-from fastapi import APIRouter, Request, Cookie, HTTPException
+from fastapi import APIRouter, Request, Cookie, HTTPException,Query
 from services.auth_routes import account
 from services import edital_analyses as analyses
 from edital_quality import mark_discipline_quality
@@ -8,9 +8,9 @@ from edital_quality import mark_discipline_quality
 router=APIRouter()
 
 @router.get('/study/programs/editais')
-async def list_editais(request: Request):
+async def list_editais(request: Request,offset:int=Query(0,ge=0,le=10000)):
     user=await account(request)
-    return await analyses.list_owned(user['user_id'])
+    return await analyses.list_owned(user['user_id'],offset)
 
 @router.get('/study/programs/editais/{analysis_id}')
 async def get_edital_analysis(request: Request, analysis_id: str):
@@ -50,6 +50,8 @@ async def compare_editais(request: Request, data: dict, session_token: Optional[
 
     doc_a = await analyses.get(user['user_id'],aid_a)
     doc_b = await analyses.get(user['user_id'],aid_b)
+    if any(doc.get('pipeline')=='edital/universal/6' for doc in (doc_a,doc_b)):
+        raise HTTPException(409,'A comparação histórica não interpreta a análise incremental. Confira as fontes e versões em cada análise.')
     if not doc_a or not doc_b:
         raise HTTPException(status_code=404, detail="Uma das análises não foi encontrada.")
 

@@ -47,6 +47,7 @@ class SourcePage(Contract):
     quality: Literal['text', 'low_text', 'requires_ocr', 'blank']
     characters: int = Field(ge=0)
     column_hint: int = Field(default=1, ge=1, le=2)
+    image_count: int = Field(default=0,ge=0,le=1000)
     blocks: list[SourceBlock] = Field(default_factory=list, max_length=2000)
 
 
@@ -295,6 +296,17 @@ class HumanCorrection(Contract):
     recorded_at: datetime
 
 
+class ProgramEdits(Contract):
+    # Explicit owner changes overlay proposals, including after a reanalysis.
+    added_disciplines: list[ProgramDiscipline] = Field(default_factory=list,max_length=300)
+    added_topics: dict[str,list[ProgramTopic]] = Field(default_factory=dict,max_length=300)
+    removed_disciplines: list[str] = Field(default_factory=list,max_length=300)
+    removed_topics: list[str] = Field(default_factory=list,max_length=3000)
+    topic_parents: dict[str,str|None] = Field(default_factory=dict,max_length=3000)
+    added_rules: list[ProgramRule] = Field(default_factory=list,max_length=300)
+    removed_rules: list[str] = Field(default_factory=list,max_length=300)
+
+
 class ContentScope(Contract):
     generation: UUID
     status: PipelineStatus = 'not_started'
@@ -307,6 +319,8 @@ class ContentScope(Contract):
     binding_corrections: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=10000)
     previous_confirmed: CompiledProgram | None = None
     corrections: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=10000)
+    edits: ProgramEdits = Field(default_factory=ProgramEdits)
+    issue_resolutions: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=100)
     confirmed_at: datetime | None = None
     confirmed_digest: str | None = Field(default=None,max_length=64)
     imports: dict[str,str] = Field(default_factory=dict,max_length=100)
@@ -322,6 +336,7 @@ class InventoryState(Contract):
     corrections: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=3000)
     findings: dict[str,VerificationFinding] = Field(default_factory=dict,max_length=1000)
     finding_resolutions: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=1000)
+    issue_resolutions: dict[str,HumanCorrection] = Field(default_factory=dict,max_length=100)
 
 
 class DocumentSummary(Contract):
@@ -333,6 +348,8 @@ class DocumentSummary(Contract):
     blocks: int = Field(ge=0,le=MAX_BLOCKS)
     size_bytes: int = Field(ge=1,le=20*1024*1024)
     ocr_required_pages: list[int] = Field(default_factory=list,max_length=MAX_PAGES)
+    low_text_pages: list[int] = Field(default_factory=list,max_length=MAX_PAGES)
+    image_pages: list[int] = Field(default_factory=list,max_length=MAX_PAGES)
     warnings: list[str] = Field(default_factory=list,max_length=30)
     original_available: bool = False
 

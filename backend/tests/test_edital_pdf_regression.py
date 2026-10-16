@@ -48,6 +48,12 @@ class PDFExtraction(unittest.TestCase):
         self.assertEqual([p.quality for p in document.pages],['text','requires_ocr','blank','low_text'])
         self.assertFalse(document.ocr_available);self.assertIn('requires_selective_ocr_unavailable',document.warnings)
 
+    def test_digital_header_does_not_hide_a_scanned_program_on_the_same_page(self):
+        header=fixtures.text(30,770,'Digital administrative header with more than fifty selectable characters for this page.')
+        document=extraction.supervised(fixtures.pdf([{'text':[header]}]))
+        self.assertGreater(document.pages[0].characters,50)
+        self.assertEqual(document.pages[0].quality,'requires_ocr');self.assertEqual(document.pages[0].image_count,1)
+
     def test_recurring_margins_are_hints_and_never_drop_document_text(self):
         content=fixtures.pdf([[fixtures.text(50,775,'INSTITUIÇÃO - SELEÇÃO PÚBLICA'),
             fixtures.text(50,720,f'Artigo {n+1}. Conteúdo próprio desta página e suas regras.'),
@@ -77,6 +83,7 @@ class PDFExtraction(unittest.TestCase):
         env=run.call_args.kwargs['env']
         self.assertTrue(all(key not in env for key in ('DATABASE_URL','DATABASE_URL_DIRECT','AI_SECRET','CMAP_PATH')))
         self.assertEqual(run.call_args.kwargs['timeout'],60)
+        self.assertEqual(run.call_args.kwargs['stderr'],extraction.subprocess.DEVNULL)
 
 
 class CancelledIngestion(unittest.IsolatedAsyncioTestCase):
