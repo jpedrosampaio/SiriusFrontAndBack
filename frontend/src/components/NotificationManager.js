@@ -8,7 +8,7 @@ const POLL_INTERVAL = 60000;
 
 function Preview({ item, onRendered }) {
   useEffect(() => { onRendered(); }, [onRendered]);
-  return <span className="block break-words">{item.preview}{item.grouped_count > 0 && ` Outros ${item.grouped_count} avisos estão na central.`}</span>;
+  return <span className="block break-words">{item.preview}{item.grouped_count > 0 && ` Outros ${item.grouped_count} avisos estão na central.`}{item.reminder_count > 0 && ` Há ${item.reminder_count} lembrete${item.reminder_count === 1 ? '' : 's'} na central.`}</span>;
 }
 
 export default function NotificationManager() {
@@ -35,7 +35,7 @@ export default function NotificationManager() {
         }
         // No personal notice before the server identifies the current account.
         if (typeof state?.user_id !== 'string') { state = null; return; }
-        let item;
+        let item, presentationKey;
         if (state.enabled) {
           if (!nextKey) { nextKey = crypto.randomUUID(); recoveryAttempts = 0; }
           const key = nextKey;
@@ -45,27 +45,30 @@ export default function NotificationManager() {
           if (!current(stamp)) return;
           if (response.data?.user_id !== state.user_id) { window.dispatchEvent(new Event('sirius-auth-changed')); return; }
           item = response.data?.item;
+          presentationKey = key;
           nextKey = null;
-          if (item && !shown.has(item.delivery_id)) {
-            shown.add(item.delivery_id);
-            if (shown.size > 50) shown.delete(shown.values().next().value);
-            let acknowledged = false;
-            const onRendered = () => {
-              if (acknowledged || !current(stamp)) return;
-              acknowledged = true;
-              // Render confirmation is deliberately independent from reading.
-              void axios.post(`${API}/automations/presentations/${item.delivery_id}`, { key }, options()).catch(() => {});
-            };
-            toast(item.title, { id: toastId, description: <Preview item={item} onRendered={onRendered} />,
-              duration: 6000, action: action(stamp) });
-          }
         }
         const browserAllowed = 'Notification' in window && Notification.permission === 'granted';
-        const response = await axios.get(`${API}/notifications/check`, { ...options(), params: { browser_allowed: browserAllowed } });
+        let reminders = [];
+        try {
+          const response = await axios.get(`${API}/notifications/check`, { ...options(), params: { browser_allowed: browserAllowed } });
+          reminders = Array.isArray(response.data) ? response.data : [];
+        } catch (e) { /* An unavailable reminder transport must not hide a reserved automation. */ }
         if (!current(stamp)) return;
-        const reminders = Array.isArray(response.data) ? response.data : [];
         const inApp = reminders.filter(n => n.channels?.includes('in_app'));
-        if (!item && inApp.length) toast(inApp.length > 1 ? `${inApp.length} lembretes disponíveis` : inApp[0].title,
+        if (item && !shown.has(item.delivery_id)) {
+          shown.add(item.delivery_id);
+          if (shown.size > 50) shown.delete(shown.values().next().value);
+          let acknowledged = false;
+          const onRendered = () => {
+            if (acknowledged || !current(stamp)) return;
+            acknowledged = true;
+            // Render confirmation is deliberately independent from reading.
+            void axios.post(`${API}/automations/presentations/${item.delivery_id}`, { key: presentationKey }, options()).catch(() => {});
+          };
+          toast(item.title, { id: toastId, description: <Preview item={{ ...item, reminder_count: inApp.length }} onRendered={onRendered} />,
+            duration: 6000, action: action(stamp) });
+        } else if (inApp.length) toast(inApp.length > 1 ? `${inApp.length} lembretes disponíveis` : inApp[0].title,
           { id: toastId, description: 'Confira os detalhes na central de Notificações.', duration: 6000, action: action(stamp) });
         const browser = reminders.filter(n => n.channels?.includes('browser'));
         // Permission is requested only by the explicit control in Notifications.

@@ -24,6 +24,8 @@ Legacy scheduled reminders retain their due occurrence through quiet/offline per
 
 One global manager owns polling/presentation. Serialize its requests, abort and fence on account change, suppress hidden-tab pop-ups, coordinate across tabs/devices through server claims, and render one compact automation/reminder toast with a central-history action. The notifications page manages reminders/history/preferences, not a second presentation poller. Browser permission remains explicit. Closing a toast is not read confirmation.
 
+Simultaneous automation and in-app reminder claims share one preview that explicitly counts the reminders; neither transport hides the other after consuming its claim. If reminder lookup fails, the already reserved automation still renders. The render acknowledgement is sent only when that final combined preview mounts.
+
 ## Acceptance
 
 Disposable PostgreSQL and intercepted browser tests must cover new/backlogged/old deliveries, concurrent tabs/devices, reload/reconnect, owner changes, overlapping polling, disabled policies, quiet hours including high priority, read failure, presented/unread and read-confirmed states. Test transport loss independently from UI acknowledgement and retain complete history. Preserve all existing suites/19 browser scenarios and add targeted five-width coverage. Require four workflows, final-head Codex, expected-head merge and exact deploy/read-only production validation.

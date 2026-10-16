@@ -7,7 +7,7 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
 (async()=>{await new Promise(r=>server.listen(4191,'127.0.0.1',r));const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{})});
   try{for(const width of [320,390,768,1024,1440]){
     const owner='a1010000-0000-4000-8000-000000000001',identity='a1010000-0000-4000-8000-000000000002';
-    const errors=[],writes=[],readKeys=[],claimKeys=[],reservations=new Map();let rendered=0,reads=0,status='available',claims=0,inFlight=0,maxInFlight=0,reminderAvailable=false,uncertainResponse=false;
+    const errors=[],writes=[],readKeys=[],claimKeys=[],reservations=new Map();let rendered=0,reads=0,status='available',claims=0,inFlight=0,maxInFlight=0,reminderAvailable=false,pairedReminders=true,legacyFailureTested=false,uncertainResponse=false;
     const rule={enabled:true,frequency:'daily',priority:'high',channels:['in_app']};
     const state={user_id:owner,enabled:true,daily_cap:3,timezone:'America/Sao_Paulo',policy:{routine_popups:false,quiet_start:'00:00',quiet_end:'00:00',morning_time:'08:00',night_time:'21:00',weekly_time:'18:00',weekly_weekday:6,rules:{}},inherited_quiet_start:'22:00',inherited_quiet_end:'08:00',runtime_enabled:true,simulation_only:true,channels:{in_app:true,telegram:false},catalog:[{event_type:'task.overdue',title:'Tarefa pendente',domain:'tasks',rule}]};
     const fullMessage='Mensagem completa preservada na central. '+('Detalhe do registro original. '.repeat(80));
@@ -44,6 +44,8 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
         if(p.startsWith('/api/automations/presentations/')&&!p.endsWith('/claim')){rendered++;for(const record of reservations.values())if(p.endsWith(record.item.delivery_id))record.rendered=true;data={state:'presented'};}
         if(p==='/api/notifications/check'){
           const allowed=url.searchParams.get('browser_allowed');assert.ok(['true','false'].includes(allowed));
+          if(state.user_id!=='a1010000-0000-4000-8000-000000000001'&&!legacyFailureTested){legacyFailureTested=true;return fulfill({detail:'Lembretes temporariamente indisponíveis'},503);}
+          if(pairedReminders&&state.user_id===owner){pairedReminders=false;data=[{notification_id:'in-app-once',title:'Lembrete único',message:'Detalhes na central',channels:['in_app']},{notification_id:'hybrid-once',title:'Lembrete sem permissão nativa',message:'Detalhes na central',channels:['in_app','browser']}];}
           if(reminderAvailable&&allowed==='true'){reminderAvailable=false;data=[1,2].map(n=>({notification_id:`reminder-${n}`,title:`Lembrete ${n}`,message:'Texto completo reservado à central',channels:['browser']}));}
         }
         if(p===`/api/automations/deliveries/${identity}`){
@@ -61,6 +63,7 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
     await page.getByText('Aviso recente da conta',{exact:true}).waitFor();await firstAck;
     const notice=page.locator('[data-sonner-toast]').filter({hasText:'Aviso recente da conta'});
     assert.ok((await notice.innerText()).length<250);assert.equal(reads,0);assert.equal(rendered,1);
+    await notice.getByText('Há 2 lembretes na central.',{exact:false}).waitFor();
     assert.equal(claimKeys[0],claimKeys[1],'lost response retries the same key before normal polling');
     await notice.getByRole('button',{name:'Close toast',exact:true}).click();assert.equal(reads,0);
     await page.evaluate(()=>{for(let n=0;n<8;n++)window.dispatchEvent(new Event('online'));});
@@ -92,6 +95,7 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
     try { await page.getByText('Aviso da segunda conta',{exact:true}).waitFor(); }
     catch(error){console.error({claims,rendered,errors,visibility:await page.evaluate(()=>document.visibilityState),url:page.url(),writes});console.error((await page.locator('body').innerText()).slice(-1500));throw error;}
     assert.equal(await page.getByText('Aviso recente da conta',{exact:true}).count(),0);
+    assert.equal(legacyFailureTested,true,'a failed reminder check must not hide the claimed automation');
     state.user_id=null;state.enabled=false;
     await page.evaluate(()=>window.dispatchEvent(new Event('sirius-auth-changed')));
     await page.getByText('Aviso da segunda conta',{exact:true}).waitFor({state:'hidden'});
