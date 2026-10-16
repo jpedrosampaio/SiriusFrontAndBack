@@ -24,7 +24,11 @@ export default function NotificationManager() {
     const closeNative = () => { if (nativeNotice) nativeNotice.close(); nativeNotice = null; };
     const action = stamp => ({ label: 'Ver na central', onClick: () => { if (current(stamp)) central(); } });
     async function flushNative(stamp) {
-      for (const entry of nativeAcks.slice(0, 1)) {
+      // A normal group takes one request. If a deleted/stale peer invalidates
+      // the atomic batch, bisect it and confirm the remaining valid claims.
+      // Bound work per poll; transient failures keep the unchanged ACK queued.
+      for (let attempt = 0; attempt < 3 && nativeAcks.length; attempt += 1) {
+        const entry = nativeAcks[0];
         if (!current(stamp)) return;
         try {
           await axios.post(`${API}/notifications/native-presentations`, entry, options());
@@ -33,11 +37,14 @@ export default function NotificationManager() {
           window.dispatchEvent(new Event('sirius-native-status-changed'));
         } catch (error) {
           if (current(stamp) && [404, 409].includes(error.response?.status)) {
-            // Deleted/stale reservations cannot be acknowledged. The central
-            // retains any unresolved peers; never retry the OS presentation.
             nativeAcks = nativeAcks.filter(value => value !== entry);
+            if (entry.claims.length > 1) {
+              const middle = Math.ceil(entry.claims.length / 2);
+              nativeAcks.unshift({ ...entry, claims: entry.claims.slice(middle) });
+              nativeAcks.unshift({ ...entry, claims: entry.claims.slice(0, middle) });
+            }
             window.dispatchEvent(new Event('sirius-native-status-changed'));
-          }
+          } else break;
           // Transient failure retains the ACK and pauses new native claims.
         }
       }

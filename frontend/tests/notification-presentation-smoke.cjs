@@ -8,7 +8,7 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
   try{for(const width of [320,390,768,1024,1440]){
     const owner='a1010000-0000-4000-8000-000000000001',identity='a1010000-0000-4000-8000-000000000002';
     const errors=[],writes=[],readKeys=[],claimKeys=[],reservations=new Map();let rendered=0,reads=0,status='available',claims=0,inFlight=0,maxInFlight=0,reminderAvailable=false,pairedReminders=true,legacyFailureTested=false,uncertainResponse=false;
-    const nativeSlots=new Map();let nativeScenario='desktop',nativeAckLost=false,nativeAckCount=0;
+    const nativeSlots=new Map();let nativeScenario='desktop',nativeAckLost=false,nativeAckCount=0,nativeConflictDone=false;
     const rule={enabled:true,frequency:'daily',priority:'high',channels:['in_app']};
     const state={user_id:owner,enabled:true,daily_cap:3,timezone:'America/Sao_Paulo',policy:{routine_popups:false,quiet_start:'00:00',quiet_end:'00:00',morning_time:'08:00',night_time:'21:00',weekly_time:'18:00',weekly_weekday:6,rules:{}},inherited_quiet_start:'22:00',inherited_quiet_end:'08:00',runtime_enabled:true,simulation_only:true,channels:{in_app:true,telegram:false},catalog:[{event_type:'task.overdue',title:'Tarefa pendente',domain:'tasks',rule}]};
     const fullMessage='Mensagem completa preservada na central. '+('Detalhe do registro original. '.repeat(80));
@@ -58,6 +58,8 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
         }
         if(p==='/api/notifications/native-presentations'){
           nativeAckCount++;const body=request.postDataJSON();
+          if(nativeScenario==='conflict'&&!nativeConflictDone){nativeConflictDone=true;nativeSlots.delete('conflict-reminder-1');}
+          if(body.claims.some(claim=>!nativeSlots.has(claim.notification_id)))return fulfill({detail:'Lembrete excluído'},404);
           for(const claim of body.claims){const row=nativeSlots.get(claim.notification_id);assert.equal(row.native_claim.claim_id,claim.claim_id);row.nativeState=body.outcome;if(body.outcome==='accepted')row.last_sent='2026-10-15T12:00:01Z';}
           if(nativeScenario==='desktop'&&!nativeAckLost){nativeAckLost=true;return fulfill({detail:'Resposta do ACK perdida após commit'},503);}
           data={user_id:state.user_id,items:[]};
@@ -141,6 +143,12 @@ const server=http.createServer((req,res)=>{let f=path.join(root,new URL(req.url,
     await brokenPage.getByRole('button',{name:'Tentar aviso no navegador',exact:true}).first().click();
     await brokenPage.waitForFunction(()=>window.__nativeNotices.length===1);
     assert.equal((await brokenPage.evaluate(()=>window.__nativeNotices))[0].transport,'service-worker');
+    nativeScenario='conflict';reminderAvailable=true;
+    const conflictContext=await newContext('granted','mobile'),conflictPage=await conflictContext.newPage();
+    const peerAck=conflictPage.waitForResponse(r=>new URL(r.url()).pathname==='/api/notifications/native-presentations'&&r.status()===200&&r.request().postDataJSON().claims.some(c=>c.notification_id==='conflict-reminder-2'));
+    await conflictPage.goto('http://127.0.0.1:4191/notifications');await peerAck;
+    assert.equal(nativeSlots.get('conflict-reminder-2').nativeState,'accepted','a deleted group peer must not discard valid ACKs');
+    assert.equal(await conflictPage.evaluate(()=>window.__nativeNotices.length),1,'ACK decomposition must never re-show the OS notice');
     assert.equal(await nativePage.evaluate(()=>window.__permissionRequests),0);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow ${width}`);
     assert.deepEqual(errors,[]);assert.ok(writes.every(p=>p.startsWith('/api/automations/')||p==='/api/notifications/native-presentations'||p.endsWith('/retry-native')));
