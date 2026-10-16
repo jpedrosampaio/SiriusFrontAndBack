@@ -1,6 +1,6 @@
 # Notification presentation maintenance
 
-Authorized structural maintenance, base main `70de336c09b5f7f290103a3840afd978f827453a`. Not a new phase. Implementation and technical self-review are complete; full browser/remote review/publication gates remain pending. No publication claim.
+Authorized structural maintenance, base main `70de336c09b5f7f290103a3840afd978f827453a`. Published through PR55, merge `ffa02f45f06711d23bdb02e69c10430321ae847b`, after complete head CI, clean Codex, exact deployments and read-only production checks. [Publication evidence](history/NOTIFICATION_PUBLICATION.md). Not a new phase; the universal edital analyzer remains a separate pending delivery.
 
 ## Directed audit before changes
 
