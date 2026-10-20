@@ -27,15 +27,20 @@ class Review(BaseModel):
 def review_router(authenticate):
     router = APIRouter(prefix='/study/programs/editais')
 
-    async def owned(request, token, analysis_id):
+    async def owned(request, token, analysis_id,include_source=True):
         user = await authenticate(authorization=request.headers.get('Authorization'), session_token=token)
         from services.edital_analyses import get
-        doc = await get(user.user_id,analysis_id,include_source=True)
+        doc = await get(user.user_id,analysis_id,include_source=include_source)
         return user.user_id, doc
 
     @router.get('/{analysis_id}/source/{page}')
     async def get_page(request: Request, analysis_id: str, page: int, session_token: Optional[str] = Cookie(None)):
-        _, doc = await owned(request, session_token, analysis_id)
+        uid, doc = await owned(request, session_token, analysis_id,include_source=False)
+        if doc.get('pipeline')=='edital/universal/6':
+            from services.edital_pipeline_routes import get_page as canonical_page
+            return await canonical_page(request,analysis_id,page)
+        from services.edital_analyses import get
+        doc=await get(uid,analysis_id,include_source=True)
         match = next((p for p in doc.get('pdf_pages', []) if p['page'] == page), None)
         if not match:
             raise HTTPException(404, 'Página indisponível. Reanalise o PDF para registrar as fontes.')
@@ -44,6 +49,8 @@ def review_router(authenticate):
     @router.put('/{analysis_id}/cargos/{cargo_index}')
     async def review(request: Request, analysis_id: str, cargo_index: int, body: Review, session_token: Optional[str] = Cookie(None)):
         user_id, doc = await owned(request, session_token, analysis_id)
+        if doc.get('pipeline')=='edital/universal/6':
+            raise HTTPException(409,'Use a revisão incremental para preservar as evidências e correções deste edital.')
         cargos = doc.get('cargos', [])
         if not 0 <= cargo_index < len(cargos):
             raise HTTPException(404, 'Cargo não encontrado')

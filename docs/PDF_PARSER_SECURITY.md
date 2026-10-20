@@ -1,5 +1,7 @@
 # PDF parser dependency maintenance
 
+Published through PR56, merge `516a5fb4028173f71aa7bf9e97f72a55fd33213d`; [validation and deployment evidence](history/PDF_PARSER_PUBLICATION.md). The universal analyzer remains a separate feature in progress.
+
 Separate prerequisite for the authorized universal edital analyzer; no migration or new service. It updates the existing PDF libraries and aligns the isolated regression workflow with production requirements. Runtime application behavior/contracts and the four validation workflows remain in place.
 
 The previous `pdfplumber==0.11.6` resolved `pdfminer.six==20250327`. The maintainers describe unsafe CMap deserialization/path issues in [GHSA-wf5f-4jwr-ppcp](https://github.com/pdfminer/pdfminer.six/security/advisories/GHSA-wf5f-4jwr-ppcp) and [GHSA-f83h-ghpp-7wcc](https://github.com/pdfminer/pdfminer.six/security/advisories/GHSA-f83h-ghpp-7wcc), with fixes in 20251230. Pin `pdfminer.six==20260107`, compatible `pdfplumber==0.11.10`, and `pypdf==6.20.1`; the [pypdf release](https://github.com/py-pdf/pypdf/releases/tag/6.20.1) includes cyclic-tree protections. This is a dependency audit, not evidence of an incident in the owner's document.

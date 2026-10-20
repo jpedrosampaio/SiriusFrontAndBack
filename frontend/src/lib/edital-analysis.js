@@ -4,6 +4,7 @@ import { getApiErrorMessage } from '@/lib/api-errors';
 
 export const editalJobsKey = () => cacheKey('edital-jobs');
 export const EDITAL_CAPABILITY_STALE = 60000;
+export const EDITAL_PIPELINE_STATUSES = { processing: 'Em processamento', awaiting_review: 'Aguardando sua conferência', completed: 'Cargo confirmado por você', not_started: 'Não iniciado', waiting_provider: 'Aguardando provedor', quota_paused: 'Pausado por cota ou orçamento', recoverable_failure: 'Interrompido · confira como retomar', cancelled: 'Cancelado · checkpoints preservados', ocr_required: 'Requer OCR seletivo' };
 // Match the existing worker's 900-second processing ceiling, not the upload's 60s.
 export const EDITAL_DIRECT_TIMEOUT = 900000;
 export async function queryEditalJobs(api, signal) {

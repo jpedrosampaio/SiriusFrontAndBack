@@ -9,7 +9,7 @@ from services.study_evidence import attempts, latest_reviews
 from study_mastery import mastery, topic_priority, adaptive_review
 from db.models.exams import Exam, ExamAttempt
 from services.study_plan_views import entry_json
-from preparation_core import VERSION, learning_stage
+from preparation_core import VERSION, learning_stage,exam_day
 from services.contest_tracking import official_freshness
 
 LIMIT = 2000
@@ -84,7 +84,7 @@ async def preparation_state(session, uid, program, zone, today):
         truncated |= len(linked) > LIMIT
         for m in linked[:LIMIT]: materials[m.notebook_id].append({'id': str(m.id), 'kind': kind,
             'topic_key': m.topic_key if model is StudyDraft else None})
-    exam_date = (target.exam_date if target else None) or program.target_date
+    exam_date = exam_day(program,target)
     days = (exam_date-today).days if exam_date else None
     graph = []; candidates = []; covered_count = 0
     books_by_id = {b.id: b for b in books}
@@ -94,15 +94,22 @@ async def preparation_state(session, uid, program, zone, today):
         last = max((date.fromisoformat(a['date']) for a in evidence), default=None)
         covered = bool(studied); covered_count += covered
         book = books_by_id[topic.notebook_id]
+        imported=bool(book.syllabus.get('universal_edital'))
+        weight=book.weight if not imported or book.peso_status in ('extraido_com_fonte','informado_pelo_usuario','ajustado_pelo_usuario') else None
+        question_count=book.num_questoes_edital if not imported or book.num_questoes_status in ('extraido_com_fonte','informado_pelo_usuario','ajustado_pelo_usuario') else None
         recent_answers = evidence[:5]
         older_answers = evidence[5:10]
         change = (round(100*(sum(a['correct'] for a in recent_answers)/5 - sum(a['correct'] for a in older_answers)/5), 1)
             if len(recent_answers) == len(older_answers) == 5 else None)
         review_suggestion = adaptive_review(evidence, today, previous_reviews=review_counts.get(topic.id, 0),
-            importance=book.weight)
-        priority = topic_priority(weight=book.weight, question_count=book.num_questoes_edital,
+            importance=weight)
+        priority = topic_priority(weight=weight, question_count=question_count,
             estimate=estimate['score'], errors=sum(not a['correct'] for a in evidence),
             overdue=(str(book.id), topic.topic_key) in overdue_keys, studied=covered, days_left=days)
+        if imported and weight is None:
+            priority['reasons']=[r for r in priority['reasons'] if not r.startswith('peso ')]
+            priority['reasons'].append('peso desconhecido; fator neutro de planejamento, sem valor oficial atribuído')
+        if imported and question_count is None:priority['reasons'].append('quantidade de questões desconhecida; sem incidência oficial atribuída')
         if book.peso_status != 'extraido_com_fonte': priority['reasons'].append('peso registrado a conferir')
         if book.num_questoes_status != 'extraido_com_fonte': priority['reasons'].append('incidência de questões a conferir')
         node = {'id': str(topic.id), 'parent_id': str(topic.parent_id) if topic.parent_id else str(book.id),
@@ -208,7 +215,7 @@ async def preparation_state(session, uid, program, zone, today):
         'next_candidates': sorted(candidates, key=lambda c: (-c['priority'], c['id']))[:10],
         'syllabus_graph': {'preparation_id': str(program.id), 'disciplines': [
             {'id': str(b.id), 'parent_id': str(program.id), 'title': b.name,
-             'weight': b.weight, 'weight_status': b.peso_status, 'weight_source': b.peso_fonte,
+             'weight': None if b.syllabus.get('universal_edital') and b.peso_status=='ausente' else b.weight, 'weight_status': b.peso_status, 'weight_source': b.peso_fonte,
              'question_count': b.num_questoes_edital, 'question_count_status': b.num_questoes_status,
              'materials': materials[b.id], 'recommended_resources': (b.recursos_recomendados or [])[:30],
              'sources': (b.fontes or [])[:30]} for b in books], 'topics': graph},

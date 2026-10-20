@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { fetchEditalCapability, isStorageUnavailable, editalErrorMessage, EDITAL_DIRECT_TIMEOUT, editalJobsKey } from '@/lib/edital-analysis';
-import { queryClient } from '@/lib/query-cache';
+import { queryClient, sessionVersion } from '@/lib/query-cache';
 import { FileText, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -22,6 +22,7 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
   const [elapsed, setElapsed] = useState(0);
   const started = useRef(0), controller = useRef(null), inFlight = useRef(false);
   const fileInput = useRef(null);
+  const uploadReceipt = useRef(null);
   useEffect(() => { if (open) setForce(!!initialForce); }, [open, initialForce]);
   useEffect(() => {
     if (!open) return;
@@ -56,6 +57,7 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
     onOpenChange(value);
   };
   const choose = selected => {
+    uploadReceipt.current = null;
     setError('');
     const rejection = selected && !selected.name.toLowerCase().endsWith('.pdf') ? 'Selecione um PDF válido.' : selected?.size > 20 * 1024 * 1024 ? 'O PDF deve ter no máximo 20 MB.' : '';
     if (rejection) {
@@ -71,6 +73,7 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
     inFlight.current = true; setBusy(true); setError(''); setElapsed(0); started.current = Date.now();
     controller.current = new AbortController();
     const requestController = controller.current;
+    const version = sessionVersion();
     const requestKey = editalJobsKey();
     const form = new FormData(); form.append('file', file);
     const suffix = force ? '?force=true' : '';
@@ -86,7 +89,20 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
       setFile(null); onOpenChange(false); onAnalyzed(data);
     };
     try {
-      if (capability.upload_available === false) await analyzeDirect();
+      if (capability.incremental_available === true) {
+        setDirect(false);setPhase('upload');
+        if (!uploadReceipt.current || uploadReceipt.current.force !== force) uploadReceipt.current = { force, key: crypto.randomUUID() };
+        const { data } = await axios.post(`${api}/study/edital-pipeline${suffix}`, form, {
+          signal: requestController.signal, timeout: 90000, headers: { 'Idempotency-Key': uploadReceipt.current.key },
+          onUploadProgress: progress => { if (progress.total && progress.loaded >= progress.total) setPhase('layout'); },
+        });
+        if (requestController.signal.aborted || version !== sessionVersion()) return;
+        if (!data?.analysis_id) throw new Error('Missing durable analysis identity');
+        setFile(null);uploadReceipt.current = null;onOpenChange(false);
+        void queryClient.invalidateQueries({ queryKey: requestKey, refetchType: 'none' });
+        window.dispatchEvent(new Event('edital-job-created'));
+        onAnalyzed({ analysis_id: data.analysis_id, analysis_version: 6, pipeline: 'edital/universal/6' });
+      } else if (capability.upload_available === false) await analyzeDirect();
       else {
         setDirect(false); setPhase('upload');
         try {
@@ -114,11 +130,12 @@ export default function EditalImportDialog({ open, onOpenChange, api, initialFor
       {file && <Button type="button" variant="ghost" disabled={busy} onClick={() => choose(null)}>Remover PDF selecionado</Button>}
       <p className="text-xs text-slate-400">Pesos e número de questões serão apresentados quando houver evidência. Trechos incompletos ficam marcados para conferência.</p>
       <details><summary className="cursor-pointer py-3 text-sm text-slate-300">Opções avançadas</summary><label className="flex gap-3 items-start text-sm text-slate-300 py-2"><input type="checkbox" checked={force} disabled={busy} onChange={e => setForce(e.target.checked)} className="mt-1 accent-purple-400" /><span>Reanalisar PDF e ignorar análise salva</span></label></details>
-      {capability?.upload_available === false && !busy && <p className="text-sm text-blue-200">Esta análise será feita nesta tela.</p>}
+      {capability?.upload_available === false && !capability.incremental_available && !busy && <p className="text-sm text-blue-200">Esta análise será feita nesta tela.</p>}
+      {capability?.incremental_available && <p className="text-xs text-blue-200">Após validar o PDF e salvar seu texto, a análise continua em lotes. Você pode escolher um cargo assim que ele for identificado. O arquivo original não é armazenado.</p>}
       {!capability && !capabilityError && <p role="status" className="text-sm text-slate-400">Preparando análise…</p>}
       {capabilityError && <div role="alert"><p className="text-sm text-amber-200">Não foi possível preparar a análise. Tente novamente.</p><Button type="button" variant="outline" onClick={() => setRetryCapability(n => n + 1)}>Atualizar disponibilidade</Button></div>}
       {error && <p role="alert" className="rounded-xl bg-amber-500/10 p-3 text-sm text-amber-200">{error}</p>}
-      {busy && <div data-testid="edital-analyze-progress" className="space-y-2 rounded-xl bg-blue-500/10 p-4"><p role="status" className="flex gap-2 items-center text-sm"><Loader2 size={18} className="animate-spin" />{phase === 'upload' ? 'Enviando PDF…' : 'Analisando edital…'}</p><p className="text-xs text-slate-300">{elapsed}s decorridos. {direct ? 'Pode levar alguns minutos dependendo do tamanho do edital. Mantenha esta página aberta.' : 'Enviando edital para análise.'}</p></div>}
+      {busy && <div data-testid="edital-analyze-progress" className="space-y-2 rounded-xl bg-blue-500/10 p-4"><p role="status" className="flex gap-2 items-center text-sm"><Loader2 size={18} className="animate-spin" />{phase === 'layout' ? 'Verificando PDF e salvando o texto…' : phase === 'upload' ? 'Enviando PDF…' : 'Analisando edital…'}</p><p className="text-xs text-slate-300">{elapsed}s decorridos. {direct ? 'Pode levar alguns minutos dependendo do tamanho do edital. Mantenha esta página aberta.' : 'Aguarde a confirmação de que o texto foi salvo antes de sair.'}</p></div>}
       <Button data-testid="analyze-edital-btn" disabled={!file || !capability || capabilityError || busy} type="submit" className="w-full min-h-11 bg-purple-600 hover:bg-purple-700">{busy ? 'Aguarde…' : error ? 'Tentar novamente' : 'Analisar edital'}</Button>
       {busy && direct && <Button type="button" variant="ghost" className="w-full min-h-11" onClick={() => close(false)}>Interromper espera</Button>}
     </form>

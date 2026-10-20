@@ -1,4 +1,4 @@
-﻿"""PostgreSQL queue with explicit object storage and leased, non-retried AI work."""
+﻿"""Shared PostgreSQL orchestrator for legacy inputs and incremental checkpoints."""
 import asyncio
 import io
 import logging
@@ -12,13 +12,15 @@ from db.models.files import EditalJob,EditalAnalysis
 from db.models.identity import User
 from db.session import unit_of_work
 from storage.objects import configured_storage,UnconfiguredStorage,StorageUnavailable
+from edital_pipeline_contracts import JOB_IR_PROVIDER,JOB_INGEST_PROVIDER
 
 
 class EditalJobs:
-    def __init__(self,authenticate,process,storage=None):
+    def __init__(self,authenticate,process,storage=None,incremental=None):
         self.authenticate,self.process=authenticate,process
         self.storage=storage if storage is not None else configured_storage()
         self.task=None; self.wake=asyncio.Event()
+        self.incremental=incremental
         self.router=APIRouter(prefix='/study/edital-jobs')
         self.router.add_api_route('',self.submit,methods=['POST'],status_code=202)
         self.router.add_api_route('',self.list_jobs,methods=['GET'])
@@ -72,13 +74,16 @@ class EditalJobs:
     async def list_jobs(self,request: Request,session_token: Optional[str]=Cookie(None)):
         user=await self.authenticate(authorization=request.headers.get('Authorization'),session_token=session_token)
         async with unit_of_work() as session:
-            rows=(await session.scalars(select(EditalJob).where(EditalJob.user_id==UUID(user.user_id)).order_by(EditalJob.created_at.desc()).limit(10))).all()
+            rows=(await session.execute(select(EditalJob,EditalAnalysis.status,EditalAnalysis.analysis_version)
+                .outerjoin(EditalAnalysis,(EditalAnalysis.id==EditalJob.analysis_id)&(EditalAnalysis.user_id==EditalJob.user_id))
+                .where(EditalJob.user_id==UUID(user.user_id)).order_by(EditalJob.created_at.desc()).limit(10))).all()
             return {'jobs':[jsonable_encoder({'job_id':r.id,'filename':r.filename,'status':r.status,'phase':r.phase,
-                'created_at':r.created_at,'finished_at':r.finished_at,'analysis_id':r.analysis_id}) for r in rows],
-                'upload_available':not isinstance(self.storage,UnconfiguredStorage)}
+                'created_at':r.created_at,'finished_at':r.finished_at,'analysis_id':r.analysis_id,
+                'pipeline_status':status if version=='6' else None,'analysis_version':version}) for r,status,version in rows],
+                'upload_available':not isinstance(self.storage,UnconfiguredStorage),'incremental_available':self.incremental is not None}
 
     async def start(self):
-        if not isinstance(self.storage,UnconfiguredStorage) and self.task is None:
+        if (self.incremental is not None or not isinstance(self.storage,UnconfiguredStorage)) and self.task is None:
             self.task=asyncio.create_task(self.loop())
 
     async def stop(self):
@@ -91,9 +96,11 @@ class EditalJobs:
     async def claim(self):
         now=datetime.now(timezone.utc)
         async with unit_of_work() as session:
-            await session.execute(update(EditalJob).where(EditalJob.status=='running',EditalJob.lease_until<now)
+            await session.execute(update(EditalJob).where(EditalJob.status=='running',EditalJob.lease_until<now,
+                EditalJob.storage_provider.notin_((JOB_IR_PROVIDER,JOB_INGEST_PROVIDER)))
                 .values(status='failed',phase='Análise interrompida. Confira os editais salvos antes de reenviar.',finished_at=now))
-            job=await session.scalar(select(EditalJob).where(EditalJob.status=='queued').order_by(EditalJob.created_at)
+            job=await session.scalar(select(EditalJob).where(EditalJob.status=='queued',
+                EditalJob.storage_provider.notin_((JOB_IR_PROVIDER,JOB_INGEST_PROVIDER))).order_by(EditalJob.created_at)
                 .with_for_update(skip_locked=True).limit(1))
             if job is None: return None
             job.status='running'; job.phase='Lendo PDF e analisando cargos e disciplinas'; job.lease_until=now+timedelta(seconds=180)
@@ -162,14 +169,25 @@ class EditalJobs:
             await self.cleanup()
 
     async def loop(self):
+        prefer_incremental=True
         while True:
             try:
                 self.wake.clear()
                 await self.cleanup()
-                job=await self.claim()
-                if job: await self.run(job)
+                checked_incremental=False
+                if prefer_incremental and self.incremental is not None:
+                    checked_incremental=True
+                    if await self.incremental.run_one():
+                        prefer_incremental=False
+                        continue
+                job=await self.claim() if not isinstance(self.storage,UnconfiguredStorage) else None
+                if job:
+                    await self.run(job);prefer_incremental=True
+                elif not checked_incremental and self.incremental is not None and await self.incremental.run_one():
+                    prefer_incremental=False
                 else:
-                    try: await asyncio.wait_for(self.wake.wait(),timeout=60)
+                    prefer_incremental=True
+                    try: await asyncio.wait_for(self.wake.wait(),timeout=15 if self.incremental is not None else 60)
                     except asyncio.TimeoutError: pass
             except asyncio.CancelledError: raise
             except Exception as error:

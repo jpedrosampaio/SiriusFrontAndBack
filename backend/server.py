@@ -2619,8 +2619,14 @@ async def process_queued_edital(user_id, file, force):
     from types import SimpleNamespace
     return await process_edital_analysis(SimpleNamespace(user_id=user_id), file, force)
 
-edital_jobs = EditalJobs(get_current_user, process_queued_edital)
+from services.edital_pipeline_worker import IncrementalHandler
+from services.edital_pipeline_progress import consolidate as consolidate_edital_checkpoint
+from services import edital_pipeline_routes
+edital_jobs = EditalJobs(get_current_user, process_queued_edital,
+    incremental=IncrementalHandler(agent_runtime.router,agent_runtime.credentials,consolidate_edital_checkpoint))
+edital_pipeline_routes.configure(edital_jobs.wake.set)
 api_router.include_router(edital_jobs.router)
+api_router.include_router(edital_pipeline_routes.router)
 
 from operations import install_request_metrics
 install_request_metrics(app)
