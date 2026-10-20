@@ -88,11 +88,14 @@ def _cgroup_memory():
     def counter(value):
         value=value.strip()
         return int(value) if value.isascii() and value.isdigit() and len(value)<=20 else None
-    root=Path('/sys/fs/cgroup');locations=[root]
+    root=Path('/sys/fs/cgroup');locations=[]
     for line in read(Path('/proc/self/cgroup'),4096).splitlines():
         if line.startswith('0::/'):
             relative=Path(line[4:])
             if not relative.is_absolute() and '..' not in relative.parts:locations.append(root/relative)
+    # A visible hierarchy root may aggregate other services. Prefer this
+    # process's group; the mount root is the container-namespace fallback.
+    if root not in locations:locations.append(root)
     for directory in locations:
         current=counter(read(directory/'memory.current'))
         if current is None:continue
@@ -280,11 +283,22 @@ def child_limits():
     resource.setrlimit(resource.RLIMIT_FSIZE,(0,0))
 
 
-def supervised(content):
-    if len(content)>MAX_BYTES:raise PDFInputError('file_size_limit')
+def _child_environment():
     # Do not pass database/provider credentials to an untrusted-document parser.
     env={key:value for key,value in os.environ.items() if key.upper() in ('PATH','SYSTEMROOT','WINDIR','TEMP','TMP','LANG','LC_ALL')}
     env.update(PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1')
+    if sys.platform.startswith('linux'):
+        # Relocated buildpack Python needs its own libpython before any Python
+        # code (including child_limits) can run. Derive the loader directory
+        # from the active interpreter, NEVER inherit LD_LIBRARY_PATH/LD_PRELOAD.
+        library_dir=Path(sys.base_prefix)/sys.platlibdir
+        if library_dir.is_dir():env['LD_LIBRARY_PATH']=str(library_dir)
+    return env
+
+
+def supervised(content):
+    if len(content)>MAX_BYTES:raise PDFInputError('file_size_limit')
+    env=_child_environment()
     reference=uuid4().hex[:12]
     memory_before=_cgroup_memory()
     started=time.monotonic()

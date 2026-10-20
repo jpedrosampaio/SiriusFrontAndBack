@@ -5,8 +5,10 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
@@ -18,6 +20,38 @@ from edital_pipeline_contracts import DocumentIR,SourcePage
 
 
 class PDFExtraction(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith('linux'),'ELF dynamic-loader regression')
+    def test_relocated_interpreter_library_is_available_without_inheriting_loader_environment(self):
+        compiler=shutil.which('cc')
+        self.assertIsNotNone(compiler,'Linux regression requires the runner C compiler')
+        document=DocumentIR(sha256='a'*64,size_bytes=10,
+            pages=[SourcePage(page=1,width=600,height=800,quality='blank',characters=0)])
+        payload=json.dumps({'ok':True,'document':document.model_dump(mode='json')})
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);library=root/'lib';library.mkdir()
+            # A unique shared dependency and no rpath reproduce the buildpack
+            # loader failure before Python or a parser could start.
+            (root/'library.c').write_text('const char* pdf_loader_probe(void) { return '+json.dumps(payload)+'; }')
+            (root/'main.c').write_text('#include <stdio.h>\nextern const char* pdf_loader_probe(void);\n'
+                'int main(void) { puts(pdf_loader_probe()); return 0; }\n')
+            executable=root/'python-probe'
+            for command in ([compiler,'-shared','-fPIC',str(root/'library.c'),'-o',str(library/'libsirius_pdf_loader_probe.so')],
+                [compiler,str(root/'main.c'),'-L'+str(library),'-lsirius_pdf_loader_probe','-o',str(executable)]):
+                compiled=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=30)
+                self.assertEqual(compiled.returncode,0,'Could not build isolated ELF fixture')
+            absent=subprocess.run([str(executable)],env={'PATH':os.environ.get('PATH','')},
+                stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=10)
+            self.assertEqual(absent.returncode,127);self.assertEqual(absent.stdout,b'')
+            with patch.object(sys,'base_prefix',str(root)),patch.object(sys,'platlibdir','lib'),\
+                patch.object(sys,'executable',str(executable)),\
+                patch.dict(os.environ,{'LD_LIBRARY_PATH':'PRIVATE-UNTRUSTED','LD_PRELOAD':'PRIVATE-UNTRUSTED'}),\
+                self.assertLogs(extraction.logger,level='INFO') as logged:
+                extracted=extraction.supervised(b'%PDF-synthetic')
+                env=extraction._child_environment()
+            self.assertEqual(extracted,document)
+            self.assertEqual(env['LD_LIBRARY_PATH'],str(library));self.assertNotIn('LD_PRELOAD',env)
+            self.assertNotIn('PRIVATE',' '.join(logged.output))
+
     def test_cgroup_measurements_are_numeric_optional_and_do_not_claim_request_oom(self):
         result=SimpleNamespace(returncode=-9,stdout=b'')
         with patch.object(extraction,'_cgroup_memory',side_effect=[
@@ -38,7 +72,9 @@ class PDFExtraction(unittest.TestCase):
     def test_cgroup_reader_handles_namespace_paths_and_unavailable_counters(self):
         root=Path('/sys/fs/cgroup')
         for namespace in ('/','/service'):
-            files={Path('/proc/self/cgroup'):'0::'+namespace+'\n',
+            files={root/'memory.current':'999999\n',root/'memory.peak':'9999999\n',
+                root/'memory.max':'99999999\n',root/'memory.events':'oom_kill 999\n',
+                Path('/proc/self/cgroup'):'0::'+namespace+'\n',
                 root/namespace.lstrip('/')/'memory.current':'12345\n',
                 root/namespace.lstrip('/')/'memory.peak':'67890\n',
                 root/namespace.lstrip('/')/'memory.max':'max\n',
@@ -135,7 +171,7 @@ else:
     raise SystemExit('address-space protection missing')
 """
         result=subprocess.run([sys.executable,'-c',script],capture_output=True,timeout=10,
-            cwd=Path(extraction.__file__).resolve().parents[1],env={'PATH':os.environ.get('PATH',''),'PYTHONDONTWRITEBYTECODE':'1'},check=False)
+            cwd=Path(extraction.__file__).resolve().parents[1],env=extraction._child_environment(),check=False)
         self.assertEqual(result.returncode,0)
         self.assertEqual(json.loads(result.stdout),[[384*1024*1024]*2,[55]*2,[0]*2])
 
@@ -226,10 +262,12 @@ else:
     def test_child_receives_no_database_keys_or_external_cmap_path(self):
         document=DocumentIR(sha256='a'*64,size_bytes=10,pages=[SourcePage(page=1,width=600,height=800,quality='blank',characters=0)])
         result=SimpleNamespace(returncode=0,stdout=json.dumps({'ok':True,'document':document.model_dump(mode='json')}).encode())
-        with patch.dict(os.environ,{'DATABASE_URL':'test-only-never-print','AI_SECRET':'test-only-never-print','CMAP_PATH':'untrusted'}),patch.object(extraction.subprocess,'run',return_value=result) as run:
+        with patch.dict(os.environ,{'DATABASE_URL':'test-only-never-print','AI_SECRET':'test-only-never-print',
+            'CMAP_PATH':'untrusted','LD_LIBRARY_PATH':'untrusted','LD_PRELOAD':'untrusted'}),patch.object(extraction.subprocess,'run',return_value=result) as run:
             extraction.supervised(b'%PDF-1.7')
         env=run.call_args.kwargs['env']
-        self.assertTrue(all(key not in env for key in ('DATABASE_URL','DATABASE_URL_DIRECT','AI_SECRET','CMAP_PATH')))
+        self.assertTrue(all(key not in env for key in ('DATABASE_URL','DATABASE_URL_DIRECT','AI_SECRET','CMAP_PATH','LD_PRELOAD')))
+        self.assertNotEqual(env.get('LD_LIBRARY_PATH'),'untrusted')
         self.assertEqual(run.call_args.kwargs['timeout'],60)
         self.assertEqual(run.call_args.kwargs['stderr'],extraction.subprocess.DEVNULL)
 
