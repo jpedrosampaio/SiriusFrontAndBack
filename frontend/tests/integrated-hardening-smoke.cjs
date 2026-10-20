@@ -32,7 +32,7 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
       });
       const page = await context.newPage(); lastPage = page;
       const errors = [], requests = [], vendorRequests = []; page.on('pageerror', error => errors.push(error.message));
-      let holdMemory = false, releaseMemory, memoryStarted, homeFailure = false;
+      let holdMemory = false, releaseMemory, memoryStarted, homeFailure = false, anonymousStateRequests = 0;
       const memoryWaiting = new Promise(resolve => { memoryStarted = resolve; });
       const memoryGate = new Promise(resolve => { releaseMemory = resolve; });
       await context.route('**/*', async route => {
@@ -43,7 +43,10 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
         if (!p.startsWith('/api/')) return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
         requests.push(p);
         const owner = request.headers().authorization?.replace('Bearer ', '');
-        if (!['alice', 'bob'].includes(owner)) return respond(route, { detail: 'Expired synthetic session' }, 401);
+        if (!['alice', 'bob'].includes(owner)) {
+          if (p === '/api/automations/state') anonymousStateRequests += 1;
+          return respond(route, { detail: 'Expired synthetic session' }, 401);
+        }
         if (p === '/api/auth/me') return respond(route, { user_id: owner, name: owner === 'alice' ? 'Alice' : 'Bob', rank: 'Recruta', timezone: 'America/Sao_Paulo' });
         if (p === '/api/command/home') return respond(route, homeFailure ? { detail: 'Synthetic unavailable' } : {
           date: '2026-10-13', timezone: 'America/Sao_Paulo', next_action: null, today: [], today_count: 0,
@@ -135,6 +138,10 @@ const aliceMemory = { memory_id: '11111111-1111-4111-8111-111111111111', categor
       assert.equal(await page.getByRole('heading', { name: 'Seu próximo passo, Bob', exact: true }).count(), 0);
       assert.equal(await page.getByText('Alice private memory', { exact: true }).count(), 0);
       const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
+      // Both tabs can invalidate once and navigation can mount a fresh client.
+      // A 401-triggered immediate auth-change/poll feedback loop is unbounded.
+      await page.waitForTimeout(650);
+      assert.ok(anonymousStateRequests <= 8, `Anonymous notification request storm: ${anonymousStateRequests}`);
       assert(!/user-scalable\s*=\s*(?:no|0)|maximum-scale\s*=\s*1(?:\s|,|$)/i.test(viewport), 'Mobile zoom must remain available');
       assert.deepEqual(vendorRequests, [], 'Legacy editor/telemetry scripts must not run in personal views');
       assert.deepEqual(errors, []);
