@@ -15,6 +15,7 @@ from edital_pipeline_contracts import DocumentIR,SourcePage,SourceBlock
 from services import (edital_pipeline_store as store,edital_pipeline_units as units,
     edital_pipeline_progress as progress,edital_pipeline_controls as controls,edital_pipeline_compile as compiler)
 import test_postgres_agent as setup
+from edital_test_helpers import persist_approved
 
 
 @unittest.skipUnless(os.getenv('RUN_POSTGRES_TESTS')=='true','Disposable PostgreSQL required')
@@ -54,7 +55,7 @@ class HumanControls(unittest.IsolatedAsyncioTestCase):
         doc=DocumentIR(sha256=hashlib.sha256('\n'.join(self.lines).encode()).hexdigest(),size_bytes=500,
             pages=[SourcePage(page=1,width=600,height=800,quality='text',characters=sum(map(len,self.lines)),blocks=blocks)])
         reserved=await store.reserve_intake(self.uid,doc.sha256,'synthetic.pdf',getattr(self,'force_reanalysis',False),str(uuid4()))
-        accepted=await store.persist_input(self.uid,reserved['job_id'],reserved['token'],doc);self.identity=accepted['analysis_id']
+        accepted=await persist_approved(self.uid,reserved['job_id'],reserved['token'],doc);self.identity=accepted['analysis_id']
         claim=await units.claim_next()
         await self.accept(claim,{'roles':[{'name':self.fact(getattr(self,'role_name','Analista'),1)}],
             'classifications':[{'block_id':'p0001-b0001','kind':'roles'},{'block_id':'p0001-b0003','kind':'other'},*[

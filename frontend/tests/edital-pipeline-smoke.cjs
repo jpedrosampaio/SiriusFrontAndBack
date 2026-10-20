@@ -51,9 +51,21 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
         if(action==='select-role'){state.selected_role_id=body.role_id;state.phase='program';state.scopes[body.role_id]={status:'processing',program:{disciplines:[],rules:[]},bindings:{},binding_corrections:{},findings:{},finding_resolutions:{},issue_resolutions:{}};}
         else if(action==='cancel'){state.status='cancelled';state.scopes['role-a'].status='cancelled';}
         else if(action==='resume'){
+          if(body.mode){
+            assert.ok(data.execution_plan);assert.equal(state.status,'waiting_provider');
+            if(body.mode==='pilot'){
+              assert.equal(body.provider_limit,undefined);state.budget.reserved_attempts++;state.error_kind='pilot_review_required';
+              data.execution_plan.live_provider_validated=true;data.execution_plan.minimum_remaining_attempts--;
+              data.progress=[{kind:'inventory',status:'completed',units:1},{kind:'inventory',status:'pending',units:66}];
+            }else{
+              assert.equal(body.mode,'full');assert.equal(data.execution_plan.live_provider_validated,true);
+              assert.equal(body.provider_limit,139);state.budget.provider_limit=body.provider_limit;state.status='processing';state.error_kind=null;
+            }
+          }else{
           state.status='awaiting_review';state.phase='review';state.inventory.status='awaiting_review';state.scopes['role-a'].status='awaiting_review';state.scopes['role-a'].program=program();
           data.progress=[{kind:'inventory',status:'completed',units:3},{kind:'detail',status:'completed',units:2},{kind:'verify',status:'completed',units:5}];
           data.diagnostics=[{unit_id:'unit-a',kind:'detail',status:'completed',provider_calls:1,last_observed_model:{provider:'mock',model:'synthetic-only'},last_completed_model:{provider:'mock',model:'synthetic-only'}}];
+          }
         }else if(action==='facts'){
           if(!staleFact){staleFact=true;data.revision++;return respond(route,{detail:{code:'stale_revision',message:'A análise mudou em outra aba. Atualize antes de salvar.'}},409);}
           state.scopes['role-a'].program.disciplines[0].name={...fact(body.value),state:'corrected_by_user',origin:'human_declared',human_note:body.note,verification:'confirmed'};
@@ -105,6 +117,31 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     await page.goBack();await page.getByRole('heading',{name:'Cargo confirmado por você',exact:true}).waitFor();await page.getByLabel('Área de estudos',{exact:true}).selectOption('area-a');
     await page.getByRole('checkbox',{name:/Conferi os programas já criados deste PDF/}).check();
     await create.click();await page.getByRole('heading',{name:'Programa conferido',exact:true}).first().waitFor();assert.equal(imported.role_id,'role-a');assert.equal(imported.target_date,'2027-03-01');assert.equal(imported.confirmed_digest,'a'.repeat(64));assert.equal(imported.create_new_version,true);assert.equal(legacyPosts,0);
-    assert.deepEqual(errors,[]);console.log(JSON.stringify({width,uploadReplay:true,resumeReplay:true,staleWriteRejected:true,sourceReads,confirmed:true,legacyPosts,overflow:false}));await context.close();
+    data=fixture();data.revision=100;data.manifest.status='waiting_provider';data.manifest.inventory.roles=[];
+    data.manifest.source.pages=70;data.manifest.budget.reserved_attempts=5;
+    data.execution_plan={stages:{inventory:67,scope:0,detail:0,verify:67},minimum_remaining_attempts:134,minimum_total_attempts:139,
+      maximum_limit:200,extension_required:true,unknown_stages:['selected_role_content'],live_provider_validated:false};
+    data.progress=[{kind:'inventory',status:'pending',units:67}];
+    data.diagnostics=[{unit_id:'blocked-unit',kind:'inventory',status:'waiting_provider',provider_calls:1,error_kind:'invalid_request',reference:'safe-ref',
+      failure:{http_status:400,incompatibility:'schema_rejected',provider_attempted:true}}];
+    await page.goBack();await page.getByRole('heading',{name:'Aguardando correção/configuração da IA',exact:true}).waitFor();
+    await page.getByText('0 de 67 lotes concluídos · 67 pendentes',{exact:true}).waitFor();
+    const before=writes.length;page.once('dialog',dialog=>dialog.dismiss());
+    await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();assert.equal(writes.length,before);
+    page.once('dialog',async dialog=>{assert.match(dialog.message(),/no máximo uma chamada real/);await dialog.accept();});
+    await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();
+    await page.getByRole('heading',{name:'Piloto validado · aguardando sua autorização',exact:true}).waitFor();
+    assert.equal(writes.length,before+1);assert.equal(writes.at(-1).body.mode,'pilot');
+    await page.getByText('1 de 67 lotes concluídos · 66 pendentes',{exact:true}).waitFor();
+    await page.getByLabel('Limite total a autorizar',{exact:true}).fill('138');
+    assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).isDisabled(),true);
+    await page.getByLabel('Limite total a autorizar',{exact:true}).fill('139');
+    page.once('dialog',async dialog=>{assert.match(dialog.message(),/limite total de 139/);await dialog.accept();});
+    await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).click();
+    await page.getByRole('button',{name:'Cancelar processamento',exact:true}).waitFor();
+    assert.equal(writes.length,before+2);assert.equal(writes.at(-1).body.provider_limit,139);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+    assert.deepEqual(errors,[]);console.log(JSON.stringify({width,uploadReplay:true,resumeReplay:true,staleWriteRejected:true,sourceReads,confirmed:true,
+      explicitPilot:true,explicitBudgetExtension:true,legacyPosts,overflow:false}));await context.close();
   }}finally{await browser.close();server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;server.close();});

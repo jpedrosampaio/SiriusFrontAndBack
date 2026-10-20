@@ -14,6 +14,7 @@ from services.edital_semantics import EvidenceError
 from ai.types import AIError
 import test_postgres_edital_pipeline as intake_setup
 import test_postgres_agent as setup
+from edital_test_helpers import persist_approved
 
 
 @unittest.skipUnless(os.getenv('RUN_POSTGRES_TESTS') == 'true', 'Disposable PostgreSQL required')
@@ -32,7 +33,7 @@ class DurableUnits(unittest.IsolatedAsyncioTestCase):
         document.pages[0].blocks = [original.model_copy(update={'id': f'p0001-b{i:04d}'}) for i in range(1, count + 1)]
         document.pages[0].characters = sum(len(b.text) for b in document.pages[0].blocks)
         first = await store.reserve_intake(owner or self.uid, document.sha256, 'synthetic.pdf', False, str(uuid4()))
-        return await store.persist_input(owner or self.uid, first['job_id'], first['token'], document)
+        return await persist_approved(owner or self.uid, first['job_id'], first['token'], document)
 
     def proposal(self, ids):
         return {'roles': [], 'classifications': [{'block_id': ids[0], 'end_block_id': ids[-1], 'kind': 'roles'}]}

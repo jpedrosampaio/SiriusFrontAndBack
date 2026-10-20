@@ -104,6 +104,11 @@ class PipelineHTTP(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(reads),1);self.assertNotIn('structured_payload',reads[0]);self.assertNotIn('extracted_text',reads[0])
         foreign=await self.http.get(url,headers={'If-None-Match':tag,'Authorization':'Bearer bob'})
         self.assertEqual(foreign.status_code,404)
+        plan=first.json()['execution_plan'];self.assertFalse(plan['live_provider_validated'])
+        self.assertEqual(first.json()['manifest']['status'],'waiting_provider')
+        resumed=await self.http.post(url+'/resume',json={'revision':first.json()['revision'],'mode':'pilot'},
+            headers={'Idempotency-Key':str(uuid4())})
+        self.assertEqual(resumed.status_code,200,resumed.text)
         claim=await units.claim_next();self.assertEqual(claim.user_id,self.uid)
         claimed=await self.http.get(url,headers={'If-None-Match':tag});self.assertEqual(claimed.status_code,200)
         self.assertNotEqual(claimed.headers['etag'],tag)

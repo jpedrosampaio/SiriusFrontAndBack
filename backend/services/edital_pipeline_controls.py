@@ -8,10 +8,12 @@ from db.activity import run_activity
 from db.models.command import CommandAudit
 from db.models.edital_units import EditalUnit
 from db.models.files import EditalJob,EditalAnalysis
-from edital_pipeline_contracts import (Contract,ContentScope,MAX_PROVIDER_ATTEMPTS,HumanCorrection,
+from edital_pipeline_contracts import (Contract,ContentScope,MAX_PROVIDER_ATTEMPTS,HumanCorrection,ProviderApproval,
     CanonicalFact,CanonicalNamedFact,ProgramDiscipline,ProgramTopic,ProgramRule)
 from services import edital_pipeline_store as store,edital_pipeline_progress as progress
 from services import edital_pipeline_compile as compiler
+from services import edital_pipeline_budget as planning
+from ai.schemas import TRANSPORT_VERSION
 
 
 class Version(Contract):
@@ -24,6 +26,7 @@ class SelectRole(Version):
 
 class Resume(Version):
     provider_limit:int|None=Field(default=None,ge=1,le=MAX_PROVIDER_ATTEMPTS)
+    mode:Literal['pilot','full']|None=None
 
 
 async def owned_job(session,uid,analysis_id):
@@ -486,20 +489,40 @@ async def resume(user_id,analysis_id,key,body):
         if state.retry_at and state.retry_at>store.utc_now():
             raise HTTPException(409,{'code':'retry_not_before','message':'Aguarde o intervalo de tentativa registrado. A liberação da cota do provedor não está confirmada.',
                 'retry_at':state.retry_at.isoformat()})
+        if await session.scalar(select(EditalUnit.id).where(EditalUnit.user_id==analysis.user_id,EditalUnit.analysis_id==analysis.id,
+            EditalUnit.status=='running',EditalUnit.lease_until>store.utc_now()).limit(1)):
+            raise HTTPException(409,{'code':'execution_in_progress','message':'Um lote ainda está em execução. Aguarde ou cancele antes de autorizar outra execução.'})
         if body.provider_limit is not None:
             if body.provider_limit<state.budget.reserved_attempts:raise HTTPException(422,'O limite não pode ser menor que as tentativas já reservadas.')
             state.budget.provider_limit=body.provider_limit
+        approval=state.provider_approval
+        mode=body.mode or ('full' if approval and approval.transport_version==TRANSPORT_VERSION and approval.pilot_validated else None)
+        if mode is None:raise HTTPException(409,{'code':'pilot_required','message':'Autorize primeiro um lote piloto de uma chamada; as fontes salvas serão reutilizadas.'})
+        if mode=='full':
+            if not approval or approval.transport_version!=TRANSPORT_VERSION or not approval.pilot_validated:
+                raise HTTPException(409,{'code':'pilot_required','message':'Valide primeiro o lote piloto antes de autorizar os demais lotes.'})
+            plan=await planning.forecast(session,analysis,state)
+            if plan['extension_required']:raise HTTPException(409,{'code':'planned_units_exceed_remaining_budget','message':'Confira a previsão e confirme um limite suficiente antes de retomar.','plan':plan})
+            approval.mode='full'
+        else:
+            if state.budget.reserved_attempts>=state.budget.provider_limit:
+                raise HTTPException(409,{'code':'analysis_provider_budget','message':'O piloto precisa de uma tentativa disponível no limite autorizado.'})
+            state.provider_approval=ProviderApproval(transport_version=TRANSPORT_VERSION,mode='pilot',
+                pilot_stop_after=state.budget.reserved_attempts+1)
         generations=[state.inventory.generation]
         if state.selected_role_id in state.scopes:generations.append(state.scopes[state.selected_role_id].generation)
         filters=(EditalUnit.user_id==analysis.user_id,EditalUnit.analysis_id==analysis.id,EditalUnit.generation.in_(generations))
         blocked=await session.scalar(select(EditalUnit.id).where(*filters,EditalUnit.status.in_(('failed','cancelled','quota','waiting_provider')),
-            or_(EditalUnit.attempts>=3,EditalUnit.provider_calls>=12)).limit(1))
+            EditalUnit.provider_calls>=12).limit(1))
         if blocked:raise HTTPException(409,{'code':'unit_retry_limit','message':'Um lote atingiu o limite de tentativas. Confira a seção e solicite uma reanálise explícita.'})
         await capacity(session,analysis.user_id,job.id)
         await session.execute(update(EditalUnit).where(*filters,EditalUnit.status.in_(('cancelled','quota','waiting_provider','failed')))
             .values(status='pending',lease_token=None,lease_until=None,finished_at=None,available_at=store.utc_now()))
+        retry_units=(await session.scalars(select(EditalUnit).where(*filters,EditalUnit.status=='pending'))).all()
+        for retry_unit in retry_units:
+            retry_unit.diagnostics={**retry_unit.diagnostics,'retry_failures':0,'retry_authorized_at':store.utc_now().isoformat()}
         state.status='processing';state.error_kind=None;state.retry_at=None
         if state.selected_role_id in state.scopes:state.scopes[state.selected_role_id].status='processing'
         await progress.advance_selected(session,analysis,job.id,state)
-        return {'provider_limit':state.budget.provider_limit,'completed_units_preserved':True}
+        return {'provider_limit':state.budget.provider_limit,'completed_units_preserved':True,'execution_mode':mode}
     return await mutate(user_id,analysis_id,key,body,'resume',change)

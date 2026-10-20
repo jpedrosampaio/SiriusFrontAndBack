@@ -19,6 +19,7 @@ from db.session import unit_of_work
 from edital_pipeline_contracts import (PIPELINE_VERSION,PipelineManifest,DocumentSummary,InventoryState,MAX_PROVIDER_ATTEMPTS,
     JOB_IR_PROVIDER,JOB_INGEST_PROVIDER)
 from services.edital_semantics import batches,blocks_from_pages,block_dict,unit_key
+from services.edital_pipeline_inputs import inventory_batches
 
 MARKER=JOB_IR_PROVIDER
 INGESTING=JOB_INGEST_PROVIDER
@@ -151,7 +152,7 @@ def input_context(batch,all_blocks,previous):
 async def persist_input(user_id,job_id,token,document):
     uid=uuid(user_id);now=utc_now()
     all_blocks=[block_dict(b) for b in blocks_from_pages(document.pages)]
-    chunks=list(batches(all_blocks))
+    chunks=list(inventory_batches(all_blocks))
     async with unit_of_work() as session:
         user=await IdentityRepository(session).by_id(uid,lock=True)
         job=await session.scalar(select(EditalJob).where(EditalJob.user_id==uid,EditalJob.id==uuid(job_id)).with_for_update())
@@ -163,12 +164,12 @@ async def persist_input(user_id,job_id,token,document):
             blocks=len(all_blocks),size_bytes=document.size_bytes,ocr_required_pages=[p.page for p in document.pages if p.quality=='requires_ocr'],
             low_text_pages=[p.page for p in document.pages if p.quality=='low_text'],
             image_pages=[p.page for p in document.pages if p.image_count],warnings=document.warnings)
-        state=PipelineManifest(source=source,inventory=InventoryState(generation=uuid4()),status='processing',phase='inventory')
+        state=PipelineManifest(source=source,inventory=InventoryState(generation=uuid4()),status='waiting_provider',phase='inventory',error_kind='provider_approval_required')
         if source.ocr_required_pages:state.status='ocr_required';state.phase='layout';state.error_kind='requires_selective_ocr_unavailable'
         elif not all_blocks:state.status='recoverable_failure';state.phase='layout';state.error_kind='empty_text_document'
         elif len(chunks)>MAX_PROVIDER_ATTEMPTS or len(chunks)>state.budget.leaf_unit_limit:
             state.status='recoverable_failure';state.error_kind='document_operational_unit_limit'
-        elif len(chunks)>state.budget.provider_limit:
+        elif len(chunks)*2>state.budget.provider_limit:
             state.status='quota_paused';state.error_kind='initial_document_budget_exceeded'
         row=EditalAnalysis(id=uuid4(),user_id=uid,content_hash=document.sha256,status=state.status,analysis_version='6',
             structured_payload={},filename=job.filename,pages=[p.model_dump(mode='json') for p in document.pages],
@@ -177,9 +178,10 @@ async def persist_input(user_id,job_id,token,document):
         if await source_bytes(session,uid)>MAX_OWNED_BYTES:
             raise HTTPException(413,{'code':'source_storage_limit','message':'O texto excederia o limite de fontes desta conta; nenhum resultado anterior foi removido.'})
         job.analysis_id=row.id;job.storage_provider=MARKER;job.lease_token=None;job.lease_until=None
-        job.status='queued' if state.status=='processing' else 'completed';job.phase='Identificando cargos e estrutura' if state.status=='processing' else 'Texto requer processamento adicional; confira as páginas indicadas'
+        job.status='queued' if state.status in ('processing','waiting_provider') else 'completed'
+        job.phase='Aguardando homologação e autorização da IA' if state.status=='waiting_provider' else 'Identificando cargos e estrutura' if state.status=='processing' else 'Texto requer processamento adicional; confira as páginas indicadas'
         if job.status=='completed':job.finished_at=now
-        if state.status in ('processing','quota_paused'):
+        if state.status in ('processing','quota_paused','waiting_provider'):
             previous=[]
             for chunk in chunks:
                 ids=[b['id'] for b in chunk];context=input_context(chunk,all_blocks,previous)

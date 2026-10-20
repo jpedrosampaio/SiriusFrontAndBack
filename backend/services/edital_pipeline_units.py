@@ -13,6 +13,7 @@ from db.session import unit_of_work
 from edital_pipeline_contracts import InventoryUnit, ScopeUnit, DetailUnit, VerificationUnit
 from services import edital_pipeline_store as store
 from services.edital_semantics import validate_unit, EvidenceError, split_batch, unit_key
+from ai.schemas import TRANSPORT_VERSION
 
 LEASE_SECONDS = 180
 CONTRACTS = {'inventory': InventoryUnit, 'scope': ScopeUnit, 'detail': DetailUnit, 'verify': VerificationUnit}
@@ -44,6 +45,19 @@ def record_pause(state,unit):
     if state.status in ('waiting_provider','quota_paused','recoverable_failure'):
         target=state.inventory if unit.scope_key=='inventory' else state.scopes[unit.scope_key.removeprefix('role:')]
         target.status=state.status
+
+
+def approved(state):
+    return state.provider_approval is not None and state.provider_approval.transport_version==TRANSPORT_VERSION and state.provider_approval.mode in ('pilot','full')
+
+
+def stop_pilot(state,unit,*,validated=False):
+    approval=state.provider_approval
+    if approval and approval.mode=='pilot':
+        approval.mode='paused';approval.pilot_validated=validated
+        state.status='waiting_provider'
+        if validated:state.error_kind='pilot_review_required'
+        record_pause(state,unit)
 
 
 async def locked(session, claim, require_live=True):
@@ -103,14 +117,18 @@ async def expire_leases():
             unit.lease_token = unit.lease_until = None
             if generation(state, unit) != unit.generation or state.status == 'cancelled':
                 unit.status = 'cancelled'; unit.finished_at = now
-            elif unit.attempts >= 3:
+            elif unit.diagnostics.get('retry_failures',unit.attempts-1)+1 >= 3:
                 unit.status = 'failed'; unit.finished_at = now
                 state.status = 'recoverable_failure'; state.error_kind = 'worker_restart_retry_limit'
                 record_pause(state,unit)
                 store.write_manifest(analysis, state)
             else:
                 unit.status = 'pending'; unit.available_at = now + timedelta(seconds=10 * unit.attempts)
-                unit.diagnostics = {**unit.diagnostics, 'last_error': 'worker_interrupted', 'reference': str(uuid4())}
+            if unit.status != 'cancelled':
+                unit.diagnostics = {**unit.diagnostics, 'retry_failures':unit.diagnostics.get('retry_failures',unit.attempts-1)+1,
+                    'last_error': 'worker_interrupted', 'reference': str(uuid4())}
+                stop_pilot(state,unit)
+                store.write_manifest(analysis,state)
             if job:
                 job.status = 'queued' if state.status == 'processing' else 'completed'
                 job.lease_token = job.lease_until = None
@@ -153,10 +171,22 @@ async def claim_next(kind=None):
                 EditalUnit.id == identity).with_for_update())
             state = store.manifest(analysis)
             if job is None or unit is None or unit.status != 'pending' or unit.available_at > now or state.status != 'processing': continue
+            if not approved(state):
+                state.status='waiting_provider';state.error_kind='provider_approval_required'
+                record_pause(state,unit);store.write_manifest(analysis,state)
+                job.status='completed';job.phase='Aguardando homologação e autorização da IA';job.finished_at=now
+                continue
             if unit.scope_key!='inventory' and unit.scope_key!=f'role:{state.selected_role_id}':continue
             if generation(state, unit) != unit.generation:
                 unit.status = 'cancelled'; unit.finished_at = now; continue
-            if unit.attempts >= 3:
+            if state.provider_approval.mode=='full':
+                from services.edital_pipeline_budget import forecast
+                if (await forecast(session,analysis,state))['extension_required']:
+                    state.status='quota_paused';state.error_kind='planned_units_exceed_remaining_budget'
+                    record_pause(state,unit);store.write_manifest(analysis,state)
+                    job.status='completed';job.finished_at=now
+                    continue
+            if unit.diagnostics.get('retry_failures',unit.attempts) >= 3:
                 unit.status = 'failed'; unit.finished_at = now; state.status = 'recoverable_failure'; state.error_kind = 'unit_retry_limit'
                 record_pause(state,unit)
                 store.write_manifest(analysis, state); continue
@@ -164,10 +194,16 @@ async def claim_next(kind=None):
                 state.status = 'quota_paused'; state.error_kind = 'analysis_provider_budget'
                 record_pause(state,unit)
                 store.write_manifest(analysis, state); continue
-            token = uuid4(); unit.status = 'running'; unit.attempts += 1
+            token = uuid4(); unit.status = 'running'
+            # The historical SQL counter is bounded at three. Explicit owner
+            # recovery gets its own monotonic audit counter, never resets it.
+            unit.diagnostics={**unit.diagnostics,'claims_total':unit.diagnostics.get('claims_total',unit.attempts)+1}
+            unit.attempts = min(3,unit.attempts+1)
+            if state.provider_approval.mode=='pilot':state.provider_approval.pilot_unit_id=unit.id
             unit.lease_token = token; unit.lease_until = now + timedelta(seconds=LEASE_SECONDS)
             job.status = 'running'; job.lease_token = token; job.lease_until = unit.lease_until
             analysis.updated_at = now; analysis.revision += 1
+            store.write_manifest(analysis,state)
             return Claim(uid, aid, jid, identity, unit.generation, token, unit.kind, unit.scope_key)
     return None
 
@@ -215,6 +251,11 @@ def previous_topics(unit, state, context):
 async def snapshot(claim):
     async with unit_of_work() as session:
         analysis, _, unit, state = await locked(session, claim)
+        if not approved(state):raise LeaseLost()
+        approval=state.provider_approval
+        if approval.mode=='pilot' and state.budget.reserved_attempts>=approval.pilot_stop_after:
+            from ai.types import AIError
+            raise AIError('pilot_limit',reason='pilot_limit')
         primary = await source_blocks(session, claim.user_id, claim.analysis_id, unit.source_blocks)
         context = await source_blocks(session, claim.user_id, claim.analysis_id, unit.context_blocks)
         metadata = dict(unit.diagnostics.get('metadata', {}))
@@ -240,6 +281,10 @@ async def renew(claim):
 async def provider_attempt(claim, model, input_hash=None):
     async with unit_of_work() as session:
         analysis, _, unit, state = await locked(session, claim)
+        if not approved(state):raise LeaseLost()
+        if state.provider_approval.mode=='pilot' and state.budget.reserved_attempts>=state.provider_approval.pilot_stop_after:
+            from ai.types import AIError
+            raise AIError('pilot_limit',reason='pilot_limit')
         if unit.provider_calls >= 12 or state.budget.reserved_attempts >= state.budget.provider_limit:
             # Raising rolls back the short transaction; the worker then pauses
             # the checkpoint through fail(), before any provider IO occurs.
@@ -275,21 +320,26 @@ async def complete(claim, result, usage=None, consolidate=None, *, provider=None
         # transaction, rather than leave the last unit looking unfinished.
         await session.flush()
         if consolidate: await consolidate(session, analysis, unit, state)
+        stop_pilot(state,unit,validated=bool(unit.provider_calls and provider and model))
         store.write_manifest(analysis, state)
         job.status = 'queued' if state.status == 'processing' else 'completed'
         job.lease_token = job.lease_until = None
         if job.status == 'completed': job.finished_at = store.utc_now()
 
 
-async def fail(claim, kind, retry_after=30):
+async def fail(claim, kind, retry_after=30, *, error=None):
     """Safe categories only: no provider body, prompt or exception string."""
     from ai.errors import FAILURES
-    known = set(FAILURES) | {'input_limit','evidence_invalid','internal_error'}
+    known = set(FAILURES) | {'input_limit','evidence_invalid','internal_error','pilot_limit'}
     if kind not in known: kind = 'internal_error'
     async with unit_of_work() as session:
         analysis, job, unit, state = await locked(session, claim)
         now = store.utc_now(); unit.lease_token = unit.lease_until = None
-        unit.diagnostics = {**unit.diagnostics, 'last_error': kind, 'reference': str(uuid4()), 'failed_at': now.isoformat()}
+        failure={'http_status':error.http_status,'incompatibility':error.incompatibility,'reason':error.reason,
+            'provider_attempted':error.attempted} if error else {}
+        retry_failures=unit.diagnostics.get('retry_failures',max(0,unit.attempts-1))+(1 if error is None or error.attempted else 0)
+        unit.diagnostics = {**unit.diagnostics, 'last_error': kind, 'reference': error.reference if error else str(uuid4()),
+            'failed_at': now.isoformat(),'last_failure':failure,'retry_failures':retry_failures}
         state.error_kind = kind
         if unit.provider_calls: state.budget.usage_incomplete = True
         if kind in ('malformed_output', 'output_truncated', 'input_limit') and unit.kind != 'scope' and len(unit.source_blocks) > 1:
@@ -326,13 +376,15 @@ async def fail(claim, kind, retry_after=30):
                 unit.status = 'failed'; unit.finished_at = now; state.status = 'recoverable_failure'; state.error_kind = 'leaf_unit_limit'
         elif kind in ('quota', 'rate_limit'):
             unit.status = 'quota'; state.status = 'quota_paused'; state.retry_at = now + timedelta(seconds=max(1, min(300, retry_after)))
-        elif kind in ('invalid_key', 'permission_denied', 'model_unavailable', 'invalid_request'):
+        elif kind in ('invalid_key', 'permission_denied', 'model_unavailable', 'invalid_request','pilot_limit') or (error is not None and not error.attempted and error.reason in ('cooldown','no_compatible_route')):
             unit.status = 'waiting_provider'; state.status = 'waiting_provider'
-        elif unit.attempts < 3 and kind in ('timeout', 'network_error', 'unavailable'):
+            if error and error.reason=='cooldown':state.retry_at=now+timedelta(seconds=error.retry_after)
+        elif retry_failures < 3 and kind in ('timeout', 'network_error', 'unavailable'):
             unit.status = 'pending'; unit.available_at = now + timedelta(seconds=max(10 * 2 ** (unit.attempts - 1), min(300, retry_after)))
         else:
             unit.status = 'failed'; unit.finished_at = now; state.status = 'recoverable_failure'
         record_pause(state,unit)
+        stop_pilot(state,unit)
         store.write_manifest(analysis, state)
         job.status = 'queued' if state.status == 'processing' else 'completed'
         job.lease_token = job.lease_until = None

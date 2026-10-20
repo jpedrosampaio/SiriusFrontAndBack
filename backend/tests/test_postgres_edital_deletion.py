@@ -18,6 +18,7 @@ from db.session import unit_of_work
 from services import edital_analyses as analyses, edital_pipeline_units as units
 from services.edital_pipeline_worker import IncrementalHandler
 import test_postgres_edital_pipeline as intake_setup
+from edital_test_helpers import persist_approved
 
 
 @unittest.skipUnless(os.getenv('RUN_POSTGRES_TESTS') == 'true', 'Disposable PostgreSQL required')
@@ -31,7 +32,7 @@ class OwnedAnalysisDeletion(unittest.IsolatedAsyncioTestCase):
         document = self.document()
         if digest: document = document.model_copy(update={'sha256': digest})
         first = await self.reserve(owner=owner, document=document)
-        return await intake_setup.store.persist_input(owner or self.uid, first['job_id'], first['token'], document)
+        return await persist_approved(owner or self.uid, first['job_id'], first['token'], document)
 
     def proposal(self):
         return {'roles': [], 'classifications': [
