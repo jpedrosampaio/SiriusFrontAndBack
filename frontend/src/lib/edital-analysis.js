@@ -17,7 +17,8 @@ export async function queryEditalJobs(api, signal) {
 export function fetchEditalCapability(api) {
   return queryClient.fetchQuery({ queryKey: editalJobsKey(), staleTime: EDITAL_CAPABILITY_STALE, queryFn: ({ signal }) => queryEditalJobs(api, signal) });
 }
-export function activeEditalJobs(data) { return (data?.jobs || []).some(job => ['queued', 'running'].includes(job.status) && (!job.pipeline_status || job.pipeline_status === 'processing')); }
+export function visibleEditalJobs(data) { return (data?.jobs || []).filter(job => !(job.analysis_id == null && job.phase === 'Análise excluída pelo proprietário.')); }
+export function activeEditalJobs(data) { return visibleEditalJobs(data).some(job => ['queued', 'running'].includes(job.status) && (!job.pipeline_status || job.pipeline_status === 'processing')); }
 export function isStorageUnavailable(error) { return error?.response?.data?.detail?.code === 'durable_storage_unavailable'; }
 export function editalErrorMessage(error) {
   if (error?.code === 'ERR_CANCELED') return 'Espera interrompida. A análise no servidor pode continuar; ao reenviar o PDF, uma análise salva poderá ser reutilizada.';
