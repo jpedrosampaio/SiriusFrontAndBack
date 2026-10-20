@@ -87,7 +87,8 @@ class AIRouter:
                 sha256(json.dumps({'prompt':request.prompt,'system':request.system,'messages':request.messages,
                     'parts':request.parts,'tools':request.tools,'max_tokens':request.max_tokens,'mime':request.mime},
                     sort_keys=True,default=str).encode()).hexdigest())
-            rejected=self.rejections.get(fingerprint)
+            capability_token=(*fingerprint[:6],'model_capability')
+            rejected=self.rejections.get(fingerprint) or self.rejections.get(capability_token)
             if rejected and rejected[0]>time.monotonic():
                 prior=rejected[1]
                 if prior.incompatibility=='model_capability':last=prior;continue
@@ -133,7 +134,7 @@ class AIRouter:
                     # private prompts, provider responses or request credentials.
                     cached=AIError(exc.kind,http_status=exc.http_status,incompatibility=exc.incompatibility,
                         reason=exc.reason,reference=exc.reference)
-                    self.rejections[fingerprint]=(time.monotonic()+300,cached)
+                    self.rejections[capability_token if exc.incompatibility=='model_capability' else fingerprint]=(time.monotonic()+300,cached)
                     while len(self.rejections)>1000:self.rejections.popitem(last=False)
                     if exc.incompatibility!='model_capability':
                         raise

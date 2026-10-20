@@ -111,7 +111,7 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(result.fallback)
                 self.assertEqual(len(calls),expected)
                 if expected==2:
-                    await router.generate(task='edital_extract',keys={'gemini':'synthetic'},output_type=InventoryUnit)
+                    await router.generate(task='edital_extract',keys={'gemini':'synthetic'},output_type=InventoryUnit,prompt='Another documentary unit')
                     self.assertEqual(len(calls),3) # known incompatible model is skipped
 
     async def test_cooldown_consumes_no_durable_provider_attempt_and_keeps_reason(self):
