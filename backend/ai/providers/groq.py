@@ -2,6 +2,7 @@ import base64
 import json
 from ai.providers.base import Provider
 from ai.types import AIError, AIResult
+from ai.schemas import transport_schema
 
 BASE = 'https://api.groq.com/openai/v1'
 
@@ -24,7 +25,8 @@ class GroqProvider(Provider):
         payload = {'model': model.name, 'messages': messages, 'max_completion_tokens': min(request.max_tokens, 16000)}
         if request.schema:
             # Best effort supports legacy optional fields; local validation is mandatory.
-            payload['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'sirius_response', 'strict': False, 'schema': request.schema}}
+            wire=request.transport_schema if request.transport_schema is not None else transport_schema(request.schema,model.structured_profile)
+            payload['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'sirius_response', 'strict': False, 'schema': wire}}
         if request.tools:
             payload['tools'] = [{'type': 'function', 'function': t} for t in request.tools]
         data = await self.request('post', f'{BASE}/chat/completions', headers={'Authorization': f'Bearer {key}'}, json=payload, timeout=request.timeout)

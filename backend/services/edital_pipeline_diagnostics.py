@@ -2,6 +2,9 @@
 from ai.errors import FAILURES
 
 MESSAGES={
+    'provider_approval_required':'Aguardando homologação e autorização da IA. O texto e os lotes salvos serão reutilizados.',
+    'pilot_review_required':'O lote piloto foi validado e consolidado como proposta parcial. Confira o resultado e autorize separadamente os demais lotes.',
+    'pilot_limit':'O limite de uma chamada do piloto foi alcançado. Nenhum outro lote foi executado.',
     'analysis_provider_budget':'O orçamento de chamadas desta análise terminou. Confira os lotes antes de ampliar o limite.',
     'initial_document_budget_exceeded':'A descoberta requer mais lotes do que o orçamento inicial. Confira o tamanho antes de ampliar o limite.',
     'planned_units_exceed_remaining_budget':'As próximas etapas excedem o orçamento restante. Os lotes válidos continuam salvos.',

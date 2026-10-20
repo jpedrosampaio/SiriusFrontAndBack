@@ -6,6 +6,7 @@ from edital_pipeline_contracts import InventoryUnit, ScopeUnit, DetailUnit, Veri
 from services.edital_semantics import blocks_from_pages, unit_key
 from services import edital_pipeline_compile as compiler
 from services.edital_pipeline_specs import scope_specs, detail_specs, UnitSpec
+from services.edital_pipeline_budget import forecast
 
 
 async def unfinished(session, analysis, generation, kind):
@@ -51,7 +52,7 @@ async def emit(session, analysis, job_id, state, role_id, specs):
     if leaves + len(planned) > state.budget.leaf_unit_limit:
         state.status = scope.status = 'recoverable_failure'; state.error_kind = 'analysis_checkpoint_limit'
         return False
-    if state.budget.reserved_attempts + len(planned) > state.budget.provider_limit:
+    if state.budget.reserved_attempts + sum(2 if spec.kind in ('inventory','detail') else 1 for _,spec,_ in planned) > state.budget.provider_limit and not (state.provider_approval and state.provider_approval.mode=='pilot'):
         state.status = scope.status = 'quota_paused'; state.error_kind = 'planned_units_exceed_remaining_budget'
         return False
     for key, spec, context in planned:
@@ -59,6 +60,9 @@ async def emit(session, analysis, job_id, state, role_id, specs):
             generation=scope.generation, scope_key=scope_key, unit_key=key, kind=spec.kind,
             source_blocks=spec.primary, context_blocks=spec.context, diagnostics=context))
     await session.flush()
+    if state.provider_approval and state.provider_approval.mode=='full' and (await forecast(session,analysis,state))['extension_required']:
+        state.status=scope.status='quota_paused';state.error_kind='planned_units_exceed_remaining_budget'
+        return False
     return True
 
 

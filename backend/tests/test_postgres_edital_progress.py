@@ -14,6 +14,7 @@ from edital_pipeline_contracts import (DocumentIR, SourcePage, SourceBlock, Cont
 from services import edital_pipeline_store as store, edital_pipeline_units as units, edital_pipeline_progress as progress
 from services import edital_pipeline_compile as compiler
 import test_postgres_agent as setup
+from edital_test_helpers import persist_approved
 
 
 @unittest.skipUnless(os.getenv('RUN_POSTGRES_TESTS') == 'true', 'Disposable PostgreSQL required')
@@ -63,7 +64,7 @@ class IncrementalProgress(unittest.IsolatedAsyncioTestCase):
         document=DocumentIR(sha256=hashlib.sha256('\n'.join(lines).encode()).hexdigest(),size_bytes=10000,
             pages=[SourcePage(page=1,width=600,height=800,quality='text',characters=sum(map(len,lines)),blocks=blocks)])
         first=await store.reserve_intake(self.uid,document.sha256,'synthetic-long.pdf',False,str(uuid4()))
-        result=await store.persist_input(self.uid,first['job_id'],first['token'],document)
+        result=await persist_approved(self.uid,first['job_id'],first['token'],document)
         async with unit_of_work() as session:
             analysis=await store.owned_analysis(session,self.uid,result['analysis_id'],lock=True)
             state=store.manifest(analysis);state.inventory.status='awaiting_review'
@@ -107,7 +108,7 @@ class IncrementalProgress(unittest.IsolatedAsyncioTestCase):
     async def test_early_inventory_selection_scoped_depth_group_rules_and_resume_preserve_corrections(self):
         document = self.fixture()
         first = await store.reserve_intake(self.uid, document.sha256, 'synthetic.pdf', False, str(uuid4()))
-        accepted = await store.persist_input(self.uid, first['job_id'], first['token'], document)
+        accepted = await persist_approved(self.uid, first['job_id'], first['token'], document)
         parent = await units.claim_next()
         await units.provider_attempt(parent, SimpleNamespace(provider='mock', name='synthetic-no-network'))
         await units.fail(parent, 'output_truncated')

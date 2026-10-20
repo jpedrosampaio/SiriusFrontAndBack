@@ -2,6 +2,7 @@ import base64
 import asyncio
 from ai.providers.base import Provider
 from ai.types import AIResult, AIError, AIRequest
+from ai.schemas import transport_schema
 
 BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
@@ -14,7 +15,8 @@ class GeminiProvider(Provider):
         if request.system:
             payload['systemInstruction'] = {'parts': [{'text': request.system}]}
         if request.schema:
-            payload['generationConfig'].update(responseMimeType='application/json', responseJsonSchema=request.schema)
+            wire=request.transport_schema if request.transport_schema is not None else transport_schema(request.schema,model.structured_profile)
+            payload['generationConfig'].update(responseMimeType='application/json', responseJsonSchema=wire)
         if request.tools:
             payload['tools'] = [{'functionDeclarations': request.tools}]
         data = await self.request('post', f'{BASE}/models/{model.name}:generateContent',

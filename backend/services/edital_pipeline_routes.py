@@ -17,6 +17,7 @@ from services import edital_pipeline_store as store
 from services import edital_pipeline_controls as controls,edital_pipeline_compile as compiler
 from services.edital_pdf import extract_pdf, PDFInputError, ExtractionMetrics, MAX_BYTES
 from services.edital_pipeline_diagnostics import message as diagnostic_message
+from services.edital_pipeline_budget import forecast
 
 router=APIRouter(prefix='/study/edital-pipeline')
 _wake=None
@@ -153,10 +154,13 @@ async def get_state(request:Request,analysis_id:str):
                 'last_completed_model':None if not isinstance(completed,dict) else {k:completed.get(k) for k in ('provider','model','at')},
                 'error_kind':details.get('last_error'),'error_message':diagnostic_message(details.get('last_error')),
                 'reference':details.get('reference'),'next_attempt_at':available})
+            failure=details.get('last_failure',{})
+            diagnostics[-1]['failure']={key:failure.get(key) for key in ('http_status','incompatibility','reason','provider_attempted')}
         data={'analysis_id':str(row.id),'user_id':str(uid),'filename':row.filename,'revision':row.revision,
             'pipeline':PIPELINE_VERSION,'manifest':state.model_dump(mode='json'),
             'progress':[{'kind':kind,'status':status,'units':count} for kind,status,count in groups],
-            'diagnostics':diagnostics,'error_message':diagnostic_message(state.error_kind),'worker_configured':_wake is not None,'original_available':False}
+            'diagnostics':diagnostics,'error_message':diagnostic_message(state.error_kind),'worker_configured':_wake is not None,'original_available':False,
+            'execution_plan':await forecast(session,row,state)}
         scope=state.scopes.get(state.selected_role_id)
         def section_summary(section):
             # pdf-layout/1 emits page-qualified block identities. This is page

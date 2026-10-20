@@ -16,18 +16,27 @@ Recheck Git/PR/deploy state at session start; publication SHAs are references, n
 
 ## Next phase and authorization
 
-Current authorized P0 follow-up: diagnose the real Northflank PDF failure
-`11b758e72ff0` (2026-10-20 14:12:53 UTC). The Heroku runtime reproduced exit127
-before PDF parsing because sanitized child environment removed libpython's
-search path. The supervisor now derives only the interpreter's trusted library
-directory, preserving credential exclusion and every resource limit. It also
-distinguishes process failure from output overflow and emits safe correlated
-runtime/cgroup facts. The real 70-page PDF passed the same Heroku runtime under
-the declared 512 MB/0.2 vCPU shared budget, with complete structural preservation.
-[Reproduction evidence and limits](docs/PDF_EXTRACTION_DIAGNOSTICS.md).
-The old production log cannot retrospectively confirm returncode; await the
-owner's normal retry/correlated live diagnostics before declaring that incident
-closed or changing resource limits. Publication gates/evidence belong to [PR62](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/62).
+PDF runtime follow-up is published in [PR62](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/62),
+merge `e93b7ff6a69d20d6e0916b0593daa8edaac4bde2`. The owner confirmed that the
+real 70-page PDF now passes extraction. Historical reproduction, safe diagnostics
+and unchanged resource limits remain in [PDF extraction evidence](docs/PDF_EXTRACTION_DIAGNOSTICS.md).
+
+Current authorized P0: structured-provider compatibility and safe recovery of
+the saved semantic analysis (67 inventory units, zero completed, five attempts
+reserved). Recovery release and publication receipts: [PR63](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/63).
+Provider-specific
+transport keeps canonical Pydantic/documentary gates, adds correlated sanitized
+HTTP failures, explicit one-call pilot authorization and complete known-work
+budget forecasting. Existing IR/checkpoints/history remain intact; only new
+intake uses denser packing. No migration or live AI call is part of this hotfix.
+Publication requires four green workflows, clean final Codex review and
+both exact deploys/read-only production checks; consult the PR's exact-SHA
+receipts rather than assuming publication from local tests. The generic historical HTTP400
+does not establish the rejected field. After publication, **await owner
+authorization for one small real-provider pilot, then pause and obtain separate
+authorization before the remaining batches/budget extension**. Local/mocked
+schema acceptance is not live semantic success.
+[Contracts, incident limits and manual pilot](docs/EDITAL_PROVIDER_DIAGNOSTICS.md).
 
 The original fourteen-phase plan remains intact; **there is no Phase 15**. The authorized notification/PDF-security maintenance and incremental analyzer are deployed. Early inventory/selection, durable small units, recovery, human review/confirmation, canonical import and responsive workspace reuse the existing engines; [contracts and boundaries](docs/UNIVERSAL_EDITAL_ANALYZER.md). No real Gemini/Groq inference was performed or authorized for these tests; deployment does not establish semantic generalization. Await owner authorization before starting further work.
 

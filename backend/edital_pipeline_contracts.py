@@ -374,6 +374,14 @@ class RelatedDocument(Contract):
     applied: Literal[False] = False
 
 
+class ProviderApproval(Contract):
+    transport_version: str = Field(max_length=60)
+    mode: Literal['pilot','full','paused']
+    pilot_stop_after: int = Field(ge=0)
+    pilot_validated: bool = False
+    pilot_unit_id: UUID | None = None
+
+
 class PipelineManifest(Contract):
     version: Literal['edital/universal/6'] = PIPELINE_VERSION
     source: DocumentSummary
@@ -386,3 +394,4 @@ class PipelineManifest(Contract):
     related_documents: list[RelatedDocument] = Field(default_factory=list,max_length=30)
     error_kind: str | None = Field(default=None,max_length=80)
     retry_at: datetime | None = None
+    provider_approval: ProviderApproval | None = None

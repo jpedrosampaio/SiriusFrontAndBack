@@ -30,19 +30,34 @@ class Provider:
         except httpx.HTTPError as exc:
             raise AIError('network_error') from exc
         if response.status_code >= 400:
+            incompatibility=None
             kind = {400: 'invalid_request', 401: 'invalid_key', 403: 'permission_denied',
                     404: 'model_unavailable', 408: 'timeout', 429: 'rate_limit'}.get(response.status_code, 'unavailable' if response.status_code >= 500 else 'provider_error')
             if response.status_code == 400:
                 try:
-                    details = response.json().get('error', {}).get('details', [])
+                    error=response.json().get('error',{})
+                    details = error.get('details', [])
                     if any(d.get('reason') == 'API_KEY_INVALID' for d in details if isinstance(d, dict)):
                         kind = 'invalid_key'
-                except (ValueError, AttributeError):
+                    if kind=='invalid_request':
+                        # Inspect bounded text only to choose an enum. Never
+                        # retain/log field paths, response bodies or messages.
+                        message=str(error.get('message',''))[:4096].lower()
+                        fields=' '.join(str(v.get('field',''))[:256] for d in details if isinstance(d,dict)
+                            for v in d.get('fieldViolations',[]) if isinstance(v,dict))[:4096].lower()
+                        combined=message+' '+fields
+                        if any(word in combined for word in ('responsejsonschema','response_json_schema','json_schema','schema')):
+                            incompatibility='schema_complexity' if any(w in combined for w in ('too complex','too many states','too deeply','too large')) else 'schema_reference' if '$ref' in combined or 'reference' in combined else 'schema_keyword' if any(w in combined for w in ('unsupported keyword','unknown name','additionalproperties','default','pattern')) else 'schema_rejected'
+                        elif 'model' in combined and any(w in combined for w in ('does not support','not supported by','unsupported model')):
+                            incompatibility='model_capability'
+                        else:incompatibility='request_rejected'
+                except (ValueError, AttributeError,TypeError):
                     pass
             if response.status_code == 429 and 'quota' in response.text.lower():
                 kind = 'quota'
             retry = response.headers.get('retry-after', '30')
-            raise AIError(kind, int(retry) if retry.isdigit() else 30)
+            raise AIError(kind, int(retry) if retry.isdigit() else 30, http_status=response.status_code,
+                incompatibility=incompatibility,reason='payload_rejected' if kind=='invalid_request' else None)
         try:
             data = response.json()
             if not isinstance(data, dict):
