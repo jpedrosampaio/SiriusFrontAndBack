@@ -32,6 +32,14 @@
       "path": "backend/alembic/versions/f13c8a7b902d_owned_command_center_audit.py",
       "sha256": "422419ce27e64b1ea7ee67a2f70044e34585f3d8663564b8df0180c3eb8c64f8",
       "review_comment_id": 6152333894
+    },
+    "57": {
+      "sha": "13200946271d6aeeeefb0b0d08a85323667f94be",
+      "revision": "a61015ed902b",
+      "down_revision": "f13c8a7b902d",
+      "path": "backend/alembic/versions/a61015ed902b_owned_edital_units.py",
+      "sha256": "f8754ff06a62934bec93126acfcd84c18dc5e099d4cfa8bde7dc256f503c9177",
+      "review_comment_id": 6289240506
     }
   }
 }
