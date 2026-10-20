@@ -16,6 +16,19 @@ Recheck Git/PR/deploy state at session start; publication SHAs are references, n
 
 ## Next phase and authorization
 
+Current authorized P0 follow-up: diagnose the real Northflank PDF failure
+`11b758e72ff0` (2026-10-20 14:12:53 UTC). The Heroku runtime reproduced exit127
+before PDF parsing because sanitized child environment removed libpython's
+search path. The supervisor now derives only the interpreter's trusted library
+directory, preserving credential exclusion and every resource limit. It also
+distinguishes process failure from output overflow and emits safe correlated
+runtime/cgroup facts. The real 70-page PDF passed the same Heroku runtime under
+the declared 512 MB/0.2 vCPU shared budget, with complete structural preservation.
+[Reproduction evidence and limits](docs/PDF_EXTRACTION_DIAGNOSTICS.md).
+The old production log cannot retrospectively confirm returncode; await the
+owner's normal retry/correlated live diagnostics before declaring that incident
+closed or changing resource limits. Publication gates/evidence belong to [PR62](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/62).
+
 The original fourteen-phase plan remains intact; **there is no Phase 15**. The authorized notification/PDF-security maintenance and incremental analyzer are deployed. Early inventory/selection, durable small units, recovery, human review/confirmation, canonical import and responsive workspace reuse the existing engines; [contracts and boundaries](docs/UNIVERSAL_EDITAL_ANALYZER.md). No real Gemini/Groq inference was performed or authorized for these tests; deployment does not establish semantic generalization. Await owner authorization before starting further work.
 
 Backlog only: operational OCR; rectification/complementary-document reconciliation; separately authorized real Gemini validation with heterogeneous notices; the unresolved workout `workout_generation_invalid_sessions` failure; other real homologation issues. These were not implemented or silently marked resolved by this release.

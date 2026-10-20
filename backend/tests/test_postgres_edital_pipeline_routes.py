@@ -16,7 +16,7 @@ from db.models.edital_units import EditalUnit
 from edital_pipeline_contracts import DocumentIR,SourcePage,SourceBlock
 from services import edital_pipeline_routes as routes,edital_pipeline_units as units,edital_pipeline_store as store
 from services import edital_routes as legacy_routes
-from services.edital_pdf import PDFInputError
+from services.edital_pdf import PDFInputError,ExtractionMetrics
 import test_postgres_agent as setup
 
 
@@ -137,6 +137,26 @@ class PipelineHTTP(unittest.IsolatedAsyncioTestCase):
         response=await self.submit(content=b'not a PDF');self.assertEqual(response.status_code,422)
         response=await self.http.post('/api/study/edital-pipeline',files={'file':('synthetic.pdf',b'%PDF-synthetic','application/pdf')})
         self.assertEqual(response.status_code,422);self.assertEqual(self.extracts,[])
+
+    async def test_process_failure_keeps_reference_and_does_not_commit_partial_ir(self):
+        for code,status in [('extraction_process_failed',503),('extraction_result_limit',422)]:
+            metrics=ExtractionMetrics('123456abcdef',2760,-9,0,True)
+            async def interrupted(content):
+                raise PDFInputError(code,'PRIVATE-DOCUMENT-OR-CREDENTIAL',metrics=metrics)
+            with self.subTest(code=code),patch.object(routes,'extract_pdf',interrupted),\
+                self.assertLogs(level='WARNING') as logged:
+                response=await self.submit(content=('%PDF-'+code).encode())
+            self.assertEqual(response.status_code,status)
+            self.assertEqual(response.json()['detail']['reference'],metrics.reference)
+            self.assertEqual(response.json()['detail']['code'],code)
+            self.assertNotIn('PRIVATE',response.text)
+            self.assertNotIn('PRIVATE',' '.join(logged.output))
+            self.assertIn('reference='+metrics.reference,' '.join(logged.output))
+            async with unit_of_work() as session:
+                self.assertEqual(await session.scalar(select(func.count()).select_from(EditalAnalysis).where(EditalAnalysis.user_id==self.uid)),0)
+                jobs=(await session.scalars(select(EditalJob).where(EditalJob.user_id==self.uid))).all()
+                self.assertTrue(jobs and all(job.status=='failed' for job in jobs))
+            self.assertEqual(self.wakes,[])
 
     async def test_cancelled_http_keeps_durable_parser_admission_until_lease_expiry(self):
         self.release.clear();key=str(uuid4());task=asyncio.create_task(self.submit(key))

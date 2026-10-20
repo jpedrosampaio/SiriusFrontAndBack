@@ -5,6 +5,7 @@ is needed here. Geometry/heading/column/header labels are extraction hints.
 """
 import asyncio
 from collections import Counter
+from dataclasses import dataclass
 import hashlib
 import io
 from importlib.metadata import version
@@ -16,21 +17,93 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from statistics import median
+from uuid import uuid4
 from edital_pipeline_contracts import DocumentIR, SourcePage, SourceBlock, MAX_PAGES, MAX_BLOCKS, MAX_TEXT
 
 MAX_BYTES = 20*1024*1024
 MAX_RESULT = 12*1024*1024
 EXTRACTION_SECONDS = 60
+CHILD_CPU_SECONDS = 55
+CHILD_ADDRESS_SPACE_BYTES = 384*1024*1024
+logger = logging.getLogger(__name__)
 _slots = asyncio.Semaphore(1)
 _running = set()
 
 
 class PDFInputError(Exception):
-    def __init__(self,code,diagnostic=None):
+    def __init__(self,code,diagnostic=None,*,metrics=None):
         self.code=code
         self.diagnostic=diagnostic
+        self.metrics=metrics
         super().__init__(code)
+
+
+@dataclass(frozen=True)
+class ExtractionMetrics:
+    """Supervisor facts only; never child diagnostics, document text or paths."""
+    reference: str
+    duration_ms: int
+    returncode: int | None
+    stdout_bytes: int
+    stdout_complete: bool
+    cgroup_memory_before_bytes: int | None = None
+    cgroup_memory_after_bytes: int | None = None
+    cgroup_memory_peak_bytes: int | None = None
+    cgroup_memory_max_bytes: int | None = None
+    cgroup_oom_kill_delta: int | None = None
+
+    @property
+    def signal(self):
+        return -self.returncode if os.name=='posix' and self.returncode is not None and self.returncode<0 else None
+
+    def log(self,outcome,*,success=False):
+        # outcome is a supervisor-owned literal, never a child-provided code.
+        # RLIMIT_AS bounds virtual address space, not measured resident memory.
+        log=logger.info if success else logger.warning
+        log('edital_extraction outcome=%s reference=%s duration_ms=%d returncode=%s signal=%s '
+            'stdout_bytes=%d stdout_complete=%s stdout_limit_exceeded=%s address_space_limit_bytes=%s '
+            'cgroup_memory_before_bytes=%s cgroup_memory_after_bytes=%s cgroup_memory_peak_bytes=%s '
+            'cgroup_memory_max_bytes=%s cgroup_oom_kill_delta=%s',
+            outcome,self.reference,self.duration_ms,self.returncode,self.signal,
+            self.stdout_bytes,self.stdout_complete,self.stdout_bytes>MAX_RESULT,
+            CHILD_ADDRESS_SPACE_BYTES if sys.platform.startswith('linux') else None,
+            self.cgroup_memory_before_bytes,self.cgroup_memory_after_bytes,self.cgroup_memory_peak_bytes,
+            self.cgroup_memory_max_bytes,self.cgroup_oom_kill_delta)
+
+
+def _cgroup_memory():
+    """Best-effort v2 counters, never paths/text in logs or changes to limits.
+
+    Peak is cgroup-lifetime high water, and OOM events concern the whole group;
+    neither proves that this request caused an OOM. Missing/unlimited is None.
+    """
+    empty=(None,None,None,None)
+    if not sys.platform.startswith('linux'):return empty
+    def read(path,limit=256):
+        try:
+            with path.open(encoding='ascii') as source:return source.read(limit)
+        except (OSError,UnicodeError):return ''
+    def counter(value):
+        value=value.strip()
+        return int(value) if value.isascii() and value.isdigit() and len(value)<=20 else None
+    root=Path('/sys/fs/cgroup');locations=[]
+    for line in read(Path('/proc/self/cgroup'),4096).splitlines():
+        if line.startswith('0::/'):
+            relative=Path(line[4:])
+            if not relative.is_absolute() and '..' not in relative.parts:locations.append(root/relative)
+    # A visible hierarchy root may aggregate other services. Prefer this
+    # process's group; the mount root is the container-namespace fallback.
+    if root not in locations:locations.append(root)
+    for directory in locations:
+        current=counter(read(directory/'memory.current'))
+        if current is None:continue
+        peak=counter(read(directory/'memory.peak'))
+        maximum=counter(read(directory/'memory.max'))
+        events=dict(line.split() for line in read(directory/'memory.events',1024).splitlines() if len(line.split())==2)
+        return current,peak,maximum,counter(events.get('oom_kill',''))
+    return empty
 
 
 def text_key(value):
@@ -205,25 +278,69 @@ def child_limits():
     # the same input/page/output/deadline bounds, but no claimed RLIMIT support.
     try:import resource
     except ImportError:return
-    resource.setrlimit(resource.RLIMIT_CPU,(55,55))
-    resource.setrlimit(resource.RLIMIT_AS,(384*1024*1024,384*1024*1024))
+    resource.setrlimit(resource.RLIMIT_CPU,(CHILD_CPU_SECONDS,CHILD_CPU_SECONDS))
+    resource.setrlimit(resource.RLIMIT_AS,(CHILD_ADDRESS_SPACE_BYTES,CHILD_ADDRESS_SPACE_BYTES))
     resource.setrlimit(resource.RLIMIT_FSIZE,(0,0))
+
+
+def _child_environment():
+    # Do not pass database/provider credentials to an untrusted-document parser.
+    env={key:value for key,value in os.environ.items() if key.upper() in ('PATH','SYSTEMROOT','WINDIR','TEMP','TMP','LANG','LC_ALL')}
+    env.update(PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1')
+    if sys.platform.startswith('linux'):
+        # Relocated buildpack Python needs its own libpython before any Python
+        # code (including child_limits) can run. Derive the loader directory
+        # from the active interpreter, NEVER inherit LD_LIBRARY_PATH/LD_PRELOAD.
+        library_dir=Path(sys.base_prefix)/sys.platlibdir
+        if library_dir.is_dir():env['LD_LIBRARY_PATH']=str(library_dir)
+    return env
 
 
 def supervised(content):
     if len(content)>MAX_BYTES:raise PDFInputError('file_size_limit')
-    # Do not pass database/provider credentials to an untrusted-document parser.
-    env={key:value for key,value in os.environ.items() if key.upper() in ('PATH','SYSTEMROOT','WINDIR','TEMP','TMP','LANG','LC_ALL')}
-    env.update(PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1')
+    env=_child_environment()
+    reference=uuid4().hex[:12]
+    memory_before=_cgroup_memory()
+    started=time.monotonic()
+    def measured(returncode,stdout,complete=True):
+        memory_after=_cgroup_memory()
+        before_kills,after_kills=memory_before[3],memory_after[3]
+        delta=after_kills-before_kills if before_kills is not None and after_kills is not None and after_kills>=before_kills else None
+        return ExtractionMetrics(reference,max(0,round((time.monotonic()-started)*1000)),
+            returncode,len(stdout),complete,memory_before[0],memory_after[0],memory_after[1],memory_after[2],delta)
     try:
         result=subprocess.run([sys.executable,'-m','services.edital_pdf'],input=content,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
             timeout=EXTRACTION_SECONDS,cwd=Path(__file__).resolve().parents[1],env=env,check=False)
-    except subprocess.TimeoutExpired:raise PDFInputError('extraction_timeout') from None
-    if result.returncode!=0 or len(result.stdout)>MAX_RESULT:raise PDFInputError('extraction_resource_limit')
-    try:payload=json.loads(result.stdout)
-    except (ValueError,UnicodeError):raise PDFInputError('extraction_failed') from None
-    if not payload.get('ok'):raise PDFInputError(payload.get('code','extraction_failed'),payload.get('diagnostic'))
-    return DocumentIR.model_validate(payload['document'])
+    except subprocess.TimeoutExpired as error:
+        # run() reaps the killed child but does not expose its returncode.
+        # Partial stdout is a lower bound; do not invent a signal/OOM cause.
+        metrics=measured(None,error.stdout or b'',False)
+        metrics.log('timeout')
+        raise PDFInputError('extraction_timeout',metrics=metrics) from None
+    except OSError:
+        metrics=measured(None,b'',False)
+        metrics.log('launch_failed')
+        raise PDFInputError('extraction_process_failed',metrics=metrics) from None
+    metrics=measured(result.returncode,result.stdout)
+    if result.returncode!=0:
+        metrics.log('process_failed')
+        raise PDFInputError('extraction_process_failed',metrics=metrics)
+    if len(result.stdout)>MAX_RESULT:
+        metrics.log('result_limit')
+        raise PDFInputError('extraction_result_limit',metrics=metrics)
+    try:
+        payload=json.loads(result.stdout)
+        if not isinstance(payload,dict):raise ValueError('Invalid protocol')
+        if not payload.get('ok'):
+            metrics.log('child_rejected')
+            code=payload.get('code')
+            raise PDFInputError(code if isinstance(code,str) else 'extraction_failed',payload.get('diagnostic'),metrics=metrics)
+        document=DocumentIR.model_validate(payload['document'])
+    except (ValueError,UnicodeError,KeyError,TypeError):
+        metrics.log('invalid_result')
+        raise PDFInputError('extraction_failed',metrics=metrics) from None
+    metrics.log('completed',success=True)
+    return document
 
 
 async def extract_pdf(content):
