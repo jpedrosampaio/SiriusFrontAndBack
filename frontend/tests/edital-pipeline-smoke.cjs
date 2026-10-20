@@ -55,7 +55,7 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
             assert.ok(data.execution_plan);assert.equal(state.status,'waiting_provider');
             if(body.mode==='pilot'){
               assert.equal(body.provider_limit,undefined);state.budget.reserved_attempts++;state.error_kind='pilot_review_required';
-              data.execution_plan.live_provider_validated=true;data.execution_plan.minimum_remaining_attempts--;
+              data.execution_plan.live_provider_validated=true;data.execution_plan.minimum_remaining_attempts--;data.execution_plan.stages.inventory--;
               data.progress=[{kind:'inventory',status:'completed',units:1},{kind:'inventory',status:'pending',units:66}];
             }else{
               assert.equal(body.mode,'full');assert.equal(data.execution_plan.live_provider_validated,true);
@@ -99,7 +99,7 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     await page.getByLabel('Origem e justificativa da correção',{exact:true}).fill('Nome conferido manualmente no edital.');await page.getByRole('button',{name:'Salvar correção',exact:true}).click();
     await page.getByRole('alert').getByText('A análise mudou em outra aba. Atualize antes de salvar.',{exact:true}).waitFor();assert.equal(writes.filter(w=>w.action==='facts').length,1);
     await page.getByRole('button',{name:'Cancelar correção',exact:true}).click();await page.getByRole('button',{name:'Corrigir Disciplina',exact:true}).click();await page.getByLabel('Valor de Disciplina',{exact:true}).fill('Língua Portuguesa');await page.getByLabel('Origem e justificativa da correção',{exact:true}).fill('Nome novamente conferido no edital.');await page.getByRole('button',{name:'Salvar correção',exact:true}).click();
-    await page.getByText('Língua Portuguesa',{exact:true}).first().waitFor();assert.equal(await create.isDisabled(),true);
+    await page.locator('p').filter({hasText:/^Língua Portuguesa$/}).waitFor();assert.equal(await create.isDisabled(),true);
     await page.getByText('Evidências e alternativas',{exact:true}).first().click();await page.getByRole('button',{name:'Consultar página 1',exact:true}).first().click();
     await page.getByRole('dialog').getByRole('heading',{name:'Página 1 · texto extraído',exact:true}).waitFor();await page.getByRole('dialog').getByText(citation.quote,{exact:true}).waitFor();await page.getByRole('button',{name:'Fechar página',exact:true}).click();assert.equal(sourceReads,1);
     data.manifest.scopes['role-a'].unapplied_corrections=['disciplines/old/name'];data.manifest.scopes['role-a'].corrections={'disciplines/old/name':{value:'Correção humana anterior',note:'Valor preservado da revisão anterior.'}};

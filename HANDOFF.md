@@ -23,13 +23,15 @@ and unchanged resource limits remain in [PDF extraction evidence](docs/PDF_EXTRA
 
 Current authorized P0: structured-provider compatibility and safe recovery of
 the saved semantic analysis (67 inventory units, zero completed, five attempts
-reserved). Candidate branch: `fix/edital-provider-schema-budget`. Provider-specific
+reserved). Recovery release and publication receipts: [PR63](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/63).
+Provider-specific
 transport keeps canonical Pydantic/documentary gates, adds correlated sanitized
 HTTP failures, explicit one-call pilot authorization and complete known-work
 budget forecasting. Existing IR/checkpoints/history remain intact; only new
 intake uses denser packing. No migration or live AI call is part of this hotfix.
-Publication still requires four green workflows, clean final Codex review and
-both exact deploys/read-only production checks. The generic historical HTTP400
+Publication requires four green workflows, clean final Codex review and
+both exact deploys/read-only production checks; consult the PR's exact-SHA
+receipts rather than assuming publication from local tests. The generic historical HTTP400
 does not establish the rejected field. After publication, **await owner
 authorization for one small real-provider pilot, then pause and obtain separate
 authorization before the remaining batches/budget extension**. Local/mocked
