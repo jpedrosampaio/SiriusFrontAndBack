@@ -14,9 +14,10 @@ let userCache = null;
 let userRequest = null;
 let authGeneration = 0;
 let sessionGeneration = 0;
+let lastUnauthorizedGeneration = null;
 function invalidateUser() { userCache = null; userRequest = null; authGeneration += 1; }
 function invalidateAuthentication() {
-  sessionGeneration += 1; invalidateUser();
+  sessionGeneration += 1; lastUnauthorizedGeneration = null; invalidateUser();
   try { window.sessionStorage?.removeItem('sirius-conversation'); } catch { /* Storage can be disabled. */ }
 }
 function sessionChangedError() {
@@ -33,6 +34,8 @@ export function getCurrentUser() {
   const session = sessionGeneration;
   const request = axios.get(`${API}/auth/me`, { withCredentials: true }).then(response => {
     if (session !== sessionGeneration) throw sessionChangedError();
+    // Cookie-only authentication can recover without setting a local token.
+    lastUnauthorizedGeneration = null;
     if (generation === authGeneration) userCache = { response, until: Date.now() + 30000 };
     return response;
   }).finally(() => { if (userRequest === request) userRequest = null; });
@@ -83,6 +86,9 @@ axios.interceptors.response.use(
     if (!belongsToCurrentSession(response.config)) return Promise.reject(sessionChangedError());
     const isChatTransport = /\/ai\/(chat|cancel\/)/.test(response.config?.url || '');
     const url = response.config?.url || '';
+    // The notice manager also supports an HTTP-only cookie session without a
+    // mounted protected page. Its owned configuration is fresh auth evidence.
+    if (/\/automations\/state(?:\?|$)/.test(url) && typeof response.data?.user_id === 'string') lastUnauthorizedGeneration = null;
     const isFinancialPreview = /\/finance\/intelligence\/(simulate|compare-debts)(?:\?|$)/.test(url) || /\/projections\/insights(?:\?|$)/.test(url);
     const isTrainingPreview = /\/workouts\/intelligence\/substitutions(?:\?|$)/.test(url);
     const isIntegratedPreview = /\/command\/scenarios(?:\?|$)/.test(url) || /\/life\/simulate(?:\?|$)/.test(url) || /\/study\/programs\/[^/]+\/strategy\/simulate(?:\?|$)/.test(url);
@@ -100,7 +106,12 @@ axios.interceptors.response.use(
       return Promise.reject(offlineError);
     }
     if (error?.response?.status === 401) {
-      clearToken();
+      // Fence the first denial, but do not turn anonymous background polling
+      // into auth-changed -> immediate poll -> 401 -> auth-changed feedback.
+      if (lastUnauthorizedGeneration !== sessionGeneration) {
+        clearToken();
+        lastUnauthorizedGeneration = sessionGeneration;
+      }
       const path = window.location.pathname;
       if (path !== '/login' && path !== '/register' && path !== '/') {
         window.location.href = '/login';

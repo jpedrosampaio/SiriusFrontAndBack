@@ -90,3 +90,61 @@ test('same-account mutations keep concurrent reads valid, while current 401 stil
   c.pending[1].reject(401); await rejected;
   assert.equal(c.storage.has('sirius_session_token'), false); assert.equal(c.window.location.href, '/login');
 });
+
+test('repeated anonymous 401 responses invalidate authentication only once', async () => {
+  const c = client(); c.window.location.pathname = '/login';
+  let changes = 0; c.window.addEventListener('sirius-auth-changed', () => { changes += 1; });
+  for (let index = 0; index < 4; index += 1) {
+    const request = c.axios.get('/api/automations/state');
+    const rejected = assert.rejects(request, error => error.response?.status === 401);
+    c.pending[index].reject(401); await rejected;
+  }
+  assert.equal(changes, 1, 'Anonymous polling must not feed an auth-change -> immediate poll loop');
+  assert.equal(c.window.location.href, '');
+  c.run('setToken("new-owner-test-only")');
+  c.window.location.pathname = '/dashboard';
+  const nextSession = c.axios.get('/api/automations/state');
+  const expired = assert.rejects(nextSession, error => error.response?.status === 401);
+  c.pending[4].reject(401); await expired;
+  assert.equal(changes, 3, 'A new token must retain its own expiry invalidation');
+  assert.equal(c.storage.has('sirius_session_token'), false);
+  assert.equal(c.window.location.href, '/login');
+});
+
+test('successful cookie reauthentication rearms expiry without accepting stale domain data', async () => {
+  const c = client(); c.window.location.pathname = '/login';
+  let changes = 0; c.window.addEventListener('sirius-auth-changed', () => { changes += 1; });
+  const anonymous = c.axios.get('/api/automations/state');
+  const rejected = assert.rejects(anonymous, error => error.response?.status === 401);
+  c.pending[0].reject(401); await rejected;
+  const cookieLogin = c.run('getCurrentUser()');
+  c.pending[1].resolve({ user_id: 'cookie-owner' }); await cookieLogin;
+  assert.equal(c.storage.has('sirius_session_token'), false, 'Cookie-only authentication stays supported');
+  c.saved.set('sirius-conversation', 'cookie-owner-private');
+  c.window.location.pathname = '/dashboard';
+  const privateRead = c.axios.get('/api/finance/transactions');
+  const stale = assert.rejects(privateRead, error => error.code === 'ERR_CANCELED');
+  const expired = c.axios.get('/api/automations/state');
+  const expiry = assert.rejects(expired, error => error.response?.status === 401);
+  c.pending[3].reject(401); await expiry;
+  c.pending[2].resolve([{ owner: 'cookie-owner', amount: '10.00' }]); await stale;
+  assert.equal(changes, 2);
+  assert.equal(c.saved.has('sirius-conversation'), false);
+  assert.equal(c.window.location.href, '/login');
+});
+
+test('owned cookie notification configuration rearms expiry on a public page', async () => {
+  const c = client(); c.window.location.pathname = '/login';
+  let changes = 0; c.window.addEventListener('sirius-auth-changed', () => { changes += 1; });
+  const anonymous = c.axios.get('/api/automations/state');
+  const rejected = assert.rejects(anonymous, error => error.response?.status === 401);
+  c.pending[0].reject(401); await rejected;
+  const owned = c.axios.get('/api/automations/state');
+  c.pending[1].resolve({ user_id: 'cookie-owner', enabled: false }); await owned;
+  c.saved.set('sirius-conversation', 'owned-cookie-state');
+  const expired = c.axios.get('/api/automations/state');
+  const expiry = assert.rejects(expired, error => error.response?.status === 401);
+  c.pending[2].reject(401); await expiry;
+  assert.equal(changes, 2);
+  assert.equal(c.saved.has('sirius-conversation'), false);
+});
