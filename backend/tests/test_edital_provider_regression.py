@@ -41,6 +41,23 @@ def nodes(value):
 
 
 class ProviderContracts(unittest.IsolatedAsyncioTestCase):
+    async def test_original_inventory_payload_can_be_rejected_while_projected_payload_is_accepted(self):
+        calls=[];original=InventoryUnit.model_json_schema();payload=CASES[0][1]
+        def transport(request):
+            calls.append(request);wire=json.loads(request.content)['generationConfig']['responseJsonSchema']
+            if any('default' in node for node in nodes(wire)):
+                return httpx.Response(400,json={'error':{'message':'Unsupported keyword default in responseJsonSchema'}})
+            return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':json.dumps(payload)}]}}]})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+            provider=GeminiProvider(client)
+            with self.assertRaises(AIError) as old:
+                await provider.generate(MODELS['flash'],'synthetic',AIRequest(task='edital_extract',prompt='Synthetic source',
+                    schema=original,transport_schema=original))
+            self.assertEqual(old.exception.http_status,400);self.assertEqual(old.exception.incompatibility,'schema_keyword')
+            result=await AIRouter(providers={'gemini':provider}).generate(task='edital_extract',keys={'gemini':'synthetic'},
+                output_type=InventoryUnit,prompt='Synthetic source')
+            self.assertEqual(result.data,InventoryUnit.model_validate(payload));self.assertEqual(len(calls),2)
+
     async def test_all_real_contracts_use_transport_subset_and_original_pydantic_validation(self):
         for output,payload in CASES:
             original=copy.deepcopy(output.model_json_schema())
