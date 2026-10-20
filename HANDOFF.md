@@ -16,6 +16,16 @@ Recheck Git/PR/deploy state at session start; publication SHAs are references, n
 
 ## Next phase and authorization
 
+Current authorized P0 follow-up: diagnose the real Northflank PDF failure
+`11b758e72ff0` (2026-10-20 14:12:53 UTC). Its cause remains unproven. The supervisor
+now distinguishes process failure from output overflow and emits safe correlated
+runtime/cgroup facts; all extraction limits remain unchanged. The real 70-page
+PDF passed Linux tests under the declared 512 MB/0.2 vCPU shared budget, with
+reproduction limits explicitly recorded in [PDF extraction diagnostics](docs/PDF_EXTRACTION_DIAGNOSTICS.md).
+Await correlated production evidence before changing resource limits or
+implementing page batching; do not treat instrumentation as a resolved incident.
+Publication gates/evidence are recorded in the hotfix PR.
+
 The original fourteen-phase plan remains intact; **there is no Phase 15**. The authorized notification/PDF-security maintenance and incremental analyzer are deployed. Early inventory/selection, durable small units, recovery, human review/confirmation, canonical import and responsive workspace reuse the existing engines; [contracts and boundaries](docs/UNIVERSAL_EDITAL_ANALYZER.md). No real Gemini/Groq inference was performed or authorized for these tests; deployment does not establish semantic generalization. Await owner authorization before starting further work.
 
 Backlog only: operational OCR; rectification/complementary-document reconciliation; separately authorized real Gemini validation with heterogeneous notices; the unresolved workout `workout_generation_invalid_sessions` failure; other real homologation issues. These were not implemented or silently marked resolved by this release.

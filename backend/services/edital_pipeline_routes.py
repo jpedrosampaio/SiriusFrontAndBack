@@ -15,7 +15,7 @@ from edital_pipeline_contracts import PIPELINE_VERSION, MAX_PAGES
 from services.auth_routes import account
 from services import edital_pipeline_store as store
 from services import edital_pipeline_controls as controls,edital_pipeline_compile as compiler
-from services.edital_pdf import extract_pdf, PDFInputError, MAX_BYTES
+from services.edital_pdf import extract_pdf, PDFInputError, ExtractionMetrics, MAX_BYTES
 from services.edital_pipeline_diagnostics import message as diagnostic_message
 
 router=APIRouter(prefix='/study/edital-pipeline')
@@ -28,6 +28,7 @@ PDF_ERRORS={
     'file_size_limit':'O PDF excede o limite de 20 MB.',
     'pdf_size_limit':'O PDF excede o limite de 20 MB.',
     'extraction_resource_limit':'A extração excedeu os limites de recursos. Divida o documento preservando suas referências.',
+    'extraction_process_failed':'O processo de extração foi interrompido. Tente novamente; se persistir, informe a referência do erro.',
     'extraction_result_limit':'O texto extraído excedeu o limite operacional.',
     'ingestion_busy':'Outra validação está em andamento. Tente novamente em instantes.',
     'parser_security_upgrade_required':'O backend precisa atualizar o processador de PDFs antes de analisar este arquivo.',
@@ -91,10 +92,11 @@ async def submit(request:Request,file:UploadFile=File(...),force:bool=Query(Fals
         wake()
         return {'user_id':str(uid),**result,'pipeline':PIPELINE_VERSION}
     except PDFInputError as error:
-        code=error.code if error.code in PDF_ERRORS else 'extraction_failed';reference=uuid4().hex[:12]
+        code=error.code if error.code in PDF_ERRORS else 'extraction_failed'
+        reference=error.metrics.reference if isinstance(error.metrics,ExtractionMetrics) else uuid4().hex[:12]
         await fail_input(uid,intake,code)
         logging.warning('edital_ingestion failed code=%s reference=%s',code,reference)
-        status=429 if code=='ingestion_busy' else 503 if code in ('parser_internal_error','parser_security_upgrade_required') else 422
+        status=429 if code=='ingestion_busy' else 503 if code in ('parser_internal_error','parser_security_upgrade_required','extraction_process_failed') else 422
         raise HTTPException(status,{'code':code,'message':PDF_ERRORS[code],'reference':reference}) from None
     except asyncio.CancelledError:
         # Keep the 90s database admission while the shielded parser may still

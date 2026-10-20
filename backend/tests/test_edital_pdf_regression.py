@@ -1,9 +1,11 @@
 """Heterogeneous extraction, operational boundaries and cancelled admission."""
 import asyncio
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import threading
 from types import SimpleNamespace
@@ -16,6 +18,152 @@ from edital_pipeline_contracts import DocumentIR,SourcePage
 
 
 class PDFExtraction(unittest.TestCase):
+    def test_cgroup_measurements_are_numeric_optional_and_do_not_claim_request_oom(self):
+        result=SimpleNamespace(returncode=-9,stdout=b'')
+        with patch.object(extraction,'_cgroup_memory',side_effect=[
+            (200000000,300000000,512000000,4),(190000000,510000000,512000000,5)]),\
+            patch.object(extraction.subprocess,'run',return_value=result),\
+            self.assertLogs(extraction.logger,level='WARNING') as logged,\
+            self.assertRaises(extraction.PDFInputError) as failure:
+            extraction.supervised(b'%PDF-synthetic')
+        metrics=failure.exception.metrics
+        self.assertEqual(metrics.cgroup_memory_before_bytes,200000000)
+        self.assertEqual(metrics.cgroup_memory_after_bytes,190000000)
+        self.assertEqual(metrics.cgroup_memory_peak_bytes,510000000)
+        self.assertEqual(metrics.cgroup_memory_max_bytes,512000000)
+        self.assertEqual(metrics.cgroup_oom_kill_delta,1)
+        self.assertIn('cgroup_oom_kill_delta=1',' '.join(logged.output))
+        self.assertEqual(failure.exception.code,'extraction_process_failed')
+
+    def test_cgroup_reader_handles_namespace_paths_and_unavailable_counters(self):
+        root=Path('/sys/fs/cgroup')
+        for namespace in ('/','/service'):
+            files={Path('/proc/self/cgroup'):'0::'+namespace+'\n',
+                root/namespace.lstrip('/')/'memory.current':'12345\n',
+                root/namespace.lstrip('/')/'memory.peak':'67890\n',
+                root/namespace.lstrip('/')/'memory.max':'max\n',
+                root/namespace.lstrip('/')/'memory.events':'oom 3\noom_kill 2\n'}
+            def opened(path,*args,**kwargs):
+                if path not in files:raise FileNotFoundError
+                return io.StringIO(files[path])
+            with self.subTest(namespace=namespace),patch.object(extraction.sys,'platform','linux'),\
+                patch.object(Path,'open',autospec=True,side_effect=opened):
+                self.assertEqual(extraction._cgroup_memory(),(12345,67890,None,2))
+        with patch.object(extraction.sys,'platform','linux'),patch.object(Path,'open',side_effect=PermissionError):
+            self.assertEqual(extraction._cgroup_memory(),(None,None,None,None))
+
+    def test_abnormal_exit_and_excess_output_are_distinct_without_logging_content(self):
+        private=b'PRIVATE-PDF-OR-CREDENTIAL'
+        for returncode,size,expected,outcome in [
+            (-9,len(private),'extraction_process_failed','process_failed'),
+            (1,256,'extraction_process_failed','process_failed'),
+            (0,256,'extraction_result_limit','result_limit')]:
+            output=(private+b'x'*size)[:size]
+            with self.subTest(returncode=returncode,size=size),patch.object(extraction,'MAX_RESULT',128),\
+                patch.object(extraction.subprocess,'run',return_value=SimpleNamespace(returncode=returncode,stdout=output)),\
+                self.assertLogs(extraction.logger,level='WARNING') as logged,\
+                self.assertRaises(extraction.PDFInputError) as failure:
+                extraction.supervised(b'%PDF-PRIVATE-INPUT')
+            error=failure.exception;metrics=error.metrics;message=' '.join(logged.output)
+            self.assertEqual(error.code,expected)
+            self.assertEqual(metrics.returncode,returncode)
+            self.assertEqual(metrics.stdout_bytes,size);self.assertTrue(metrics.stdout_complete)
+            self.assertEqual(metrics.signal,9 if returncode==-9 and os.name=='posix' else None)
+            self.assertGreaterEqual(metrics.duration_ms,0)
+            self.assertRegex(metrics.reference,r'^[0-9a-f]{12}$')
+            for field in (f'outcome={outcome}',f'reference={metrics.reference}',f'returncode={returncode}',
+                f'stdout_bytes={size}',f'stdout_limit_exceeded={size>128}','duration_ms=','signal='):
+                self.assertIn(field,message)
+            self.assertNotIn('PRIVATE',message);self.assertNotIn('OOM',message)
+
+    def test_timeout_logs_partial_byte_count_without_guessing_exit_signal(self):
+        timeout=subprocess.TimeoutExpired(['PRIVATE-COMMAND'],60,output=b'PRIVATE-PARTIAL',stderr=b'PRIVATE-STDERR')
+        with patch.object(extraction.subprocess,'run',side_effect=timeout),\
+            self.assertLogs(extraction.logger,level='WARNING') as logged,\
+            self.assertRaises(extraction.PDFInputError) as failure:
+            extraction.supervised(b'%PDF-private')
+        metrics=failure.exception.metrics
+        self.assertEqual(failure.exception.code,'extraction_timeout')
+        self.assertEqual(metrics.stdout_bytes,len(b'PRIVATE-PARTIAL'))
+        self.assertFalse(metrics.stdout_complete)
+        self.assertIsNone(metrics.returncode);self.assertIsNone(metrics.signal)
+        self.assertIn('outcome=timeout',' '.join(logged.output))
+        self.assertNotIn('PRIVATE',' '.join(logged.output))
+
+    def test_launch_failure_and_invalid_protocol_are_safe_diagnostics(self):
+        for result,expected,outcome in [
+            (OSError('PRIVATE-PATH'),'extraction_process_failed','launch_failed'),
+            (SimpleNamespace(returncode=0,stdout=b'PRIVATE-TEXT'),'extraction_failed','invalid_result'),
+            (SimpleNamespace(returncode=0,stdout=b'[]'),'extraction_failed','invalid_result'),
+            (SimpleNamespace(returncode=0,stdout=b'{"ok":true,"document":{"private":"PRIVATE"}}'),'extraction_failed','invalid_result'),
+            (SimpleNamespace(returncode=0,stdout=b'{"ok":false,"code":"PRIVATE","diagnostic":"PRIVATE"}'),'PRIVATE','child_rejected')]:
+            kwargs={'side_effect':result} if isinstance(result,Exception) else {'return_value':result}
+            with self.subTest(outcome=outcome),patch.object(extraction.subprocess,'run',**kwargs),\
+                self.assertLogs(extraction.logger,level='WARNING') as logged,\
+                self.assertRaises(extraction.PDFInputError) as failure:
+                extraction.supervised(b'%PDF-private')
+            self.assertEqual(failure.exception.code,expected)
+            self.assertIn(f'outcome={outcome}',' '.join(logged.output))
+            self.assertNotIn('PRIVATE',' '.join(logged.output))
+
+    @unittest.skipUnless(sys.platform.startswith('linux'),'Linux process limits/signals')
+    def test_real_linux_signal_is_reported_without_claiming_oom(self):
+        actual_run=subprocess.run
+        def killed_child(command,**kwargs):
+            return actual_run([sys.executable,'-c','import os,signal; os.kill(os.getpid(),signal.SIGKILL)'],**kwargs)
+        with patch.object(extraction.subprocess,'run',side_effect=killed_child),\
+            self.assertLogs(extraction.logger,level='WARNING') as logged,\
+            self.assertRaises(extraction.PDFInputError) as failure:
+            extraction.supervised(b'%PDF-synthetic')
+        self.assertEqual(failure.exception.code,'extraction_process_failed')
+        self.assertEqual(failure.exception.metrics.returncode,-9)
+        self.assertEqual(failure.exception.metrics.signal,9)
+        self.assertEqual(failure.exception.metrics.stdout_bytes,0)
+        self.assertNotIn('OOM',' '.join(logged.output))
+
+    @unittest.skipUnless(sys.platform.startswith('linux'),'Linux address-space enforcement')
+    def test_linux_address_space_limit_still_rejects_over_budget_allocation(self):
+        script="""import json,resource
+from services.edital_pdf import child_limits
+child_limits()
+limits=[resource.getrlimit(kind) for kind in (resource.RLIMIT_AS,resource.RLIMIT_CPU,resource.RLIMIT_FSIZE)]
+try:
+    bytearray(384*1024*1024)
+except MemoryError:
+    print(json.dumps(limits))
+else:
+    raise SystemExit('address-space protection missing')
+"""
+        result=subprocess.run([sys.executable,'-c',script],capture_output=True,timeout=10,
+            cwd=Path(extraction.__file__).resolve().parents[1],env={'PATH':os.environ.get('PATH',''),'PYTHONDONTWRITEBYTECODE':'1'},check=False)
+        self.assertEqual(result.returncode,0)
+        self.assertEqual(json.loads(result.stdout),[[384*1024*1024]*2,[55]*2,[0]*2])
+
+    @unittest.skipUnless(sys.platform.startswith('linux'),'Long-document regression under production Linux limits')
+    def test_extensive_linux_document_preserves_all_pages_text_tables_and_references(self):
+        content=fixtures.extensive()
+        with self.assertLogs(extraction.logger,level='INFO') as logged:
+            document=extraction.supervised(content)
+        self.assertEqual(document.sha256,hashlib.sha256(content).hexdigest())
+        self.assertEqual(len(document.pages),70)
+        self.assertGreater(sum(p.characters for p in document.pages),200000)
+        for number,page in enumerate(document.pages,1):
+            self.assertEqual(page.page,number);self.assertEqual(page.quality,'text')
+            text=' '.join(block.text for block in page.blocks)
+            for line in range(1,41):
+                self.assertIn(f'Pagina {number:03d} linha {line:03d}: Conteudo verificavel de extracao integral e referencias.',text)
+            rows=[block for block in page.blocks if block.kind=='table_row']
+            self.assertEqual([row.cells for row in rows],[
+                ['Perfil profissional','Vagas previstas'],[f'Analista {number:03d}','Cadastro de reserva'],
+                [f'Especialista {number:03d}','12 vagas']])
+            self.assertTrue(all(row.table_id==f'p{number:04d}-table001' for row in rows))
+            self.assertTrue(all(block.id.startswith(f'p{number:04d}-b') and block.page==number and block.paragraph_hint
+                for block in page.blocks))
+        message=' '.join(logged.output)
+        self.assertIn('outcome=completed',message);self.assertIn('returncode=0',message)
+        self.assertIn('address_space_limit_bytes=402653184',message)
+        self.assertNotIn('Conteudo verificavel',message)
+
     def test_synthetic_digital_roles_text_and_geometry(self):
         content=fixtures.pdf([[fixtures.text(50,740,'Seleção pública - Quadro funcional',16),
             fixtures.text(50,700,'Perfil A: Analista. Vagas: CR. Salário: R$ 4.500,00.'),

@@ -43,3 +43,20 @@ def table():
     for y,left,right in [(620,'Perfil profissional','Vagas previstas'),(570,'Analista de Sistemas','Cadastro de reserva'),(520,'Especialista financeiro','12 vagas')]:
         commands.extend([text(65,y,left),text(315,y,right)])
     return pdf([commands])
+
+
+def extensive(page_count=70):
+    """Long selectable text plus a distinct table on every page; no real PDF."""
+    pages=[]
+    for number in range(1,page_count+1):
+        commands=[text(50,775,'DOCUMENTO EXTENSO DE TESTE',14)]
+        commands.extend(text(50,740-line*12,
+            f'Pagina {number:03d} linha {line+1:03d}: Conteudo verificavel de extracao integral e referencias.',8)
+            for line in range(40))
+        for x in (50,300,550):commands.append(f'{x} 50 m {x} 200 l S')
+        for y in (50,100,150,200):commands.append(f'50 {y} m 550 {y} l S')
+        for y,left,right in [(170,'Perfil profissional','Vagas previstas'),
+            (120,f'Analista {number:03d}','Cadastro de reserva'),(70,f'Especialista {number:03d}','12 vagas')]:
+            commands.extend([text(65,y,left),text(315,y,right)])
+        pages.append(commands)
+    return pdf(pages)
