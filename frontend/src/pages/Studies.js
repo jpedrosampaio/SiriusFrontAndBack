@@ -753,6 +753,8 @@ export default function Studies() {
       toast.success("Análise e checkpoints removidos. Programas de estudos preservados.");
       setEditaisList(prev => prev.filter(e => e.analysis_id !== analysisId));
       await queryClient.invalidateQueries({ queryKey: editalJobsKey() });
+      // A pre-deletion GET must not overwrite the updated list after a successful removal.
+      if (editaisRequest.current) { editaisRequest.current.abort(); editaisRequest.current = null; }
       await refreshEditaisList();
     } catch (err) {
       if (version === sessionVersion()) toast.error(getApiErrorMessage(err, "Erro ao remover análise."));
