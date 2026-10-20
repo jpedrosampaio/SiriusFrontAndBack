@@ -59,6 +59,7 @@ def transport_schema(schema, profile):
     # dependent unrolling rule. Acyclic shared definitions remain compact.
     visited=set()
     def references(value,stack=()):
+        if len(stack)>32:raise incompatible('schema_complexity')
         if isinstance(value,dict):
             if '$ref' in value:
                 name=value['$ref'][8:]

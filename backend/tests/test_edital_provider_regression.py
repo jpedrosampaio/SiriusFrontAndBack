@@ -155,7 +155,8 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.data,InventoryUnit.model_validate(CASES[0][1]));self.assertEqual(len(count),3)
 
     def test_unsupported_or_recursive_schema_fails_before_transport(self):
-        for schema in ({'allOf':[{'type':'string'}]}, {'$defs':{'Loop':{'$ref':'#/$defs/Loop'}},'$ref':'#/$defs/Loop'}):
+        deep={'$defs':{f'N{i}':{'$ref':f'#/$defs/N{i+1}'} if i<39 else {'type':'string'} for i in range(40)},'$ref':'#/$defs/N0'}
+        for schema in ({'allOf':[{'type':'string'}]}, {'$defs':{'Loop':{'$ref':'#/$defs/Loop'}},'$ref':'#/$defs/Loop'},deep):
             with self.assertRaises(AIError):transport_schema(schema,'gemini_json_v2')
 
     def test_canonical_normalization_keeps_literal_property_names_and_enum_data(self):
