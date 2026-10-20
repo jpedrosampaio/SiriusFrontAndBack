@@ -11,7 +11,8 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select, delete,func,or_,cast
 from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import defer
-from db.models.files import EditalAnalysis
+from db.models.files import EditalAnalysis, EditalJob
+from db.repositories.identity import IdentityRepository
 from db.session import unit_of_work
 
 
@@ -101,9 +102,25 @@ async def list_owned(user_id,offset=0):
 async def remove(user_id, analysis_id):
     async with unit_of_work() as session:
         uid=identity(user_id)
-        row=await session.scalar(select(EditalAnalysis).where(EditalAnalysis.user_id==uid,EditalAnalysis.id==identity(analysis_id)))
+        # Match intake/controls/workers: User -> Analysis -> Job. A concurrent
+        # worker can finish before this lock or lose its claim after deletion.
+        await IdentityRepository(session).by_id(uid,lock=True)
+        row=(await session.execute(select(EditalAnalysis.id,EditalAnalysis.content_hash,EditalAnalysis.analysis_version)
+            .where(EditalAnalysis.user_id==uid,EditalAnalysis.id==identity(analysis_id)).with_for_update())).one_or_none()
         if row is None: raise HTTPException(404,'Análise não encontrada.')
         condition=EditalAnalysis.id==row.id if row.analysis_version=='6' else (
             (EditalAnalysis.content_hash==row.content_hash)&(EditalAnalysis.analysis_version!='6'))
-        removed=await session.execute(delete(EditalAnalysis).where(EditalAnalysis.user_id==uid,condition))
+        ids=(await session.scalars(select(EditalAnalysis.id).where(EditalAnalysis.user_id==uid,condition)
+            .order_by(EditalAnalysis.id).with_for_update())).all()
+        jobs=(await session.scalars(select(EditalJob).where(EditalJob.user_id==uid,EditalJob.analysis_id.in_(ids))
+            .order_by(EditalJob.id).with_for_update())).all()
+        now=datetime.now(timezone.utc)
+        for job in jobs:
+            if job.status in ('queued','running'):
+                job.status='failed';job.finished_at=now;job.phase='Análise excluída pelo proprietário.'
+            # Retain completed/failed job history, without live references or
+            # leases. Retirement and source deletion commit or roll back together.
+            job.analysis_id=job.lease_token=job.lease_until=None
+        await session.flush()
+        removed=await session.execute(delete(EditalAnalysis).where(EditalAnalysis.user_id==uid,EditalAnalysis.id.in_(ids)))
         return {'success':True,'deleted_count':removed.rowcount,'message':f'{removed.rowcount} análise(s) removida(s).'}

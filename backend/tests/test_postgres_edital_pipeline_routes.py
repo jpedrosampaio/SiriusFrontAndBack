@@ -15,6 +15,7 @@ from db.models.files import EditalAnalysis,EditalJob
 from db.models.edital_units import EditalUnit
 from edital_pipeline_contracts import DocumentIR,SourcePage,SourceBlock
 from services import edital_pipeline_routes as routes,edital_pipeline_units as units,edital_pipeline_store as store
+from services import edital_routes as legacy_routes
 from services.edital_pdf import PDFInputError
 import test_postgres_agent as setup
 
@@ -32,7 +33,8 @@ class PipelineHTTP(unittest.IsolatedAsyncioTestCase):
                     SourceBlock(id='p0001-b0001',page=1,text='Cargo A: Analista.',bbox=(0,0,500,20))])])
         for target,value in [('account',account),('extract_pdf',extract),('_wake',lambda:self.wakes.append(True)),('_input_gate',asyncio.Semaphore(1))]:
             item=patch.object(routes,target,value);item.start();self.patches.append(item)
-        app=FastAPI();app.include_router(routes.router,prefix='/api')
+        item=patch.object(legacy_routes,'account',account);item.start();self.patches.append(item)
+        app=FastAPI();app.include_router(routes.router,prefix='/api');app.include_router(legacy_routes.router,prefix='/api')
         self.http=AsyncClient(transport=ASGITransport(app),base_url='https://edital.test')
 
     async def asyncTearDown(self):
@@ -44,6 +46,20 @@ class PipelineHTTP(unittest.IsolatedAsyncioTestCase):
     async def submit(self,key=None,content=b'%PDF-synthetic',**headers):
         return await self.http.post('/api/study/edital-pipeline',files={'file':('synthetic.pdf',content,'application/pdf')},
             headers={'Idempotency-Key':key or str(uuid4()),**headers})
+
+    async def test_existing_delete_route_releases_owned_incremental_upload_capacity(self):
+        first=(await self.submit()).json()
+        second=(await self.submit(content=b'%PDF-second')).json()
+        self.assertEqual((await self.submit(content=b'%PDF-third')).status_code,429)
+        path='/api/study/programs/editais/'+first['analysis_id']
+        self.assertEqual((await self.http.delete(path,headers={'Authorization':'Bearer bob'})).status_code,404)
+        response=await self.http.delete(path)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['deleted_count'],1)
+        self.assertEqual((await self.submit(content=b'%PDF-third')).status_code,202)
+        async with unit_of_work() as session:
+            self.assertEqual((await session.get(EditalJob,UUID(first['job_id']))).status,'failed')
+            self.assertIsNotNone(await session.get(EditalAnalysis,UUID(second['analysis_id'])))
 
     async def test_http202_waits_for_persisted_ir_and_lost_response_replays_without_parser_or_ai(self):
         key=str(uuid4());self.release.clear();pending=asyncio.create_task(self.submit(key))

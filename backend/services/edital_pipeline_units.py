@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import json
 from datetime import timedelta
 from uuid import UUID, uuid4
+from fastapi import HTTPException
 from sqlalchemy import select, exists, and_, or_, literal, text, func
 from sqlalchemy.orm import aliased
 from db.models.edital_units import EditalUnit
@@ -48,7 +49,11 @@ def record_pause(state,unit):
 async def locked(session, claim, require_live=True):
     user = await session.scalar(select(User).where(User.id == claim.user_id).with_for_update())
     if user is None: raise LeaseLost()
-    analysis = await store.owned_analysis(session, claim.user_id, claim.analysis_id, lock=True)
+    try:
+        analysis = await store.owned_analysis(session, claim.user_id, claim.analysis_id, lock=True)
+    except HTTPException as error:
+        if error.status_code == 404: raise LeaseLost() from None
+        raise
     job = await session.scalar(select(EditalJob).where(EditalJob.user_id == claim.user_id,
         EditalJob.id == claim.job_id, EditalJob.analysis_id == claim.analysis_id).with_for_update())
     unit = await session.scalar(select(EditalUnit).where(EditalUnit.user_id == claim.user_id,
@@ -136,7 +141,11 @@ async def claim_next(kind=None):
             # SELECT intentionally holds no locks and may race another process.
             if await session.scalar(select(EditalUnit.id).where(EditalUnit.user_id == uid,
                 EditalUnit.status == 'running', EditalUnit.lease_until > now).limit(1)): continue
-            analysis = await store.owned_analysis(session, uid, aid, lock=True)
+            try:
+                analysis = await store.owned_analysis(session, uid, aid, lock=True)
+            except HTTPException as error:
+                if error.status_code == 404: continue  # Deleted after candidate discovery.
+                raise
             job = await session.scalar(select(EditalJob).where(EditalJob.user_id == uid,
                 EditalJob.id == jid, EditalJob.analysis_id == aid,
                 EditalJob.storage_provider == store.MARKER).with_for_update())
