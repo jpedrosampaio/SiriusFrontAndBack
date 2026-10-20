@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { editalJobsKey, queryEditalJobs, activeEditalJobs, EDITAL_CAPABILITY_STALE } from '@/lib/edital-analysis';
+import { editalJobsKey, queryEditalJobs, activeEditalJobs, visibleEditalJobs, EDITAL_CAPABILITY_STALE } from '@/lib/edital-analysis';
 import { Button } from '@/components/ui/button';
 
 export default function EditalJobs({ api, onOpen, onRetry, onDelete, deleting }) {
