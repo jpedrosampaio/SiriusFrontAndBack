@@ -203,6 +203,9 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
       data.manifest.budget.reserved_attempts=blocked==='budget'?120:10;data.manifest.budget.provider_limit=120;
       data.execution_plan.live_provider_validated=false;data.execution_plan.diagnostic_cases=['text','json','inventory'];data.revision++;
       await page.getByRole('button',{name:'Atualizar andamento',exact:true}).click();
+      if(blocked==='failed_diagnostic')await page.getByRole('heading',{name:'A IA ainda precisa de correção',exact:true}).waitFor();
+      if(blocked==='cooldown')await page.getByRole('status').filter({hasText:'Nova tentativa a partir de'}).waitFor();
+      if(blocked==='budget')await page.getByText('120 / 120 tentativas',{exact:true}).waitFor();
       await page.getByRole('button',{name:'Testar IA sem PDF (1 chamada)',exact:true}).waitFor();
       await page.waitForFunction(()=>document.querySelector('[data-testid="edital-next-action"]')?.disabled===true);
       assert.equal(writes.length,writesBeforeBlocked,`A ${blocked} state must not dispatch another request`);
