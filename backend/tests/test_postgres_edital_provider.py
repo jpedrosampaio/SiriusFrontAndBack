@@ -1,5 +1,6 @@
 """Explicit pilot, recovery and budget fences against disposable PostgreSQL only."""
 import os
+import asyncio
 import unittest
 from types import SimpleNamespace
 from uuid import uuid4
@@ -14,7 +15,8 @@ from db.models.identity import User
 from db.models.edital_units import EditalUnit
 from services import (edital_pipeline_store as store,edital_pipeline_units as units,
     edital_pipeline_controls as controls,edital_pipeline_progress as progress,edital_pipeline_budget as budget)
-from ai.types import AIError
+from ai.types import AIError,AIResult
+from ai.config import MODELS
 import test_postgres_agent as setup
 import test_postgres_edital_pipeline as intake
 
@@ -192,3 +194,161 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(completed.status,'completed');self.assertEqual(completed.provider_calls,1)
             analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
             self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
+
+    async def test_three_explicit_synthetic_probes_never_complete_real_units_or_release_full_run(self):
+        from ai.router import AIRouter
+        from ai.providers.gemini import GeminiProvider
+        from services.edital_pipeline_worker import IncrementalHandler
+        await self.create();calls=[];consolidate=AsyncMock()
+        for index,case in enumerate(('text','json','inventory'),1):
+            revision,before,_=await self.state()
+            body=controls.Resume(revision=revision,mode='pilot',diagnostic_case=case);key=str(uuid4())
+            await controls.resume(self.uid,self.identity,key,body)
+            payload='OK' if case=='text' else json.dumps({'ok':True} if case=='json' else {'roles':[],
+                'classifications':[{'block_id':'p0001-b0001','kind':'other'}]})
+            def transport(request):
+                content=json.loads(request.content);calls.append(content)
+                self.assertNotIn(self.document().pages[0].blocks[0].text,json.dumps(content))
+                self.assertFalse(content['store']);self.assertEqual(content['generationConfig']['maxOutputTokens'],3072)
+                self.assertEqual('responseFormat' in content['generationConfig'],case!='text')
+                return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':payload}]}}],'usageMetadata':{'totalTokenCount':20}})
+            async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+                handler=IncrementalHandler(AIRouter(providers={'gemini':GeminiProvider(client)}),
+                    SimpleNamespace(get=AsyncMock(return_value={'gemini':'synthetic-only'})),consolidate)
+                self.assertTrue(await handler.run_one());self.assertFalse(await handler.run_one())
+            replay=await controls.resume(self.uid,self.identity,key,body)
+            self.assertTrue(replay['replayed']);self.assertEqual(len(calls),index)
+            _,state,plan=await self.state()
+            self.assertEqual(state.budget.reserved_attempts,index);self.assertEqual(state.budget.provider_limit,120)
+            self.assertEqual(state.budget.reported_usage['totalTokenCount'],20*index)
+            self.assertEqual(state.status,'waiting_provider');self.assertEqual(state.error_kind,'provider_probe_accepted')
+            self.assertEqual(state.inventory.roles,[]);self.assertFalse(state.provider_approval.pilot_validated)
+            self.assertFalse(plan['live_provider_validated']);self.assertEqual(state.provider_approval.mode,'paused')
+            async with unit_of_work() as session:
+                row=await session.scalar(select(EditalUnit).where(EditalUnit.analysis_id==store.uuid(self.identity)))
+                self.assertEqual(row.status,'waiting_provider');self.assertIsNone(row.result)
+                self.assertEqual(len(row.diagnostics['provider_probes']),index)
+                self.assertEqual(row.diagnostics['provider_probes'][-1]['case'],case)
+                analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
+                self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
+            with self.assertRaises(HTTPException) as full:await self.resume(mode='full')
+            self.assertEqual(full.exception.detail['code'],'pilot_required')
+        consolidate.assert_not_awaited()
+
+    async def test_predeployment_resume_receipt_replays_but_cannot_authorize_a_new_diagnostic(self):
+        from db.activity import run_activity
+        await self.create();revision,state,_=await self.state();key=str(uuid4())
+        body=controls.Resume(revision=revision,mode='pilot')
+        old_payload={'revision':revision,'provider_limit':None,'mode':'pilot'}
+        previous={'analysis_id':self.identity,'revision':revision,'status':state.status}
+        await run_activity(self.uid,key,['edital_pipeline','resume',self.identity,old_payload],
+            AsyncMock(return_value=previous))
+        replay=await controls.resume(self.uid,self.identity,key,body)
+        self.assertTrue(replay['replayed']);self.assertEqual(replay['revision'],revision)
+        with self.assertRaises(HTTPException) as changed:
+            await controls.resume(self.uid,self.identity,key,controls.Resume(revision=revision,mode='pilot',diagnostic_case='text'))
+        self.assertEqual(changed.exception.status_code,409)
+        _,after,_=await self.state();self.assertEqual(after.status,state.status)
+        self.assertIsNone(after.provider_approval);self.assertEqual(after.budget.reserved_attempts,state.budget.reserved_attempts)
+
+    async def test_probe_validation_ownership_budget_and_real_completion_guard(self):
+        from services.edital_semantics import EvidenceError
+        await self.create()
+        for values in ({'mode':'full','diagnostic_case':'text'},{'mode':'pilot','diagnostic_case':'text','provider_limit':121}):
+            with self.assertRaises(HTTPException):await self.resume(**values)
+        with self.assertRaises(HTTPException) as foreign:await self.resume(owner=self.other,mode='pilot',diagnostic_case='text')
+        self.assertEqual(foreign.exception.status_code,404)
+        await self.resume(mode='pilot',diagnostic_case='inventory');claim=await units.claim_next()
+        snapshot=await units.snapshot(claim)
+        self.assertEqual(snapshot['primary'],[]);self.assertEqual(snapshot['context'],[])
+        with self.assertRaises(units.LeaseLost):await units.complete_diagnostic(claim,AIResult(provider='gemini',model=MODELS['flash'].name))
+        with self.assertRaises(HTTPException) as running:await self.resume(mode='pilot',diagnostic_case='json')
+        self.assertEqual(running.exception.detail['code'],'execution_in_progress')
+        with self.assertRaises(EvidenceError):await units.complete(claim,{'roles':[],
+            'classifications':[{'block_id':'p0001-b0001','kind':'other'}]},consolidate=progress.consolidate)
+        revision,_,_=await self.state()
+        await controls.cancel(self.uid,self.identity,str(uuid4()),controls.Version(revision=revision))
+
+    async def test_probe400_and_quota_keep_one_attempt_and_original_failure_without_fallback(self):
+        from ai.router import AIRouter
+        from ai.providers.gemini import GeminiProvider
+        from services.edital_pipeline_worker import IncrementalHandler
+        await self.create();calls=[]
+        for status in (400,429):
+            await self.resume(mode='pilot',diagnostic_case='json')
+            def transport(request):
+                calls.append(request)
+                return httpx.Response(status,json={'error':{'code':status,'status':'INVALID_ARGUMENT',
+                    'message':'Request contains an invalid argument.' if status==400 else 'quota exceeded'}})
+            async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+                handler=IncrementalHandler(AIRouter(providers={'gemini':GeminiProvider(client)}),
+                    SimpleNamespace(get=AsyncMock(return_value={'gemini':'synthetic-only'})),AsyncMock())
+                self.assertTrue(await handler.run_one());self.assertFalse(await handler.run_one())
+            _,state,_=await self.state()
+            self.assertEqual(state.budget.reserved_attempts,len(calls));self.assertEqual(state.budget.provider_limit,120)
+            self.assertEqual(state.error_kind,'invalid_request' if status==400 else 'quota')
+            self.assertFalse(state.provider_approval.pilot_validated)
+        self.assertEqual(len(calls),2)
+
+    async def test_probe_does_not_silently_change_model_or_send_credentials_to_another_provider(self):
+        from ai.router import AIRouter
+        from ai.providers.gemini import GeminiProvider
+        from services.edital_pipeline_worker import IncrementalHandler
+        await self.create();await self.resume(mode='pilot',diagnostic_case='text');calls=[]
+        def transport(request):calls.append(request);raise AssertionError('Unexpected provider request')
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+            router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['lite']]),providers={'gemini':GeminiProvider(client)})
+            handler=IncrementalHandler(router,SimpleNamespace(get=AsyncMock(return_value={'gemini':'synthetic-only'})),AsyncMock())
+            self.assertTrue(await handler.run_one());self.assertFalse(await handler.run_one())
+        self.assertEqual(calls,[])
+        _,state,_=await self.state();self.assertEqual(state.budget.reserved_attempts,0)
+        self.assertEqual(state.error_kind,'model_unavailable');self.assertFalse(state.provider_approval.pilot_validated)
+
+    async def test_cancelled_probe_cannot_commit_a_late_success_receipt(self):
+        from ai.router import AIRouter
+        from ai.providers.gemini import GeminiProvider
+        from services.edital_pipeline_worker import IncrementalHandler
+        await self.create();await self.resume(mode='pilot',diagnostic_case='text')
+        started=asyncio.Event();release=asyncio.Event()
+        async def transport(request):
+            started.set();await release.wait()
+            return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':'OK'}]}}]})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+            handler=IncrementalHandler(AIRouter(providers={'gemini':GeminiProvider(client)}),
+                SimpleNamespace(get=AsyncMock(return_value={'gemini':'synthetic-only'})),AsyncMock())
+            task=asyncio.create_task(handler.run_one())
+            await asyncio.wait_for(started.wait(),10)
+            revision,_,_=await self.state()
+            await controls.cancel(self.uid,self.identity,str(uuid4()),controls.Version(revision=revision))
+            release.set();await asyncio.wait_for(task,10)
+        _,state,_=await self.state();self.assertEqual(state.status,'cancelled')
+        self.assertEqual(state.budget.reserved_attempts,1);self.assertEqual(state.inventory.roles,[])
+        async with unit_of_work() as session:
+            row=await session.scalar(select(EditalUnit).where(EditalUnit.analysis_id==store.uuid(self.identity)))
+            self.assertIsNone(row.result);self.assertFalse(row.diagnostics.get('provider_probes'))
+
+    async def test_malformed_probe_response_does_not_split_real_multiblock_document(self):
+        from ai.router import AIRouter
+        from ai.providers.gemini import GeminiProvider
+        from services.edital_pipeline_worker import IncrementalHandler
+        await self.create()
+        async with unit_of_work() as session:
+            row=await session.scalar(select(EditalUnit).where(EditalUnit.analysis_id==store.uuid(self.identity)))
+            original_id=row.id;row.source_blocks=[*row.source_blocks,'p0001-b0002']
+            analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
+            pages=json.loads(json.dumps(analysis.pages))
+            pages[0]['blocks'].append({**pages[0]['blocks'][0],'id':'p0001-b0002','text':'Segundo bloco real preservado, nunca enviado no diagnóstico.'})
+            analysis.pages=pages
+        await self.resume(mode='pilot',diagnostic_case='json')
+        def transport(request):return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':'{'}]}}]})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+            handler=IncrementalHandler(AIRouter(providers={'gemini':GeminiProvider(client)}),
+                SimpleNamespace(get=AsyncMock(return_value={'gemini':'synthetic-only'})),AsyncMock())
+            self.assertTrue(await handler.run_one());self.assertFalse(await handler.run_one())
+        async with unit_of_work() as session:
+            rows=(await session.scalars(select(EditalUnit).where(EditalUnit.analysis_id==store.uuid(self.identity)))).all()
+            self.assertEqual(len(rows),1);self.assertEqual(rows[0].id,original_id)
+            self.assertEqual(rows[0].source_blocks,['p0001-b0001','p0001-b0002'])
+            self.assertEqual(rows[0].status,'waiting_provider');self.assertIsNone(rows[0].result)
+        _,state,_=await self.state();self.assertEqual(state.error_kind,'malformed_output')
+        self.assertFalse(state.provider_approval.pilot_validated);self.assertEqual(state.budget.reserved_attempts,1)

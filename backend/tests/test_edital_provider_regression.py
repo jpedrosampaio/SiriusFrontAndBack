@@ -41,6 +41,15 @@ def nodes(value):
 
 
 class ProviderContracts(unittest.IsolatedAsyncioTestCase):
+    def test_diagnostic_approval_cannot_claim_document_validation_or_full_run(self):
+        from edital_pipeline_contracts import ProviderApproval
+        for mode,validated in (('full',False),('pilot',True),('paused',True)):
+            with self.assertRaises(ValueError):ProviderApproval(transport_version='structured-transport/3',mode=mode,
+                pilot_stop_after=1,diagnostic_case='text',pilot_validated=validated)
+        legacy=ProviderApproval.model_validate({'transport_version':'structured-transport/3','mode':'full',
+            'pilot_stop_after':0,'pilot_validated':True})
+        self.assertIsNone(legacy.diagnostic_case);self.assertTrue(legacy.pilot_validated)
+
     async def test_original_inventory_payload_can_be_rejected_while_projected_payload_is_accepted(self):
         calls=[];original=InventoryUnit.model_json_schema();payload=CASES[0][1]
         def transport(request):
@@ -206,13 +215,15 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
         from ai.schemas import TRANSPORT_VERSION
         generation=uuid4()
         approval=SimpleNamespace(pilot_validated=True,transport_version='old')
-        state=SimpleNamespace(inventory=SimpleNamespace(generation=generation),selected_role_id=None,scopes={},
+        state=SimpleNamespace(phase='inventory',inventory=SimpleNamespace(generation=generation),selected_role_id=None,scopes={},
             budget=SimpleNamespace(reserved_attempts=5,provider_limit=120),provider_approval=approval)
         rows=[{'generation':generation,'status':'pending','kind':'inventory','unit_key':str(i)} for i in range(67)]
         plan=estimate(state,rows)
         self.assertEqual(plan['minimum_total_attempts'],139);self.assertFalse(plan['live_provider_validated'])
+        self.assertEqual(plan['diagnostic_cases'],['text','json','inventory'])
         approval.transport_version=TRANSPORT_VERSION
         rows[0]['status']='completed';rows.append({'generation':generation,'status':'pending','kind':'verify',
             'unit_key':'check','reviewed_unit_key':'0'})
         plan=estimate(state,rows)
         self.assertEqual(plan['minimum_total_attempts'],138);self.assertTrue(plan['live_provider_validated'])
+        self.assertEqual(plan['diagnostic_cases'],[])

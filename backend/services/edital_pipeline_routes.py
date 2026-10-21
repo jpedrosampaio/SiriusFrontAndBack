@@ -158,6 +158,12 @@ async def get_state(request:Request,analysis_id:str):
             failure=details.get('last_failure',{})
             diagnostics[-1]['failure']={key:failure.get(key) for key in ('http_status','incompatibility','reason','provider_attempted','request_format','schema_sha256','schema_bytes')}
             diagnostics[-1]['failure']['provider_rejection']=safe_rejection(failure.get('provider_rejection'))
+            probes=details.get('provider_probes')
+            diagnostics[-1]['provider_probes']=[{'case':entry['case'],'outcome':entry['outcome'],
+                'http_status':entry.get('http_status') if type(entry.get('http_status')) is int and 100<=entry['http_status']<=599 else None}
+                for entry in (probes[:12] if isinstance(probes,list) else []) if isinstance(entry,dict)
+                and entry.get('case') in ('text','json','inventory')
+                and entry.get('outcome') in ('accepted','invalid_request','invalid_key','permission_denied','quota','rate_limit','timeout','unavailable','network_error','model_unavailable','malformed_output','empty_output','blocked_output','output_truncated')]
         data={'analysis_id':str(row.id),'user_id':str(uid),'filename':row.filename,'revision':row.revision,
             'pipeline':PIPELINE_VERSION,'manifest':state.model_dump(mode='json'),
             'progress':[{'kind':kind,'status':status,'units':count} for kind,status,count in groups],

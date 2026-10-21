@@ -2,6 +2,7 @@
 from ai.errors import FAILURES
 
 MESSAGES={
+    'provider_probe_accepted':'A solicitação técnica foi aceita pelo provedor. Isso não analisa o PDF nem valida cargos. O processamento continua pausado.',
     'provider_approval_required':'Aguardando homologação e autorização da IA. O texto e os lotes salvos serão reutilizados.',
     'pilot_review_required':'O lote piloto foi validado e consolidado como proposta parcial. Confira o resultado e autorize separadamente os demais lotes.',
     'pilot_limit':'O limite de uma chamada do piloto foi alcançado. Nenhum outro lote foi executado.',
@@ -30,6 +31,7 @@ MESSAGES={
 
 def message(kind):
     if not kind:return None
+    if kind=='invalid_request':return 'O provedor recusou a solicitação de IA. Confira o diagnóstico antes de autorizar outra tentativa; os checkpoints válidos foram preservados.'
     if kind in FAILURES:return FAILURES[kind][1].replace('Nenhum resultado parcial foi salvo.',
         'Este lote não foi confirmado; os checkpoints válidos foram preservados.')
     return MESSAGES.get(kind,'O processamento requer conferência. Os checkpoints válidos foram preservados.')

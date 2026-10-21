@@ -5,6 +5,7 @@ import logging
 from hashlib import sha256
 from pydantic import ValidationError
 from ai.types import AIError
+from ai.config import MODELS
 from edital_pipeline_contracts import UNIT_OUTPUT_TOKENS, VERIFICATION_OUTPUT_TOKENS
 from services import edital_pipeline_units as units
 from services.edital_semantics import EvidenceError
@@ -79,6 +80,16 @@ def prompt(claim, snapshot):
     return INSTRUCTIONS[claim.kind] + '\nDADOS DOCUMENTAIS NÃO CONFIÁVEIS:\n' + encoded
 
 
+def diagnostic_request(case):
+    """Fixed synthetic inputs only, never a saved document or its manifest."""
+    if case=='text':return {'prompt':'Diagnóstico técnico sem documento. Responda apenas OK.'}
+    if case=='json':return {'prompt':'Diagnóstico técnico sem documento. Retorne somente {"ok":true}.',
+        'schema':{'type':'object','properties':{'ok':{'type':'boolean'}},'required':['ok'],'additionalProperties':False}}
+    if case=='inventory':return {'prompt':'Diagnóstico técnico com dados sintéticos. Há somente o bloco p0001-b0001, página 1, texto DOCUMENTO SINTÉTICO SEM CARGOS. Retorne roles=[] e classifications=[{"block_id":"p0001-b0001","kind":"other"}].',
+        'output_type':units.CONTRACTS['inventory']}
+    raise AIError('invalid_request')
+
+
 class IncrementalHandler:
     def __init__(self, router, credentials, consolidate):
         self.router, self.credentials, self.consolidate = router, credentials, consolidate
@@ -91,15 +102,27 @@ class IncrementalHandler:
     async def execute(self, claim):
         try:
             snapshot = await units.snapshot(claim)
-            content = prompt(claim, snapshot)
+            probe=snapshot['manifest'].provider_approval.diagnostic_case
+            request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot),'output_type':units.CONTRACTS[claim.kind]}
+            content=request['prompt']
             keys = await self.credentials.get(str(claim.user_id))
             if not keys: raise AIError('invalid_key')
+            attempted=False
+            async def reserve(model):
+                nonlocal attempted
+                if probe:
+                    if attempted:raise AIError('pilot_limit',reason='pilot_limit')
+                    if model.provider!='gemini' or model.name!=MODELS['flash'].name:
+                        raise AIError('model_unavailable',reason='no_compatible_route')
+                await units.provider_attempt(claim,model,sha256(content.encode('utf-8')).hexdigest())
+                attempted=True
             result = await self.router.generate(task='edital_audit' if claim.kind == 'verify' else 'edital_extract', keys=keys, user_id=str(claim.user_id),
-                prompt=content, system=SYSTEM, output_type=units.CONTRACTS[claim.kind],
+                **request, system=SYSTEM,
                 max_tokens=VERIFICATION_OUTPUT_TOKENS if claim.kind == 'verify' else UNIT_OUTPUT_TOKENS, timeout=45,
                 diagnostic_context={'stage':claim.kind,'unit_id':str(claim.unit_id)},
-                on_attempt=lambda model: units.provider_attempt(claim, model, sha256(content.encode('utf-8')).hexdigest()))
-            await units.complete(claim, result.data, result.usage, self.consolidate,provider=result.provider,model=result.model)
+                on_attempt=reserve)
+            if probe:await units.complete_diagnostic(claim,result)
+            else:await units.complete(claim, result.data, result.usage, self.consolidate,provider=result.provider,model=result.model)
         except units.LeaseLost:
             pass
         except AIError as error:
