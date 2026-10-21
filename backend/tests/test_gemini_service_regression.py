@@ -16,7 +16,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
             result = await gemini_service.call_gemini('', 'system', 'fake', parts=[{'inlineData': {'mimeType': 'image/png', 'data': 'AA=='}}], config_options={'responseMimeType': 'application/json'})
         self.assertEqual(result[0], '{"ok":true}')
         self.assertEqual(post.call_args.kwargs['json']['contents'][0]['parts'][0]['inlineData']['mimeType'], 'image/png')
-        self.assertEqual(post.call_args.kwargs['json']['generationConfig']['responseMimeType'], 'application/json')
+        self.assertEqual(post.call_args.kwargs['json']['generationConfig']['responseFormat']['text']['mimeType'], 'APPLICATION_JSON')
 
     async def test_non_active_upload_is_never_sent_for_generation(self):
         client = SimpleNamespace(post=AsyncMock(return_value=httpx.Response(200, json={'file': {'uri': 'file', 'name': 'files/test', 'state': 'PROCESSING'}})), get=AsyncMock(return_value=httpx.Response(200, json={'state': 'FAILED'})))

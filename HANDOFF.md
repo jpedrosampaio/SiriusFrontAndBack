@@ -21,21 +21,27 @@ merge `e93b7ff6a69d20d6e0916b0593daa8edaac4bde2`. The owner confirmed that the
 real 70-page PDF now passes extraction. Historical reproduction, safe diagnostics
 and unchanged resource limits remain in [PDF extraction evidence](docs/PDF_EXTRACTION_DIAGNOSTICS.md).
 
-Current authorized P0: structured-provider compatibility and safe recovery of
-the saved semantic analysis (67 inventory units, zero completed, five attempts
-reserved). Recovery release and publication receipts: [PR63](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/63).
-Provider-specific
-transport keeps canonical Pydantic/documentary gates, adds correlated sanitized
-HTTP failures, explicit one-call pilot authorization and complete known-work
-budget forecasting. Existing IR/checkpoints/history remain intact; only new
-intake uses denser packing. No migration or live AI call is part of this hotfix.
-Publication requires four green workflows, clean final Codex review and
-both exact deploys/read-only production checks; consult the PR's exact-SHA
-receipts rather than assuming publication from local tests. The generic historical HTTP400
-does not establish the rejected field. After publication, **await owner
-authorization for one small real-provider pilot, then pause and obtain separate
-authorization before the remaining batches/budget extension**. Local/mocked
-schema acceptance is not live semantic success.
+Current authorized P0: [Issue65](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65).
+The saved analysis still has 67 inventory units, zero validated roles/units and
+seven reserved attempts (known minimum 141, limit 120). PR63's recovery/budget
+infrastructure is published; [publication receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/63#issuecomment-6300184326).
+PR64's deletion controls were merged as `efea976742eb6b380379c8f159cca83dcc737162`;
+do not redo them. The generic Gemini400 does not establish its rejected field.
+
+The current repair adopts the recommended REST `responseFormat.text.schema`
+with MIME enum `APPLICATION_JSON`, retaining canonical/documentary gates and
+adding safe schema fingerprint/format diagnostics. Public Discovery still
+declares the old fields, so deprecation alone is not proof of the400's cause.
+Transport version 3 requires a new explicitly authorized one-attempt pilot;
+IR/checkpoints/history/counts and the existing budget remain intact. No new
+upload, automatic extension, migration or live AI call is authorized here.
+Publication needs four green workflows, clean final-SHA Codex review, exact
+Vercel/Northflank deploys and read-only production checks; receipts belong in
+the repair PR linked from Issue65. **After publication, await owner authorization
+for ONE real-provider attempt, validate/consolidate it, then pause and obtain
+separate consent before the remaining 67 units or any extension.** Issue65 stays
+open until its real-unit acceptance criterion is met; local/mocked acceptance
+and deployment alone cannot establish semantic success.
 [Contracts, incident limits and manual pilot](docs/EDITAL_PROVIDER_DIAGNOSTICS.md).
 
 The original fourteen-phase plan remains intact; **there is no Phase 15**. The authorized notification/PDF-security maintenance and incremental analyzer are deployed. Early inventory/selection, durable small units, recovery, human review/confirmation, canonical import and responsive workspace reuse the existing engines; [contracts and boundaries](docs/UNIVERSAL_EDITAL_ANALYZER.md). No real Gemini/Groq inference was performed or authorized for these tests; deployment does not establish semantic generalization. Await owner authorization before starting further work.

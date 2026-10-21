@@ -336,7 +336,8 @@ async def fail(claim, kind, retry_after=30, *, error=None):
         analysis, job, unit, state = await locked(session, claim)
         now = store.utc_now(); unit.lease_token = unit.lease_until = None
         failure={'http_status':error.http_status,'incompatibility':error.incompatibility,'reason':error.reason,
-            'provider_attempted':error.attempted} if error else {}
+            'provider_attempted':error.attempted,'request_format':error.request_format,
+            'schema_sha256':error.schema_sha256,'schema_bytes':error.schema_bytes} if error else {}
         retry_failures=unit.diagnostics.get('retry_failures',max(0,unit.attempts-1))+(1 if error is None or error.attempted else 0)
         unit.diagnostics = {**unit.diagnostics, 'last_error': kind, 'reference': error.reference if error else str(uuid4()),
             'failed_at': now.isoformat(),'last_failure':failure,'retry_failures':retry_failures}

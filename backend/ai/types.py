@@ -40,13 +40,17 @@ class AIResult:
 
 
 class AIError(Exception):
-    def __init__(self, kind='provider_error', retry_after=30, *, http_status=None, incompatibility=None, reason=None, reference=None, attempted=False):
+    def __init__(self, kind='provider_error', retry_after=30, *, http_status=None, incompatibility=None, reason=None, reference=None, attempted=False,
+                 request_format=None,schema_sha256=None,schema_bytes=None):
         from uuid import uuid4
         self.kind = kind
         self.retry_after = min(300, max(1, retry_after))
         self.http_status=http_status if isinstance(http_status,int) and 100<=http_status<=599 else None
-        self.incompatibility=incompatibility if incompatibility in ('schema_keyword','schema_reference','schema_complexity','schema_feature','schema_rejected','model_capability','request_rejected') else None
+        self.incompatibility=incompatibility if incompatibility in ('schema_keyword','schema_reference','schema_complexity','schema_feature','schema_rejected','model_capability','request_rejected','format_field','format_mime') else None
         self.reason=reason if reason in ('cooldown','no_compatible_route','payload_rejected','pilot_limit') else None
         self.reference=reference or str(uuid4())
         self.attempted=attempted
+        self.request_format=request_format if request_format=='gemini_response_format' else None
+        self.schema_sha256=schema_sha256 if isinstance(schema_sha256,str) and len(schema_sha256)==64 and all(c in '0123456789abcdef' for c in schema_sha256) else None
+        self.schema_bytes=schema_bytes if isinstance(schema_bytes,int) and 0<schema_bytes<=60000 else None
         super().__init__(kind)  # Never include provider response/prompt/key.
