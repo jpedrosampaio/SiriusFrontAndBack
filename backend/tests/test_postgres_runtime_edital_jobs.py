@@ -120,6 +120,7 @@ class RuntimeEditalJobs(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.storage.path(self.uid,key).exists())
         self.assertEqual((await self.client.get('/study/edital-jobs',headers={'Authorization':'Bearer bob'})).json()['jobs'],[])
         await analyses.remove(self.uid,doc['analysis_id'])
+        self.assertEqual((await self.client.get('/study/edital-jobs')).json()['jobs'],[])
         async with unit_of_work() as session:
             self.assertIsNone((await session.get(EditalJob,job['id'])).analysis_id)
 

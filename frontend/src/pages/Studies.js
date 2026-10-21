@@ -10,8 +10,8 @@ const StudyProgressCharts = lazy(() => import('@/components/tabs/StudyProgressCh
 import { lazy, Suspense } from 'react';
 import EditalJobs from '@/components/EditalJobs';
 import EditalImportDialog from '@/components/EditalImportDialog';
-import { EDITAL_PIPELINE_STATUSES } from '@/lib/edital-analysis';
-import { sessionVersion } from '@/lib/query-cache';
+import { EDITAL_PIPELINE_STATUSES, editalJobsKey } from '@/lib/edital-analysis';
+import { sessionVersion, queryClient } from '@/lib/query-cache';
 import { getCurrentUser } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
 const PomodoroTimer = lazy(() => import("@/components/PomodoroTimer"));
@@ -741,16 +741,25 @@ export default function Studies() {
     }
   };
 
-  const handleDeleteEdital = async (analysisId) => {
+  const handleDeleteEdital = async (analysisId, filename) => {
+    if (editaisDeleting) return;
+    const title = filename || editaisList.find(e => e.analysis_id === analysisId)?.pdf_filename || 'este edital';
+    if (!window.confirm(`Excluir permanentemente a análise de "${title}" e seus lotes/checkpoints? Esta ação não pode ser desfeita. Programas de estudos já criados serão preservados.`)) return;
+    const version = sessionVersion();
     setEditaisDeleting(analysisId);
     try {
       await axios.delete(`${API}/study/programs/editais/${analysisId}`, { withCredentials: true });
-      toast.success("Análise removida.");
+      if (version !== sessionVersion()) return;
+      toast.success("Análise e checkpoints removidos. Programas de estudos preservados.");
       setEditaisList(prev => prev.filter(e => e.analysis_id !== analysisId));
+      await queryClient.invalidateQueries({ queryKey: editalJobsKey() });
+      // A pre-deletion GET must not overwrite the updated list after a successful removal.
+      if (editaisRequest.current) { editaisRequest.current.abort(); editaisRequest.current = null; }
+      await refreshEditaisList();
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Erro ao remover análise."));
+      if (version === sessionVersion()) toast.error(getApiErrorMessage(err, "Erro ao remover análise."));
     } finally {
-      setEditaisDeleting(null);
+      if (version === sessionVersion()) setEditaisDeleting(null);
     }
   };
 
@@ -1181,7 +1190,7 @@ export default function Studies() {
           </Card>
         )}
 
-        {['dashboard', 'editais'].includes(activeTab) && <EditalJobs api={API} onOpen={openSavedEdital} onRetry={() => setShowEditalDialog(true)} />}
+        {['dashboard', 'editais'].includes(activeTab) && <EditalJobs api={API} onOpen={openSavedEdital} onRetry={() => setShowEditalDialog(true)} onDelete={handleDeleteEdital} deleting={editaisDeleting} />}
         {/* Breadcrumb */}
         {(selectedArea || selectedProgram || selectedNotebook) && (
           <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
@@ -1233,7 +1242,7 @@ export default function Studies() {
               <div><h2 className="text-xl font-semibold">Meus editais</h2><p className="text-sm text-[#A1A1AA] mt-1">Abra a análise, confira o cargo e organize seu plano de estudos.</p></div>
               <div className="flex gap-2"><Button variant="outline" disabled={editaisLoading} onClick={refreshEditaisList}>Atualizar</Button><Button onClick={() => { setActiveTab("programas"); setShowEditalDialog(true); }}>Analisar novo edital</Button></div>
             </div>
-            {editaisLoading ? <Loader2 className="animate-spin mx-auto my-10" /> : editaisList.length === 0 ? <p className="rounded-xl border border-[#27272A] p-6 text-[#A1A1AA]">Nenhuma análise salva. Comece enviando um edital em PDF.</p> : <div className="grid gap-4 md:grid-cols-2">{editaisList.map(edital => <article key={edital.analysis_id} className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><span className="text-xs text-purple-300">{edital.pipeline ? 'ANÁLISE INCREMENTAL SALVA' : 'EDITAL ANALISADO'}</span>{edital.pipeline_status && <p className="text-xs text-blue-200">{EDITAL_PIPELINE_STATUSES[edital.pipeline_status] || 'Análise parcial salva'}</p>}<h3 className="font-semibold">{edital.concurso?.nome || edital.pdf_filename}</h3><p className="text-sm text-[#A1A1AA]">{edital.concurso?.banca || 'Banca não informada'} · {edital.num_cargos} cargos</p><p className="text-xs text-[#71717A] break-words">{edital.pdf_filename}</p><Button variant="outline" onClick={() => openSavedEdital(edital.analysis_id)}>Visualizar análise<ChevronRight className="w-4 h-4 ml-2" /></Button></article>)}</div>}
+            {editaisLoading ? <Loader2 className="animate-spin mx-auto my-10" /> : editaisList.length === 0 ? <p className="rounded-xl border border-[#27272A] p-6 text-[#A1A1AA]">Nenhuma análise salva. Comece enviando um edital em PDF.</p> : <div className="grid gap-4 md:grid-cols-2">{editaisList.map(edital => <article key={edital.analysis_id} className="rounded-2xl border border-[#27272A] bg-[#101014] p-5 space-y-3"><span className="text-xs text-purple-300">{edital.pipeline ? 'ANÁLISE INCREMENTAL SALVA' : 'EDITAL ANALISADO'}</span>{edital.pipeline_status && <p className="text-xs text-blue-200">{EDITAL_PIPELINE_STATUSES[edital.pipeline_status] || 'Análise parcial salva'}</p>}<h3 className="font-semibold">{edital.concurso?.nome || edital.pdf_filename}</h3><p className="text-sm text-[#A1A1AA]">{edital.concurso?.banca || 'Banca não informada'} · {edital.num_cargos} cargos</p><p className="text-xs text-[#71717A] break-words">{edital.pdf_filename}</p><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => openSavedEdital(edital.analysis_id)}>Visualizar análise<ChevronRight className="w-4 h-4 ml-2" /></Button><Button type="button" variant="outline" disabled={Boolean(editaisDeleting)} aria-label={`Excluir análise ${edital.pdf_filename || edital.concurso?.nome || 'sem nome'}`} className="border-red-500/40 text-red-300 hover:text-red-200 hover:bg-red-500/10" onClick={() => handleDeleteEdital(edital.analysis_id, edital.pdf_filename)}>{editaisDeleting === edital.analysis_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />} Excluir análise</Button></div></article>)}</div>}
             {editaisNextOffset !== null && <Button variant="outline" disabled={editaisLoading} onClick={() => refreshEditaisList(editaisNextOffset)}>Carregar editais anteriores</Button>}
           </TabsContent>
 
@@ -2884,8 +2893,8 @@ export default function Studies() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleDeleteEdital(e.analysis_id)}
-                    disabled={editaisDeleting === e.analysis_id}
+                    onClick={() => handleDeleteEdital(e.analysis_id, e.pdf_filename)}
+                    disabled={Boolean(editaisDeleting)}
                     className="text-red-400 hover:text-red-300 hover:bg-red-500/10 shrink-0"
                   >
                     {editaisDeleting === e.analysis_id ? (
