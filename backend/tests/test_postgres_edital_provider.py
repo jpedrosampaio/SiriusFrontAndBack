@@ -235,6 +235,22 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(full.exception.detail['code'],'pilot_required')
         consolidate.assert_not_awaited()
 
+    async def test_predeployment_resume_receipt_replays_but_cannot_authorize_a_new_diagnostic(self):
+        from db.activity import run_activity
+        await self.create();revision,state,_=await self.state();key=str(uuid4())
+        body=controls.Resume(revision=revision,mode='pilot')
+        old_payload={'revision':revision,'provider_limit':None,'mode':'pilot'}
+        previous={'analysis_id':self.identity,'revision':revision,'status':state.status}
+        await run_activity(self.uid,key,['edital_pipeline','resume',self.identity,old_payload],
+            AsyncMock(return_value=previous))
+        replay=await controls.resume(self.uid,self.identity,key,body)
+        self.assertTrue(replay['replayed']);self.assertEqual(replay['revision'],revision)
+        with self.assertRaises(HTTPException) as changed:
+            await controls.resume(self.uid,self.identity,key,controls.Resume(revision=revision,mode='pilot',diagnostic_case='text'))
+        self.assertEqual(changed.exception.status_code,409)
+        _,after,_=await self.state();self.assertEqual(after.status,state.status)
+        self.assertIsNone(after.provider_approval);self.assertEqual(after.budget.reserved_attempts,state.budget.reserved_attempts)
+
     async def test_probe_validation_ownership_budget_and_real_completion_guard(self):
         from services.edital_semantics import EvidenceError
         await self.create()

@@ -66,7 +66,10 @@ async def mutate(user_id,analysis_id,key,body,operation,change):
             after={'revision':analysis.revision,'status':state.status,'selected_role_id':state.selected_role_id,**(details or {})}))
         return {'analysis_id':str(identity),'user_id':str(uid),'revision':analysis.revision,'status':state.status,
             'selected_role_id':state.selected_role_id,**(details or {})}
-    return await run_activity(uid,key,['edital_pipeline',operation,str(identity),body.model_dump(mode='json')],apply)
+    payload=body.model_dump(mode='json')
+    # New optional diagnostics must not invalidate pre-deployment resume receipts.
+    if operation=='resume' and payload.get('diagnostic_case') is None:payload.pop('diagnostic_case',None)
+    return await run_activity(uid,key,['edital_pipeline',operation,str(identity),payload],apply)
 
 
 class Reviewed(Version):

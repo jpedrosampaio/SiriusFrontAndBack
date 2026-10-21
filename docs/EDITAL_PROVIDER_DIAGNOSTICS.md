@@ -49,6 +49,9 @@ Each case requires its own explicit `resume` confirmation (`mode=pilot`,
 `diagnostic_case=text|json|inventory`). It consumes the existing saved attempt
 budget without accepting a limit extension. Existing ownership, revision,
 idempotency, account locks, live leases and cooldown checks apply. The diagnostic
+field is omitted from receipt fingerprints when absent, preserving resume
+receipts created before this addition; changing a replay into a diagnostic is
+still rejected as a different action. The diagnostic
 snapshot does not even load source blocks: neither PDF text nor its manifest is
 included in the prompt. A fixed synthetic prompt is sent; secrets remain only
 in the provider header. Tests use MockTransport, never real AI.
