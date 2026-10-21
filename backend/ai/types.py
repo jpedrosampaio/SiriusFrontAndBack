@@ -41,7 +41,7 @@ class AIResult:
 
 class AIError(Exception):
     def __init__(self, kind='provider_error', retry_after=30, *, http_status=None, incompatibility=None, reason=None, reference=None, attempted=False,
-                 request_format=None,schema_sha256=None,schema_bytes=None):
+                 request_format=None,schema_sha256=None,schema_bytes=None,provider_rejection=None):
         from uuid import uuid4
         self.kind = kind
         self.retry_after = min(300, max(1, retry_after))
@@ -53,4 +53,6 @@ class AIError(Exception):
         self.request_format=request_format if request_format=='gemini_response_format' else None
         self.schema_sha256=schema_sha256 if isinstance(schema_sha256,str) and len(schema_sha256)==64 and all(c in '0123456789abcdef' for c in schema_sha256) else None
         self.schema_bytes=schema_bytes if isinstance(schema_bytes,int) and 0<schema_bytes<=60000 else None
+        from ai.provider_diagnostics import safe_rejection
+        self.provider_rejection=safe_rejection(provider_rejection)
         super().__init__(kind)  # Never include provider response/prompt/key.

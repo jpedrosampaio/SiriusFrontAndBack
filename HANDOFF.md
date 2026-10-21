@@ -22,24 +22,30 @@ real 70-page PDF now passes extraction. Historical reproduction, safe diagnostic
 and unchanged resource limits remain in [PDF extraction evidence](docs/PDF_EXTRACTION_DIAGNOSTICS.md).
 
 Current authorized P0: [Issue65](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65).
-The saved analysis still has 67 inventory units, zero validated roles/units and
-seven reserved attempts (known minimum 141, limit 120). PR63's recovery/budget
+The saved analysis has 67 inventory units and zero validated roles/units. The
+last analysis-wide snapshot before the latest pilot had seven reserved attempts
+(known minimum 141, limit 120); do not infer new totals from a unit counter. PR63's recovery/budget
 infrastructure is published; [publication receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/63#issuecomment-6300184326).
 PR64's deletion controls were merged as `efea976742eb6b380379c8f159cca83dcc737162`;
 do not redo them. The generic Gemini400 does not establish its rejected field.
 
-The current repair adopts the recommended REST `responseFormat.text.schema`
+PR66 published the recommended REST `responseFormat.text.schema`
 with MIME enum `APPLICATION_JSON`, retaining canonical/documentary gates and
 adding safe schema fingerprint/format diagnostics. Public Discovery still
 declares the old fields, so deprecation alone is not proof of the400's cause.
 Transport version 3 requires a new explicitly authorized one-attempt pilot;
 IR/checkpoints/history/counts and the existing budget remain intact. No new
 upload, automatic extension, migration or live AI call is authorized here.
-Publication needs four green workflows, clean final-SHA Codex review, exact
-Vercel/Northflank deploys and read-only production checks; receipts belong in
-the repair PR linked from Issue65. **After publication, await owner authorization
-for ONE real-provider attempt, validate/consolidate it, then pause and obtain
-separate consent before the remaining 67 units or any extension.** Issue65 stays
+Its merge `2eaff991f55311f93a38f506d12812179b8f0b7e` passed all four workflows,
+clean final-SHA review, both exact deploys and production reads; [receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/66#issuecomment-6306947091).
+The owner-authorized manual pilot then failed HTTP400 on transport/3 at
+2026-10-21T11:00:02Z, reference `4c195c90-025a-42cf-8748-0652276f9039`.
+The new envelope was confirmed, but the rejected field is still unknown. The
+current follow-up adds finite public error codes/field diagnostics without
+changing payloads or validation. No live call, automatic retry, queue release,
+upload, budget extension or migration is authorized. **The one-attempt consent
+is spent. Obtain fresh consent before any future real attempt, then pause and
+obtain separate consent before the remaining queue or any extension.** Issue65 stays
 open until its real-unit acceptance criterion is met; local/mocked acceptance
 and deployment alone cannot establish semantic success.
 [Contracts, incident limits and manual pilot](docs/EDITAL_PROVIDER_DIAGNOSTICS.md).

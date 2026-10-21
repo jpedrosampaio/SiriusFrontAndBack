@@ -3,10 +3,11 @@ import os
 import unittest
 from types import SimpleNamespace
 from uuid import uuid4
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock,patch
 import json
 import httpx
 from fastapi import HTTPException
+from starlette.requests import Request
 from sqlalchemy import select,delete
 from db.session import unit_of_work
 from db.models.identity import User
@@ -108,7 +109,9 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
     async def test_http400_is_correlated_preserves_input_and_never_autoretries(self):
         await self.create();await self.resume(mode='pilot');claim=await units.claim_next()
         await units.provider_attempt(claim,SimpleNamespace(provider='gemini',name='mock'))
-        error=AIError('invalid_request',http_status=400,incompatibility='schema_rejected',attempted=True)
+        error=AIError('invalid_request',http_status=400,incompatibility='schema_rejected',attempted=True,
+            provider_rejection={'code':400,'status':'INVALID_ARGUMENT','category':'unknown_field','fields':['store'],
+                'message':'PRIVATE-PDF-PROMPT-KEY'})
         await units.fail(claim,error.kind,error=error)
         self.assertIsNone(await units.claim_next())
         _,state,_=await self.state();self.assertEqual(state.budget.reserved_attempts,1)
@@ -117,9 +120,31 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             row=await session.get(EditalUnit,claim.unit_id)
             self.assertEqual(row.diagnostics['reference'],error.reference)
             self.assertEqual(row.diagnostics['last_failure']['http_status'],400)
+            self.assertEqual(row.diagnostics['last_failure']['provider_rejection'],
+                {'code':400,'status':'INVALID_ARGUMENT','category':'unknown_field','fields':['store']})
+            self.assertNotIn('PRIVATE-PDF-PROMPT-KEY',json.dumps(row.diagnostics))
             self.assertIsNone(row.result)
             analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
             self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
+        from services import edital_pipeline_routes as routes
+        request=Request({'type':'http','method':'GET','path':'/','headers':[]})
+        with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.uid)})):
+            response=await routes.get_state(request,self.identity)
+        data=json.loads(response.body)
+        self.assertEqual(data['diagnostics'][0]['failure']['provider_rejection'],error.provider_rejection)
+        with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.other)})):
+            with self.assertRaises(HTTPException) as denied:await routes.get_state(request,self.identity)
+        self.assertEqual(denied.exception.status_code,404)
+        # Even old/malformed persisted metadata cannot become a private-text echo.
+        async with unit_of_work() as session:
+            row=await session.get(EditalUnit,claim.unit_id)
+            row.diagnostics={**row.diagnostics,'last_failure':{**row.diagnostics['last_failure'],
+                'provider_rejection':{'status':'PRIVATE-PDF-PROMPT-KEY','fields':['store','PRIVATE-PDF-PROMPT-KEY'],
+                    'message':'PRIVATE-PDF-PROMPT-KEY'}}}
+        with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.uid)})):
+            response=await routes.get_state(request,self.identity)
+        self.assertEqual(json.loads(response.body)['diagnostics'][0]['failure']['provider_rejection'],{'fields':['store']})
+        self.assertNotIn('PRIVATE-PDF-PROMPT-KEY',response.body.decode())
 
     async def test_new_wire_requires_new_pilot_without_resetting_seven_historical_attempts(self):
         from edital_pipeline_contracts import ProviderApproval
