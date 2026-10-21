@@ -18,6 +18,7 @@ from services import edital_pipeline_controls as controls,edital_pipeline_compil
 from services.edital_pdf import extract_pdf, PDFInputError, ExtractionMetrics, MAX_BYTES
 from services.edital_pipeline_diagnostics import message as diagnostic_message
 from services.edital_pipeline_budget import forecast
+from ai.provider_diagnostics import safe_rejection
 
 router=APIRouter(prefix='/study/edital-pipeline')
 _wake=None
@@ -156,6 +157,7 @@ async def get_state(request:Request,analysis_id:str):
                 'reference':details.get('reference'),'next_attempt_at':available})
             failure=details.get('last_failure',{})
             diagnostics[-1]['failure']={key:failure.get(key) for key in ('http_status','incompatibility','reason','provider_attempted','request_format','schema_sha256','schema_bytes')}
+            diagnostics[-1]['failure']['provider_rejection']=safe_rejection(failure.get('provider_rejection'))
         data={'analysis_id':str(row.id),'user_id':str(uid),'filename':row.filename,'revision':row.revision,
             'pipeline':PIPELINE_VERSION,'manifest':state.model_dump(mode='json'),
             'progress':[{'kind':kind,'status':status,'units':count} for kind,status,count in groups],

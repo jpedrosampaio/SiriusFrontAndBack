@@ -1,5 +1,6 @@
 import httpx
 from ai.types import AIError
+from ai.provider_diagnostics import rejection_metadata
 
 _client = None
 
@@ -31,11 +32,13 @@ class Provider:
             raise AIError('network_error') from exc
         if response.status_code >= 400:
             incompatibility=None
+            provider_rejection=None
             kind = {400: 'invalid_request', 401: 'invalid_key', 403: 'permission_denied',
                     404: 'model_unavailable', 408: 'timeout', 429: 'rate_limit'}.get(response.status_code, 'unavailable' if response.status_code >= 500 else 'provider_error')
             if response.status_code == 400:
                 try:
                     error=response.json().get('error',{})
+                    provider_rejection=rejection_metadata(error)
                     details = error.get('details', [])
                     if any(d.get('reason') == 'API_KEY_INVALID' for d in details if isinstance(d, dict)):
                         kind = 'invalid_key'
@@ -62,7 +65,8 @@ class Provider:
                 kind = 'quota'
             retry = response.headers.get('retry-after', '30')
             raise AIError(kind, int(retry) if retry.isdigit() else 30, http_status=response.status_code,
-                incompatibility=incompatibility,reason='payload_rejected' if kind=='invalid_request' else None)
+                incompatibility=incompatibility,reason='payload_rejected' if kind=='invalid_request' else None,
+                provider_rejection=provider_rejection)
         try:
             data = response.json()
             if not isinstance(data, dict):

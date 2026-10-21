@@ -2,6 +2,40 @@
 
 ## Issue65 — current transport follow-up
 
+### Real pilot after PR66: still blocked
+
+PR66 deployed merge `2eaff991f55311f93a38f506d12812179b8f0b7e`; its
+[publication receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/66#issuecomment-6306947091)
+and [four successful merge workflows](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/66#issuecomment-6306980333)
+do not establish real provider acceptance. The owner subsequently authorized
+one manual attempt. At `2026-10-21T11:00:02.527Z`, its router log recorded
+`gemini/gemini-3.8-flash`, inventory unit `12a466e5-2608-4286-8e06-782604e487ac`,
+reference `4c195c90-025a-42cf-8748-0652276f9039`, HTTP400,
+`request_rejected`, `structured-transport/3`, `gemini_response_format`,
+schema SHA256 `12e4a11144bf234144434ac9a971a38be56765e8c636af9d829ea64a8201d556`,
+2315 schema bytes, 6279.8 ms and no fallback. No unit was validated. The six
+calls shown in that unit's diagnostics are not the analysis-wide counter.
+
+This proves the new transport was used and rejected; it does not identify the
+rejected parameter or establish schema size, API key, timeout or `store:false`
+as the cause. Both response envelopes and `store` remain declared in the public
+Discovery/API reference. Do not change them speculatively or repeat inference.
+The one-attempt authorization is spent; any future attempt requires new consent.
+
+The diagnostic follow-up preserves the exact payload, routing, transport
+version, canonical/evidence validation, checkpoints and budget. HTTP400 errors
+may additionally carry `provider_rejection`: a bounded numeric code, allowlisted
+status/category and at most eight known public request paths. The parser reads
+only bounded error text/field violations and returns constants, never message
+fragments. Unknown fields stay absent; arbitrary schema property paths collapse
+to the public schema prefix. Unknown/raw metadata is filtered again on cache,
+error construction and owned API reads. No private provider body, key, prompt,
+document content or arbitrary field name is retained. A generic provider400
+without recognized details honestly remains `unspecified` with no field names.
+An instrumentation release alone does not resolve Issue65 or authorize inference.
+
+### Transport investigation preceding that pilot
+
 The owner reports another real HTTP400 on `gemini-3.8-flash`, reference
 `45b9ce8a-2e3c-4b8f-b633-bf0e8c9983e1`, after PR63: zero of 67 inventory
 units validated, seven of 120 attempts reserved, minimum known total 141.
