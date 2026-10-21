@@ -41,8 +41,22 @@ clean final-SHA review, both exact deploys and production reads; [receipt](https
 The owner-authorized manual pilot then failed HTTP400 on transport/3 at
 2026-10-21T11:00:02Z, reference `4c195c90-025a-42cf-8748-0652276f9039`.
 The new envelope was confirmed, but the rejected field is still unknown. The
-current follow-up adds finite public error codes/field diagnostics without
-changing payloads or validation. No live call, automatic retry, queue release,
+diagnostic follow-up was published in PR67, merge `b44e864b5ee541e20d6c1d41d72640c29e9f05ba`;
+four head/merge workflows, clean Codex review and both exact deploys/read-only checks passed.
+[Publication receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/67#issuecomment-6315116771).
+Another separately owner-authorized pilot failed at 2026-10-21T11:52:53Z,
+reference `0434ab82-659a-4f94-be93-cd88fc3ff0a0`: HTTP400 INVALID_ARGUMENT,
+category unspecified, no identified public fields, no validated unit. Its seven
+reserved calls are per-unit, not the analysis-wide budget. Both pilot consents
+have been consumed. The current authorized work improves the saved analysis
+workspace and surfaces public rejection details/copy in the UI, plus separately
+confirmed one-attempt synthetic diagnostics (text/minimal JSON/inventory schema)
+without sending PDF text or validating/releasing real units. This work is not yet
+published. An existing owner-supplied Gemini3.8 workout success on 2026-10-16
+predates PR66 and uses the plain-text route; it does not establish current
+structured-output acceptance. The exact
+HTTP400 cause remains unproven. Do not claim semantic resolution or modify the
+payload speculatively. No live call, automatic retry, queue release,
 upload, budget extension or migration is authorized. **The one-attempt consent
 is spent. Obtain fresh consent before any future real attempt, then pause and
 obtain separate consent before the remaining queue or any extension.** Issue65 stays

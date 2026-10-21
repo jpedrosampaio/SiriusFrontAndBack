@@ -4,6 +4,65 @@
 
 ### Real pilot after PR66: still blocked
 
+Latest follow-up: PR67 published diagnostics as merge
+`b44e864b5ee541e20d6c1d41d72640c29e9f05ba`, with all four head/merge workflows,
+clean Codex review and exact Vercel/Northflank/read-only production checks passed.
+The owner's next separately authorized attempt at `2026-10-21T11:52:53.174Z`
+also failed: reference `0434ab82-659a-4f94-be93-cd88fc3ff0a0`, same inventory
+unit/model/schema and transport/3, HTTP400, no fallback, 4930.2 ms. The finite
+diagnostic was `code=400`, `status=INVALID_ARGUMENT`, `category=unspecified`,
+`fields=[]`. This means the sanitized classifier did not identify a public
+parameter; it is not evidence that Google named none in its discarded raw
+message. Seven calls shown are the unit's count. No canonical/documentary
+validation or unit consolidation succeeded; that one-attempt consent is spent.
+
+The workspace follow-up displays these already-stored finite fields prominently,
+with separate analysis-wide and per-unit counters, real checkpoint progress,
+source navigation and explicit paused states. The copy action is user-triggered,
+local-only and includes only public allowlisted metadata; it does not call the
+provider or copy file/prompt/body data. Legacy failures remain readable without
+inventing absent details. The visual change does not repair or silently bypass
+an unknown upstream400. The owner supplied an existing successful
+`workout_generation` log for `gemini-3.8-flash` at `2026-10-16T01:56:03.868Z`
+(38855.5 ms, no fallback, 6209 reported total tokens). This establishes historical
+success for that task, not contemporary structured-output acceptance or that the
+same credential/configuration was used. The workout route uses `call_llm`
+without an output schema (8192 output tokens, 90-second timeout), then parses
+and validates its JSON locally. Inventory uses its Pydantic contract in the
+transport (3072 output tokens, 45-second timeout) and documentary checks after
+local validation. Both use the shared Gemini provider; the successful log also
+predates PR66's transport change. No fresh provider call was made to compare them.
+Do not claim a cause, request a new
+upload, change privacy/validation or repeat real attempts without fresh consent.
+
+### One-attempt differential diagnostics
+
+The saved inventory can offer three separately confirmed diagnostic cases:
+plain text, a minimal JSON schema, and the real canonical InventoryUnit schema
+with fixed synthetic input. These isolate basic request acceptance, structured
+format acceptance and contract acceptance; none establishes documentary quality.
+The existing router/provider, system instruction, output budget and timeout are
+retained. The diagnostic pins Gemini 3.8 Flash and forbids fallback or a second
+attempt. A route override to another model fails before provider I/O.
+
+Each case requires its own explicit `resume` confirmation (`mode=pilot`,
+`diagnostic_case=text|json|inventory`). It consumes the existing saved attempt
+budget without accepting a limit extension. Existing ownership, revision,
+idempotency, account locks, live leases and cooldown checks apply. The diagnostic
+snapshot does not even load source blocks: neither PDF text nor its manifest is
+included in the prompt. A fixed synthetic prompt is sent; secrets remain only
+in the provider header. Tests use MockTransport, never real AI.
+
+A successful technical response creates only an allowlisted diagnostic receipt.
+It does not persist response text/data, complete/split a real unit, consolidate
+roles, mark the provider/document pilot validated, import content, award XP, or
+release the queue. Both success and failure pause automatically; cancellation
+fences late responses. Malformed synthetic output cannot split the real PDF's
+checkpoint. Full execution still requires a separately successful documentary
+pilot and separate owner authorization. An accepted technical case must not be
+reported as a resolved Issue65. Inspect its evidence before choosing whether a
+different case is necessary; never run all three automatically.
+
 PR66 deployed merge `2eaff991f55311f93a38f506d12812179b8f0b7e`; its
 [publication receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/66#issuecomment-6306947091)
 and [four successful merge workflows](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/66#issuecomment-6306980333)

@@ -48,7 +48,7 @@ def record_pause(state,unit):
 
 
 def approved(state):
-    return state.provider_approval is not None and state.provider_approval.transport_version==TRANSPORT_VERSION and state.provider_approval.mode in ('pilot','full')
+    return state.provider_approval is not None and state.provider_approval.transport_version==TRANSPORT_VERSION and state.provider_approval.mode in ('pilot','full') and not (state.provider_approval.diagnostic_case and state.provider_approval.mode=='full')
 
 
 def stop_pilot(state,unit,*,validated=False):
@@ -177,6 +177,7 @@ async def claim_next(kind=None):
                 job.status='completed';job.phase='Aguardando homologação e autorização da IA';job.finished_at=now
                 continue
             if unit.scope_key!='inventory' and unit.scope_key!=f'role:{state.selected_role_id}':continue
+            if state.provider_approval.diagnostic_case and unit.kind!='inventory':continue
             if generation(state, unit) != unit.generation:
                 unit.status = 'cancelled'; unit.finished_at = now; continue
             if state.provider_approval.mode=='full':
@@ -256,6 +257,9 @@ async def snapshot(claim):
         if approval.mode=='pilot' and state.budget.reserved_attempts>=approval.pilot_stop_after:
             from ai.types import AIError
             raise AIError('pilot_limit',reason='pilot_limit')
+        if approval.diagnostic_case:
+            # Diagnostics never even load the PDF source into the AI snapshot.
+            return {'primary':[],'context':[],'manifest':state,'validation':{},'metadata':{}}
         primary = await source_blocks(session, claim.user_id, claim.analysis_id, unit.source_blocks)
         context = await source_blocks(session, claim.user_id, claim.analysis_id, unit.context_blocks)
         metadata = dict(unit.diagnostics.get('metadata', {}))
@@ -293,7 +297,8 @@ async def provider_attempt(claim, model, input_hash=None):
         unit.provider_calls += 1; state.budget.reserved_attempts += 1
         history = unit.diagnostics.get('attempts', [])
         unit.diagnostics = {**unit.diagnostics, 'attempts': [*history, {'provider': model.provider,
-            'model': model.name, 'at': store.utc_now().isoformat(), 'input_hash': input_hash}]}
+            'model': model.name, 'at': store.utc_now().isoformat(), 'input_hash': input_hash,
+            **({'diagnostic_case':state.provider_approval.diagnostic_case} if state.provider_approval.diagnostic_case else {})}]}
         record_pause(state,unit)
         store.write_manifest(analysis, state)
 
@@ -301,6 +306,8 @@ async def provider_attempt(claim, model, input_hash=None):
 async def complete(claim, result, usage=None, consolidate=None, *, provider=None, model=None):
     async with unit_of_work() as session:
         analysis, job, unit, state = await locked(session, claim)
+        if state.provider_approval and state.provider_approval.diagnostic_case:
+            raise EvidenceError('diagnostic_is_not_documentary')
         primary = await source_blocks(session, claim.user_id, claim.analysis_id, unit.source_blocks)
         context = await source_blocks(session, claim.user_id, claim.analysis_id, unit.context_blocks)
         proposal = CONTRACTS[unit.kind].model_validate(result)
@@ -327,6 +334,30 @@ async def complete(claim, result, usage=None, consolidate=None, *, provider=None
         if job.status == 'completed': job.finished_at = store.utc_now()
 
 
+async def complete_diagnostic(claim,result):
+    """Receipt only: never complete a document unit or consolidate synthetic output."""
+    async with unit_of_work() as session:
+        analysis,job,unit,state=await locked(session,claim)
+        approval=state.provider_approval
+        if not approved(state) or approval.mode!='pilot' or not approval.diagnostic_case or unit.kind!='inventory':raise LeaseLost()
+        from ai.config import MODELS
+        if state.budget.reserved_attempts!=approval.pilot_stop_after or (result.provider,result.model)!=(MODELS['flash'].provider,MODELS['flash'].name):raise LeaseLost()
+        now=store.utc_now()
+        record={'case':approval.diagnostic_case,'outcome':'accepted','provider':result.provider,'model':result.model,'at':now.isoformat()}
+        unit.diagnostics={**unit.diagnostics,'provider_probes':[*unit.diagnostics.get('provider_probes',[]),record]}
+        # Same token-accounting rules as document completion. Diagnostic output
+        # text/data is deliberately not retained, including synthetic role names.
+        allowed={'total_tokens','prompt_tokens','completion_tokens','totalTokenCount','promptTokenCount','candidatesTokenCount'}
+        reported={k:v for k,v in (result.usage or {}).items() if k in allowed and type(v) is int and v>=0}
+        for name,count in reported.items():state.budget.reported_usage[name]=state.budget.reported_usage.get(name,0)+count
+        if not reported or unit.provider_calls>1:state.budget.usage_incomplete=True
+        unit.status='waiting_provider';unit.lease_token=unit.lease_until=None
+        state.error_kind='provider_probe_accepted';state.retry_at=None
+        stop_pilot(state,unit,validated=False)
+        store.write_manifest(analysis,state)
+        job.status='completed';job.phase='Diagnóstico técnico aceito · aguardando decisão';job.lease_token=job.lease_until=None;job.finished_at=now
+
+
 async def fail(claim, kind, retry_after=30, *, error=None):
     """Safe categories only: no provider body, prompt or exception string."""
     from ai.errors import FAILURES
@@ -342,9 +373,18 @@ async def fail(claim, kind, retry_after=30, *, error=None):
         retry_failures=unit.diagnostics.get('retry_failures',max(0,unit.attempts-1))+(1 if error is None or error.attempted else 0)
         unit.diagnostics = {**unit.diagnostics, 'last_error': kind, 'reference': error.reference if error else str(uuid4()),
             'failed_at': now.isoformat(),'last_failure':failure,'retry_failures':retry_failures}
+        if state.provider_approval and state.provider_approval.diagnostic_case and error is not None and error.attempted:
+            unit.diagnostics={**unit.diagnostics,'provider_probes':[*unit.diagnostics.get('provider_probes',[]),
+                {'case':state.provider_approval.diagnostic_case,'outcome':kind,'http_status':error.http_status,'at':now.isoformat()}]}
         state.error_kind = kind
         if unit.provider_calls: state.budget.usage_incomplete = True
-        if kind in ('malformed_output', 'output_truncated', 'input_limit') and unit.kind != 'scope' and len(unit.source_blocks) > 1:
+        if state.provider_approval and state.provider_approval.diagnostic_case:
+            # A synthetic diagnostic error must never split/retire a real PDF unit.
+            unit.status='quota' if kind in ('quota','rate_limit') else 'waiting_provider'
+            state.status='waiting_provider'
+            if kind in ('quota','rate_limit') or (error and error.reason=='cooldown'):
+                state.retry_at=now+timedelta(seconds=max(1,min(300,retry_after)))
+        elif kind in ('malformed_output', 'output_truncated', 'input_limit') and unit.kind != 'scope' and len(unit.source_blocks) > 1:
             count = await session.scalar(select(func.count()).select_from(EditalUnit).where(
                 EditalUnit.user_id == claim.user_id, EditalUnit.analysis_id == claim.analysis_id,
                 EditalUnit.generation == claim.generation, EditalUnit.status != 'split'))

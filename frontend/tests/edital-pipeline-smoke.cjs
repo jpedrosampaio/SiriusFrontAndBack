@@ -53,13 +53,20 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
         else if(action==='resume'){
           if(body.mode){
             assert.ok(data.execution_plan);assert.equal(state.status,'waiting_provider');
-            if(body.mode==='pilot'){
+            if(body.diagnostic_case){
+              assert.equal(body.mode,'pilot');assert.equal(body.diagnostic_case,'text');assert.equal(body.provider_limit,undefined);
+              state.budget.reserved_attempts++;state.error_kind='provider_probe_accepted';
+              state.provider_approval={mode:'paused',diagnostic_case:'text',pilot_validated:false};
+              data.execution_plan.minimum_total_attempts++;
+              data.diagnostics[0].provider_probes=[{case:'text',outcome:'accepted'}];
+            }else if(body.mode==='pilot'){
               assert.equal(body.provider_limit,undefined);state.budget.reserved_attempts++;state.error_kind='pilot_review_required';
               data.execution_plan.live_provider_validated=true;data.execution_plan.minimum_remaining_attempts--;data.execution_plan.stages.inventory--;
+              data.execution_plan.diagnostic_cases=[];state.provider_approval={mode:'paused',diagnostic_case:null,pilot_validated:true};
               data.progress=[{kind:'inventory',status:'completed',units:1},{kind:'inventory',status:'pending',units:66}];
             }else{
               assert.equal(body.mode,'full');assert.equal(data.execution_plan.live_provider_validated,true);
-              assert.equal(body.provider_limit,139);state.budget.provider_limit=body.provider_limit;state.status='processing';state.error_kind=null;
+              assert.equal(body.provider_limit,140);state.budget.provider_limit=body.provider_limit;state.status='processing';state.error_kind=null;
             }
           }else{
           state.status='awaiting_review';state.phase='review';state.inventory.status='awaiting_review';state.scopes['role-a'].status='awaiting_review';state.scopes['role-a'].program=program();
@@ -85,7 +92,7 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
       if(p.includes('stats')||p.includes('streak')||p==='/api/study/v2/today')return respond(route,{});
       return respond(route,[]);
     });
-    const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));await page.goto('http://127.0.0.1:4193/studies');
+    const page=await context.newPage();await page.addInitScript(()=>{window.__safeDiagnosticCopy=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__safeDiagnosticCopy=text;}}});});page.on('pageerror',error=>errors.push(error.message));await page.goto('http://127.0.0.1:4193/studies');
     await page.getByRole('button',{name:'Preparações',exact:true}).click();await page.getByRole('button',{name:'Editais analisados',exact:true}).click();await page.getByRole('button',{name:'Analisar novo edital',exact:true}).click();
     const dialog=page.getByRole('dialog');await dialog.getByLabel('PDF do Edital',{exact:true}).setInputFiles({name:'synthetic.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-synthetic-only')});
     await page.getByTestId('analyze-edital-btn').click();await dialog.getByRole('alert').waitFor();assert.equal(legacyPosts,0);
@@ -117,29 +124,53 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     await page.goBack();await page.getByRole('heading',{name:'Cargo confirmado por você',exact:true}).waitFor();await page.getByLabel('Área de estudos',{exact:true}).selectOption('area-a');
     await page.getByRole('checkbox',{name:/Conferi os programas já criados deste PDF/}).check();
     await create.click();await page.getByRole('heading',{name:'Programa conferido',exact:true}).first().waitFor();assert.equal(imported.role_id,'role-a');assert.equal(imported.target_date,'2027-03-01');assert.equal(imported.confirmed_digest,'a'.repeat(64));assert.equal(imported.create_new_version,true);assert.equal(legacyPosts,0);
-    data=fixture();data.revision=100;data.manifest.status='waiting_provider';data.manifest.inventory.roles=[];
+    data=fixture();data.revision=100;data.manifest.status='waiting_provider';data.manifest.error_kind='invalid_request';data.manifest.inventory.roles=[];
     data.manifest.source.pages=70;data.manifest.budget.reserved_attempts=5;
     data.execution_plan={stages:{inventory:67,scope:0,detail:0,verify:67},minimum_remaining_attempts:134,minimum_total_attempts:139,
-      maximum_limit:200,extension_required:true,unknown_stages:['selected_role_content'],live_provider_validated:false};
+      maximum_limit:200,extension_required:true,unknown_stages:['selected_role_content'],live_provider_validated:false,diagnostic_cases:['text','json','inventory']};
     data.progress=[{kind:'inventory',status:'pending',units:67}];
-    data.diagnostics=[{unit_id:'blocked-unit',kind:'inventory',status:'waiting_provider',provider_calls:1,error_kind:'invalid_request',reference:'safe-ref',
-      failure:{http_status:400,incompatibility:'schema_rejected',provider_attempted:true}}];
+    data.diagnostics=[{unit_id:'blocked-unit',kind:'inventory',status:'waiting_provider',provider_calls:7,error_kind:'invalid_request',reference:'0434ab82-659a-4f94-be93-cd88fc3ff0a0',
+      last_observed_model:{provider:'gemini',model:'gemini-3.8-flash'},
+      failure:{http_status:400,incompatibility:'request_rejected',provider_attempted:true,request_format:'gemini_response_format',schema_bytes:2315,schema_sha256:'a'.repeat(64),
+        provider_rejection:{code:400,status:'INVALID_ARGUMENT',category:'unspecified',fields:[],message:'PRIVATE-MOCK-PROMPT'}}}];
     await page.goBack();await page.getByRole('heading',{name:'Aguardando correção/configuração da IA',exact:true}).waitFor();
+    await page.getByText('0 de 67 lotes concluídos · 67 pendentes',{exact:true}).waitFor();
+    const diagnosis=page.getByRole('region',{name:'Diagnóstico do provedor'}).first();
+    await diagnosis.getByRole('heading',{name:'A IA recusou a solicitação',exact:true}).waitFor();
+    await diagnosis.getByText('Ainda não identificado no diagnóstico seguro',{exact:true}).waitFor();
+    const writesBeforeCopy=writes.length;await diagnosis.getByRole('button',{name:'Copiar diagnóstico seguro',exact:true}).click();
+    await diagnosis.getByText('Diagnóstico copiado.',{exact:true}).waitFor();
+    const copied=JSON.parse(await page.evaluate(()=>window.__safeDiagnosticCopy));
+    assert.equal(copied.provider_status,'INVALID_ARGUMENT');assert.equal(copied.unit_reserved_calls,7);assert.equal(copied.schema_bytes,2315);
+    assert.equal(JSON.stringify(copied).includes('PRIVATE-MOCK-PROMPT'),false);assert.equal(writes.length,writesBeforeCopy);
+    await page.getByRole('navigation',{name:'Navegação da análise'}).getByRole('link',{name:'Cargos',exact:true}).click();
+    await page.getByText('Os cargos aparecerão aqui após a descoberta validada.',{exact:true}).waitFor();
+    if(process.env.SIRIUS_VISUAL_DIR){await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:path.join(process.env.SIRIUS_VISUAL_DIR,`edital-overview-${width}.png`),fullPage:true});await page.screenshot({path:path.join(process.env.SIRIUS_VISUAL_DIR,`edital-viewport-${width}.png`)});}
+    await page.getByText('Diagnóstico isolado (sem texto do PDF)',{exact:true}).click();
+    const beforeDiagnostic=writes.length;page.once('dialog',dialog=>dialog.dismiss());
+    await page.getByRole('button',{name:'Executar diagnóstico (1 chamada, sem PDF)',exact:true}).click();assert.equal(writes.length,beforeDiagnostic);
+    page.once('dialog',async dialog=>{assert.match(dialog.message(),/sem texto do PDF/);await dialog.accept();});
+    await page.getByRole('button',{name:'Executar diagnóstico (1 chamada, sem PDF)',exact:true}).click();
+    await page.getByRole('heading',{name:'Diagnóstico técnico aceito · análise pausada',exact:true}).waitFor();
+    assert.equal(writes.length,beforeDiagnostic+1);assert.equal(data.execution_plan.live_provider_validated,false);
+    assert.equal(data.manifest.inventory.roles.length,0);assert.equal(data.manifest.budget.provider_limit,120);
+    assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).count(),0);
     await page.getByText('0 de 67 lotes concluídos · 67 pendentes',{exact:true}).waitFor();
     const before=writes.length;page.once('dialog',dialog=>dialog.dismiss());
     await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();assert.equal(writes.length,before);
     page.once('dialog',async dialog=>{assert.match(dialog.message(),/no máximo uma chamada real/);await dialog.accept();});
     await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();
     await page.getByRole('heading',{name:'Piloto validado · aguardando sua autorização',exact:true}).waitFor();
+    assert.equal(await page.locator('#edital-progress').getByRole('region',{name:'Diagnóstico do provedor'}).count(),0);
     assert.equal(writes.length,before+1);assert.equal(writes.at(-1).body.mode,'pilot');
     await page.getByText('1 de 67 lotes concluídos · 66 pendentes',{exact:true}).waitFor();
-    await page.getByLabel('Limite total a autorizar',{exact:true}).fill('138');
-    assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).isDisabled(),true);
     await page.getByLabel('Limite total a autorizar',{exact:true}).fill('139');
-    page.once('dialog',async dialog=>{assert.match(dialog.message(),/limite total de 139/);await dialog.accept();});
+    assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).isDisabled(),true);
+    await page.getByLabel('Limite total a autorizar',{exact:true}).fill('140');
+    page.once('dialog',async dialog=>{assert.match(dialog.message(),/limite total de 140/);await dialog.accept();});
     await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).click();
     await page.getByRole('button',{name:'Cancelar processamento',exact:true}).waitFor();
-    assert.equal(writes.length,before+2);assert.equal(writes.at(-1).body.provider_limit,139);
+    assert.equal(writes.length,before+2);assert.equal(writes.at(-1).body.provider_limit,140);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
     assert.deepEqual(errors,[]);console.log(JSON.stringify({width,uploadReplay:true,resumeReplay:true,staleWriteRejected:true,sourceReads,confirmed:true,
       explicitPilot:true,explicitBudgetExtension:true,legacyPosts,overflow:false}));await context.close();

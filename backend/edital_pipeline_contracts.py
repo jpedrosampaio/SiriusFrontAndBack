@@ -380,6 +380,13 @@ class ProviderApproval(Contract):
     pilot_stop_after: int = Field(ge=0)
     pilot_validated: bool = False
     pilot_unit_id: UUID | None = None
+    diagnostic_case: Literal['text','json','inventory'] | None = None
+
+    @model_validator(mode='after')
+    def diagnostic_cannot_validate_documents(self):
+        if self.diagnostic_case is not None and (self.mode=='full' or self.pilot_validated):
+            raise ValueError('A diagnostic cannot approve document processing')
+        return self
 
 
 class PipelineManifest(Contract):

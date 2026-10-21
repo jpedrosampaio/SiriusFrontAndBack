@@ -27,6 +27,7 @@ class SelectRole(Version):
 class Resume(Version):
     provider_limit:int|None=Field(default=None,ge=1,le=MAX_PROVIDER_ATTEMPTS)
     mode:Literal['pilot','full']|None=None
+    diagnostic_case:Literal['text','json','inventory']|None=None
 
 
 async def owned_job(session,uid,analysis_id):
@@ -484,6 +485,10 @@ async def cancel(user_id,analysis_id,key,body):
 
 async def resume(user_id,analysis_id,key,body):
     async def change(session,analysis,job,state):
+        if body.diagnostic_case is not None:
+            plan=await planning.forecast(session,analysis,state)
+            if body.mode!='pilot' or body.provider_limit is not None or body.diagnostic_case not in plan['diagnostic_cases']:
+                raise HTTPException(409,{'code':'diagnostic_unavailable','message':'O diagnóstico exige uma autorização exclusiva de uma chamada, sem ampliar o orçamento e antes de validar a descoberta.'})
         if state.status in ('ocr_required','completed'):
             raise HTTPException(409,{'code':'resume_unavailable','message':'Esta análise não possui processamento retomável neste estado.'})
         if state.retry_at and state.retry_at>store.utc_now():
@@ -508,7 +513,7 @@ async def resume(user_id,analysis_id,key,body):
             if state.budget.reserved_attempts>=state.budget.provider_limit:
                 raise HTTPException(409,{'code':'analysis_provider_budget','message':'O piloto precisa de uma tentativa disponível no limite autorizado.'})
             state.provider_approval=ProviderApproval(transport_version=TRANSPORT_VERSION,mode='pilot',
-                pilot_stop_after=state.budget.reserved_attempts+1)
+                pilot_stop_after=state.budget.reserved_attempts+1,diagnostic_case=body.diagnostic_case)
         generations=[state.inventory.generation]
         if state.selected_role_id in state.scopes:generations.append(state.scopes[state.selected_role_id].generation)
         filters=(EditalUnit.user_id==analysis.user_id,EditalUnit.analysis_id==analysis.id,EditalUnit.generation.in_(generations))
@@ -524,5 +529,5 @@ async def resume(user_id,analysis_id,key,body):
         state.status='processing';state.error_kind=None;state.retry_at=None
         if state.selected_role_id in state.scopes:state.scopes[state.selected_role_id].status='processing'
         await progress.advance_selected(session,analysis,job.id,state)
-        return {'provider_limit':state.budget.provider_limit,'completed_units_preserved':True,'execution_mode':mode}
+        return {'provider_limit':state.budget.provider_limit,'completed_units_preserved':True,'execution_mode':mode,'diagnostic_case':body.diagnostic_case}
     return await mutate(user_id,analysis_id,key,body,'resume',change)
