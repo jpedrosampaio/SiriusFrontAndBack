@@ -1,5 +1,7 @@
 import base64
 import asyncio
+import json
+from hashlib import sha256
 from ai.providers.base import Provider
 from ai.types import AIResult, AIError, AIRequest
 from ai.schemas import transport_schema
@@ -16,11 +18,20 @@ class GeminiProvider(Provider):
             payload['systemInstruction'] = {'parts': [{'text': request.system}]}
         if request.schema:
             wire=request.transport_schema if request.transport_schema is not None else transport_schema(request.schema,model.structured_profile)
-            payload['generationConfig'].update(responseMimeType='application/json', responseJsonSchema=wire)
+            payload['generationConfig']['responseFormat'] = {'text': {'mimeType': 'APPLICATION_JSON', 'schema': wire}}
         if request.tools:
             payload['tools'] = [{'functionDeclarations': request.tools}]
-        data = await self.request('post', f'{BASE}/models/{model.name}:generateContent',
-                                  headers={'x-goog-api-key': key}, json=payload, timeout=request.timeout)
+        try:
+            data = await self.request('post', f'{BASE}/models/{model.name}:generateContent',
+                                      headers={'x-goog-api-key': key}, json=payload, timeout=request.timeout)
+        except AIError as error:
+            if request.schema:
+                # Public schema metadata only, never document/prompt/key/body.
+                encoded=json.dumps(wire,sort_keys=True,separators=(',',':')).encode()
+                error.request_format='gemini_response_format'
+                error.schema_sha256=sha256(encoded).hexdigest()
+                error.schema_bytes=len(encoded)
+            raise
         candidates = data.get('candidates') or []
         if not isinstance(candidates, list) or any(not isinstance(c, dict) for c in candidates):
             raise AIError('malformed_output')

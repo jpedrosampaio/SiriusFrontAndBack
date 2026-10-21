@@ -1,0 +1,308 @@
+{
+  "source": "https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta",
+  "retrieved_on": "2026-10-20",
+  "revision": "20261019",
+  "sha256": "d90d581d80097afd38a85203fa0930260b17400b126e4ea885d448d6994336a4",
+  "scope": "Selected published Discovery schemas; only populated fields are resolved. No inference requests.",
+  "schemas": {
+    "GenerateContentRequest": {
+      "type": "object",
+      "properties": {
+        "toolConfig": {
+          "$ref": "ToolConfig"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "Tool"
+          }
+        },
+        "contents": {
+          "items": {
+            "$ref": "Content"
+          },
+          "type": "array"
+        },
+        "continuationToken": {
+          "format": "byte",
+          "type": "string"
+        },
+        "cachedContent": {
+          "type": "string"
+        },
+        "safetySettings": {
+          "items": {
+            "$ref": "SafetySetting"
+          },
+          "type": "array"
+        },
+        "model": {
+          "type": "string"
+        },
+        "store": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "serviceTier": {
+          "type": "string",
+          "enum": [
+            "unspecified",
+            "standard",
+            "flex",
+            "priority"
+          ]
+        },
+        "generationConfig": {
+          "$ref": "GenerationConfig"
+        },
+        "systemInstruction": {
+          "$ref": "Content"
+        }
+      }
+    },
+    "GenerationConfig": {
+      "type": "object",
+      "properties": {
+        "enableAffectiveDialog": {
+          "type": "boolean"
+        },
+        "responseSchema": {
+          "$ref": "Schema"
+        },
+        "thinkingConfig": {
+          "$ref": "ThinkingConfig"
+        },
+        "imageConfig": {
+          "$ref": "ImageConfig"
+        },
+        "translationConfig": {
+          "$ref": "TranslationConfig"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "logprobs": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "responseJsonSchema": {
+          "type": "any"
+        },
+        "mediaResolution": {
+          "type": "string",
+          "enum": [
+            "MEDIA_RESOLUTION_UNSPECIFIED",
+            "MEDIA_RESOLUTION_LOW",
+            "MEDIA_RESOLUTION_MEDIUM",
+            "MEDIA_RESOLUTION_HIGH"
+          ]
+        },
+        "responseLogprobs": {
+          "type": "boolean"
+        },
+        "seed": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "frequencyPenalty": {
+          "type": "number",
+          "format": "float"
+        },
+        "temperature": {
+          "format": "float",
+          "type": "number"
+        },
+        "enableEnhancedCivicAnswers": {
+          "type": "boolean"
+        },
+        "responseMimeType": {
+          "type": "string"
+        },
+        "topP": {
+          "format": "float",
+          "type": "number"
+        },
+        "candidateCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "stopSequences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "audioTranscriptionConfig": {
+          "$ref": "AudioTranscriptionConfig"
+        },
+        "presencePenalty": {
+          "type": "number",
+          "format": "float"
+        },
+        "responseModalities": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "MODALITY_UNSPECIFIED",
+              "TEXT",
+              "IMAGE",
+              "AUDIO"
+            ],
+            "type": "string"
+          }
+        },
+        "responseFormat": {
+          "$ref": "ResponseFormatConfig"
+        },
+        "topK": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "_responseJsonSchema": {
+          "type": "any"
+        },
+        "speechConfig": {
+          "$ref": "SpeechConfig"
+        }
+      }
+    },
+    "ResponseFormatConfig": {
+      "properties": {
+        "audio": {
+          "$ref": "AudioResponseFormat"
+        },
+        "text": {
+          "$ref": "TextResponseFormat"
+        },
+        "image": {
+          "$ref": "ImageResponseFormat"
+        }
+      },
+      "type": "object"
+    },
+    "TextResponseFormat": {
+      "properties": {
+        "mimeType": {
+          "enum": [
+            "MIME_TYPE_UNSPECIFIED",
+            "APPLICATION_JSON",
+            "TEXT_PLAIN"
+          ],
+          "type": "string"
+        },
+        "schema": {
+          "type": "any"
+        }
+      },
+      "type": "object"
+    },
+    "Content": {
+      "type": "object",
+      "properties": {
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "Part"
+          }
+        },
+        "role": {
+          "type": "string"
+        }
+      }
+    },
+    "Part": {
+      "properties": {
+        "functionCall": {
+          "$ref": "FunctionCall"
+        },
+        "fileData": {
+          "$ref": "FileData"
+        },
+        "mediaProcessing": {
+          "enum": [
+            "MEDIA_PROCESSING_UNSPECIFIED",
+            "STATIC",
+            "AGENTIC"
+          ],
+          "type": "string"
+        },
+        "toolResponse": {
+          "$ref": "ToolResponse"
+        },
+        "partMetadata": {
+          "type": "object"
+        },
+        "functionResponse": {
+          "$ref": "FunctionResponse"
+        },
+        "thought": {
+          "type": "boolean"
+        },
+        "thoughtSignature": {
+          "type": "string",
+          "format": "byte"
+        },
+        "executableCode": {
+          "$ref": "ExecutableCode"
+        },
+        "text": {
+          "type": "string"
+        },
+        "toolCall": {
+          "$ref": "ToolCall"
+        },
+        "videoMetadata": {
+          "$ref": "VideoMetadata"
+        },
+        "speechMetadata": {
+          "$ref": "SpeechMetadata"
+        },
+        "mediaResolution": {
+          "$ref": "V1mainMediaResolution"
+        },
+        "codeExecutionResult": {
+          "$ref": "CodeExecutionResult"
+        },
+        "audioTranscription": {
+          "$ref": "AudioTranscription"
+        },
+        "inlineData": {
+          "$ref": "Blob"
+        }
+      },
+      "type": "object"
+    },
+    "Blob": {
+      "properties": {
+        "data": {
+          "type": "string",
+          "format": "byte"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FileData": {
+      "type": "object",
+      "properties": {
+        "mimeType": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "fileUri": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -44,7 +44,7 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
     async def test_original_inventory_payload_can_be_rejected_while_projected_payload_is_accepted(self):
         calls=[];original=InventoryUnit.model_json_schema();payload=CASES[0][1]
         def transport(request):
-            calls.append(request);wire=json.loads(request.content)['generationConfig']['responseJsonSchema']
+            calls.append(request);wire=json.loads(request.content)['generationConfig']['responseFormat']['text']['schema']
             if any('default' in node for node in nodes(wire)):
                 return httpx.Response(400,json={'error':{'message':'Unsupported keyword default in responseJsonSchema'}})
             return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':json.dumps(payload)}]}}]})
@@ -65,7 +65,7 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(contract=output.__name__,provider=provider_name):
                     def transport(request):
                         body=json.loads(request.content)
-                        wire=body['generationConfig']['responseJsonSchema'] if provider_name=='gemini' else body['response_format']['json_schema']['schema']
+                        wire=body['generationConfig']['responseFormat']['text']['schema'] if provider_name=='gemini' else body['response_format']['json_schema']['schema']
                         self.assertNotEqual(wire,original)
                         for node in nodes(wire):
                             self.assertFalse({'default','minLength','maxLength','pattern','title'}&node.keys())

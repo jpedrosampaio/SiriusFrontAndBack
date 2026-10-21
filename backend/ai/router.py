@@ -93,7 +93,8 @@ class AIRouter:
                 prior=rejected[1]
                 if prior.incompatibility=='model_capability':last=prior;continue
                 raise AIError('invalid_request',http_status=prior.http_status,incompatibility=prior.incompatibility,
-                    reason='payload_rejected',reference=prior.reference)
+                    reason='payload_rejected',reference=prior.reference,request_format=prior.request_format,
+                    schema_sha256=prior.schema_sha256,schema_bytes=prior.schema_bytes)
             if self.reserve and not await self.reserve(user_id, model):
                 last = AIError('quota'); continue
             # Optional durable callers fence/account for each model attempt,
@@ -133,7 +134,8 @@ class AIRouter:
                     # Cache metadata only, never exception tracebacks retaining
                     # private prompts, provider responses or request credentials.
                     cached=AIError(exc.kind,http_status=exc.http_status,incompatibility=exc.incompatibility,
-                        reason=exc.reason,reference=exc.reference)
+                        reason=exc.reason,reference=exc.reference,request_format=exc.request_format,
+                        schema_sha256=exc.schema_sha256,schema_bytes=exc.schema_bytes)
                     self.rejections[capability_token if exc.incompatibility=='model_capability' else fingerprint]=(time.monotonic()+300,cached)
                     while len(self.rejections)>1000:self.rejections.popitem(last=False)
                     if exc.incompatibility!='model_capability':
@@ -151,8 +153,10 @@ class AIRouter:
                 status = 'internal_error'
                 raise
             finally:
-                logging.info('ai provider=%s model=%s task=%s stage=%s unit=%s reference=%s http_status=%s incompatibility=%s latency_ms=%.1f fallback=%s status=%s tokens=%s', model.provider, model.name, task,stage,unit_id,reference,
-                             failure.http_status if failure else None,failure.incompatibility if failure else None,(time.perf_counter()-started)*1000, attempted > 1, status,
+                logging.info('ai provider=%s model=%s task=%s stage=%s unit=%s reference=%s http_status=%s incompatibility=%s transport_version=%s request_format=%s schema_sha256=%s schema_bytes=%s latency_ms=%.1f fallback=%s status=%s tokens=%s', model.provider, model.name, task,stage,unit_id,reference,
+                             failure.http_status if failure else None,failure.incompatibility if failure else None,TRANSPORT_VERSION,
+                             failure.request_format if failure else None,failure.schema_sha256 if failure else None,failure.schema_bytes if failure else None,
+                             (time.perf_counter()-started)*1000, attempted > 1, status,
                              {k:v for k,v in (result.usage if result else {}).items() if k in ('total_tokens', 'totalTokenCount', 'prompt_tokens', 'completion_tokens')})
         if last_actual is not None:raise last_actual
         if not attempted and last.reason is None:last.reason='no_compatible_route'

@@ -155,7 +155,7 @@ async def get_state(request:Request,analysis_id:str):
                 'error_kind':details.get('last_error'),'error_message':diagnostic_message(details.get('last_error')),
                 'reference':details.get('reference'),'next_attempt_at':available})
             failure=details.get('last_failure',{})
-            diagnostics[-1]['failure']={key:failure.get(key) for key in ('http_status','incompatibility','reason','provider_attempted')}
+            diagnostics[-1]['failure']={key:failure.get(key) for key in ('http_status','incompatibility','reason','provider_attempted','request_format','schema_sha256','schema_bytes')}
         data={'analysis_id':str(row.id),'user_id':str(uid),'filename':row.filename,'revision':row.revision,
             'pipeline':PIPELINE_VERSION,'manifest':state.model_dump(mode='json'),
             'progress':[{'kind':kind,'status':status,'units':count} for kind,status,count in groups],

@@ -46,7 +46,12 @@ class Provider:
                         fields=' '.join(str(v.get('field',''))[:256] for d in details if isinstance(d,dict)
                             for v in d.get('fieldViolations',[]) if isinstance(v,dict))[:4096].lower()
                         combined=message+' '+fields
-                        if any(word in combined for word in ('responsejsonschema','response_json_schema','json_schema','schema')):
+                        format_field=any(word in combined for word in ('responseformat','response_format'))
+                        if format_field and any(word in combined for word in ('mimetype','mime_type','application_json')):
+                            incompatibility='format_mime'
+                        elif format_field and any(word in combined for word in ('unknown name','unknown field','unsupported field','not supported')):
+                            incompatibility='format_field'
+                        elif any(word in combined for word in ('responsejsonschema','response_json_schema','json_schema','schema')):
                             incompatibility='schema_complexity' if any(w in combined for w in ('too complex','too many states','too deeply','too large')) else 'schema_reference' if '$ref' in combined or 'reference' in combined else 'schema_keyword' if any(w in combined for w in ('unsupported keyword','unknown name','additionalproperties','default','pattern')) else 'schema_rejected'
                         elif 'model' in combined and any(w in combined for w in ('does not support','not supported by','unsupported model')):
                             incompatibility='model_capability'

@@ -3,6 +3,9 @@ import os
 import unittest
 from types import SimpleNamespace
 from uuid import uuid4
+from unittest.mock import AsyncMock
+import json
+import httpx
 from fastapi import HTTPException
 from sqlalchemy import select,delete
 from db.session import unit_of_work
@@ -25,16 +28,16 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             await session.execute(delete(User).where(User.id.in_((self.uid,self.other))))
         await setup.PostgresAgent.asyncTearDown(self)
 
-    async def create(self,legacy=False):
+    async def create(self,legacy=False,reserved_attempts=5):
         doc=self.document();reserved=await store.reserve_intake(self.uid,doc.sha256,'synthetic.pdf',False,str(uuid4()))
         accepted=await store.persist_input(self.uid,reserved['job_id'],reserved['token'],doc)
         self.identity=accepted['analysis_id']
         if legacy:
             async with unit_of_work() as session:
                 row=await store.owned_analysis(session,self.uid,self.identity,lock=True)
-                state=store.manifest(row);state.status=state.inventory.status='processing';state.budget.reserved_attempts=5
+                state=store.manifest(row);state.status=state.inventory.status='processing';state.budget.reserved_attempts=reserved_attempts
                 base=await session.scalar(select(EditalUnit).where(EditalUnit.analysis_id==row.id))
-                base.attempts=3;base.provider_calls=5;base.diagnostics={**base.diagnostics,'attempts':[{'provider':'gemini','model':'legacy','at':'2026-10-20'}]}
+                base.attempts=3;base.provider_calls=reserved_attempts;base.diagnostics={**base.diagnostics,'attempts':[{'provider':'gemini','model':'legacy','at':'2026-10-20'}]}
                 for index in range(66):
                     session.add(EditalUnit(user_id=self.uid,analysis_id=row.id,job_id=base.job_id,generation=base.generation,
                         scope_key='inventory',kind='inventory',unit_key=f'{index:064x}',source_blocks=base.source_blocks,context_blocks=[]))
@@ -115,5 +118,52 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(row.diagnostics['reference'],error.reference)
             self.assertEqual(row.diagnostics['last_failure']['http_status'],400)
             self.assertIsNone(row.result)
+            analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
+            self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
+
+    async def test_new_wire_requires_new_pilot_without_resetting_seven_historical_attempts(self):
+        from edital_pipeline_contracts import ProviderApproval
+        await self.create(legacy=True,reserved_attempts=7)
+        async with unit_of_work() as session:
+            row=await store.owned_analysis(session,self.uid,self.identity,lock=True)
+            state=store.manifest(row)
+            state.provider_approval=ProviderApproval(transport_version='structured-transport/2',mode='full',pilot_validated=True,pilot_stop_after=0)
+            store.write_manifest(row,state)
+        self.assertIsNone(await units.claim_next())
+        _,state,plan=await self.state()
+        self.assertEqual(state.budget.reserved_attempts,7);self.assertEqual(state.budget.provider_limit,120)
+        self.assertEqual(plan['minimum_total_attempts'],141);self.assertFalse(plan['live_provider_validated'])
+        with self.assertRaises(HTTPException) as full:await self.resume(mode='full',provider_limit=141)
+        self.assertEqual(full.exception.detail['code'],'pilot_required')
+        _,state,_=await self.state();self.assertEqual(state.budget.provider_limit,120)
+
+    async def test_mock_http_role_passes_canonical_evidence_consolidation_and_pauses_after_one_call(self):
+        from ai.router import AIRouter
+        from ai.providers.gemini import GeminiProvider
+        from services.edital_pipeline_worker import IncrementalHandler
+        from test_gemini_wire_regression import published_contract
+        await self.create();await self.resume(mode='pilot');calls=[]
+        payload={'roles':[{'name':{'value':'Analista de Sistemas','state':'extracted','sources':[
+            {'page':1,'block_id':'p0001-b0001','quote':'Analista de Sistemas'}]}}],
+            'classifications':[{'block_id':'p0001-b0001','kind':'roles'}]}
+        def transport(request):
+            body=json.loads(request.content);published_contract(body);calls.append(body)
+            self.assertEqual(body['generationConfig']['responseFormat']['text']['mimeType'],'APPLICATION_JSON')
+            return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':json.dumps(payload)}]}}],
+                'usageMetadata':{'totalTokenCount':20}})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+            handler=IncrementalHandler(AIRouter(providers={'gemini':GeminiProvider(client)}),
+                SimpleNamespace(get=AsyncMock(return_value={'gemini':'synthetic-only'})),progress.consolidate)
+            self.assertTrue(await handler.run_one());self.assertFalse(await handler.run_one())
+        self.assertEqual(len(calls),1)
+        _,state,plan=await self.state()
+        self.assertEqual(state.inventory.roles[0].name.value,'Analista de Sistemas')
+        self.assertEqual(state.inventory.roles[0].name.sources[0].block_id,'p0001-b0001')
+        self.assertEqual(state.status,'waiting_provider');self.assertEqual(state.error_kind,'pilot_review_required')
+        self.assertEqual(state.budget.reserved_attempts,1);self.assertEqual(state.budget.provider_limit,120)
+        self.assertTrue(plan['live_provider_validated']) # synthetic provider only; not a live acceptance claim
+        async with unit_of_work() as session:
+            completed=await session.scalar(select(EditalUnit).where(EditalUnit.analysis_id==store.uuid(self.identity),EditalUnit.kind=='inventory'))
+            self.assertEqual(completed.status,'completed');self.assertEqual(completed.provider_calls,1)
             analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
             self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)

@@ -117,7 +117,8 @@ class GeminiRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, ('{"ok":true}', None))
         calls = self.post.call_args_list
         self.assertIn("generationConfig", calls[0].kwargs["json"])
-        self.assertIn("responseJsonSchema", calls[1].kwargs["json"]["generationConfig"])
+        text=calls[1].kwargs['json']['generationConfig']['responseFormat']['text']
+        self.assertEqual(text['mimeType'],'APPLICATION_JSON');self.assertIn('schema',text)
         self.assertIn("gemini-3.5-flash-lite", calls[1].args[0])
         self.ns["track_gemini_usage"].assert_awaited_once_with("alice", "gemini-3.5-flash-lite", usage={}, feature='edital_extract')
 

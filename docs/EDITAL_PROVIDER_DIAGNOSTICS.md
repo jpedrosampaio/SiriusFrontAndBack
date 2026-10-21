@@ -1,5 +1,63 @@
 # Edital: structured transport, recovery and controlled homologation
 
+## Issue65 — current transport follow-up
+
+The owner reports another real HTTP400 on `gemini-3.8-flash`, reference
+`45b9ce8a-2e3c-4b8f-b633-bf0e8c9983e1`, after PR63: zero of 67 inventory
+units validated, seven of 120 attempts reserved, minimum known total 141.
+PR64's deletion controls are integrated separately and must be preserved.
+
+Audited request: `GeminiProvider.generate()` posts directly to
+`v1beta/models/{model}:generateContent` with the API key in a header, `store:false`,
+text contents/system instruction and `maxOutputTokens`. The previous structured
+envelope was `generationConfig.responseMimeType="application/json"` plus
+`responseJsonSchema`. The current REST example instead specifies:
+
+```json
+{"generationConfig":{"responseFormat":{"text":{"mimeType":"APPLICATION_JSON","schema":{"type":"object"}}}}}}
+```
+
+The [official REST structured-output example](https://ai.google.dev/gemini-api/docs/generate-content/structured-output#rest)
+and [TextResponseFormat reference](https://ai.google.dev/api/generate-content#TextResponseFormat)
+use the enum `APPLICATION_JSON`. The SDK's `application/json` string cannot simply
+be copied to that enum field: independent Discovery validation rejects it.
+The [public v1beta Discovery](https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta),
+revision `20261019` retrieved on 20 October 2026, still declares the legacy fields too.
+**Therefore deprecation does not establish that the old envelope caused the
+production HTTP400.** The historical sanitized error does not identify a rejected
+parameter. No mock is presented as proof that Google rejected it.
+
+The provider now uses the recommended envelope and enum, omitting all legacy
+format fields. Schema projection, original Pydantic/JSON Schema, documentary
+coverage and consolidation gates are unchanged. Plain chat/tools, PDF extraction,
+the saved IR, unit keys, histories and budgets are unchanged. There is no JSON-only
+fallback, implicit retry, new upload, limit extension or new migration.
+Transport version 3 invalidates earlier transport approvals without resetting
+their records or attempt counters; execution still needs the owner's new pilot
+authorization and stops after one actual provider attempt.
+
+On provider failure, safe diagnostics additionally identify the request format,
+SHA-256 and byte count of the public transport schema, alongside the existing
+model/task/unit/reference/status. Field/enum incompatibilities are allowlisted
+categories, not raw provider messages. Request text, PDF, prompts, response bodies
+and credentials remain excluded; cached failures retain metadata without private
+tracebacks. This allows the next authorized pilot to distinguish an envelope
+failure from schema complexity and actual validated/consolidated success.
+
+`tests/fixtures/gemini_generate_content_discovery.json` preserves selected vendor
+schema facts with revision/source/digest; it contains no keys or document data.
+Mock HTTP captures the exact provider payload for a minimal schema and all four
+real contracts on both Gemini models. The matrix explicitly proves that both
+legacy and current envelopes remain declared, that the wrong new MIME enum is
+invalid, and that local canonical validation remains mandatory. A real disposable
+PostgreSQL worker test extracts a cited synthetic role through HTTP/Pydantic/
+evidence/consolidation and then pauses. **These are contract tests, not real
+Gemini homologation. Issue65 must remain open until one authorized real unit
+validates and completes its checkpoint.** Publication alone does not meet that
+acceptance criterion. The manual procedure below still applies, with the new
+transport version; obtain separate authorization before its first real call and
+again before any of the remaining 67 units.
+
 ## Incident and evidence boundary
 
 The owner confirmed that the real textual 70-page PDF passed extraction after
