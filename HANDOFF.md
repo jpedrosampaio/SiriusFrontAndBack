@@ -49,10 +49,13 @@ reference `0434ab82-659a-4f94-be93-cd88fc3ff0a0`: HTTP400 INVALID_ARGUMENT,
 category unspecified, no identified public fields, no validated unit. Its seven
 reserved calls are per-unit, not the analysis-wide budget. Both pilot consents
 have been consumed. The current authorized work improves the saved analysis
-workspace and surfaces public rejection details/copy in the UI, plus separately
+workspace in [PR68](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/68)
+and surfaces public rejection details/copy in the UI, plus separately
 confirmed one-attempt synthetic diagnostics (text/minimal JSON/inventory schema)
-without sending PDF text or validating/releasing real units. This work is not yet
-published. An existing owner-supplied Gemini3.8 workout success on 2026-10-16
+without sending PDF text or validating/releasing real units. Its current delivery
+status, reviewed head, published merge and deploy evidence are maintained in the
+[delivery receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/68#issuecomment-6317745875);
+pending evidence is not publication. An existing owner-supplied Gemini3.8 workout success on 2026-10-16
 predates PR66 and uses the plain-text route; it does not establish current
 structured-output acceptance. The exact
 HTTP400 cause remains unproven. Do not claim semantic resolution or modify the
