@@ -1,0 +1,10 @@
+.edital-workspace { background: #101114; color: #e4e4e7; font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; --edital-accent: #c6eea6; }
+.edital-workspace :is(h1, h2, h3, button, input, select, textarea) { font-family: inherit; }
+.edital-workspace .edital-surface { min-width: 0; border: 1px solid #ffffff0e; border-radius: 16px; background: #18191d; padding: 24px; }
+.edital-workspace .edital-kicker { color: #8e919b; font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.edital-workspace .edital-primary { min-height: 44px; height: auto; max-width: 100%; white-space: normal; background: var(--edital-accent); color: #1a2714; box-shadow: none; }
+.edital-workspace .edital-primary:hover { background: #d7f6bc; }
+.edital-workspace .edital-nav a { flex-shrink: 0; padding: 14px 4px; color: #93959f; font-size: 12px; border-bottom: 2px solid transparent; }
+.edital-workspace .edital-nav a:hover, .edital-workspace .edital-nav a:focus-visible { color: #e5efd9; border-bottom-color: var(--edital-accent); }
+.edital-workspace :is(input, textarea, select):focus-visible { outline-color: var(--edital-accent); }
+@media (max-width: 639px) { .edital-workspace .edital-surface { border-radius: 12px; padding: 18px; } }

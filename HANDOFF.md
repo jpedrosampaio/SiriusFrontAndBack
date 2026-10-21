@@ -67,6 +67,18 @@ open until its real-unit acceptance criterion is met; local/mocked acceptance
 and deployment alone cannot establish semantic success.
 [Contracts, incident limits and manual pilot](docs/EDITAL_PROVIDER_DIAGNOSTICS.md).
 
+Current usability follow-up: `fix/edital-workspace-usability-65`, based on published
+PR68. The owner confirmed another document pilot failed with reference
+`8e6cb78f-73cb-4336-a6d6-49196f4e0a82`, unchanged 2315-byte inventory schema and
+eight calls on that unit. The supplied current UI shows ten analysis-wide
+attempts of120, minimum144, zero of67 completed. No synthetic text test is
+established by this failure. Authorized changes simplify the workspace and make
+the separately confirmed diagnostic distinct from a document pilot; transport,
+IR, history, validation and budget stay intact. [Current delivery status and
+evidence](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161).
+Do not infer real provider acceptance from this visual repair or execute a new
+provider call without fresh specific owner consent.
+
 The original fourteen-phase plan remains intact; **there is no Phase 15**. The authorized notification/PDF-security maintenance and incremental analyzer are deployed. Early inventory/selection, durable small units, recovery, human review/confirmation, canonical import and responsive workspace reuse the existing engines; [contracts and boundaries](docs/UNIVERSAL_EDITAL_ANALYZER.md). No real Gemini/Groq inference was performed or authorized for these tests; deployment does not establish semantic generalization. Await owner authorization before starting further work.
 
 Backlog only: operational OCR; rectification/complementary-document reconciliation; separately authorized real Gemini validation with heterogeneous notices; the unresolved workout `workout_generation_invalid_sessions` failure; other real homologation issues. These were not implemented or silently marked resolved by this release.

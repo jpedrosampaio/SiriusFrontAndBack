@@ -54,11 +54,11 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
           if(body.mode){
             assert.ok(data.execution_plan);assert.equal(state.status,'waiting_provider');
             if(body.diagnostic_case){
-              assert.equal(body.mode,'pilot');assert.equal(body.diagnostic_case,'text');assert.equal(body.provider_limit,undefined);
+              assert.equal(body.mode,'pilot');assert.ok(['text','json','inventory'].includes(body.diagnostic_case));assert.equal(body.provider_limit,undefined);
               state.budget.reserved_attempts++;state.error_kind='provider_probe_accepted';
-              state.provider_approval={mode:'paused',diagnostic_case:'text',pilot_validated:false};
+              state.provider_approval={mode:'paused',diagnostic_case:body.diagnostic_case,pilot_validated:false};
               data.execution_plan.minimum_total_attempts++;
-              data.diagnostics[0].provider_probes=[{case:'text',outcome:'accepted'}];
+              data.diagnostics[0].provider_probes=[...(data.diagnostics[0].provider_probes||[]),{case:body.diagnostic_case,outcome:'accepted'}];
             }else if(body.mode==='pilot'){
               assert.equal(body.provider_limit,undefined);state.budget.reserved_attempts++;state.error_kind='pilot_review_required';
               data.execution_plan.live_provider_validated=true;data.execution_plan.minimum_remaining_attempts--;data.execution_plan.stages.inventory--;
@@ -66,7 +66,7 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
               data.progress=[{kind:'inventory',status:'completed',units:1},{kind:'inventory',status:'pending',units:66}];
             }else{
               assert.equal(body.mode,'full');assert.equal(data.execution_plan.live_provider_validated,true);
-              assert.equal(body.provider_limit,140);state.budget.provider_limit=body.provider_limit;state.status='processing';state.error_kind=null;
+              assert.equal(body.provider_limit,147);state.budget.provider_limit=body.provider_limit;state.status='processing';state.error_kind=null;
             }
           }else{
           state.status='awaiting_review';state.phase='review';state.inventory.status='awaiting_review';state.scopes['role-a'].status='awaiting_review';state.scopes['role-a'].program=program();
@@ -97,7 +97,9 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     const dialog=page.getByRole('dialog');await dialog.getByLabel('PDF do Edital',{exact:true}).setInputFiles({name:'synthetic.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-synthetic-only')});
     await page.getByTestId('analyze-edital-btn').click();await dialog.getByRole('alert').waitFor();assert.equal(legacyPosts,0);
     await page.getByTestId('analyze-edital-btn').click();await page.getByRole('heading',{name:'Conferir meu edital',exact:true}).waitFor();assert.equal(uploadKeys.length,2);assert.equal(uploadKeys[0],uploadKeys[1]);
+    await page.getByText('Criar programa no meu planejamento',{exact:true}).click();
     const create=page.getByRole('button',{name:'Criar programa com conteúdo confirmado',exact:true});assert.equal(await create.isDisabled(),true);
+    await page.getByText('Criar programa no meu planejamento',{exact:true}).click();
     await page.getByRole('button',{name:'Abrir análise deste cargo',exact:true}).click();await page.getByRole('button',{name:'Cancelar processamento',exact:true}).click();
     await page.getByRole('heading',{name:'Cancelado · checkpoints preservados',exact:true}).waitFor();await page.reload();await page.getByRole('heading',{name:'Cancelado · checkpoints preservados',exact:true}).waitFor();
     await page.getByRole('button',{name:'Retomar lotes pendentes',exact:true}).click();await page.getByRole('alert').waitFor();
@@ -125,11 +127,12 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     await page.getByRole('checkbox',{name:/Conferi os programas já criados deste PDF/}).check();
     await create.click();await page.getByRole('heading',{name:'Programa conferido',exact:true}).first().waitFor();assert.equal(imported.role_id,'role-a');assert.equal(imported.target_date,'2027-03-01');assert.equal(imported.confirmed_digest,'a'.repeat(64));assert.equal(imported.create_new_version,true);assert.equal(legacyPosts,0);
     data=fixture();data.revision=100;data.manifest.status='waiting_provider';data.manifest.error_kind='invalid_request';data.manifest.inventory.roles=[];
-    data.manifest.source.pages=70;data.manifest.budget.reserved_attempts=5;
-    data.execution_plan={stages:{inventory:67,scope:0,detail:0,verify:67},minimum_remaining_attempts:134,minimum_total_attempts:139,
+    data.filename='EDITAL_2026_ABERTURA_CONCURSO_PUBLICO_DOCUMENTO_COMPLETO_70_PAGINAS.pdf';
+    data.manifest.source.pages=70;data.manifest.budget.reserved_attempts=10;
+    data.execution_plan={stages:{inventory:67,scope:0,detail:0,verify:67},minimum_remaining_attempts:134,minimum_total_attempts:144,
       maximum_limit:200,extension_required:true,unknown_stages:['selected_role_content'],live_provider_validated:false,diagnostic_cases:['text','json','inventory']};
     data.progress=[{kind:'inventory',status:'pending',units:67}];
-    data.diagnostics=[{unit_id:'blocked-unit',kind:'inventory',status:'waiting_provider',provider_calls:7,error_kind:'invalid_request',reference:'0434ab82-659a-4f94-be93-cd88fc3ff0a0',
+    data.diagnostics=[{unit_id:'blocked-unit',kind:'inventory',status:'waiting_provider',provider_calls:8,error_kind:'invalid_request',reference:'8e6cb78f-73cb-4336-a6d6-49196f4e0a82',
       last_observed_model:{provider:'gemini',model:'gemini-3.8-flash'},
       failure:{http_status:400,incompatibility:'request_rejected',provider_attempted:true,request_format:'gemini_response_format',schema_bytes:2315,schema_sha256:'a'.repeat(64),
         provider_rejection:{code:400,status:'INVALID_ARGUMENT',category:'unspecified',fields:[],message:'PRIVATE-MOCK-PROMPT'}}}];
@@ -137,25 +140,46 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     await page.getByText('0 de 67 lotes concluídos · 67 pendentes',{exact:true}).waitFor();
     const diagnosis=page.getByRole('region',{name:'Diagnóstico do provedor'}).first();
     await diagnosis.getByRole('heading',{name:'A IA recusou a solicitação',exact:true}).waitFor();
+    await diagnosis.getByText('Ver detalhes técnicos',{exact:true}).click();
     await diagnosis.getByText('Ainda não identificado no diagnóstico seguro',{exact:true}).waitFor();
     const writesBeforeCopy=writes.length;await diagnosis.getByRole('button',{name:'Copiar diagnóstico seguro',exact:true}).click();
     await diagnosis.getByText('Diagnóstico copiado.',{exact:true}).waitFor();
     const copied=JSON.parse(await page.evaluate(()=>window.__safeDiagnosticCopy));
-    assert.equal(copied.provider_status,'INVALID_ARGUMENT');assert.equal(copied.unit_reserved_calls,7);assert.equal(copied.schema_bytes,2315);
+    assert.equal(copied.provider_status,'INVALID_ARGUMENT');assert.equal(copied.unit_reserved_calls,8);assert.equal(copied.schema_bytes,2315);
     assert.equal(JSON.stringify(copied).includes('PRIVATE-MOCK-PROMPT'),false);assert.equal(writes.length,writesBeforeCopy);
-    await page.getByRole('navigation',{name:'Navegação da análise'}).getByRole('link',{name:'Cargos',exact:true}).click();
+    await diagnosis.getByText('Ver detalhes técnicos',{exact:true}).click();
+    await page.getByRole('navigation',{name:'Navegação da análise'}).getByRole('link',{name:'Cargos e informações',exact:true}).click();
     await page.getByText('Os cargos aparecerão aqui após a descoberta validada.',{exact:true}).waitFor();
-    if(process.env.SIRIUS_VISUAL_DIR){await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:path.join(process.env.SIRIUS_VISUAL_DIR,`edital-overview-${width}.png`),fullPage:true});await page.screenshot({path:path.join(process.env.SIRIUS_VISUAL_DIR,`edital-viewport-${width}.png`)});}
-    await page.getByText('Diagnóstico isolado (sem texto do PDF)',{exact:true}).click();
-    const beforeDiagnostic=writes.length;page.once('dialog',dialog=>dialog.dismiss());
-    await page.getByRole('button',{name:'Executar diagnóstico (1 chamada, sem PDF)',exact:true}).click();assert.equal(writes.length,beforeDiagnostic);
-    page.once('dialog',async dialog=>{assert.match(dialog.message(),/sem texto do PDF/);await dialog.accept();});
-    await page.getByRole('button',{name:'Executar diagnóstico (1 chamada, sem PDF)',exact:true}).click();
-    await page.getByRole('heading',{name:'Diagnóstico técnico aceito · análise pausada',exact:true}).waitFor();
-    assert.equal(writes.length,beforeDiagnostic+1);assert.equal(data.execution_plan.live_provider_validated,false);
-    assert.equal(data.manifest.inventory.roles.length,0);assert.equal(data.manifest.budget.provider_limit,120);
-    assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).count(),0);
-    await page.getByText('0 de 67 lotes concluídos · 67 pendentes',{exact:true}).waitFor();
+    await page.evaluate(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));
+    assert.equal(await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).isVisible(),false);
+    const nextAction=page.getByTestId('edital-next-action');await nextAction.waitFor();
+    const position=await nextAction.boundingBox();assert(position&&position.y>=0&&position.y+position.height<815,`Primary action is below the first viewport: ${JSON.stringify({width,position})}`);
+    if(process.env.SIRIUS_VISUAL_DIR){
+      await page.getByText('Programa conferido criado.',{exact:true}).waitFor({state:'hidden'});await page.mouse.move(0,0);
+      console.log('EDITAL_VISUAL '+JSON.stringify({width,layout:await page.evaluate(()=>{
+        const bounds=selector=>{const el=document.querySelector(selector);return el?{left:el.getBoundingClientRect().left,width:el.getBoundingClientRect().width,padding:getComputedStyle(el).padding,font:getComputedStyle(el).fontFamily}:null;};
+        return {main:bounds('.edital-workspace'),header:bounds('.edital-workspace header'),shell:bounds('.sirius-shell-body'),heading:bounds('.edital-workspace h2'),scrollers:[...document.querySelectorAll('*')].filter(el=>el.scrollLeft>0).map(el=>({tag:el.tagName,id:el.id,left:el.scrollLeft}))};
+      })}));
+      await page.screenshot({path:path.join(process.env.SIRIUS_VISUAL_DIR,`edital-overview-${width}.png`),fullPage:true});await page.screenshot({path:path.join(process.env.SIRIUS_VISUAL_DIR,`edital-viewport-${width}.png`)});
+    }
+    for(const [kind,label] of [['text','Testar IA sem PDF (1 chamada)'],['json','Testar JSON mínimo (1 chamada)'],['inventory','Testar contrato sem PDF (1 chamada)']]){
+      if(kind==='inventory'){
+        await page.getByTestId('edital-next-action').filter({hasText:'Executar lote piloto (1 chamada)'}).waitFor();
+        await page.getByText('Outras opções de diagnóstico e teste do edital',{exact:true}).click();
+        await page.getByLabel('Tipo de diagnóstico',{exact:true}).selectOption('inventory');
+      }
+      const button=page.getByRole('button',{name:kind==='inventory'?'Executar diagnóstico (1 chamada, sem PDF)':label,exact:true});await button.waitFor();
+      const beforeDiagnostic=writes.length;page.once('dialog',dialog=>dialog.dismiss());
+      await button.click();assert.equal(writes.length,beforeDiagnostic);
+      page.once('dialog',async dialog=>{assert.match(dialog.message(),/sem texto do PDF/);await dialog.accept();});
+      await button.click();
+      await page.getByRole('heading',{name:'Diagnóstico técnico aceito · análise pausada',exact:true}).waitFor();
+      assert.equal(writes.length,beforeDiagnostic+1);assert.equal(writes.at(-1).body.diagnostic_case,kind);
+      assert.equal(data.execution_plan.live_provider_validated,false);assert.equal(data.manifest.inventory.roles.length,0);
+      assert.equal(data.manifest.budget.provider_limit,120);
+      assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).count(),0);
+      await page.getByText('0 de 67 lotes concluídos · 67 pendentes',{exact:true}).waitFor();
+    }
     const before=writes.length;page.once('dialog',dialog=>dialog.dismiss());
     await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();assert.equal(writes.length,before);
     page.once('dialog',async dialog=>{assert.match(dialog.message(),/no máximo uma chamada real/);await dialog.accept();});
@@ -164,13 +188,25 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     assert.equal(await page.locator('#edital-progress').getByRole('region',{name:'Diagnóstico do provedor'}).count(),0);
     assert.equal(writes.length,before+1);assert.equal(writes.at(-1).body.mode,'pilot');
     await page.getByText('1 de 67 lotes concluídos · 66 pendentes',{exact:true}).waitFor();
-    await page.getByLabel('Limite total a autorizar',{exact:true}).fill('139');
+    await page.getByLabel('Limite total a autorizar',{exact:true}).fill('146');
     assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).isDisabled(),true);
-    await page.getByLabel('Limite total a autorizar',{exact:true}).fill('140');
-    page.once('dialog',async dialog=>{assert.match(dialog.message(),/limite total de 140/);await dialog.accept();});
+    await page.getByLabel('Limite total a autorizar',{exact:true}).fill('147');
+    page.once('dialog',async dialog=>{assert.match(dialog.message(),/limite total de 147/);await dialog.accept();});
     await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).click();
     await page.getByRole('button',{name:'Cancelar processamento',exact:true}).waitFor();
-    assert.equal(writes.length,before+2);assert.equal(writes.at(-1).body.provider_limit,140);
+    assert.equal(writes.length,before+2);assert.equal(writes.at(-1).body.provider_limit,147);
+    const writesBeforeBlocked=writes.length;
+    for(const blocked of ['failed_diagnostic','cooldown','budget']){
+      data.manifest.status='waiting_provider';data.manifest.error_kind='invalid_request';
+      data.manifest.provider_approval=blocked==='failed_diagnostic'?{mode:'paused',diagnostic_case:'text',pilot_validated:false}:null;
+      data.manifest.retry_at=blocked==='cooldown'?new Date(Date.now()+60000).toISOString():null;
+      data.manifest.budget.reserved_attempts=blocked==='budget'?120:10;data.manifest.budget.provider_limit=120;
+      data.execution_plan.live_provider_validated=false;data.execution_plan.diagnostic_cases=['text','json','inventory'];data.revision++;
+      await page.getByRole('button',{name:'Atualizar andamento',exact:true}).click();
+      await page.getByRole('button',{name:'Testar IA sem PDF (1 chamada)',exact:true}).waitFor();
+      await page.waitForFunction(()=>document.querySelector('[data-testid="edital-next-action"]')?.disabled===true);
+      assert.equal(writes.length,writesBeforeBlocked,`A ${blocked} state must not dispatch another request`);
+    }
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
     assert.deepEqual(errors,[]);console.log(JSON.stringify({width,uploadReplay:true,resumeReplay:true,staleWriteRejected:true,sourceReads,confirmed:true,
       explicitPilot:true,explicitBudgetExtension:true,legacyPosts,overflow:false}));await context.close();

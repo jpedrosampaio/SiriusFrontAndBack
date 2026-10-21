@@ -4,7 +4,32 @@
 
 ### Real pilot after PR66: still blocked
 
-Latest follow-up: PR67 published diagnostics as merge
+PR68's recovery UI/isolated diagnostic controls were published as merge
+`e0b6d0b35321fcda32709eb8bc7a5e8ad8bfd418`; [publication evidence and limits](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/68#issuecomment-6317745875).
+The owner's next supplied failure reference is
+`8e6cb78f-73cb-4336-a6d6-49196f4e0a82`: same inventory unit, 2315-byte wire
+schema/hash, Gemini3.8 HTTP400 INVALID_ARGUMENT, unspecified public category,
+no identified fields, unit calls8. The owner explicitly confirmed using
+**Executar lote piloto (1 chamada)**. This was a document pilot, not proof that
+the plain-text diagnostic failed. The supplied current screen shows analysis
+attempts10/120, known minimum144 and zero of67 units completed. No failure
+timestamp is inferred from the screenshot or counters.
+
+The visual usability follow-up makes the next explicit action prominent instead
+of presenting document replay as the primary recovery. It uses a compact header,
+scoped neutral palette, checkpoint timeline and separate document/diagnostic
+controls. A successful text receipt can suggest minimal JSON; after JSON is
+accepted the document pilot is offered, without automatically executing either.
+The full synthetic inventory test stays an optional advanced case to avoid
+requiring a redundant call before a real document pilot. Failed diagnostics,
+cooldown and exhausted budgets cannot silently dispatch another primary action.
+The complete budget forecast, finite diagnostics/copy, sources, review/import
+guards, prior programs and audit remain accessible. A collapsed import form
+reduces irrelevant controls before a role is selected; it does not remove access
+to prior programs. No backend contract/transport, migration, real inference,
+source upload or automatic budget/queue change is part of this repair.
+
+PR67 published diagnostics as merge
 `b44e864b5ee541e20d6c1d41d72640c29e9f05ba`, with all four head/merge workflows,
 clean Codex review and exact Vercel/Northflank/read-only production checks passed.
 The owner's next separately authorized attempt at `2026-10-21T11:52:53.174Z`
