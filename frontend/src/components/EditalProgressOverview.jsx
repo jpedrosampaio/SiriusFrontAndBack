@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, FileCheck2, Layers3, RefreshCw, Users } from 'lucide-react';
+import { Check, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { analysisStages, stageProgress } from '@/lib/edital-diagnostics';
 import { EDITAL_PIPELINE_STATUSES } from '@/lib/edital-analysis';
@@ -10,17 +10,17 @@ export default function EditalProgressOverview({ data, pending, fetching, onRefr
   const paused = ['waiting_provider', 'quota_paused', 'recoverable_failure', 'cancelled'].includes(state.status);
   const failure = paused && state.error_kind && !['pilot_review_required', 'provider_approval_required', 'pilot_limit'].includes(state.error_kind)
     && data.diagnostics?.find(item => item.error_kind === state.error_kind && item.status !== 'completed');
-  return <div className="space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Estado salvo da análise</p><h2 className="mt-2 text-lg sm:text-xl font-semibold text-slate-100">{title}</h2><p className="mt-2 text-sm text-slate-400">{state.status === 'processing' ? 'Os lotes concluídos são salvos conforme o processamento avança.' : 'Você pode sair e voltar. A análise continua disponível em seus editais salvos.'}</p></div><Button variant="outline" disabled={pending || fetching} onClick={onRefresh} className="gap-2 border-slate-700 bg-slate-950/40"><RefreshCw size={14} className={fetching ? 'animate-spin motion-reduce:animate-none' : ''} />Atualizar andamento</Button></div>
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{[
-      [FileCheck2, state.source.pages, 'Páginas extraídas', 'Texto preservado para consulta'],
-      [Users, state.inventory.roles.length, 'Cargos identificados', 'Propostas sujeitas à conferência'],
-      [Layers3, `${state.budget.reserved_attempts} / ${state.budget.provider_limit}`, 'Tentativas da análise', 'Total reservado, não faturamento'],
-    ].map(([Icon, value, label, note]) => <div key={label} className="flex items-start gap-3 rounded-xl border border-slate-700/50 bg-slate-950/50 p-4 last:col-span-2 sm:last:col-span-1"><span className="hidden rounded-lg bg-sky-400/10 p-2 text-sky-300 sm:inline-flex"><Icon size={17} /></span><div className="min-w-0"><p className="text-xl font-semibold tracking-tight text-slate-100">{value}</p><p className="mt-1 text-xs font-medium text-slate-300">{label}</p><p className="mt-1 text-[11px] text-slate-500">{note}</p></div></div>)}</div>
-    <ol aria-label="Etapas da análise" className="grid grid-cols-2 gap-3 xl:grid-cols-4">{analysisStages.map(([kind, label], index) => {
+  return <div className="edital-surface h-full space-y-5">
+    <div className="flex items-start justify-between gap-3"><div><p className="edital-kicker">Seu documento</p><h2 className="mt-2 text-sm font-medium leading-relaxed text-zinc-200">{title}</h2></div><Button size="icon" variant="ghost" aria-label="Atualizar andamento" title="Atualizar andamento" disabled={pending || fetching} onClick={onRefresh} className="shrink-0 text-zinc-400 hover:text-white"><RefreshCw size={15} className={fetching ? 'animate-spin motion-reduce:animate-none' : ''} /></Button></div>
+    <dl className="grid grid-cols-3 gap-3 border-y border-white/[0.07] py-4">{[
+      [state.source.pages, 'Páginas extraídas'], [state.inventory.roles.length, 'Cargos identificados'],
+      [`${state.budget.reserved_attempts}/${state.budget.provider_limit}`, 'Tentativas da análise'],
+    ].map(([value, label]) => <div key={label} className="min-w-0"><dd className="text-xl font-semibold tracking-tight tabular-nums text-zinc-100">{value}</dd><dt className="mt-1 text-[11px] leading-relaxed text-zinc-400">{label}</dt></div>)}</dl>
+    <ol aria-label="Etapas da análise" className="space-y-4">{analysisStages.map(([kind, label], index) => {
       const { done, total, pending: remaining } = stageProgress(data.progress, kind), complete = total > 0 && done === total;
-      return <li key={kind} className={`min-w-0 rounded-xl border p-4 ${complete ? 'border-emerald-400/20 bg-emerald-400/[0.03]' : 'border-slate-700/50 bg-slate-950/30'}`}><div className="mb-3 flex items-center justify-between gap-2"><span className="text-[11px] text-slate-500">ETAPA {index + 1}</span>{complete ? <CheckCircle2 size={16} className="text-emerald-300" /> : <Circle size={15} className="text-slate-600" />}</div><h3 className="text-sm font-medium text-slate-200">{label}</h3><p className="mt-2 text-xs leading-relaxed text-slate-400">{done} de {total} lotes concluídos · {remaining} pendentes</p><div aria-hidden="true" className="mt-3 h-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-sky-400 transition-[width] duration-300 motion-reduce:transition-none" style={{ width: total ? `${done / total * 100}%` : '0%' }} /></div>{!total && <p className="mt-2 text-[11px] text-slate-500">Nenhum lote planejado nesta etapa</p>}</li>;
+      return <li key={kind} className="flex items-start gap-3"><span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] ${complete ? 'bg-lime-200/10 text-lime-200' : total ? 'bg-white/10 text-zinc-200' : 'border border-white/10 text-zinc-500'}`}>{complete ? <Check size={13} /> : String(index + 1).padStart(2, '0')}</span><div className="min-w-0 flex-1"><h3 className={`text-xs font-medium ${total ? 'text-zinc-200' : 'text-zinc-500'}`}>{label}</h3><p className="mt-1 text-[11px] leading-relaxed text-zinc-500">{done} de {total} lotes concluídos · {remaining} pendentes</p>{total > 0 && <div aria-hidden="true" className="mt-2 h-0.5 overflow-hidden rounded-full bg-white/[0.06]"><div className="h-full bg-lime-200/70 motion-safe:transition-[width]" style={{ width: `${done / total * 100}%` }} /></div>}{!total && <p className="sr-only">Nenhum lote planejado nesta etapa</p>}</div></li>;
     })}</ol>
     {failure && <EditalProviderDiagnostic key={`${failure.unit_id}:${failure.reference}`} item={failure} />}
+    <p className="text-[11px] leading-relaxed text-zinc-500">{state.status === 'processing' ? 'O progresso é salvo a cada lote.' : 'Progresso salvo. Você pode sair e voltar sem reenviar o PDF.'}</p>
   </div>;
 }
