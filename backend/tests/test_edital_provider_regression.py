@@ -5,7 +5,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock,patch
 import httpx
 from pydantic import BaseModel
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -41,6 +41,21 @@ def nodes(value):
 
 
 class ProviderContracts(unittest.IsolatedAsyncioTestCase):
+    def test_forecast_exposes_catalogue_route_and_does_not_offer_gemini_probe_on_groq(self):
+        import os
+        generation=uuid4()
+        state=SimpleNamespace(phase='inventory',inventory=SimpleNamespace(generation=generation),selected_role_id=None,scopes={},
+            budget=SimpleNamespace(reserved_attempts=12,provider_limit=120),provider_approval=None)
+        rows=[{'generation':generation,'status':'pending','kind':'inventory','unit_key':'a'}]
+        for override,expected in (('vision',['qwen/qwen3.8-27b']),('reasoning',['openai/gpt-oss-120b']),('unknown',[])):
+            with patch.dict(os.environ,{'AI_ROUTE_EDITAL_EXTRACT':override}):
+                plan=estimate(state,rows)
+            self.assertEqual([model['model'] for model in plan['extraction_route']],expected)
+            self.assertEqual(plan['diagnostic_cases'],[])
+            self.assertEqual(state.budget.reserved_attempts,12);self.assertEqual(state.budget.provider_limit,120)
+        with patch.dict(os.environ,{'AI_ROUTE_EDITAL_EXTRACT':'flash,reasoning'}):
+            self.assertEqual(estimate(state,rows)['diagnostic_cases'],['text','json','inventory'])
+
     def test_diagnostic_approval_cannot_claim_document_validation_or_full_run(self):
         from edital_pipeline_contracts import ProviderApproval
         for mode,validated in (('full',False),('pilot',True),('paused',True)):

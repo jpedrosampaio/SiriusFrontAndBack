@@ -50,7 +50,7 @@ class AIError(Exception):
         self.reason=reason if reason in ('cooldown','no_compatible_route','payload_rejected','pilot_limit') else None
         self.reference=reference or str(uuid4())
         self.attempted=attempted
-        self.request_format=request_format if request_format=='gemini_response_format' else None
+        self.request_format=request_format if request_format in ('gemini_response_format','groq_json_schema') else None
         self.schema_sha256=schema_sha256 if isinstance(schema_sha256,str) and len(schema_sha256)==64 and all(c in '0123456789abcdef' for c in schema_sha256) else None
         self.schema_bytes=schema_bytes if isinstance(schema_bytes,int) and 0<schema_bytes<=60000 else None
         from ai.provider_diagnostics import safe_rejection

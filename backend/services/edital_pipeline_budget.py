@@ -3,6 +3,7 @@ from sqlalchemy import select
 from db.models.edital_units import EditalUnit
 from edital_pipeline_contracts import MAX_PROVIDER_ATTEMPTS
 from ai.schemas import TRANSPORT_VERSION
+from ai.config import MODELS, Settings
 
 
 def estimate(state,rows):
@@ -19,11 +20,16 @@ def estimate(state,rows):
     if not state.selected_role_id:unknown=['selected_role_association','selected_role_content']
     elif remaining['inventory'] or remaining['scope']:unknown=['selected_role_content']
     validated=bool(state.provider_approval and state.provider_approval.transport_version==TRANSPORT_VERSION and state.provider_approval.pilot_validated)
+    route=Settings().route('edital_extract')
+    # Synthetic diagnostics are pinned to Gemini Flash by the worker. Do not
+    # advertise them for a route whose first model cannot execute that probe.
+    diagnostic_route=bool(route and route[0]==MODELS['flash'])
     return {'stages':remaining,'minimum_remaining_attempts':minimum,'minimum_total_attempts':required,
         'remaining_budget':max(0,state.budget.provider_limit-state.budget.reserved_attempts),
         'extension_required':required>state.budget.provider_limit,'maximum_limit':MAX_PROVIDER_ATTEMPTS,
         'unknown_stages':unknown,'includes_retries':False,'live_provider_validated':validated,
-        'diagnostic_cases':['text','json','inventory'] if state.phase=='inventory' and not state.selected_role_id and remaining['inventory'] and not validated else []}
+        'extraction_route':[{'provider':model.provider,'model':model.name} for model in route],
+        'diagnostic_cases':['text','json','inventory'] if diagnostic_route and state.phase=='inventory' and not state.selected_role_id and remaining['inventory'] and not validated else []}
 
 
 async def forecast(session,analysis,state):

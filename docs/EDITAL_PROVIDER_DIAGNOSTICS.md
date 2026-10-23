@@ -296,3 +296,46 @@ The workspace shows completed/pending counts, sanitized causes and references,
 explicit waiting/cooldown/pilot states and recovery controls. Paused jobs do not
 keep the UI polling as if semantic processing were active. Existing analyses,
 source-page browsing and histories remain accessible.
+
+## Groq console evidence and public error codes (2026-10-23)
+
+The owner's Groq request log identifies the 2026-10-22 21:32:35 UTC pilot
+(application reference `3b71513c-c5c1-44ad-babd-b88e18b37b97`) as HTTP400
+`json_validate_failed`, with 4,287 input and 3,072 output tokens. The latter
+equals the requested completion cap. This establishes an output-validation
+failure, not proof that Groq rejected the request envelope. Exhausting the
+completion budget is a hypothesis for the incomplete JSON; it does not by
+itself identify reasoning consumption or establish the earlier Gemini cause.
+
+Public rejection diagnostics now retain finite allowlisted Groq codes/types,
+distinguish generated-output validation from request validation, and fingerprint
+the attempted Groq transport schema as well as Gemini's. Unknown codes/types,
+messages, generated content, prompts, keys and arbitrary schema paths remain
+excluded at transport/cache/persistence/read/copy boundaries. An error's schema
+fingerprint records the attempted schema and never proves acceptance. Old
+historical records are not rewritten to infer missing diagnostics.
+
+The read-only forecast exposes only catalogue provider/model names for the
+configured extraction route. It does not infer availability or quota from that
+configuration. Gemini-pinned synthetic probes are not advertised when the
+first configured extraction model is another model/provider; an empty route
+disables authorization controls instead of advertising an executable model.
+The document pilot and all existing confirmations remain distinct.
+
+No schema, completion budget, retry/fallback rule, checkpoint, provider-call
+limit, authorization fence or migration changes with this recovery repair.
+Original JSON Schema, Pydantic and documentary validation remain mandatory.
+It is not semantic resolution of Issue65. The real document must still produce
+validated and consolidated evidence before full execution can be considered.
+
+The owner subsequently authorized further controlled investigation and browser
+access on 2026-10-23, while the no-paid-services constraint remains. The service
+route was set to the existing `vision` catalogue entry (Groq Qwen3.8) for a
+comparison with the reasoning model; the last verified saved analysis was still
+paused at12/120 attempts and0/67 completed. Browser control was then stopped by
+its URL safety check. Do not infer that the Qwen pilot ran or succeeded; inspect
+the current saved state before any retry. No automatic budget extension or
+release of the remaining queue occurred.
+
+Model behavior reference: [Groq reasoning options](https://console.groq.com/docs/reasoning).
+Output-validation behavior: [Groq structured outputs](https://console.groq.com/docs/structured-outputs).

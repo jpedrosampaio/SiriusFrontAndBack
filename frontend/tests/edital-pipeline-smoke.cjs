@@ -210,6 +210,29 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
       await page.waitForFunction(()=>document.querySelector('[data-testid="edital-next-action"]')?.disabled===true);
       assert.equal(writes.length,writesBeforeBlocked,`A ${blocked} state must not dispatch another request`);
     }
+    data.manifest.provider_approval=null;data.manifest.retry_at=null;data.manifest.budget.reserved_attempts=12;
+    data.execution_plan.diagnostic_cases=[];data.execution_plan.extraction_route=[{provider:'groq',model:'qwen/qwen3.8-27b'}];
+    data.diagnostics=[{unit_id:'blocked-unit',kind:'inventory',status:'waiting_provider',error_kind:'invalid_request',provider_calls:10,
+      reference:'3b71513c-c5c1-44ad-babd-b88e18b37b97',last_observed_model:{provider:'groq',model:'openai/gpt-oss-120b'},
+      failure:{http_status:400,request_format:'groq_json_schema',schema_bytes:2315,schema_sha256:'a'.repeat(64),
+        provider_rejection:{provider_code:'json_validate_failed',provider_type:'invalid_request_error',category:'output_validation',
+          fields:[],failed_generation:'PRIVATE-MOCK-GENERATION'}}}];data.revision++;
+    await page.getByRole('button',{name:'Atualizar andamento',exact:true}).click();
+    const groqDiagnosis=page.getByRole('region',{name:'Diagnóstico do provedor'}).first();
+    await groqDiagnosis.getByRole('heading',{name:'A resposta da IA não passou na validação',exact:true}).waitFor();
+    await groqDiagnosis.getByText('Ver detalhes técnicos',{exact:true}).click();
+    await groqDiagnosis.getByText('json_validate_failed · Resposta gerada fora do contrato',{exact:true}).waitFor();
+    await page.getByText(/Rota da próxima tentativa: groq \/ qwen\/qwen3.8-27b/).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Testar IA sem PDF (1 chamada)',exact:true}).isVisible(),false);
+    assert.equal(await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).isVisible(),true);
+    assert.equal(await page.getByText('PRIVATE-MOCK-GENERATION',{exact:false}).count(),0);
+    assert.equal(writes.length,writesBeforeBlocked,'Inspecting a Groq generation failure must not resume the analysis');
+    if(process.env.SIRIUS_VISUAL_DIR)await page.screenshot({path:require('node:path').join(process.env.SIRIUS_VISUAL_DIR,`edital-groq-${width}.png`)});
+    data.execution_plan.extraction_route=[];data.revision++;
+    await page.getByRole('button',{name:'Atualizar andamento',exact:true}).click();
+    await page.getByText('Configure um modelo compatível para a extração antes de autorizar uma tentativa.',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).isEnabled(),false);
+    assert.equal(writes.length,writesBeforeBlocked);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
     assert.deepEqual(errors,[]);console.log(JSON.stringify({width,uploadReplay:true,resumeReplay:true,staleWriteRejected:true,sourceReads,confirmed:true,
       explicitPilot:true,explicitBudgetExtension:true,legacyPosts,overflow:false}));await context.close();
