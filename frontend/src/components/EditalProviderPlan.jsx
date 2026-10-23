@@ -81,7 +81,7 @@ export default function EditalProviderPlan({ plan, diagnostics = [], state, comm
     {diagnostics.some(item => item.provider_probes?.length) && <details><summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-200">Resultados dos diagnósticos técnicos</summary><ul className="mt-3 space-y-2 text-xs text-zinc-400">{diagnostics.flatMap(item => (item.provider_probes || []).map((entry, index) => <li key={`${item.unit_id}:${index}`}>{diagnosticCases[entry.case] || 'Diagnóstico'} · {entry.outcome === 'accepted' ? 'solicitação aceita; não valida cargos' : 'não concluído'}{entry.http_status ? ` · HTTP ${entry.http_status}` : ''}</li>))}</ul></details>}
     <p className="flex items-center gap-2 text-[11px] text-zinc-500"><ShieldCheck size={14} className="shrink-0" />Nenhum teste é executado sem sua confirmação.</p>
     <AlertDialog open={!!confirmation && confirmation.key === contextKey} onOpenChange={open => { if (!open) setConfirmation(null); }}>
-      <AlertDialogContent overlayClassName="data-[state=open]:animate-none data-[state=closed]:animate-none" className="w-[calc(100%_-_2rem)] max-h-[85dvh] overflow-y-auto rounded-2xl border-white/10 bg-zinc-900 text-zinc-100 data-[state=open]:animate-none data-[state=closed]:animate-none">
+      <AlertDialogContent overlayStyle={{ animation: 'none' }} style={{ animation: 'none' }} className="w-[calc(100%_-_2rem)] max-h-[85dvh] overflow-y-auto rounded-2xl border-white/10 bg-zinc-900 text-zinc-100">
         <AlertDialogHeader>
           <AlertDialogTitle>{confirmation?.title}</AlertDialogTitle>
           <AlertDialogDescription className="leading-relaxed text-zinc-400">{confirmation?.message}</AlertDialogDescription>
