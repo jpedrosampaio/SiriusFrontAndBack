@@ -2,10 +2,10 @@
 
 ## Current P0 checkpoint — 2026-10-23 (supersedes older attempt snapshots)
 
-Published main at the start of this follow-up: PR70 merge
-`48c52aee921dfe33fe018685fca51be1c22ab421`. Four head/merge workflows, independent
+Published main at the start of this follow-up: PR71 merge
+`3740b13df8195fccef24ac43634ff28c17ba97bd`. Four head/merge workflows, independent
 Codex CLI review accepted by the owner, both exact deploys and read-only production
-checks passed; [publication receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/70#issuecomment-6372829081).
+checks passed; [publication receipt and limitations](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/71#issuecomment-6374248937).
 Issue65 remains open: the latest saved real analysis has **14/120** reserved
 attempts, **0/69** active inventory leaves completed, zero validated roles and
 known minimum **152** attempts. The original input and split-parent histories
@@ -14,19 +14,26 @@ reference `82e34525-8fbf-493f-b691-82cc85df656a`, Groq Qwen, `malformed_output`.
 An earlier correlated console request returned HTTP200, which does not prove
 canonical/documentary validation or semantic success.
 
-Current branch `codex/edital-validation-diagnostics-65` adds only finite safe
-post-response JSON/schema/Pydantic diagnostics across logging, owned persistence,
-GET and UI/copy. It does not repair or accept invalid output, change the payload,
-limits, routing, retries or migration. The actual failing field is still unknown.
+PR71 published finite safe JSON/schema/Pydantic diagnostics; the actual failing
+field remains unknown because no new real pilot ran afterward. The owner reports
+the central area blank and no native confirmation open. A fresh owned refresh
+still shows14/120, so do not infer a15th attempt from the earlier dialog request.
+
+Current branch `codex/edital-visible-recovery-65` fixes route content hidden by a
+stalled entry animation and replaces the provider-plan native confirmations with
+accessible in-page dialogs. The old build fails the frozen-animation regression
+with ancestor opacity0. Authorizations keep their disclosures, revision binding,
+explicit budget extension and existing idempotency/session/server fences.
+No payload, model, validation, retry, data or migration change is included.
 Complete all four workflows and final independent Codex review before merging,
 then confirm both exact deploys/read-only checks. Delivery status and evidence
 belong in the [existing ledger](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161).
 
-No further real call before this diagnostic is deployed. Then inspect saved state
+No further real call before this UI recovery is deployed. Then inspect saved state
 and perform at most one controlled pilot under the owner's current investigation
 authorization. The remaining queue and any budget extension stay paused pending
-separate approval. Native browser confirmation currently requires a manual OK;
-never blindly repeat the pilot button when the controller times out. No new
+separate approval. The earlier native-confirmation handoff is superseded by the
+owner's report; never blindly repeat the pilot button after a timeout. No new
 upload, paid service, unrelated feature or phase is authorized. All older
 12/13-attempt snapshots and spent-consent records below are historical.
 

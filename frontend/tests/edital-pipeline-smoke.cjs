@@ -92,7 +92,7 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
       if(p.includes('stats')||p.includes('streak')||p==='/api/study/v2/today')return respond(route,{});
       return respond(route,[]);
     });
-    const page=await context.newPage();await page.addInitScript(()=>{window.__safeDiagnosticCopy=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__safeDiagnosticCopy=text;}}});});page.on('pageerror',error=>errors.push(error.message));await page.goto('http://127.0.0.1:4193/studies');
+    const page=await context.newPage();await page.addInitScript(()=>{window.__safeDiagnosticCopy=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__safeDiagnosticCopy=text;}}});});page.on('pageerror',error=>errors.push(error.message));page.on('dialog',async dialog=>{errors.push('Unexpected native confirmation');await dialog.dismiss();});await page.goto('http://127.0.0.1:4193/studies');
     await page.getByRole('button',{name:'Preparações',exact:true}).click();await page.getByRole('button',{name:'Editais analisados',exact:true}).click();await page.getByRole('button',{name:'Analisar novo edital',exact:true}).click();
     const dialog=page.getByRole('dialog');await dialog.getByLabel('PDF do Edital',{exact:true}).setInputFiles({name:'synthetic.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-synthetic-only')});
     await page.getByTestId('analyze-edital-btn').click();await dialog.getByRole('alert').waitFor();assert.equal(legacyPosts,0);
@@ -169,10 +169,11 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
         await page.getByLabel('Tipo de diagnóstico',{exact:true}).selectOption('inventory');
       }
       const button=page.getByRole('button',{name:kind==='inventory'?'Executar diagnóstico (1 chamada, sem PDF)':label,exact:true});await button.waitFor();
-      const beforeDiagnostic=writes.length;page.once('dialog',dialog=>dialog.dismiss());
-      await button.click();assert.equal(writes.length,beforeDiagnostic);
-      page.once('dialog',async dialog=>{assert.match(dialog.message(),/sem texto do PDF/);await dialog.accept();});
-      await button.click();
+      const beforeDiagnostic=writes.length;
+      await button.click();const authorization=page.getByRole('alertdialog',{name:'Confirmar diagnóstico sem PDF'});
+      await authorization.waitFor();assert.match(await authorization.innerText(),/sem texto do PDF/);assert.equal(writes.length,beforeDiagnostic);
+      await authorization.getByRole('button',{name:'Cancelar',exact:true}).click();await authorization.waitFor({state:'hidden'});assert.equal(writes.length,beforeDiagnostic);
+      await button.click();await authorization.getByRole('button',{name:'Autorizar uma chamada',exact:true}).click();
       await page.getByRole('heading',{name:'Diagnóstico técnico aceito · análise pausada',exact:true}).waitFor();
       assert.equal(writes.length,beforeDiagnostic+1);assert.equal(writes.at(-1).body.diagnostic_case,kind);
       assert.equal(data.execution_plan.live_provider_validated,false);assert.equal(data.manifest.inventory.roles.length,0);
@@ -180,10 +181,12 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
       assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).count(),0);
       await page.getByText('0 de 67 lotes concluídos · 67 pendentes',{exact:true}).waitFor();
     }
-    const before=writes.length;page.once('dialog',dialog=>dialog.dismiss());
-    await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();assert.equal(writes.length,before);
-    page.once('dialog',async dialog=>{assert.match(dialog.message(),/no máximo uma chamada real/);await dialog.accept();});
+    const before=writes.length,pilot=page.getByRole('alertdialog',{name:'Confirmar lote piloto'});
+    await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();await pilot.waitFor();
+    assert.match(await pilot.innerText(),/no máximo uma chamada real/);assert.equal(writes.length,before);
+    await page.keyboard.press('Escape');await pilot.waitFor({state:'hidden'});assert.equal(writes.length,before);
     await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();
+    await pilot.getByRole('button',{name:'Autorizar uma chamada',exact:true}).click();
     await page.getByRole('heading',{name:'Piloto validado · aguardando sua autorização',exact:true}).waitFor();
     assert.equal(await page.locator('#edital-progress').getByRole('region',{name:'Diagnóstico do provedor'}).count(),0);
     assert.equal(writes.length,before+1);assert.equal(writes.at(-1).body.mode,'pilot');
@@ -191,8 +194,10 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     await page.getByLabel('Limite total a autorizar',{exact:true}).fill('146');
     assert.equal(await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).isDisabled(),true);
     await page.getByLabel('Limite total a autorizar',{exact:true}).fill('147');
-    page.once('dialog',async dialog=>{assert.match(dialog.message(),/limite total de 147/);await dialog.accept();});
     await page.getByRole('button',{name:'Autorizar e retomar lotes pendentes',exact:true}).click();
+    const full=page.getByRole('alertdialog',{name:'Confirmar retomada dos lotes'});await full.waitFor();
+    assert.match(await full.innerText(),/limite total de 147/);assert.equal(writes.length,before+1);
+    await full.getByRole('button',{name:'Autorizar retomada',exact:true}).click();
     await page.getByRole('button',{name:'Cancelar processamento',exact:true}).waitFor();
     assert.equal(writes.length,before+2);assert.equal(writes.at(-1).body.provider_limit,147);
     const writesBeforeBlocked=writes.length;
@@ -246,6 +251,32 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     assert.equal(await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).isEnabled(),false);
     assert.equal(writes.length,writesBeforeBlocked);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+    // A stalled animation scheduler must never hide an authenticated route.
+    await context.addInitScript(()=>{window.requestAnimationFrame=()=>0;window.cancelAnimationFrame=()=>{};});
+    data.execution_plan.extraction_route=[{provider:'groq',model:'qwen/qwen3.8-27b'}];data.revision++;
+    await page.reload();await page.getByRole('heading',{name:'Conferir meu edital',exact:true}).waitFor();
+    const opacityChain=await page.locator('#edital-progress').evaluate(node=>{
+      const values=[];for(let current=node;current;current=current.parentElement)values.push(getComputedStyle(current).opacity);
+      return values;
+    });
+    assert.ok(opacityChain.every(value=>Number(value)===1),`Route is hidden when animation frames stop: ${JSON.stringify(opacityChain)}`);
+    const frozenBefore=writes.length;
+    await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();await pilot.waitFor();
+    assert.equal(await pilot.evaluate(node=>getComputedStyle(node).opacity),'1');
+    assert.equal(await pilot.evaluate(node=>node.scrollWidth>node.clientWidth+1),false);
+    await pilot.getByRole('button',{name:'Cancelar',exact:true}).focus();
+    for(let i=0;i<3;i++)await page.keyboard.press('Tab');
+    assert.equal(await pilot.evaluate(node=>node.contains(document.activeElement)),true);
+    await page.keyboard.press('Escape');await pilot.waitFor({state:'hidden'});assert.equal(writes.length,frozenBefore);
+    await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();await pilot.waitFor();
+    data.revision++;data.manifest.budget.reserved_attempts=13;
+    await page.evaluate(()=>window.dispatchEvent(new Event('sirius-data-changed')));
+    await pilot.waitFor({state:'hidden'});assert.equal(writes.length,frozenBefore,'An updated revision invalidates an unconfirmed authorization');
+    await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();await pilot.waitFor();
+    if(process.env.SIRIUS_VISUAL_DIR)await page.screenshot({path:path.join(process.env.SIRIUS_VISUAL_DIR,`edital-confirmation-${width}.png`)});
+    await pilot.getByRole('button',{name:'Autorizar uma chamada',exact:true}).click({clickCount:2});
+    await page.getByRole('heading',{name:'Piloto validado · aguardando sua autorização',exact:true}).waitFor();
+    assert.equal(writes.length,frozenBefore+1);assert.equal(data.manifest.budget.provider_limit,120);
     assert.deepEqual(errors,[]);console.log(JSON.stringify({width,uploadReplay:true,resumeReplay:true,staleWriteRejected:true,sourceReads,confirmed:true,
       explicitPilot:true,explicitBudgetExtension:true,legacyPosts,overflow:false}));await context.close();
   }}finally{await browser.close();server.close();}
