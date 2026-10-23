@@ -23,8 +23,8 @@ and unchanged resource limits remain in [PDF extraction evidence](docs/PDF_EXTRA
 
 Current authorized P0: [Issue65](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65).
 The saved analysis has 67 inventory units and zero validated roles/units. The
-last analysis-wide snapshot before the latest pilot had seven reserved attempts
-(known minimum 141, limit 120); do not infer new totals from a unit counter. PR63's recovery/budget
+last verified analysis-wide snapshot on 2026-10-23 has twelve reserved attempts
+(known minimum 146, limit 120); do not infer new totals from a unit counter. PR63's recovery/budget
 infrastructure is published; [publication receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/63#issuecomment-6300184326).
 PR64's deletion controls were merged as `efea976742eb6b380379c8f159cca83dcc737162`;
 do not redo them. The generic Gemini400 does not establish its rejected field.
@@ -78,6 +78,27 @@ IR, history, validation and budget stay intact. [Current delivery status and
 evidence](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161).
 Do not infer real provider acceptance from this visual repair or execute a new
 provider call without fresh specific owner consent.
+
+Latest owner authorization (2026-10-23) permits further controlled investigation
+and browser access; the free-only constraint and existing quality/data gates
+remain. The provider console establishes the Groq pilot's `json_validate_failed`
+and4,287 input/3,072 output tokens, not an identified Gemini request defect.
+The existing `vision` route was saved for a Qwen comparison; the last verified
+analysis remains paused at12/120 and0/67. Browser control then stopped because
+its safety check could not establish the current URL. Do not infer a completed
+Qwen call or retry without checking persisted state. See the
+[current diagnostic evidence](docs/EDITAL_PROVIDER_DIAGNOSTICS.md#groq-console-evidence-and-public-error-codes-2026-10-23).
+
+PR69 was merged as `e41a1a62de7e1b0d0a391855d72501a96bdda38b` after four
+green workflows on `8ed3444369e0d2ee528948c9da42c8c2f4167340` and a clean
+independent Codex CLI review in a clean read-only checkout, explicitly accepted
+by the owner after the GitHub bot's review quota failed. [Review receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/69#issuecomment-6363240250).
+Both exact deployments report success; final read-only production validation
+is recorded in the existing delivery ledger below. This visual repair is not
+semantic completion of Issue65. Provider-diagnostic work on
+`fix/edital-provider-diagnostics-65` preserves generation contracts/history and
+adds finite public Groq rejection metadata; its publication is pending its own
+final-SHA CI/review/deploy gates.
 
 The original fourteen-phase plan remains intact; **there is no Phase 15**. The authorized notification/PDF-security maintenance and incremental analyzer are deployed. Early inventory/selection, durable small units, recovery, human review/confirmation, canonical import and responsive workspace reuse the existing engines; [contracts and boundaries](docs/UNIVERSAL_EDITAL_ANALYZER.md). No real Gemini/Groq inference was performed or authorized for these tests; deployment does not establish semantic generalization. Await owner authorization before starting further work.
 

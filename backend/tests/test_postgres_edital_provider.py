@@ -108,6 +108,34 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as cooldown:await self.resume(mode='pilot')
         self.assertEqual(cooldown.exception.detail['code'],'retry_not_before')
 
+    async def test_groq_public_rejection_survives_owned_persistence_without_validating_document(self):
+        await self.create();await self.resume(mode='pilot');claim=await units.claim_next()
+        await units.provider_attempt(claim,MODELS['reasoning'])
+        error=AIError('invalid_request',http_status=400,attempted=True,request_format='groq_json_schema',
+            schema_sha256='a'*64,schema_bytes=2315,provider_rejection={'provider_code':'json_validate_failed',
+            'provider_type':'invalid_request_error','category':'output_validation','fields':[],
+            'failed_generation':'PRIVATE-PDF-PROMPT-KEY'})
+        await units.fail(claim,error.kind,error=error)
+        self.assertIsNone(await units.claim_next())
+        _,state,_=await self.state()
+        self.assertEqual(state.budget.reserved_attempts,1);self.assertEqual(state.budget.provider_limit,120)
+        self.assertFalse(state.provider_approval.pilot_validated);self.assertEqual(state.inventory.roles,[])
+        from services import edital_pipeline_routes as routes
+        request=Request({'type':'http','method':'GET','path':'/','headers':[]})
+        with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.uid)})):
+            response=await routes.get_state(request,self.identity)
+        failure=json.loads(response.body)['diagnostics'][0]['failure']
+        self.assertEqual(failure['provider_rejection'],error.provider_rejection)
+        self.assertEqual(failure['request_format'],'groq_json_schema');self.assertEqual(failure['schema_sha256'],'a'*64)
+        self.assertNotIn('PRIVATE-PDF-PROMPT-KEY',response.body.decode())
+        with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.other)})):
+            with self.assertRaises(HTTPException) as denied:await routes.get_state(request,self.identity)
+        self.assertEqual(denied.exception.status_code,404)
+        async with unit_of_work() as session:
+            row=await session.get(EditalUnit,claim.unit_id);self.assertIsNone(row.result)
+            analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
+            self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
+
     async def test_http400_is_correlated_preserves_input_and_never_autoretries(self):
         await self.create();await self.resume(mode='pilot');claim=await units.claim_next()
         await units.provider_attempt(claim,SimpleNamespace(provider='gemini',name='mock'))

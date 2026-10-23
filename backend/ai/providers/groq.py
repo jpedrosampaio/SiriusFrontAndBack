@@ -1,5 +1,6 @@
 import base64
 import json
+from hashlib import sha256
 from ai.providers.base import Provider
 from ai.types import AIError, AIResult
 from ai.schemas import transport_schema
@@ -29,7 +30,15 @@ class GroqProvider(Provider):
             payload['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'sirius_response', 'strict': False, 'schema': wire}}
         if request.tools:
             payload['tools'] = [{'type': 'function', 'function': t} for t in request.tools]
-        data = await self.request('post', f'{BASE}/chat/completions', headers={'Authorization': f'Bearer {key}'}, json=payload, timeout=request.timeout)
+        try:
+            data = await self.request('post', f'{BASE}/chat/completions', headers={'Authorization': f'Bearer {key}'}, json=payload, timeout=request.timeout)
+        except AIError as error:
+            if request.schema:
+                encoded=json.dumps(wire,sort_keys=True,separators=(',',':')).encode()
+                error.request_format='groq_json_schema'
+                error.schema_sha256=sha256(encoded).hexdigest()
+                error.schema_bytes=len(encoded)
+            raise
         choice = next(iter(data.get('choices', [])), {})
         if choice.get('finish_reason') == 'length':
             raise AIError('output_truncated')

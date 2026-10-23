@@ -13,6 +13,19 @@ from edital_pipeline_contracts import InventoryUnit
 
 
 class RejectionMetadata(unittest.TestCase):
+    def test_groq_public_codes_distinguish_output_validation_without_exposing_generation(self):
+        private='PRIVATE-PDF-PROMPT-KEY'
+        self.assertEqual(rejection_metadata({'code':'json_validate_failed','type':'invalid_request_error',
+            'message':'Failed to generate JSON. '+private,'failed_generation':private,'param':None}),
+            {'category':'output_validation','fields':[],'provider_code':'json_validate_failed','provider_type':'invalid_request_error'})
+        schema=rejection_metadata({'message':'Unsupported field','param':'response_format.json_schema.schema.properties.'+private})
+        self.assertEqual(schema['fields'],['response_format.json_schema.schema'])
+        self.assertEqual(rejection_metadata({'code':'context_length_exceeded'})['category'],'context_limit')
+        self.assertNotIn(private,json.dumps(safe_rejection({'provider_code':private,'provider_type':private,
+            'fields':['response_format.json_schema.schema',private],'failed_generation':private})))
+        # Do not turn every HTTP400 or mention of JSON into a generation failure.
+        self.assertEqual(rejection_metadata({'message':'Invalid JSON payload received.'})['category'],'unspecified')
+
     def test_public_field_templates_and_schema_paths_are_allowlisted(self):
         cases = [
             ('Invalid JSON payload received. Unknown name "store": Cannot find field.', 'store', 'unknown_field'),
@@ -49,6 +62,31 @@ class RejectionMetadata(unittest.TestCase):
 
 
 class RejectionTransport(unittest.IsolatedAsyncioTestCase):
+    async def test_groq_failure_keeps_public_code_and_schema_at_cache_and_log_boundaries(self):
+        from ai.providers.groq import GroqProvider
+        from ai.config import MODELS
+        from types import SimpleNamespace
+        private='PRIVATE-PDF-PROMPT-KEY';calls=[]
+        def transport(request):
+            calls.append(request)
+            return httpx.Response(400,json={'error':{'code':'json_validate_failed','type':'invalid_request_error',
+                'message':'Failed to generate JSON. '+private,'failed_generation':private}})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+            router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['reasoning']]),providers={'groq':GroqProvider(client)})
+            with self.assertLogs(level='INFO') as logs:
+                with self.assertRaises(AIError) as failure:
+                    await router.generate(task='edital_extract',keys={'groq':private},prompt=private,output_type=InventoryUnit)
+            error=failure.exception
+            self.assertEqual(error.kind,'invalid_request');self.assertEqual(error.http_status,400)
+            self.assertEqual(error.provider_rejection['provider_code'],'json_validate_failed')
+            self.assertEqual(error.request_format,'groq_json_schema');self.assertEqual(len(error.schema_sha256),64)
+            self.assertGreater(error.schema_bytes,0)
+            self.assertIn('json_validate_failed',' '.join(logs.output));self.assertNotIn(private,' '.join(logs.output))
+            with self.assertRaises(AIError) as cached:
+                await router.generate(task='edital_extract',keys={'groq':private},prompt=private,output_type=InventoryUnit)
+            self.assertFalse(cached.exception.attempted);self.assertEqual(cached.exception.provider_rejection,error.provider_rejection)
+            self.assertEqual(cached.exception.schema_sha256,error.schema_sha256);self.assertEqual(len(calls),1)
+
     async def test_metadata_reaches_logs_and_rejection_cache_without_retries_or_private_text(self):
         calls = []
         private = 'PRIVATE-PDF-PROMPT-KEY'

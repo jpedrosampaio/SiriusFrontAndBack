@@ -2,12 +2,16 @@
 const publicFields = new Set(['model', 'store', 'contents', 'contents.parts', 'systemInstruction', 'systemInstruction.parts',
   'tools', 'toolConfig', 'generationConfig', 'generationConfig.maxOutputTokens', 'generationConfig.responseFormat',
   'generationConfig.responseFormat.text', 'generationConfig.responseFormat.text.mimeType', 'generationConfig.responseFormat.text.schema',
-  'generationConfig.responseMimeType', 'generationConfig.responseJsonSchema', 'generationConfig.responseSchema']);
+  'generationConfig.responseMimeType', 'generationConfig.responseJsonSchema', 'generationConfig.responseSchema',
+  'messages', 'max_completion_tokens', 'response_format', 'response_format.json_schema',
+  'response_format.json_schema.schema', 'response_format.json_schema.strict']);
 const publicStatuses = new Set(['INVALID_ARGUMENT', 'FAILED_PRECONDITION', 'OUT_OF_RANGE', 'UNIMPLEMENTED', 'NOT_FOUND',
   'PERMISSION_DENIED', 'UNAUTHENTICATED', 'RESOURCE_EXHAUSTED', 'UNAVAILABLE', 'INTERNAL', 'DEADLINE_EXCEEDED']);
-const publicCategories = new Set(['unknown_field', 'invalid_value', 'missing_field', 'unsupported', 'unspecified']);
+const publicCategories = new Set(['unknown_field', 'invalid_value', 'missing_field', 'unsupported', 'output_validation', 'context_limit', 'unspecified']);
+const publicProviderCodes = new Set(['json_validate_failed', 'model_decommissioned', 'model_not_found', 'context_length_exceeded', 'invalid_api_key', 'rate_limit_exceeded', 'tool_use_failed']);
+const publicProviderTypes = new Set(['invalid_request_error', 'authentication_error', 'permission_error', 'rate_limit_error', 'server_error']);
 const publicModels = new Set(['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']);
-export const rejectionCategories = { unknown_field: 'Campo não reconhecido', invalid_value: 'Valor inválido', missing_field: 'Campo obrigatório ausente', unsupported: 'Recurso não suportado', unspecified: 'Motivo específico não informado' };
+export const rejectionCategories = { unknown_field: 'Campo não reconhecido', invalid_value: 'Valor inválido', missing_field: 'Campo obrigatório ausente', unsupported: 'Recurso não suportado', output_validation: 'Resposta gerada fora do contrato', context_limit: 'Entrada acima do limite do modelo', unspecified: 'Motivo específico não informado' };
 export const analysisStages = [['inventory', 'Descoberta'], ['scope', 'Associações'], ['detail', 'Conteúdo'], ['verify', 'Comparação de fontes']];
 
 export function stageProgress(rows, kind) {
@@ -26,9 +30,11 @@ export function publicDiagnostic(item) {
   if (publicModels.has(model)) result.model = model;
   if (Number.isInteger(failure.http_status) && failure.http_status >= 100 && failure.http_status <= 599) result.http_status = failure.http_status;
   if (publicStatuses.has(rejection.status)) result.provider_status = rejection.status;
+  if (publicProviderCodes.has(rejection.provider_code)) result.provider_code = rejection.provider_code;
+  if (publicProviderTypes.has(rejection.provider_type)) result.provider_type = rejection.provider_type;
   if (publicCategories.has(rejection.category)) result.category = rejection.category;
   result.fields = [...new Set((Array.isArray(rejection.fields) ? rejection.fields : []).slice(0, 8).filter(value => publicFields.has(value)))];
-  if (failure.request_format === 'gemini_response_format') result.request_format = failure.request_format;
+  if (['gemini_response_format', 'groq_json_schema'].includes(failure.request_format)) result.request_format = failure.request_format;
   if (typeof failure.schema_sha256 === 'string' && /^[a-f0-9]{64}$/.test(failure.schema_sha256)) result.schema_sha256 = failure.schema_sha256;
   if (Number.isInteger(failure.schema_bytes) && failure.schema_bytes > 0 && failure.schema_bytes <= 60000) result.schema_bytes = failure.schema_bytes;
   if (Number.isInteger(item?.provider_calls) && item.provider_calls >= 0) result.unit_reserved_calls = item.provider_calls;

@@ -21,6 +21,18 @@ test('generic or legacy failures never invent provider details or rejected field
     const result=c.publicDiagnostic({failure});assert.equal(result.fields.length,0);assert.equal(result.model,undefined);
   }
 });
+
+test('Groq public failure codes and schema fingerprints survive copy without private error bodies',()=>{
+  const c=helpers(),privateText='PRIVATE-PDF-PROMPT-KEY';
+  const failure={http_status:400,request_format:'groq_json_schema',schema_bytes:2315,schema_sha256:'a'.repeat(64),
+    provider_rejection:{provider_code:'json_validate_failed',provider_type:'invalid_request_error',category:'output_validation',
+      fields:['response_format.json_schema.schema',privateText],failed_generation:privateText,message:privateText}};
+  const result=JSON.parse(JSON.stringify(c.publicDiagnostic({failure})));
+  assert.equal(result.provider_code,'json_validate_failed');assert.equal(result.category,'output_validation');
+  assert.equal(result.request_format,'groq_json_schema');assert.equal(result.schema_sha256,'a'.repeat(64));
+  assert.equal(JSON.stringify(result).includes(privateText),false);
+  assert.equal(c.publicDiagnostic({failure:{provider_rejection:{provider_code:privateText,provider_type:privateText}}}).provider_code,undefined);
+});
 test('stage counts use active checkpoints only and exclude replaced split parents',()=>{
   const c=helpers(),rows=[{kind:'inventory',status:'split',units:1},{kind:'inventory',status:'completed',units:2},
     {kind:'inventory',status:'pending',units:65},{kind:'verify',status:'completed',units:4}];
