@@ -13,6 +13,7 @@ from ai.types import AIRequest, AIError
 from ai.providers.gemini import GeminiProvider
 from ai.providers.groq import GroqProvider
 from ai.schemas import transport_schema,TRANSPORT_VERSION
+from ai.validation_diagnostics import json_failure, schema_failure, pydantic_failure
 
 
 def normalize_schema(value):
@@ -117,13 +118,23 @@ class AIRouter:
                 if schema:
                     try:
                         parsed = json.loads(result.text)
+                    except ValueError as exc:
+                        raise AIError('malformed_output', response_validation=json_failure(result.text)) from exc
+                    try:
                         Draft202012Validator(schema).validate(parsed)
+                    except ValidationError as exc:
+                        raise AIError('malformed_output', response_validation=schema_failure(exc)) from exc
+                    try:
                         result.data = output_type.model_validate(parsed) if output_type else parsed
-                    except (ValueError, ValidationError) as exc:
-                        raise AIError('malformed_output') from exc
+                    except ValueError as exc:
+                        raise AIError('malformed_output', response_validation=pydantic_failure(exc)) from exc
                 result.fallback = attempted > 1
                 return result
             except AIError as exc:
+                if schema and adapted.transport_schema and model.provider in ('gemini', 'groq'):
+                    encoded=json.dumps(adapted.transport_schema,sort_keys=True,separators=(',',':')).encode()
+                    exc.request_format='gemini_response_format' if model.provider=='gemini' else 'groq_json_schema'
+                    exc.schema_sha256=sha256(encoded).hexdigest();exc.schema_bytes=len(encoded)
                 exc.attempted=True;exc.reference=reference;failure=exc
                 last_actual=exc
                 last, status = exc, exc.kind
@@ -153,10 +164,10 @@ class AIRouter:
                 status = 'internal_error'
                 raise
             finally:
-                logging.info('ai provider=%s model=%s task=%s stage=%s unit=%s reference=%s http_status=%s incompatibility=%s transport_version=%s request_format=%s schema_sha256=%s schema_bytes=%s provider_rejection=%s latency_ms=%.1f fallback=%s status=%s tokens=%s', model.provider, model.name, task,stage,unit_id,reference,
+                logging.info('ai provider=%s model=%s task=%s stage=%s unit=%s reference=%s http_status=%s incompatibility=%s transport_version=%s request_format=%s schema_sha256=%s schema_bytes=%s provider_rejection=%s response_validation=%s latency_ms=%.1f fallback=%s status=%s tokens=%s', model.provider, model.name, task,stage,unit_id,reference,
                              failure.http_status if failure else None,failure.incompatibility if failure else None,TRANSPORT_VERSION,
                              failure.request_format if failure else None,failure.schema_sha256 if failure else None,failure.schema_bytes if failure else None,
-                             failure.provider_rejection if failure else None,
+                             failure.provider_rejection if failure else None, failure.response_validation if failure else None,
                              (time.perf_counter()-started)*1000, attempted > 1, status,
                              {k:v for k,v in (result.usage if result else {}).items() if k in ('total_tokens', 'totalTokenCount', 'prompt_tokens', 'completion_tokens')})
         if last_actual is not None:raise last_actual

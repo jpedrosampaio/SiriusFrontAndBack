@@ -11,6 +11,34 @@ const publicCategories = new Set(['unknown_field', 'invalid_value', 'missing_fie
 const publicProviderCodes = new Set(['json_validate_failed', 'model_decommissioned', 'model_not_found', 'context_length_exceeded', 'invalid_api_key', 'rate_limit_exceeded', 'tool_use_failed']);
 const publicProviderTypes = new Set(['invalid_request_error', 'authentication_error', 'permission_error', 'rate_limit_error', 'server_error']);
 const publicModels = new Set(['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']);
+const validationFields = new Set(('roles name code vacancies salary requirements value state sources page block_id quote classifications end_block_id kind level title scope role_references scope_sources facts key fact warnings bindings section_key decision reason applicability covered_block_ids disciplines stage group topics parent_key numbering rules target_scope target reviewed_unit_key findings severity subject description').split(' '));
+const validationCodes = {
+  json_decode: ['invalid_json', 'markdown_fence'],
+  json_schema: ['required', 'type', 'enum', 'const', 'additionalProperties', 'minItems', 'maxItems', 'minLength', 'maxLength', 'pattern', 'format', 'minimum', 'maximum', 'anyOf', 'oneOf', 'allOf', 'schema_rejected'],
+  pydantic: ['value_error', 'missing', 'extra_forbidden', 'string_type', 'string_too_short', 'string_too_long', 'string_pattern_mismatch', 'int_type', 'int_parsing', 'float_type', 'float_parsing', 'finite_number', 'bool_type', 'bool_parsing', 'list_type', 'dict_type', 'model_type', 'model_attributes_type', 'literal_error', 'too_short', 'too_long', 'greater_than', 'greater_than_equal', 'less_than', 'less_than_equal', 'contract_rejected'],
+};
+export const validationStages = { json_decode: 'Leitura do JSON', json_schema: 'Contrato JSON Schema', pydantic: 'Contrato Pydantic' };
+export const validationRules = {
+  fact_missing_inconsistent: 'Campo marcado como ausente contém valor ou fonte',
+  fact_evidence_missing: 'Valor proposto sem evidência documental',
+  heading_title_missing: 'Título de seção sem valor documentado',
+  scope_evidence_missing: 'Aplicabilidade sem fonte',
+  scope_roles_missing: 'Aplicabilidade nominal sem referência de cargo',
+  decision_evidence_missing: 'Decisão de associação sem fonte',
+  role_applicability_invalid: 'Conteúdo incompatível com a aplicabilidade',
+  applicability_evidence_missing: 'Aplicabilidade do cargo sem fonte',
+  topic_key_duplicate: 'Chaves de tópico repetidas',
+  topic_hierarchy_invalid: 'Hierarquia de tópicos inválida',
+};
+
+export function publicValidation(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.stage !== 'string' || typeof value.code !== 'string' || !Object.hasOwn(validationCodes, value.stage) || !validationCodes[value.stage].includes(value.code)) return null;
+  const result = { stage: value.stage, code: value.code, path: '$' };
+  if (typeof value.path === 'string' && value.path.length <= 200 && /^\$(?:\[\]){0,10}(?:\.(?:[a-z_]+|\*)(?:\[\]){0,10}){0,10}$/.test(value.path) && (value.path.match(/[a-z_]+/g) || []).every(field => validationFields.has(field))) result.path = value.path;
+  if (typeof value.rule === 'string' && Object.hasOwn(validationRules, value.rule)) result.rule = value.rule;
+  return result;
+}
+
 export const rejectionCategories = { unknown_field: 'Campo não reconhecido', invalid_value: 'Valor inválido', missing_field: 'Campo obrigatório ausente', unsupported: 'Recurso não suportado', output_validation: 'Resposta gerada fora do contrato', context_limit: 'Entrada acima do limite do modelo', unspecified: 'Motivo específico não informado' };
 export const analysisStages = [['inventory', 'Descoberta'], ['scope', 'Associações'], ['detail', 'Conteúdo'], ['verify', 'Comparação de fontes']];
 
@@ -22,6 +50,8 @@ export function stageProgress(rows, kind) {
 
 export function publicDiagnostic(item) {
   const failure = item?.failure || {}, rejection = failure.provider_rejection || {}, result = {};
+  const validation = publicValidation(failure.response_validation);
+  if (validation) result.response_validation = validation;
   if (typeof item?.reference === 'string' && /^[a-f0-9-]{36}$/i.test(item.reference)) result.reference = item.reference;
   if (typeof item?.unit_id === 'string' && /^[a-f0-9-]{36}$/i.test(item.unit_id)) result.unit_id = item.unit_id;
   if (analysisStages.some(([kind]) => kind === item?.kind)) result.stage = item.kind;

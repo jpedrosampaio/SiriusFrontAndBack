@@ -339,3 +339,42 @@ release of the remaining queue occurred.
 
 Model behavior reference: [Groq reasoning options](https://console.groq.com/docs/reasoning).
 Output-validation behavior: [Groq structured outputs](https://console.groq.com/docs/structured-outputs).
+
+## Local validation after HTTP success (2026-10-23)
+
+The reconnected saved-analysis view superseded the earlier 12-attempt snapshot:
+13/120 attempts, zero of68 inventory leaves completed, zero validated roles,
+minimum149. The correlated Groq Qwen console entry reported HTTP200 and
+4,118 input/310 output tokens. The application returned `malformed_output`.
+The next manually confirmed one-call pilot increased the saved counter exactly
+once to14/120, zero of69 leaves completed, minimum152, reference
+`82e34525-8fbf-493f-b691-82cc85df656a`. Splitting preserves parent attempts and
+source coverage; it does not constitute completion. No queue release or budget
+extension occurred. HTTP200 is not evidence that canonical output was accepted.
+
+Previously JSON decoding, canonical JSON Schema validation and Pydantic invariant
+errors all became the same opaque error. The diagnostic follow-up distinguishes
+these stages without changing any of those gates. `response_validation` retains
+only a finite stage/code, a bounded path using canonical public field names
+(indices become `[]`, unknown/dynamic keys become `*`) and, when identified, a
+finite invariant rule. It never retains raw errors, input values, generated
+responses, quotes, prompts or keys. A rule is selected only by exact comparison
+to an existing static validator message; unknown messages stay unknown.
+Sanitization is repeated at AIError construction, owned GET and UI/copy, including
+for old/untrusted JSON metadata. Transport schema fingerprints are also recorded
+for local post-response failures. Missing HTTP metadata remains missing; it is
+not inferred from a local error or a separate console entry.
+
+Tests use the real inventory, association, content and verification contracts
+over mocked transports, with malformed JSON, missing/extra fields and documentary
+invariant violations. Mocking an omitted fact state reproduces one possible
+Pydantic rejection for regression coverage; it does **not** establish the actual
+real-model failure. No payload, model, token limit or validator change is justified
+by that synthetic example. PostgreSQL ownership/history/budget/source tests and
+five-width browser/privacy regressions retain the existing quality gates.
+
+After publication, inspect the saved counters and perform a single controlled
+pilot under current owner authorization. Require the new safe stage/path/rule,
+or a genuinely completed and consolidated checkpoint, before choosing a fix.
+Stop on failure; do not retry the remaining queue or extend its budget. The
+separate documentary and human-review/import gates remain mandatory.

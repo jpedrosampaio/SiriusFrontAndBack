@@ -19,6 +19,7 @@ from services.edital_pdf import extract_pdf, PDFInputError, ExtractionMetrics, M
 from services.edital_pipeline_diagnostics import message as diagnostic_message
 from services.edital_pipeline_budget import forecast
 from ai.provider_diagnostics import safe_rejection
+from ai.validation_diagnostics import safe_validation
 
 router=APIRouter(prefix='/study/edital-pipeline')
 _wake=None
@@ -158,6 +159,7 @@ async def get_state(request:Request,analysis_id:str):
             failure=details.get('last_failure',{})
             diagnostics[-1]['failure']={key:failure.get(key) for key in ('http_status','incompatibility','reason','provider_attempted','request_format','schema_sha256','schema_bytes')}
             diagnostics[-1]['failure']['provider_rejection']=safe_rejection(failure.get('provider_rejection'))
+            diagnostics[-1]['failure']['response_validation']=safe_validation(failure.get('response_validation'))
             probes=details.get('provider_probes')
             diagnostics[-1]['provider_probes']=[{'case':entry['case'],'outcome':entry['outcome'],
                 'http_status':entry.get('http_status') if type(entry.get('http_status')) is int and 100<=entry['http_status']<=599 else None}

@@ -41,7 +41,7 @@ class AIResult:
 
 class AIError(Exception):
     def __init__(self, kind='provider_error', retry_after=30, *, http_status=None, incompatibility=None, reason=None, reference=None, attempted=False,
-                 request_format=None,schema_sha256=None,schema_bytes=None,provider_rejection=None):
+                 request_format=None,schema_sha256=None,schema_bytes=None,provider_rejection=None,response_validation=None):
         from uuid import uuid4
         self.kind = kind
         self.retry_after = min(300, max(1, retry_after))
@@ -55,4 +55,6 @@ class AIError(Exception):
         self.schema_bytes=schema_bytes if isinstance(schema_bytes,int) and 0<schema_bytes<=60000 else None
         from ai.provider_diagnostics import safe_rejection
         self.provider_rejection=safe_rejection(provider_rejection)
+        from ai.validation_diagnostics import safe_validation
+        self.response_validation=safe_validation(response_validation)
         super().__init__(kind)  # Never include provider response/prompt/key.

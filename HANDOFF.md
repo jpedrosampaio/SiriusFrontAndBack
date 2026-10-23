@@ -1,5 +1,35 @@
 # Sirius - current handoff
 
+## Current P0 checkpoint — 2026-10-23 (supersedes older attempt snapshots)
+
+Published main at the start of this follow-up: PR70 merge
+`48c52aee921dfe33fe018685fca51be1c22ab421`. Four head/merge workflows, independent
+Codex CLI review accepted by the owner, both exact deploys and read-only production
+checks passed; [publication receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/70#issuecomment-6372829081).
+Issue65 remains open: the latest saved real analysis has **14/120** reserved
+attempts, **0/69** active inventory leaves completed, zero validated roles and
+known minimum **152** attempts. The original input and split-parent histories
+remain saved. The owner's manual confirmation spent exactly one further pilot;
+reference `82e34525-8fbf-493f-b691-82cc85df656a`, Groq Qwen, `malformed_output`.
+An earlier correlated console request returned HTTP200, which does not prove
+canonical/documentary validation or semantic success.
+
+Current branch `codex/edital-validation-diagnostics-65` adds only finite safe
+post-response JSON/schema/Pydantic diagnostics across logging, owned persistence,
+GET and UI/copy. It does not repair or accept invalid output, change the payload,
+limits, routing, retries or migration. The actual failing field is still unknown.
+Complete all four workflows and final independent Codex review before merging,
+then confirm both exact deploys/read-only checks. Delivery status and evidence
+belong in the [existing ledger](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161).
+
+No further real call before this diagnostic is deployed. Then inspect saved state
+and perform at most one controlled pilot under the owner's current investigation
+authorization. The remaining queue and any budget extension stay paused pending
+separate approval. Native browser confirmation currently requires a manual OK;
+never blindly repeat the pilot button when the controller times out. No new
+upload, paid service, unrelated feature or phase is authorized. All older
+12/13-attempt snapshots and spent-consent records below are historical.
+
 ## Published state
 
 Phases 1-14 remain completed and published within the executable-contract validation scope. Latest functional maintenance: the universal incremental edital analyzer, [PR57](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/57), reviewed head `13200946271d6aeeeefb0b0d08a85323667f94be`, deployed merge `39ad9786ecb2eed57c3c9b65218388eedd0ebb42`. Its four head workflows passed with clean final Codex review; the protected owner-approved migration returned `applied`. Northflank and Vercel deployed that exact merge. Live/ready, preserved/new contracts, frontend/assets, twenty unauthenticated private GETs and public offline PWA boot at 320/390/768/1024/1440 px passed read-only checks. [Publication evidence, merge validation runs and limits](docs/history/UNIVERSAL_EDITAL_PUBLICATION.md).

@@ -136,6 +136,44 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
             self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
 
+    async def test_local_validation_is_owned_sanitized_and_preserves_budget_history_and_source(self):
+        await self.create(legacy=True,reserved_attempts=5)
+        await self.resume(mode='pilot');claim=await units.claim_next()
+        await units.provider_attempt(claim,MODELS['vision'])
+        error=AIError('malformed_output',attempted=True,request_format='groq_json_schema',schema_sha256='a'*64,schema_bytes=2315,
+            response_validation={'stage':'pydantic','code':'value_error','path':'$.roles[].name',
+                'rule':'fact_missing_inconsistent','input':'PRIVATE-PDF-PROMPT-KEY'})
+        await units.fail(claim,error.kind,error=error)
+        self.assertIsNone(await units.claim_next())
+        _,state,_=await self.state()
+        self.assertEqual(state.budget.reserved_attempts,6);self.assertEqual(state.budget.provider_limit,120)
+        self.assertFalse(state.provider_approval.pilot_validated);self.assertEqual(state.inventory.roles,[])
+        from services import edital_pipeline_routes as routes
+        request=Request({'type':'http','method':'GET','path':'/','headers':[]})
+        async def read():
+            with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.uid)})):
+                return await routes.get_state(request,self.identity)
+        response=await read()
+        diagnostic=next(row for row in json.loads(response.body)['diagnostics'] if row['unit_id']==str(claim.unit_id))
+        self.assertEqual(diagnostic['failure']['response_validation'],error.response_validation)
+        self.assertIsNone(diagnostic['failure']['http_status'])
+        self.assertNotIn('PRIVATE-PDF-PROMPT-KEY',response.body.decode())
+        with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.other)})):
+            with self.assertRaises(HTTPException) as denied:await routes.get_state(request,self.identity)
+        self.assertEqual(denied.exception.status_code,404)
+        async with unit_of_work() as session:
+            row=await session.get(EditalUnit,claim.unit_id);self.assertIsNone(row.result)
+            self.assertEqual(row.diagnostics['attempts'][0]['model'],'legacy')
+            analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
+            self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
+            row.diagnostics={**row.diagnostics,'last_failure':{**row.diagnostics['last_failure'],
+                'response_validation':{'stage':'pydantic','code':'value_error','path':'$.PRIVATE-PDF-PROMPT-KEY',
+                    'rule':'PRIVATE-PDF-PROMPT-KEY','message':'PRIVATE-PDF-PROMPT-KEY'}}}
+        response=await read()
+        diagnostic=next(row for row in json.loads(response.body)['diagnostics'] if row['unit_id']==str(claim.unit_id))
+        self.assertEqual(diagnostic['failure']['response_validation'],{'stage':'pydantic','code':'value_error','path':'$'})
+        self.assertNotIn('PRIVATE-PDF-PROMPT-KEY',response.body.decode())
+
     async def test_http400_is_correlated_preserves_input_and_never_autoretries(self):
         await self.create();await self.resume(mode='pilot');claim=await units.claim_next()
         await units.provider_attempt(claim,SimpleNamespace(provider='gemini',name='mock'))
