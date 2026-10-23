@@ -67,7 +67,8 @@ open until its real-unit acceptance criterion is met; local/mocked acceptance
 and deployment alone cannot establish semantic success.
 [Contracts, incident limits and manual pilot](docs/EDITAL_PROVIDER_DIAGNOSTICS.md).
 
-Current usability follow-up: `fix/edital-workspace-usability-65`, based on published
+Historical usability checkpoint (superseded by the publication below):
+`fix/edital-workspace-usability-65`, based on published
 PR68. The owner confirmed another document pilot failed with reference
 `8e6cb78f-73cb-4336-a6d6-49196f4e0a82`, unchanged 2315-byte inventory schema and
 eight calls on that unit. The supplied current UI shows ten analysis-wide
@@ -97,10 +98,15 @@ Both exact deployments report success; final read-only production validation
 is recorded in the existing delivery ledger below. This visual repair is not
 semantic completion of Issue65. Provider-diagnostic work on
 `fix/edital-provider-diagnostics-65` preserves generation contracts/history and
-adds finite public Groq rejection metadata; its publication is pending its own
-final-SHA CI/review/deploy gates.
+adds finite public Groq rejection metadata and route-matched recovery controls.
+Its exact review/CI/merge/deploy state is maintained in the
+[current delivery ledger](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161);
+branch preparation is not evidence of publication. No migration is needed.
+The latest owner authorization above supersedes historical spent-consent
+instructions; check saved state before any further controlled provider pilot.
+The remaining queue and budget extension stay paused pending explicit approval.
 
-The original fourteen-phase plan remains intact; **there is no Phase 15**. The authorized notification/PDF-security maintenance and incremental analyzer are deployed. Early inventory/selection, durable small units, recovery, human review/confirmation, canonical import and responsive workspace reuse the existing engines; [contracts and boundaries](docs/UNIVERSAL_EDITAL_ANALYZER.md). No real Gemini/Groq inference was performed or authorized for these tests; deployment does not establish semantic generalization. Await owner authorization before starting further work.
+The original fourteen-phase plan remains intact; **there is no Phase 15**. The authorized notification/PDF-security maintenance and incremental analyzer are deployed. Early inventory/selection, durable small units, recovery, human review/confirmation, canonical import and responsive workspace reuse the existing engines; [contracts and boundaries](docs/UNIVERSAL_EDITAL_ANALYZER.md). No real Gemini/Groq inference is performed by automated tests; deployment does not establish semantic generalization. Current P0 authorization is recorded above; further phases remain unauthorized.
 
 Backlog only: operational OCR; rectification/complementary-document reconciliation; separately authorized real Gemini validation with heterogeneous notices; the unresolved workout `workout_generation_invalid_sessions` failure; other real homologation issues. These were not implemented or silently marked resolved by this release.
 
