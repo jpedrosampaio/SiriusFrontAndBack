@@ -212,7 +212,7 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     }
     data.manifest.provider_approval=null;data.manifest.retry_at=null;data.manifest.budget.reserved_attempts=12;
     data.execution_plan.diagnostic_cases=[];data.execution_plan.extraction_route=[{provider:'groq',model:'qwen/qwen3.8-27b'}];
-    data.diagnostics=[{unit_id:'blocked-unit',kind:'inventory',status:'waiting_provider',provider_calls:10,
+    data.diagnostics=[{unit_id:'blocked-unit',kind:'inventory',status:'waiting_provider',error_kind:'invalid_request',provider_calls:10,
       reference:'3b71513c-c5c1-44ad-babd-b88e18b37b97',last_observed_model:{provider:'groq',model:'openai/gpt-oss-120b'},
       failure:{http_status:400,request_format:'groq_json_schema',schema_bytes:2315,schema_sha256:'a'.repeat(64),
         provider_rejection:{provider_code:'json_validate_failed',provider_type:'invalid_request_error',category:'output_validation',
