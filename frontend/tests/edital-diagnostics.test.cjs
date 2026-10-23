@@ -39,3 +39,16 @@ test('stage counts use active checkpoints only and exclude replaced split parent
   assert.deepEqual(JSON.parse(JSON.stringify(c.stageProgress(rows,'inventory'))),{total:67,done:2,pending:65});
   assert.deepEqual(JSON.parse(JSON.stringify(c.stageProgress(undefined,'detail'))),{total:0,done:0,pending:0});
 });
+
+test('local validation copy includes finite stage and canonical field but no private output or dynamic keys',()=>{
+  const c=helpers(),privateText='PRIVATE-PDF-PROMPT-KEY';
+  const response_validation={stage:'pydantic',code:'value_error',path:'$.roles[].name',rule:'fact_missing_inconsistent',input:privateText,message:privateText,ctx:{error:privateText}};
+  const result=JSON.parse(JSON.stringify(c.publicDiagnostic({failure:{response_validation}})));
+  assert.deepEqual(result.response_validation,{stage:'pydantic',code:'value_error',path:'$.roles[].name',rule:'fact_missing_inconsistent'});
+  assert.equal(JSON.stringify(result).includes(privateText),false);
+  for(const bad of [null,[],{stage:'__proto__',code:'value_error'},{stage:{},code:[]},{stage:'pydantic',code:privateText}])assert.equal(c.publicValidation(bad),null);
+  for(const path of ['$.roles[].'+privateText,'$.roles[123].name','$.roles.'+'name.'.repeat(100),'$.__proto__']){
+    const sanitized=c.publicValidation({...response_validation,path,rule:privateText});
+    assert.equal(sanitized.path,'$');assert.equal(sanitized.rule,undefined);
+  }
+});

@@ -228,6 +228,18 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     assert.equal(await page.getByText('PRIVATE-MOCK-GENERATION',{exact:false}).count(),0);
     assert.equal(writes.length,writesBeforeBlocked,'Inspecting a Groq generation failure must not resume the analysis');
     if(process.env.SIRIUS_VISUAL_DIR)await page.screenshot({path:require('node:path').join(process.env.SIRIUS_VISUAL_DIR,`edital-groq-${width}.png`)});
+    data.manifest.error_kind='malformed_output';
+    data.diagnostics[0].error_kind='malformed_output';
+    data.diagnostics[0].failure={request_format:'groq_json_schema',schema_bytes:2315,schema_sha256:'a'.repeat(64),
+      response_validation:{stage:'pydantic',code:'value_error',path:'$.roles[].name',rule:'fact_missing_inconsistent',
+        input:'PRIVATE-MOCK-VALIDATION',message:'PRIVATE-MOCK-VALIDATION'}};data.revision++;
+    await page.getByRole('button',{name:'Atualizar andamento',exact:true}).click();
+    await groqDiagnosis.getByText('Contrato Pydantic · value_error',{exact:true}).waitFor();
+    await groqDiagnosis.getByText('$.roles[].name',{exact:true}).waitFor();
+    await groqDiagnosis.getByText('Campo marcado como ausente contém valor ou fonte',{exact:true}).waitFor();
+    assert.equal(await page.getByText('PRIVATE-MOCK-VALIDATION',{exact:false}).count(),0);
+    assert.equal(writes.length,writesBeforeBlocked,'Inspecting canonical validation must not release units or change the budget');
+    if(process.env.SIRIUS_VISUAL_DIR)await page.screenshot({path:require('node:path').join(process.env.SIRIUS_VISUAL_DIR,`edital-validation-${width}.png`)});
     data.execution_plan.extraction_route=[];data.revision++;
     await page.getByRole('button',{name:'Atualizar andamento',exact:true}).click();
     await page.getByText('Configure um modelo compatível para a extração antes de autorizar uma tentativa.',{exact:true}).waitFor();

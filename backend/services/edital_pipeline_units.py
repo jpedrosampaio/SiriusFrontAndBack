@@ -14,6 +14,7 @@ from edital_pipeline_contracts import InventoryUnit, ScopeUnit, DetailUnit, Veri
 from services import edital_pipeline_store as store
 from services.edital_semantics import validate_unit, EvidenceError, split_batch, unit_key
 from ai.schemas import TRANSPORT_VERSION
+from ai.validation_diagnostics import safe_validation
 
 LEASE_SECONDS = 180
 CONTRACTS = {'inventory': InventoryUnit, 'scope': ScopeUnit, 'detail': DetailUnit, 'verify': VerificationUnit}
@@ -369,7 +370,7 @@ async def fail(claim, kind, retry_after=30, *, error=None):
         failure={'http_status':error.http_status,'incompatibility':error.incompatibility,'reason':error.reason,
             'provider_attempted':error.attempted,'request_format':error.request_format,
             'schema_sha256':error.schema_sha256,'schema_bytes':error.schema_bytes,
-            'provider_rejection':error.provider_rejection} if error else {}
+            'provider_rejection':error.provider_rejection,'response_validation':safe_validation(error.response_validation)} if error else {}
         retry_failures=unit.diagnostics.get('retry_failures',max(0,unit.attempts-1))+(1 if error is None or error.attempted else 0)
         unit.diagnostics = {**unit.diagnostics, 'last_error': kind, 'reference': error.reference if error else str(uuid4()),
             'failed_at': now.isoformat(),'last_failure':failure,'retry_failures':retry_failures}
