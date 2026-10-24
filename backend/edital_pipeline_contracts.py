@@ -3,6 +3,7 @@
 Document text is untrusted data. An AI response cannot confirm its own facts.
 """
 from typing import Literal
+from copy import deepcopy
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -79,7 +80,22 @@ class Citation(Contract):
     quote: str = Field(min_length=1, max_length=1200)
 
 
+def fact_evidence_schema(schema):
+    missing, sourced = deepcopy(schema), deepcopy(schema)
+    missing['properties']['state']['enum'] = ['missing']
+    missing['properties']['value'] = {'type': 'null'}
+    missing['properties']['sources']['maxItems'] = 0
+    sourced['properties']['state']['enum'] = ['extracted', 'ambiguous']
+    sourced['properties']['state'].pop('default', None)
+    sourced['properties']['value'] = {'type': 'string', 'minLength': 1, 'maxLength': 1200}
+    sourced['properties']['sources']['minItems'] = 1
+    sourced['required'] = ['value', 'state', 'sources']
+    schema.clear()
+    schema['anyOf'] = [missing, sourced]
+
+
 class ProposedFact(Contract):
+    model_config = ConfigDict(json_schema_extra=fact_evidence_schema)
     # Preserve the documentary spelling/units. Numeric normalization is separate.
     value: str | None = Field(default=None, max_length=1200)
     state: Literal['extracted', 'missing', 'ambiguous'] = 'missing'
@@ -107,7 +123,33 @@ SemanticKind = Literal['general', 'roles', 'requirements', 'registration', 'exam
     'program', 'schedule', 'annex', 'external_reference', 'other', 'uncertain']
 
 
+def classification_scope_schema(schema):
+    """Expose the existing sourced_scope invariant to structured generators.
+
+    Complete object alternatives keep provider-supported anyOf branches closed
+    and preserve every original field/bound. This does not repair model output.
+    """
+    alternatives = []
+    for scopes, required in (
+        (['unspecified'], []),
+        (['all_roles'], ['scope', 'scope_sources']),
+        (['named_roles', 'except_roles'], ['scope', 'scope_sources', 'role_references']),
+    ):
+        option = deepcopy(schema)
+        option['properties']['scope']['enum'] = scopes
+        if required:
+            option['properties']['scope'].pop('default', None)
+            option['properties']['scope_sources']['minItems'] = 1
+        if 'role_references' in required:
+            option['properties']['role_references']['minItems'] = 1
+        option['required'] = list(dict.fromkeys([*option.get('required', []), *required]))
+        alternatives.append(option)
+    schema.clear()
+    schema['anyOf'] = alternatives
+
+
 class BlockClassification(Contract):
+    model_config = ConfigDict(json_schema_extra=classification_scope_schema)
     block_id: str = Field(min_length=1, max_length=64)
     end_block_id: str | None = Field(default=None,max_length=64)
     kind: SemanticKind
@@ -144,7 +186,18 @@ class InventoryUnit(Contract):
     warnings: list[str] = Field(default_factory=list, max_length=8)
 
 
+def binding_evidence_schema(schema):
+    ambiguous, sourced = deepcopy(schema), deepcopy(schema)
+    ambiguous['properties']['decision']['enum'] = ['ambiguous']
+    sourced['properties']['decision']['enum'] = ['include', 'exclude']
+    sourced['properties']['sources']['minItems'] = 1
+    sourced['required'] = [*sourced['required'], 'sources']
+    schema.clear()
+    schema['anyOf'] = [ambiguous, sourced]
+
+
 class SectionBinding(Contract):
+    model_config = ConfigDict(json_schema_extra=binding_evidence_schema)
     section_key: str = Field(min_length=1,max_length=64)
     decision: Literal['include','exclude','ambiguous']
     sources: list[Citation] = Field(default_factory=list,max_length=6)

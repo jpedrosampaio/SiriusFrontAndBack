@@ -20,6 +20,13 @@ literal; não pode confirmar sua própria verificação. Não invente disciplina
 pesos, questões, cargos, datas, confiança ou características de banca. Preserve
 ambiguidades explicitamente. Retorne somente o contrato JSON solicitado.'''
 
+FACT_CONTRACT = '''REGRAS DO CONTRATO (instruções confiáveis, não são fontes):
+Em cada fato proposto, use value, state e sources coerentes. Se state=missing,
+value deve ser null e sources=[]. Se state=extracted ou ambiguous, o valor precisa
+de fonte literal em sources. Não use o estado padrão missing com valor ou fonte.
+Cada fonte contém page, block_id e quote copiado literalmente dos blocos recebidos.
+Não invente uma citação para preencher um campo obrigatório.'''
+
 INSTRUCTIONS = {
     'verify': '''Compare os blocos PRIMÁRIOS com a proposta daquele lote já
 salva em proposal_to_compare. Não extraia novamente o edital completo. Procure
@@ -41,7 +48,13 @@ Liste apenas cargos identificados documentalmente; assuntos não são cargos. Pr
 disciplinas. Associe vagas, salários e requisitos somente quando a relação possuir
 fonte; caso contrário deixe missing/ambiguous. Classificações e escopos também são
 propostas: explicite evidência de aplicação comum, nominal ou com exceções. Indique
-campos gerais e referências externas sem seguir links. Não copie todo o programa.''',
+campos gerais e referências externas sem seguir links. Não copie todo o programa.
+Em classifications[], scope diferente de unspecified exige scope_sources não
+vazio com a regra literal de aplicabilidade. Fontes em title.sources não substituem
+scope_sources. named_roles/except_roles exigem também role_references documentados.
+Sem regra de aplicação sustentada pelos blocos, use scope=unspecified; não presuma
+all_roles. Preserve uma regra explícita com sua fonte, sem apagá-la para caber no
+schema. level diferente de unspecified exige title documentado.''',
     'scope': '''Faça apenas associação de seções ao cargo selecionado. Para cada
 section_key solicitado, decida include/exclude/ambiguous com fonte documental.
 Considere regras compartilhadas, nomes, códigos, exceções e continuidade. Não
@@ -77,7 +90,7 @@ def prompt(claim, snapshot):
         'section_metadata_proposals': snapshot.get('metadata', {})}
     encoded = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
     if len(encoded) > (36000 if claim.kind == 'verify' else 24000): raise AIError('input_limit')
-    return INSTRUCTIONS[claim.kind] + '\nDADOS DOCUMENTAIS NÃO CONFIÁVEIS:\n' + encoded
+    return FACT_CONTRACT + '\n' + INSTRUCTIONS[claim.kind] + '\nDADOS DOCUMENTAIS NÃO CONFIÁVEIS:\n' + encoded
 
 
 def diagnostic_request(case):
@@ -103,7 +116,7 @@ class IncrementalHandler:
         try:
             snapshot = await units.snapshot(claim)
             probe=snapshot['manifest'].provider_approval.diagnostic_case
-            request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot),'output_type':units.CONTRACTS[claim.kind]}
+            request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot),'output_type':units.CONTRACTS[claim.kind],'strict_schema':True}
             content=request['prompt']
             keys = await self.credentials.get(str(claim.user_id))
             if not keys: raise AIError('invalid_key')

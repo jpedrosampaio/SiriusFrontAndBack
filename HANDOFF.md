@@ -2,40 +2,37 @@
 
 ## Current P0 checkpoint — 2026-10-23 (supersedes older attempt snapshots)
 
-Published main at the start of this follow-up: PR71 merge
-`3740b13df8195fccef24ac43634ff28c17ba97bd`. Four head/merge workflows, independent
-Codex CLI review accepted by the owner, both exact deploys and read-only production
-checks passed; [publication receipt and limitations](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/71#issuecomment-6374248937).
-Issue65 remains open: the latest saved real analysis has **14/120** reserved
-attempts, **0/69** active inventory leaves completed, zero validated roles and
-known minimum **152** attempts. The original input and split-parent histories
-remain saved. The owner's manual confirmation spent exactly one further pilot;
-reference `82e34525-8fbf-493f-b691-82cc85df656a`, Groq Qwen, `malformed_output`.
-An earlier correlated console request returned HTTP200, which does not prove
-canonical/documentary validation or semantic success.
+Published base: PR72 merge `a685c1a974b1123aa1806bdef55cc8efaf01b010`.
+All four head/merge workflows, independent final-SHA Codex CLI review accepted by
+the owner, exact Northflank/Vercel deploys and read-only production checks passed.
+The real analysis is visible and its in-page pilot confirmation works.
+[Publication and actual pilot receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/72#issuecomment-6378599966).
 
-PR71 published finite safe JSON/schema/Pydantic diagnostics; the actual failing
-field remains unknown because no new real pilot ran afterward. The owner reports
-the central area blank and no native confirmation open. A fresh owned refresh
-still shows14/120, so do not infer a15th attempt from the earlier dialog request.
+Issue65 remains open. One controlled real pilot incremented the saved analysis
+from14 to **15/120** attempts: **0/70** active inventory leaves completed, zero
+validated roles, known minimum **155** calls. Reference
+`1732fd14-0487-4407-8567-b7b661a35993`: Groq `qwen/qwen3.8-27b`,
+`malformed_output`, Pydantic `$.classifications[]`, `scope_evidence_missing`.
+The2315-byte transport/3 schema did not expose that conditional source invariant.
+This proves a post-response contract gap, not the original Gemini400 cause.
+No raw response or scope value was retained; no HTTP status is inferred.
 
-Current branch `codex/edital-visible-recovery-65` fixes route content hidden by a
-stalled entry animation and replaces the provider-plan native confirmations with
-accessible in-page dialogs. The old build fails the frozen-animation regression
-with ancestor opacity0. Authorizations keep their disclosures, revision binding,
-explicit budget extension and existing idempotency/session/server fences.
-No payload, model, validation, retry, data or migration change is included.
-Complete all four workflows and final independent Codex review before merging,
-then confirm both exact deploys/read-only checks. Delivery status and evidence
-belong in the [existing ledger](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161).
+Current branch `codex/edital-scope-evidence-65` exposes the existing conditional
+evidence rules in JSON Schema and trusted prompt instructions; the original
+Pydantic/documentary validators remain mandatory. It opts document requests into
+Groq strict JSON on documented capable models (Qwen remains the configured free
+primary), verifies that transport locally, and keeps other tasks best-effort.
+Transport/4 invalidates previous full-run approval, preserving all input,
+checkpoints, history, counters and the unchanged120 budget. No migration.
+Tests/CI/review and publication of this fix are still pending until evidenced in
+the [delivery ledger](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161).
 
-No further real call before this UI recovery is deployed. Then inspect saved state
-and perform at most one controlled pilot under the owner's current investigation
-authorization. The remaining queue and any budget extension stay paused pending
-separate approval. The earlier native-confirmation handoff is superseded by the
-owner's report; never blindly repeat the pilot button after a timeout. No new
-upload, paid service, unrelated feature or phase is authorized. All older
-12/13-attempt snapshots and spent-consent records below are historical.
+No more real calls before the fix passes all gates and exact deployment checks.
+Then inspect saved state and execute at most one controlled pilot under current
+owner authorization. Require an actually validated/consolidated checkpoint;
+local schema acceptance is insufficient. The rest of the queue and any budget
+extension need separate approval. No new upload, paid service or unrelated phase.
+Older attempt snapshots and native-dialog handoffs below are historical.
 
 ## Published state
 

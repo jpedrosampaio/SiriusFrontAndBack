@@ -410,3 +410,45 @@ production writes or real inference in these tests. After exact publication and
 read-only validation, inspect the saved state before one controlled real pilot;
 the remaining queue stays paused and Issue65 remains open until real validation
 and consolidation succeed.
+
+## Observed scope contract gap and strict Groq document mode (2026-10-23)
+
+After PR72's exact deploys and read-only checks, the working in-page dialog
+authorized one real Qwen pilot. Saved counters changed14→15/120, active leaves
+became70 after a split, with zero completed leaves/roles and known minimum155.
+Reference `1732fd14-0487-4407-8567-b7b661a35993` reported Pydantic
+`$.classifications[]`, `scope_evidence_missing` on transport/3,2315 bytes,
+SHA256 `12e4a11144bf234144434ac9a971a38be56765e8c636af9d829ea64a8201d556`.
+No raw response/scope value or retained HTTP status is inferred. This establishes
+the existing non-unspecified-scope/source requirement was violated after parsing;
+it does not establish the historical Gemini400 root cause.
+
+The JSON Schema now reflects the original classification scope, proposed-fact
+state/source and section-decision source invariants with closed `anyOf` object
+alternatives. Trusted instructions name `scope_sources` explicitly: title
+citations cannot substitute it. Missing evidence never becomes a fabricated
+citation, a guessed applicability or an automatically repaired response. Original
+Pydantic validators, citation matching, primary coverage and consolidation gates
+remain in force. Scalar/documentary checks omitted by the provider subset stay
+local, including literal quote matching and bounded text/hierarchies.
+
+[Groq's current structured-output documentation](https://console.groq.com/docs/structured-outputs)
+lists Qwen3.8-27B and GPT-OSS20B/120B for strict decoding, requiring all declared
+properties and closed objects, and supports unions/reusable references. Only
+document worker requests opt into strict mode for those Groq catalogue entries.
+The projection requires existing fields explicitly without adding nullable types;
+responses must pass that wire schema, canonical JSON Schema, Pydantic and
+documentary checks. Other tasks retain best-effort defaults; Gemini retains its
+existing envelope. Request fingerprints and safe diagnostics distinguish strict
+Groq mode. Unsupported models stop before reservation/network; a permanent400
+cannot silently downgrade/retry the payload. The pilot fence still caps fallback
+at one actual provider attempt.
+
+Transport/4 requires a fresh controlled document pilot before full-run approval.
+There is no upload, migration, token-cap increase, automatic budget extension or
+paid service. Tests use all four real contracts and mock HTTP, conditional-source
+equivalence, malformed strict output, capability/rejection guards and a disposable
+PostgreSQL one-call completion/consolidation/pause with ownership/source/history
+checks. Passing these tests does not prove the real model accepts the new schema
+or identifies real cargos. That remains a post-publication one-lot verification;
+the remaining queue stays paused and Issue65 stays open pending real evidence.

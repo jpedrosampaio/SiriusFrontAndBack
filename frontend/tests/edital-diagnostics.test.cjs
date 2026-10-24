@@ -40,6 +40,12 @@ test('stage counts use active checkpoints only and exclude replaced split parent
   assert.deepEqual(JSON.parse(JSON.stringify(c.stageProgress(undefined,'detail'))),{total:0,done:0,pending:0});
 });
 
+test('strict Groq wire mode survives safe diagnostic copying without accepting arbitrary modes',()=>{
+  const c=helpers();
+  assert.equal(c.publicDiagnostic({failure:{request_format:'groq_json_schema_strict'}}).request_format,'groq_json_schema_strict');
+  assert.equal(c.publicDiagnostic({failure:{request_format:'PRIVATE-PROMPT'}}).request_format,undefined);
+});
+
 test('local validation copy includes finite stage and canonical field but no private output or dynamic keys',()=>{
   const c=helpers(),privateText='PRIVATE-PDF-PROMPT-KEY';
   const response_validation={stage:'pydantic',code:'value_error',path:'$.roles[].name',rule:'fact_missing_inconsistent',input:privateText,message:privateText,ctx:{error:privateText}};

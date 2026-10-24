@@ -14,14 +14,17 @@ class Model:
     capabilities: frozenset
     free_tier: bool = True
     structured_profile: str | None = None
+    strict_structured: bool = False
 
 
+# Strict Groq support: https://console.groq.com/docs/structured-outputs,
+# checked 2026-10-23. This flag is separate from best-effort JSON support.
 MODELS = {
     'flash': Model('gemini', 'gemini-3.8-flash', frozenset({'text', 'json', 'tools', 'pdf', 'image', 'audio', 'files'}), structured_profile='gemini_json_v2'),
     'lite': Model('gemini', 'gemini-3.5-flash-lite', frozenset({'text', 'json', 'tools', 'pdf', 'image', 'audio', 'files'}), structured_profile='gemini_json_v2'),
-    'reasoning': Model('groq', 'openai/gpt-oss-120b', frozenset({'text', 'json', 'tools'}), structured_profile='groq_json_v2'),
-    'fast': Model('groq', 'openai/gpt-oss-20b', frozenset({'text', 'json', 'tools'}), structured_profile='groq_json_v2'),
-    'vision': Model('groq', 'qwen/qwen3.8-27b', frozenset({'text', 'json', 'tools', 'image'}), structured_profile='groq_json_v2'),
+    'reasoning': Model('groq', 'openai/gpt-oss-120b', frozenset({'text', 'json', 'tools'}), structured_profile='groq_json_v2', strict_structured=True),
+    'fast': Model('groq', 'openai/gpt-oss-20b', frozenset({'text', 'json', 'tools'}), structured_profile='groq_json_v2', strict_structured=True),
+    'vision': Model('groq', 'qwen/qwen3.8-27b', frozenset({'text', 'json', 'tools', 'image'}), structured_profile='groq_json_v2', strict_structured=True),
     'embedding': Model('gemini', 'gemini-embedding-2', frozenset({'embedding'})),
     'stt': Model('groq', 'whisper-large-v3-turbo', frozenset({'speech_to_text', 'audio'})),
     'tts': Model('gemini', 'gemini-3.8-flash-lite-tts', frozenset({'text_to_speech'})),
