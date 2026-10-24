@@ -136,6 +136,50 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
             self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
 
+    async def test_scoped_inventory_mock_is_validated_consolidated_and_paused_without_new_upload_or_budget(self):
+        import hashlib
+        from ai.router import AIRouter
+        from ai.providers.groq import GroqProvider
+        from edital_pipeline_contracts import DocumentIR,SourcePage,SourceBlock
+        from services.edital_pipeline_worker import IncrementalHandler
+        text='Perfil A: Analista de Sistemas. Estas regras aplicam-se a todos os cargos.'
+        doc=DocumentIR(sha256=hashlib.sha256(text.encode()).hexdigest(),size_bytes=len(text.encode()),
+            pages=[SourcePage(page=1,width=600,height=800,quality='text',characters=len(text),
+                blocks=[SourceBlock(id='p0001-b0001',page=1,text=text,bbox=(50,50,550,70))])])
+        reserved=await store.reserve_intake(self.uid,doc.sha256,'synthetic.pdf',False,str(uuid4()))
+        accepted=await store.persist_input(self.uid,reserved['job_id'],reserved['token'],doc)
+        self.identity=accepted['analysis_id']
+        await self.resume(mode='pilot');claim=await units.claim_next();calls=[]
+        citation={'page':1,'block_id':'p0001-b0001','quote':text}
+        payload={'roles':[{'name':{'value':'Analista de Sistemas','state':'extracted','sources':[citation]}}],
+            'classifications':[{'block_id':'p0001-b0001','kind':'roles','scope':'all_roles','scope_sources':[citation]}]}
+        from edital_pipeline_contracts import InventoryUnit
+        payload=InventoryUnit.model_validate(payload).model_dump(mode='json')
+        def response(request):
+            calls.append(request);body=json.loads(request.content)
+            self.assertIs(body['response_format']['json_schema']['strict'],True)
+            self.assertEqual(len(body['response_format']['json_schema']['schema']['$defs']['BlockClassification']['anyOf']),3)
+            self.assertIn('scope_sources',body['messages'][-1]['content'])
+            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(payload)}}]})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+            router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['vision']]),providers={'groq':GroqProvider(client)})
+            credentials=SimpleNamespace(get=AsyncMock(return_value={'groq':'synthetic-key'}))
+            await IncrementalHandler(router,credentials,progress.consolidate).execute(claim)
+        self.assertEqual(len(calls),1);self.assertIsNone(await units.claim_next())
+        _,state,_=await self.state()
+        self.assertEqual(state.budget.reserved_attempts,1);self.assertEqual(state.budget.provider_limit,120)
+        self.assertTrue(state.provider_approval.pilot_validated);self.assertEqual(state.provider_approval.mode,'paused')
+        self.assertEqual(state.error_kind,'pilot_review_required')
+        self.assertEqual(len(state.inventory.roles),1);self.assertEqual(state.inventory.roles[0].name.value,'Analista de Sistemas')
+        async with unit_of_work() as session:
+            row=await session.get(EditalUnit,claim.unit_id)
+            self.assertEqual(row.status,'completed');self.assertEqual(row.provider_calls,1)
+            analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
+            self.assertEqual(analysis.pages[0]['blocks'][0]['text'],text)
+            self.assertEqual(store.manifest(analysis).source.hash,doc.sha256)
+            with self.assertRaises(HTTPException) as denied:await store.owned_analysis(session,self.other,self.identity)
+        self.assertEqual(denied.exception.status_code,404)
+
     async def test_local_validation_is_owned_sanitized_and_preserves_budget_history_and_source(self):
         await self.create(legacy=True,reserved_attempts=5)
         await self.resume(mode='pilot');claim=await units.claim_next()

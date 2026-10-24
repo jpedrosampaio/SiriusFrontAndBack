@@ -79,14 +79,20 @@ class AIRouter:
                 continue
             adapted=request
             if schema:
-                try:adapted=replace(request,transport_schema=transport_schema(schema,model.structured_profile))
+                # The edital opt-in uses strict decoding only for documented
+                # Groq capabilities. Gemini keeps its existing structured route.
+                strict=request.strict_schema and model.provider=='groq'
+                if strict and not model.strict_structured:
+                    last=AIError('invalid_request',incompatibility='model_capability');continue
+                try:adapted=replace(request,strict_schema=strict,
+                    transport_schema=transport_schema(schema,model.structured_profile,strict=strict))
                 except AIError as error:
                     if error.incompatibility=='model_capability':last=error;continue
                     raise
             fingerprint=(user_id,model.provider,model.name,task,TRANSPORT_VERSION,
                 sha256(keys[model.provider].encode()).hexdigest(),sha256(json.dumps(adapted.transport_schema,sort_keys=True).encode()).hexdigest(),
                 sha256(json.dumps({'prompt':request.prompt,'system':request.system,'messages':request.messages,
-                    'parts':request.parts,'tools':request.tools,'max_tokens':request.max_tokens,'mime':request.mime},
+                    'parts':request.parts,'tools':request.tools,'max_tokens':request.max_tokens,'mime':request.mime,'strict_schema':adapted.strict_schema},
                     sort_keys=True,default=str).encode()).hexdigest())
             capability_token=(*fingerprint[:6],'model_capability')
             rejected=self.rejections.get(fingerprint) or self.rejections.get(capability_token)
@@ -121,6 +127,7 @@ class AIRouter:
                     except ValueError as exc:
                         raise AIError('malformed_output', response_validation=json_failure(result.text)) from exc
                     try:
+                        if adapted.strict_schema:Draft202012Validator(adapted.transport_schema).validate(parsed)
                         Draft202012Validator(schema).validate(parsed)
                     except ValidationError as exc:
                         raise AIError('malformed_output', response_validation=schema_failure(exc)) from exc
@@ -133,7 +140,7 @@ class AIRouter:
             except AIError as exc:
                 if schema and adapted.transport_schema and model.provider in ('gemini', 'groq'):
                     encoded=json.dumps(adapted.transport_schema,sort_keys=True,separators=(',',':')).encode()
-                    exc.request_format='gemini_response_format' if model.provider=='gemini' else 'groq_json_schema'
+                    exc.request_format='gemini_response_format' if model.provider=='gemini' else 'groq_json_schema_strict' if adapted.strict_schema else 'groq_json_schema'
                     exc.schema_sha256=sha256(encoded).hexdigest();exc.schema_bytes=len(encoded)
                 exc.attempted=True;exc.reference=reference;failure=exc
                 last_actual=exc

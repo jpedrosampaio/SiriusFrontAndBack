@@ -9,7 +9,7 @@ from copy import deepcopy
 import json
 from ai.types import AIError
 
-TRANSPORT_VERSION = 'structured-transport/3'
+TRANSPORT_VERSION = 'structured-transport/4'
 PROFILES = {'gemini_json_v2', 'groq_json_v2'}
 IGNORED = {'title','description','default','examples','minLength','maxLength','pattern',
     'minProperties','maxProperties','$schema','$id'}
@@ -21,8 +21,9 @@ def incompatible(reason):
     return AIError('invalid_request', incompatibility=reason)
 
 
-def transport_schema(schema, profile):
+def transport_schema(schema, profile, *, strict=False):
     if profile not in PROFILES:raise incompatible('model_capability')
+    if strict and profile!='groq_json_v2':raise incompatible('model_capability')
     definitions=schema.get('$defs',{})
     nodes=0
     def project(value,depth=0):
@@ -52,6 +53,11 @@ def transport_schema(schema, profile):
             elif key in ('anyOf','oneOf','prefixItems'):
                 result[key]=[project(child,depth+1) for child in item]
             else:result[key]=deepcopy(item)
+        if strict and (result.get('type')=='object' or 'properties' in result):
+            # Strict decoding requires every declared field, including explicit
+            # null/empty values. Never add nullable types or loosen a contract.
+            if result.get('additionalProperties') is not False:raise incompatible('schema_feature')
+            result['required']=list(result.get('properties',{}))
         return result
     result=project(schema)
     if definitions and '$defs' not in result:result['$defs']={name:project(value) for name,value in definitions.items()}

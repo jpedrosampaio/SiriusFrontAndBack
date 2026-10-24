@@ -25,9 +25,10 @@ class GroqProvider(Provider):
         messages.append({'role': 'user', 'content': content})
         payload = {'model': model.name, 'messages': messages, 'max_completion_tokens': min(request.max_tokens, 16000)}
         if request.schema:
-            # Best effort supports legacy optional fields; local validation is mandatory.
-            wire=request.transport_schema if request.transport_schema is not None else transport_schema(request.schema,model.structured_profile)
-            payload['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'sirius_response', 'strict': False, 'schema': wire}}
+            if request.strict_schema and not model.strict_structured:
+                raise AIError('invalid_request',incompatibility='model_capability')
+            wire=request.transport_schema if request.transport_schema is not None else transport_schema(request.schema,model.structured_profile,strict=request.strict_schema)
+            payload['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'sirius_response', 'strict': request.strict_schema, 'schema': wire}}
         if request.tools:
             payload['tools'] = [{'type': 'function', 'function': t} for t in request.tools]
         try:
@@ -35,7 +36,7 @@ class GroqProvider(Provider):
         except AIError as error:
             if request.schema:
                 encoded=json.dumps(wire,sort_keys=True,separators=(',',':')).encode()
-                error.request_format='groq_json_schema'
+                error.request_format='groq_json_schema_strict' if request.strict_schema else 'groq_json_schema'
                 error.schema_sha256=sha256(encoded).hexdigest()
                 error.schema_bytes=len(encoded)
             raise

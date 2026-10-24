@@ -60,7 +60,9 @@ class ValidationDiagnostics(unittest.IsolatedAsyncioTestCase):
             ({'roles': [], 'classifications': [{'block_id':'p0001-b0001','kind':'other'}], PRIVATE: PRIVATE},
                 {'stage': 'json_schema', 'code': 'additionalProperties', 'path': '$'}),
             ({'roles': [{'name': {'value': PRIVATE, 'sources': [SOURCE]}}], 'classifications': [{'block_id':'p0001-b0001','kind':'other'}]},
-                {'stage': 'pydantic', 'code': 'value_error', 'path': '$.roles[].name', 'rule': 'fact_missing_inconsistent'}),
+                {'stage': 'json_schema', 'code': 'anyOf', 'path': '$.roles[].name'}),
+            ({'roles': [], 'classifications': [{'block_id':'p0001-b0001','kind':'other','level':'section'}]},
+                {'stage': 'pydantic', 'code': 'value_error', 'path': '$.classifications[]', 'rule': 'heading_title_missing'}),
         ]
         for provider in ('groq', 'gemini'):
             for payload, expected in cases:
@@ -71,9 +73,9 @@ class ValidationDiagnostics(unittest.IsolatedAsyncioTestCase):
         for contract, payload, expected in [
             (InventoryUnit, {'roles': [], 'classifications': [{'block_id': 'p0001-b0001', 'kind': 'other',
                 'title': {'value': PRIVATE, 'sources': [SOURCE]}}]},
-                {'stage': 'pydantic', 'code': 'value_error', 'path': '$.classifications[].title', 'rule': 'fact_missing_inconsistent'}),
+                {'stage': 'json_schema', 'code': 'anyOf', 'path': '$.classifications[]'}),
             (ScopeUnit, {'bindings': [{'section_key': 'section-a', 'decision': 'include', 'reason': PRIVATE}]},
-                {'stage': 'pydantic', 'code': 'value_error', 'path': '$.bindings[]', 'rule': 'decision_evidence_missing'}),
+                {'stage': 'json_schema', 'code': 'anyOf', 'path': '$.bindings[]'}),
             (DetailUnit, {'applicability': 'selected_role', 'covered_block_ids': ['p0001-b0001']},
                 {'stage': 'pydantic', 'code': 'value_error', 'path': '$', 'rule': 'applicability_evidence_missing'}),
             (VerificationUnit, {'covered_block_ids': ['p0001-b0001'], 'findings': []},

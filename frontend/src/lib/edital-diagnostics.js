@@ -64,7 +64,7 @@ export function publicDiagnostic(item) {
   if (publicProviderTypes.has(rejection.provider_type)) result.provider_type = rejection.provider_type;
   if (publicCategories.has(rejection.category)) result.category = rejection.category;
   result.fields = [...new Set((Array.isArray(rejection.fields) ? rejection.fields : []).slice(0, 8).filter(value => publicFields.has(value)))];
-  if (['gemini_response_format', 'groq_json_schema'].includes(failure.request_format)) result.request_format = failure.request_format;
+  if (['gemini_response_format', 'groq_json_schema', 'groq_json_schema_strict'].includes(failure.request_format)) result.request_format = failure.request_format;
   if (typeof failure.schema_sha256 === 'string' && /^[a-f0-9]{64}$/.test(failure.schema_sha256)) result.schema_sha256 = failure.schema_sha256;
   if (Number.isInteger(failure.schema_bytes) && failure.schema_bytes > 0 && failure.schema_bytes <= 60000) result.schema_bytes = failure.schema_bytes;
   if (Number.isInteger(item?.provider_calls) && item.provider_calls >= 0) result.unit_reserved_calls = item.provider_calls;
