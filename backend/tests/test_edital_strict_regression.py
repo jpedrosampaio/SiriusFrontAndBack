@@ -112,12 +112,13 @@ class StrictContracts(unittest.IsolatedAsyncioTestCase):
 
     async def test_quota_and_unavailability_preserve_the_single_attempt_fence_and_can_recover(self):
         complete = InventoryUnit.model_validate(CASES[0][1]).model_dump(mode='json')
-        for status, kind in ((429, 'quota'), (503, 'unavailable')):
+        for status, kind in ((429, 'quota'), (429, 'rate_limit'), (503, 'unavailable')):
             calls = []
             def respond(request):
                 calls.append(request)
                 self.assertTrue(json.loads(request.content)['response_format']['json_schema']['strict'])
-                if len(calls) == 1: return httpx.Response(status, json={'error': {'message': 'Synthetic provider failure'}})
+                if len(calls) == 1: return httpx.Response(status, json={'error': {'message':
+                    'Synthetic quota reached' if kind == 'quota' else 'Synthetic provider failure'}})
                 return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(complete)}}]})
             attempts = []
             async def one_attempt(model):
