@@ -378,3 +378,35 @@ pilot under current owner authorization. Require the new safe stage/path/rule,
 or a genuinely completed and consolidated checkpoint, before choosing a fix.
 Stop on failure; do not retry the remaining queue or extend its budget. The
 separate documentary and human-review/import gates remain mandatory.
+
+## Visible recovery and in-page authorization (2026-10-23)
+
+The owner confirmed both an empty central area and no native confirmation open
+after PR71. A fresh owned refresh still showed14/120 and0/69 completed leaves;
+the earlier attempted dialog acceptance is not evidence of a provider call.
+The browser had already exposed the entire route wrapper at opacity0 while the
+analysis DOM was present. A deterministic regression against the old build with
+animation frames suspended reproduces exactly that invisible ancestor. It does
+not establish why that client's animation scheduler stalled.
+
+Route content now starts visible in a static wrapper, retaining its width and
+route/error/authentication boundaries. Rendering no longer depends on completion
+of a decorative JavaScript entrance animation. Other exported animation helpers
+and domain behavior are unchanged.
+
+Provider-plan pilot, synthetic-diagnostic and full-run confirmations use the
+existing accessible alert-dialog primitive, with static overlay/content for this
+flow. They preserve the exact saved-text/synthetic-data distinction, one-call
+limit, pause, total-budget/extension disclosure and explicit final authorization.
+Opening, cancelling or escaping never dispatches a command. The dialog is bound
+to the analysis/revision and invalidated by a newer snapshot. A synchronous submit
+guard complements the existing command idempotency, session fence and server
+locks; no authorization is inferred from closing the dialog or a timeout.
+
+Five-width tests cover suspended animation frames, visible content/dialog,
+keyboard focus containment, Escape/cancel, stale revision, double-click submission
+and unchanged budget. Full CI and Codex review remain mandatory. There are no
+production writes or real inference in these tests. After exact publication and
+read-only validation, inspect the saved state before one controlled real pilot;
+the remaining queue stays paused and Issue65 remains open until real validation
+and consolidation succeed.

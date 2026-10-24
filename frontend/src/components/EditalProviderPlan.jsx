@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowRight, Check, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from '@/components/ui/alert-dialog';
 
 const diagnosticCases = { text: 'Texto simples', json: 'JSON mínimo', inventory: 'Contrato de inventário' };
 const diagnosticButtons = { text: 'Testar IA sem PDF (1 chamada)', json: 'Testar JSON mínimo (1 chamada)', inventory: 'Testar contrato sem PDF (1 chamada)' };
-export default function EditalProviderPlan({ plan, diagnostics = [], state, command, pending }) {
+export default function EditalProviderPlan({ plan, diagnostics = [], state, command, pending, contextKey }) {
   const [limit, setLimit] = useState('');
   const [diagnosticCase, setDiagnosticCase] = useState('text');
+  const [confirmation, setConfirmation] = useState(null);
+  const submitting = useRef(false);
   if (!plan) return null;
   const proposed = Number(limit || Math.max(state.budget.provider_limit, plan.minimum_total_attempts));
   const valid = Number.isInteger(proposed) && proposed >= state.budget.reserved_attempts + 1 && proposed <= plan.maximum_limit;
@@ -20,15 +23,35 @@ export default function EditalProviderPlan({ plan, diagnostics = [], state, comm
   const offered = plan.diagnostic_cases?.includes(nextCase);
   const diagnosticDisabled = pending || cooling || state.budget.reserved_attempts >= state.budget.provider_limit;
   const extractionUnavailable = Array.isArray(plan.extraction_route) && !plan.extraction_route.length;
+  const confirmationAllowed = !!confirmation && confirmation.key === contextKey && paused && !pending && !cooling &&
+    (confirmation?.payload.diagnostic_case
+      ? !diagnosticDisabled && plan.diagnostic_cases?.includes(confirmation.payload.diagnostic_case)
+      : !extractionUnavailable && state.budget.reserved_attempts < plan.maximum_limit &&
+        (confirmation?.payload.mode !== 'full' || plan.live_provider_validated));
+  const confirm = async () => {
+    if (!confirmationAllowed || submitting.current) return;
+    submitting.current = true;
+    const payload = confirmation.payload;
+    setConfirmation(null);
+    try { await command('resume', payload); }
+    finally { submitting.current = false; }
+  };
   const authorizeDiagnostic = kind => {
-    if (window.confirm(`Autorizar UMA chamada real de diagnóstico: ${diagnosticCases[kind]}, no Gemini 3.8 Flash? Usará apenas conteúdo sintético fixo, sem texto do PDF, e consumirá uma tentativa dentro do limite atual de ${state.budget.provider_limit}. Não valida cargos nem libera os demais lotes.`)) command('resume', { mode: 'pilot', diagnostic_case: kind });
+    if (diagnosticDisabled || !plan.diagnostic_cases?.includes(kind)) return;
+    setConfirmation({ key: contextKey, title: 'Confirmar diagnóstico sem PDF',
+      message: `Autorizar UMA chamada real de diagnóstico: ${diagnosticCases[kind]}, no Gemini 3.8 Flash? Usará apenas conteúdo sintético fixo, sem texto do PDF, e consumirá uma tentativa dentro do limite atual de ${state.budget.provider_limit}. Não valida cargos nem libera os demais lotes.`,
+      label: 'Autorizar uma chamada', payload: { mode: 'pilot', diagnostic_case: kind } });
   };
   const authorize = mode => {
     const total = mode === 'pilot' ? Math.max(state.budget.provider_limit, state.budget.reserved_attempts + 1) : proposed;
     const message = mode === 'pilot'
       ? `Autorizar um lote piloto com no máximo uma chamada real de IA? ${total > state.budget.provider_limit ? `Isso aumenta explicitamente o limite total de ${state.budget.provider_limit} para ${total} tentativas. ` : ''}Ele usará o texto já salvo e pausará antes dos demais lotes. A proposta será validada localmente e continuará parcial.`
       : `Conferi o piloto e autorizo os lotes pendentes com limite total de ${total} tentativas, incluindo as ${state.budget.reserved_attempts} já reservadas. A previsão mínima conhecida é ${plan.minimum_total_attempts}; etapas ainda desconhecidas e novas falhas podem exigir outra confirmação.`;
-    if (window.confirm(message)) command('resume', { mode, ...(total > state.budget.provider_limit ? { provider_limit: total } : {}) });
+    if (pending || cooling || extractionUnavailable || !paused || total > plan.maximum_limit ||
+      (mode === 'full' && (!plan.live_provider_validated || !valid || total < plan.minimum_total_attempts))) return;
+    setConfirmation({ key: contextKey, title: mode === 'pilot' ? 'Confirmar lote piloto' : 'Confirmar retomada dos lotes',
+      message, label: mode === 'pilot' ? 'Autorizar uma chamada' : 'Autorizar retomada',
+      payload: { mode, ...(total > state.budget.provider_limit ? { provider_limit: total } : {}) } });
   };
   return <aside className="edital-surface space-y-5" aria-label="Previsão e autorização da IA">
     <div className="flex items-center justify-between gap-3"><p className="edital-kicker">Próximo passo</p><span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] text-zinc-400">{paused ? 'Aguardando sua decisão' : state.status === 'processing' ? 'Em andamento' : 'Conferência'}</span></div>
@@ -57,5 +80,17 @@ export default function EditalProviderPlan({ plan, diagnostics = [], state, comm
     </div>
     {diagnostics.some(item => item.provider_probes?.length) && <details><summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-200">Resultados dos diagnósticos técnicos</summary><ul className="mt-3 space-y-2 text-xs text-zinc-400">{diagnostics.flatMap(item => (item.provider_probes || []).map((entry, index) => <li key={`${item.unit_id}:${index}`}>{diagnosticCases[entry.case] || 'Diagnóstico'} · {entry.outcome === 'accepted' ? 'solicitação aceita; não valida cargos' : 'não concluído'}{entry.http_status ? ` · HTTP ${entry.http_status}` : ''}</li>))}</ul></details>}
     <p className="flex items-center gap-2 text-[11px] text-zinc-500"><ShieldCheck size={14} className="shrink-0" />Nenhum teste é executado sem sua confirmação.</p>
+    <AlertDialog open={!!confirmation && confirmation.key === contextKey} onOpenChange={open => { if (!open) setConfirmation(null); }}>
+      <AlertDialogContent overlayStyle={{ animation: 'none' }} style={{ animation: 'none' }} className="w-[calc(100%_-_2rem)] max-h-[85dvh] overflow-y-auto rounded-2xl border-white/10 bg-zinc-900 text-zinc-100">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{confirmation?.title}</AlertDialogTitle>
+          <AlertDialogDescription className="leading-relaxed text-zinc-400">{confirmation?.message}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <Button className="bg-lime-200 text-zinc-950 hover:bg-lime-100" disabled={!confirmationAllowed} onClick={confirm}>{confirmation?.label}</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </aside>;
 }
