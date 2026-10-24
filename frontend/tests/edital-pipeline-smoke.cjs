@@ -233,6 +233,12 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     assert.equal(await page.getByText('PRIVATE-MOCK-GENERATION',{exact:false}).count(),0);
     assert.equal(writes.length,writesBeforeBlocked,'Inspecting a Groq generation failure must not resume the analysis');
     if(process.env.SIRIUS_VISUAL_DIR)await page.screenshot({path:require('node:path').join(process.env.SIRIUS_VISUAL_DIR,`edital-groq-${width}.png`)});
+    data.diagnostics[0].failure={http_status:400,request_format:'groq_json_schema_strict',schema_bytes:4325,schema_sha256:'b'.repeat(64),
+      provider_rejection:{category:'schema_discriminator',provider_type:'invalid_request_error',fields:['response_format'],message:'PRIVATE-MOCK-GRAMMAR'}};data.revision++;
+    await page.getByRole('button',{name:'Atualizar andamento',exact:true}).click();
+    await groqDiagnosis.getByText('Sem status registrado · Variantes ambíguas no schema enviado',{exact:true}).waitFor();
+    assert.equal(await page.getByText('PRIVATE-MOCK-GRAMMAR',{exact:false}).count(),0);
+    assert.equal(writes.length,writesBeforeBlocked,'A schema compiler rejection must not release units or spend another attempt');
     data.manifest.error_kind='malformed_output';
     data.diagnostics[0].error_kind='malformed_output';
     data.diagnostics[0].failure={request_format:'groq_json_schema',schema_bytes:2315,schema_sha256:'a'.repeat(64),

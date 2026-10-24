@@ -121,6 +121,8 @@ class RolePart(Contract):
 
 SemanticKind = Literal['general', 'roles', 'requirements', 'registration', 'exam_rules',
     'program', 'schedule', 'annex', 'external_reference', 'other', 'uncertain']
+SemanticLevel = Literal['section','role','knowledge_group','discipline','topic','unspecified']
+RoleApplicability = Literal['all_roles','named_roles','except_roles','unspecified']
 
 
 def classification_scope_schema(schema):
@@ -153,9 +155,9 @@ class BlockClassification(Contract):
     block_id: str = Field(min_length=1, max_length=64)
     end_block_id: str | None = Field(default=None,max_length=64)
     kind: SemanticKind
-    level: Literal['section','role','knowledge_group','discipline','topic','unspecified'] = 'unspecified'
+    level: SemanticLevel = 'unspecified'
     title: ProposedFact = Field(default_factory=ProposedFact)
-    scope: Literal['all_roles','named_roles','except_roles','unspecified'] = 'unspecified'
+    scope: RoleApplicability = 'unspecified'
     role_references: list[ProposedFact] = Field(default_factory=list,max_length=12)
     scope_sources: list[Citation] = Field(default_factory=list, max_length=3)
 
