@@ -50,7 +50,9 @@ class Provider:
                             for v in d.get('fieldViolations',[]) if isinstance(v,dict))[:4096].lower()
                         combined=message+' '+fields
                         format_field=any(word in combined for word in ('responseformat','response_format'))
-                        if format_field and any(word in combined for word in ('mimetype','mime_type','application_json')):
+                        if message.startswith('invalid json schema for response_format:') and '[discriminator_multiple_candidates]' in message:
+                            incompatibility='schema_discriminator'
+                        elif format_field and any(word in combined for word in ('mimetype','mime_type','application_json')):
                             incompatibility='format_mime'
                         elif format_field and any(word in combined for word in ('unknown name','unknown field','unsupported field','not supported')):
                             incompatibility='format_field'

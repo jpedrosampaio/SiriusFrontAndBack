@@ -153,12 +153,12 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         citation={'page':1,'block_id':'p0001-b0001','quote':text}
         payload={'roles':[{'name':{'value':'Analista de Sistemas','state':'extracted','sources':[citation]}}],
             'classifications':[{'block_id':'p0001-b0001','kind':'roles','scope':'all_roles','scope_sources':[citation]}]}
-        from edital_pipeline_contracts import InventoryUnit
-        payload=InventoryUnit.model_validate(payload).model_dump(mode='json')
+        from edital_wire_fixtures import inventory_wire
+        payload=inventory_wire(payload)
         def response(request):
             calls.append(request);body=json.loads(request.content)
             self.assertIs(body['response_format']['json_schema']['strict'],True)
-            self.assertEqual(len(body['response_format']['json_schema']['schema']['$defs']['BlockClassification']['anyOf']),3)
+            self.assertEqual(len(body['response_format']['json_schema']['schema']['$defs']['ScopeEvidenceTransport']['anyOf']),3)
             self.assertIn('scope_sources',body['messages'][-1]['content'])
             return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(payload)}}]})
         async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
@@ -174,6 +174,7 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         async with unit_of_work() as session:
             row=await session.get(EditalUnit,claim.unit_id)
             self.assertEqual(row.status,'completed');self.assertEqual(row.provider_calls,1)
+            self.assertNotIn('applicability',row.result['classifications'][0])
             analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
             self.assertEqual(analysis.pages[0]['blocks'][0]['text'],text)
             self.assertEqual(store.manifest(analysis).source.hash,doc.sha256)
@@ -283,6 +284,8 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         payload={'roles':[{'name':{'value':'Analista de Sistemas','state':'extracted','sources':[
             {'page':1,'block_id':'p0001-b0001','quote':'Analista de Sistemas'}]}}],
             'classifications':[{'block_id':'p0001-b0001','kind':'roles'}]}
+        from edital_wire_fixtures import inventory_wire
+        payload=inventory_wire(payload)
         def transport(request):
             body=json.loads(request.content);published_contract(body);calls.append(body)
             self.assertEqual(body['generationConfig']['responseFormat']['text']['mimeType'],'APPLICATION_JSON')

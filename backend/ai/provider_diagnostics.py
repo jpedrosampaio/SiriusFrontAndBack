@@ -5,7 +5,7 @@ STATUSES = frozenset({'INVALID_ARGUMENT', 'FAILED_PRECONDITION', 'OUT_OF_RANGE',
     'UNIMPLEMENTED', 'NOT_FOUND', 'PERMISSION_DENIED', 'UNAUTHENTICATED',
     'RESOURCE_EXHAUSTED', 'UNAVAILABLE', 'INTERNAL', 'DEADLINE_EXCEEDED'})
 CATEGORIES = frozenset({'unknown_field', 'invalid_value', 'missing_field',
-    'unsupported', 'output_validation', 'context_limit', 'unspecified'})
+    'unsupported', 'output_validation', 'context_limit', 'schema_discriminator', 'unspecified'})
 # Public protocol constants only. Unknown provider values can contain private
 # data and must never be persisted, rendered or copied verbatim.
 PROVIDER_CODES = frozenset({'json_validate_failed', 'model_decommissioned',
@@ -71,7 +71,9 @@ def rejection_metadata(error):
     message = error.get('message')
     message = message[:4096] if isinstance(message, str) else ''
     lower = message.lower()
-    category = ('output_validation' if error.get('code') == 'json_validate_failed' or
+    category = ('schema_discriminator' if lower.startswith('invalid json schema for response_format:') and
+        '[discriminator_multiple_candidates]' in lower
+        else 'output_validation' if error.get('code') == 'json_validate_failed' or
         lower.startswith(('failed to generate json.', 'generated json does not match the expected schema.'))
         else 'context_limit' if error.get('code') == 'context_length_exceeded'
         else 'unknown_field' if any(t in lower for t in ('unknown name', 'unknown field', 'cannot find field'))

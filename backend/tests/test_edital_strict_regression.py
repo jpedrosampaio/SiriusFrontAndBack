@@ -19,13 +19,16 @@ from ai.router import AIRouter
 from ai.schemas import transport_schema, TRANSPORT_VERSION
 from ai.types import AIError, AIRequest
 from edital_pipeline_contracts import ProposedFact, SectionBinding, InventoryUnit
+from edital_transport_contracts import InventoryTransport
+from edital_wire_fixtures import inventory_wire
 from test_edital_provider_regression import CASES, nodes
 from test_edital_scope_contract_regression import SOURCE, FACT, BLOCK
 
 
 class StrictContracts(unittest.IsolatedAsyncioTestCase):
     async def test_all_four_real_contracts_on_each_documented_strict_model(self):
-        for model, (contract, minimal) in itertools.product(('vision', 'reasoning', 'fast'), CASES):
+        current=[(InventoryTransport,inventory_wire(CASES[0][1])),*CASES[1:]]
+        for model, (contract, minimal) in itertools.product(('vision', 'reasoning', 'fast'), current):
             canonical = contract.model_json_schema(); original = copy.deepcopy(canonical)
             # Materialize defaults only in this synthetic provider fixture.
             # Runtime code never repairs model responses.
@@ -53,7 +56,7 @@ class StrictContracts(unittest.IsolatedAsyncioTestCase):
                     strict_schema=True, max_tokens=3072)
             self.assertEqual(result.data, contract.model_validate(minimal))
             self.assertEqual(len(calls), 1); self.assertEqual(canonical, original)
-        self.assertEqual(TRANSPORT_VERSION, 'structured-transport/4')
+        self.assertEqual(TRANSPORT_VERSION, 'structured-transport/5')
 
     def test_evidence_conditions_are_equivalent_to_the_original_validators(self):
         cases = []

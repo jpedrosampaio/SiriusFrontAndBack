@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from ai.types import AIError
 from ai.config import MODELS
 from edital_pipeline_contracts import UNIT_OUTPUT_TOKENS, VERIFICATION_OUTPUT_TOKENS
+from edital_transport_contracts import InventoryTransport
 from services import edital_pipeline_units as units
 from services.edital_semantics import EvidenceError
 from services.edital_pipeline_inputs import compact_block
@@ -49,7 +50,7 @@ disciplinas. Associe vagas, salários e requisitos somente quando a relação po
 fonte; caso contrário deixe missing/ambiguous. Classificações e escopos também são
 propostas: explicite evidência de aplicação comum, nominal ou com exceções. Indique
 campos gerais e referências externas sem seguir links. Não copie todo o programa.
-Em classifications[], scope diferente de unspecified exige scope_sources não
+Em classifications[].applicability, scope diferente de unspecified exige scope_sources não
 vazio com a regra literal de aplicabilidade. Fontes em title.sources não substituem
 scope_sources. named_roles/except_roles exigem também role_references documentados.
 Sem regra de aplicação sustentada pelos blocos, use scope=unspecified; não presuma
@@ -116,7 +117,8 @@ class IncrementalHandler:
         try:
             snapshot = await units.snapshot(claim)
             probe=snapshot['manifest'].provider_approval.diagnostic_case
-            request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot),'output_type':units.CONTRACTS[claim.kind],'strict_schema':True}
+            request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot),
+                'output_type':InventoryTransport if claim.kind=='inventory' else units.CONTRACTS[claim.kind],'strict_schema':True}
             content=request['prompt']
             keys = await self.credentials.get(str(claim.user_id))
             if not keys: raise AIError('invalid_key')
@@ -135,7 +137,9 @@ class IncrementalHandler:
                 diagnostic_context={'stage':claim.kind,'unit_id':str(claim.unit_id)},
                 on_attempt=reserve)
             if probe:await units.complete_diagnostic(claim,result)
-            else:await units.complete(claim, result.data, result.usage, self.consolidate,provider=result.provider,model=result.model)
+            else:
+                proposal=result.data.as_canonical() if claim.kind=='inventory' else result.data
+                await units.complete(claim, proposal, result.usage, self.consolidate,provider=result.provider,model=result.model)
         except units.LeaseLost:
             pass
         except AIError as error:

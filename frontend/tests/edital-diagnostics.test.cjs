@@ -46,6 +46,13 @@ test('strict Groq wire mode survives safe diagnostic copying without accepting a
   assert.equal(c.publicDiagnostic({failure:{request_format:'PRIVATE-PROMPT'}}).request_format,undefined);
 });
 
+test('public discriminator error is identifiable without copying the raw schema message',()=>{
+  const c=helpers(),privateText='PRIVATE-PDF-PROMPT-KEY';
+  const result=c.publicDiagnostic({failure:{provider_rejection:{category:'schema_discriminator',fields:['response_format'],message:privateText}}});
+  assert.equal(result.category,'schema_discriminator');
+  assert.equal(JSON.stringify(result).includes(privateText),false);
+});
+
 test('local validation copy includes finite stage and canonical field but no private output or dynamic keys',()=>{
   const c=helpers(),privateText='PRIVATE-PDF-PROMPT-KEY';
   const response_validation={stage:'pydantic',code:'value_error',path:'$.roles[].name',rule:'fact_missing_inconsistent',input:privateText,message:privateText,ctx:{error:privateText}};

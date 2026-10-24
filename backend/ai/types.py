@@ -47,7 +47,7 @@ class AIError(Exception):
         self.kind = kind
         self.retry_after = min(300, max(1, retry_after))
         self.http_status=http_status if isinstance(http_status,int) and 100<=http_status<=599 else None
-        self.incompatibility=incompatibility if incompatibility in ('schema_keyword','schema_reference','schema_complexity','schema_feature','schema_rejected','model_capability','request_rejected','format_field','format_mime') else None
+        self.incompatibility=incompatibility if incompatibility in ('schema_keyword','schema_reference','schema_complexity','schema_feature','schema_rejected','schema_discriminator','model_capability','request_rejected','format_field','format_mime') else None
         self.reason=reason if reason in ('cooldown','no_compatible_route','payload_rejected','pilot_limit') else None
         self.reference=reference or str(uuid4())
         self.attempted=attempted

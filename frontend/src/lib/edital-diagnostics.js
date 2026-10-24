@@ -7,7 +7,7 @@ const publicFields = new Set(['model', 'store', 'contents', 'contents.parts', 's
   'response_format.json_schema.schema', 'response_format.json_schema.strict']);
 const publicStatuses = new Set(['INVALID_ARGUMENT', 'FAILED_PRECONDITION', 'OUT_OF_RANGE', 'UNIMPLEMENTED', 'NOT_FOUND',
   'PERMISSION_DENIED', 'UNAUTHENTICATED', 'RESOURCE_EXHAUSTED', 'UNAVAILABLE', 'INTERNAL', 'DEADLINE_EXCEEDED']);
-const publicCategories = new Set(['unknown_field', 'invalid_value', 'missing_field', 'unsupported', 'output_validation', 'context_limit', 'unspecified']);
+const publicCategories = new Set(['unknown_field', 'invalid_value', 'missing_field', 'unsupported', 'output_validation', 'context_limit', 'schema_discriminator', 'unspecified']);
 const publicProviderCodes = new Set(['json_validate_failed', 'model_decommissioned', 'model_not_found', 'context_length_exceeded', 'invalid_api_key', 'rate_limit_exceeded', 'tool_use_failed']);
 const publicProviderTypes = new Set(['invalid_request_error', 'authentication_error', 'permission_error', 'rate_limit_error', 'server_error']);
 const publicModels = new Set(['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']);
@@ -39,7 +39,7 @@ export function publicValidation(value) {
   return result;
 }
 
-export const rejectionCategories = { unknown_field: 'Campo não reconhecido', invalid_value: 'Valor inválido', missing_field: 'Campo obrigatório ausente', unsupported: 'Recurso não suportado', output_validation: 'Resposta gerada fora do contrato', context_limit: 'Entrada acima do limite do modelo', unspecified: 'Motivo específico não informado' };
+export const rejectionCategories = { unknown_field: 'Campo não reconhecido', invalid_value: 'Valor inválido', missing_field: 'Campo obrigatório ausente', unsupported: 'Recurso não suportado', output_validation: 'Resposta gerada fora do contrato', context_limit: 'Entrada acima do limite do modelo', schema_discriminator: 'Variantes ambíguas no schema enviado', unspecified: 'Motivo específico não informado' };
 export const analysisStages = [['inventory', 'Descoberta'], ['scope', 'Associações'], ['detail', 'Conteúdo'], ['verify', 'Comparação de fontes']];
 
 export function stageProgress(rows, kind) {

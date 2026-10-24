@@ -452,3 +452,44 @@ PostgreSQL one-call completion/consolidation/pause with ownership/source/history
 checks. Passing these tests does not prove the real model accepts the new schema
 or identifies real cargos. That remains a post-publication one-lot verification;
 the remaining queue stays paused and Issue65 stays open pending real evidence.
+
+## Proven strict compiler discriminator rejection (2026-10-24)
+
+PR73 was published as619efcc7464be8a07c6f9a1f0bf9b62d7998fca3 with all
+four head/merge workflows, independent final-head Codex review, both exact deploys
+and read-only production checks. One real pilot changed15→16/120, leaving0/70
+completed leaves and0 roles (minimum156). Reference
+44059445-1035-45fb-a009-7fe48dc2bf31 reported Groq400, response_format,
+strict4325-byte schema e825eba93aa69ea0b79b4f59507d8ccc654b8f8f462d9c18b2a763d534409e35.
+[Publication and limitations](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/73#issuecomment-6379208385).
+
+The existing Groq console log at23/10/2026 23:58:02 for Qwen exposes the public
+compiler code `discriminator_multiple_candidates`: BlockClassification anyOf
+offers kind, level and scope as enum candidates. It reports zero input/output
+tokens and roughly11ms, before document inference. Reading that log spent no
+additional call. This establishes this strict request's schema compilation
+failure; it does not establish the historical Gemini400 cause. The public error
+template is a regression fixture without PDF, keys, prompts or generated content.
+
+The provider-only InventoryTransport now places only scope, role_references and
+scope_sources in a nested applicability object; kind/level/title and block IDs
+remain outside that union. Source bounds and defaults are copied from the original
+fields, not separately invented. The union has exactly one enum candidate, scope.
+All four current wire contracts are checked for the observed ambiguity. The mock
+rejects the old concrete schema and accepts the new shape; this models that
+specific observed restriction, not an undocumented full vendor compiler.
+
+The adapter moves those three validated values back to their original flat keys,
+without inference, synthesis or repair. Original canonical JSON Schema, Pydantic
+and documentary gates run before consolidation; stored/public proposals and old
+checkpoints remain unchanged. The four canonical JSON Schemas were compared
+directly against PR73 and are identical. A wire response with conflicting flat
+keys, missing applicability, invalid source bounds or unsupported facts is rejected.
+Original heading invariants and literal source matching remain regression gates.
+
+Transport/5 invalidates earlier pilot/full approval without resetting history,
+IR, attempts or the120 limit. Diagnostics recognize only a finite discriminator
+category; raw messages/paths stay out of application logs, persistence and copying.
+No automatic retry, downgrade, model hop, migration or paid infrastructure is used.
+Full CI/review/exact deploy checks and then one controlled real pilot are still
+required. No semantic success or remaining-queue release is inferred from mocks.
