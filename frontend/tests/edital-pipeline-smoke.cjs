@@ -184,6 +184,10 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     const before=writes.length,pilot=page.getByRole('alertdialog',{name:'Confirmar lote piloto'});
     await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();await pilot.waitFor();
     assert.match(await pilot.innerText(),/no máximo uma chamada real/);assert.equal(writes.length,before);
+    // Visible DOM alone can precede Radix's focus/effect installation. Send
+    // Escape from an interactive control in this dialog, as a keyboard user.
+    await pilot.getByRole('button',{name:'Cancelar',exact:true}).focus();
+    assert.equal(await pilot.evaluate(node=>node.contains(document.activeElement)),true);
     await page.keyboard.press('Escape');await pilot.waitFor({state:'hidden'});assert.equal(writes.length,before);
     await page.getByRole('button',{name:'Executar lote piloto (1 chamada)',exact:true}).click();
     await pilot.getByRole('button',{name:'Autorizar uma chamada',exact:true}).click();

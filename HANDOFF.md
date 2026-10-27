@@ -1,43 +1,46 @@
 # Sirius — current handoff
 
-## Published state and active P0 — 2026-10-24
+## Published state and active P0 — 2026-10-27
 
-Published base: PR73 merge `619efcc7464be8a07c6f9a1f0bf9b62d7998fca3`, reviewed head
-`007c795603de8dfce0863b9d66f6618d055e3abf`. Four head/merge workflows,
+Published functional base: PR74 merge `d6b50ff4a0af75c230f4f42d482a4859c227837b`,
+reviewed head `670423b5320111161d81b99f403285fd86c1d659`. Four PR-head workflows,
 independent final-SHA Codex CLI review accepted by the owner, exact Northflank
-and Vercel deploys and production read-only checks passed. The local Node22
-build also passed after the owner freed disk space.
-[Publication, checks and real-pilot evidence](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/73#issuecomment-6379208385).
+and Vercel deploys and production read-only checks passed. The subsequent merge
+frontend workflow failed at Escape dismissal of the pilot dialog (390px); the
+other three merge workflows passed. Do not describe merge CI as fully green.
+[Publication, checks and real-pilot evidence](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/74#issuecomment-6439237509).
 
-Issue65 is **not resolved**. Saved real analysis: **16/120** attempts, **0/70**
-active inventory leaves completed, zero validated roles, known minimum **156**
-calls. The one-call pilot returned400, reference
-`44059445-1035-45fb-a009-7fe48dc2bf31`, Groq `qwen/qwen3.8-27b`, strict
-schema4325 bytes, SHA256
-`e825eba93aa69ea0b79b4f59507d8ccc654b8f8f462d9c18b2a763d534409e35`.
-Groq's existing console log exposes `discriminator_multiple_candidates` at
-BlockClassification anyOf: kind/level/scope are multiple enum candidates.
-No further generation was used to inspect this error. The historical Gemini400
-cause remains unproven. Saved IR/checkpoints/history and120 budget are intact.
+Issue65 is **not resolved**. Last verified real analysis: **17/120** attempts,
+**0/70** active inventory leaves completed, zero validated roles, minimum **157**
+calls. The one-call pilot returned400 `json_validate_failed`, reference
+`18e6a815-f371-46a3-bdff-14cdf89235d2`, Groq `qwen/qwen3.8-27b`, strict schema3609
+bytes, SHA256 `900a42b87a50fce0e762b191342c9d7f7fe44b40b3e1a062eeee36d7d73636e9`.
+The existing Groq log reports missing root roles/classifications/facts/warnings,
+1012 input and487 output tokens,1.198401s. No additional inference was used to
+inspect it. The earlier discriminator compiler rejection did not recur, but no
+documentary proposal is validated. The private generated response was not retained;
+its exact shape and the historical Gemini400 cause remain unproven.
+Saved IR/checkpoints/history and120 budget remain intact.
 
 ## Current correction and next action
 
-Branch `codex/edital-discriminator-65` starts at the published base. Transport/5
-separates scope evidence into a provider-only object with one discriminator,
-then losslessly restores the original stored/public proposal. All four canonical
-JSON Schemas remain identical to PR73; original Pydantic/documentary/coverage
-and ownership/import gates remain mandatory. No migration or paid service.
+Branch `codex/edital-response-envelope-65` starts at the published base. Transport/6
+adds explicit root-field instructions derived from the actual output model, without
+changing the wire/canonical schemas or repairing/unwrapping model responses. Scope
+transport remains lossless; original Pydantic/documentary/coverage and ownership/import
+gates remain mandatory. The keyboard smoke focuses the cancel control before Escape,
+preserving the close/no-write assertions and timeout. No migration or paid service.
 
-Local checks passed:284 backend regressions (4 Windows platform skips),5 security,
-24 disposable PostgreSQL tests, frontend lint/build/91 units and edital smoke
-at all five widths. An initial local PostgreSQL start used the wrong port; it
-was corrected before these suites passed, with the failure log preserved.
-Obtain four full CI workflows and final independent Codex review. Merge only reviewed
+Local287 backend regressions (4 Windows skips),5 security,24 disposable PostgreSQL
+tests and edital smoke at all five widths passed. Obtain all four full CI workflows
+and final independent Codex review. The observed provider rejection is covered by a public-message fixture
+and synthetic responses; mocks do not prove that the new instruction fixes real
+generation. Merge only reviewed
 head, validate both exact deploys and safe production reads, then inspect saved
 state and run one controlled pilot under the owner's standing authorization.
 Require actual validated/consolidated data before claiming semantic success.
 No queue release, new upload or automatic budget extension. The owner updated
-the Chrome extension; the saved analysis is accessible again, still paused16/120.
+the Chrome extension. The last live analysis observation remains paused17/120.
 Current delivery evidence belongs in the
 [Issue65 ledger](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161).
 
@@ -48,6 +51,8 @@ no new phase is authorized. PDF extraction PR62 works for the real70-page PDF;
 notification PR55/56 and deletion PR64 are published and must not be reimplemented.
 After the edital work, the owner authorized safe cleanup of disposable development
 caches/temporaries. Preserve source, valid work, credentials and historical evidence.
+Automatic approval review blocked recursive Babel-cache deletion without a specific
+reason; no cache files were deleted. Do not bypass that block through another tool.
 Backlog only: operational OCR, rectification reconciliation, heterogeneous real
 provider homologation, workout_generation_invalid_sessions and other real UAT gaps.
 

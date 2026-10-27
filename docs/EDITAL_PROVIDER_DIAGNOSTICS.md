@@ -493,3 +493,35 @@ category; raw messages/paths stay out of application logs, persistence and copyi
 No automatic retry, downgrade, model hop, migration or paid infrastructure is used.
 Full CI/review/exact deploy checks and then one controlled real pilot are still
 required. No semantic success or remaining-queue release is inferred from mocks.
+
+## Missing response envelope after PR74 (observed2026-10-24, audited2026-10-27)
+
+PR74 head670423b passed four workflows and independent final Codex review; merge
+d6b50ff4a0af75c230f4f42d482a4859c227837b deployed successfully to both services.
+Production read-only checks passed. The subsequent merge frontend workflow failed
+at390px while waiting for the pilot dialog to close after Escape; other three
+merge workflows passed. The test now focuses its cancel control before dispatching
+Escape instead of equating visible DOM with keyboard readiness. Close/no-write
+assertions and timeout remain unchanged; no workflow/test is skipped.
+[Complete release and failure receipt](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/74#issuecomment-6439237509).
+
+Exactly one real pilot changed16→17/120, leaving0/70 completed units and0 roles,
+minimum157. Reference18e6a815-f371-46a3-bdff-14cdf89235d2 reports Groq400
+json_validate_failed with the expected strict3609-byte schema900a42b87a50fce0e762b191342c9d7f7fe44b40b3e1a062eeee36d7d73636e9.
+The existing Groq log at24/10/2026 00:48:55 reports missing root properties roles,
+classifications,facts,warnings,1012 input tokens,487 output tokens and1.198401s.
+This is a generated-output rejection, unlike the earlier zero-token discriminator
+compiler failure. The output did not reach3072 tokens. The exact private generated
+shape is unknown; no failed_generation content is retained, logged or repaired.
+
+Transport/6 explicitly names the response root fields in the trusted prompt using
+the same output model supplied to the provider. It asks for a data instance rather
+than a schema/input copy or result/output/data wrapper. The wire schema itself is
+unchanged; strict decoding, canonical validation and evidence gates all remain.
+This instruction targets the observed omission; its effectiveness still needs real
+homologation after all gates. No model change or automatic retry is implied.
+
+Regressions use the public rejection template plus synthetic data:400 remains a
+failure without silent fallback, and a200 response lacking/wrapping the root fields
+is still rejected. No private output, calls to real AI or production test writes.
+Existing history, source, budget120 and pending queue remain preserved. No migration.
