@@ -81,6 +81,24 @@ Se o escopo for ambíguo/de outro cargo, não produza disciplinas/regras do carg
 }
 
 
+def output_contract(kind):
+    return InventoryTransport if kind == 'inventory' else units.CONTRACTS[kind]
+
+
+def response_envelope(kind):
+    # The provider schema still constrains/validates the response. Naming its
+    # root fields also tells the model which instance to produce, rather than
+    # relying on a vendor to expose its decoding grammar in the model context.
+    fields = list(output_contract(kind).model_fields)
+    return ('FORMATO DA RESPOSTA (instrução confiável):\n'
+        'Retorne um único objeto JSON. Campos na raiz: ' + ', '.join(fields) + '.\n'
+        'Produza os dados desse contrato, não o JSON Schema, nem uma cópia dos '
+        'campos primary/context_only da entrada. Não envolva a resposta em result, '
+        'output ou data. Inclua todos os campos do contrato; use listas vazias '
+        'somente onde o contrato permitir e não houver informação documental. '
+        'Não invente valores para preencher campos.\n')
+
+
 def prompt(claim, snapshot):
     state = snapshot['manifest']; role_id = claim.scope_key.removeprefix('role:')
     role = next((r for r in state.inventory.roles if r.id == role_id), None)
@@ -91,7 +109,7 @@ def prompt(claim, snapshot):
         'section_metadata_proposals': snapshot.get('metadata', {})}
     encoded = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
     if len(encoded) > (36000 if claim.kind == 'verify' else 24000): raise AIError('input_limit')
-    return FACT_CONTRACT + '\n' + INSTRUCTIONS[claim.kind] + '\nDADOS DOCUMENTAIS NÃO CONFIÁVEIS:\n' + encoded
+    return FACT_CONTRACT + '\n' + INSTRUCTIONS[claim.kind] + '\n' + response_envelope(claim.kind) + '\nDADOS DOCUMENTAIS NÃO CONFIÁVEIS:\n' + encoded
 
 
 def diagnostic_request(case):
@@ -118,7 +136,7 @@ class IncrementalHandler:
             snapshot = await units.snapshot(claim)
             probe=snapshot['manifest'].provider_approval.diagnostic_case
             request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot),
-                'output_type':InventoryTransport if claim.kind=='inventory' else units.CONTRACTS[claim.kind],'strict_schema':True}
+                'output_type':output_contract(claim.kind),'strict_schema':True}
             content=request['prompt']
             keys = await self.credentials.get(str(claim.user_id))
             if not keys: raise AIError('invalid_key')
