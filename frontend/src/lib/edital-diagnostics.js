@@ -13,11 +13,12 @@ const publicProviderTypes = new Set(['invalid_request_error', 'authentication_er
 const publicModels = new Set(['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']);
 const validationFields = new Set(('roles name code vacancies salary requirements value state sources page block_id quote classifications end_block_id kind level title scope role_references scope_sources facts key fact warnings bindings section_key decision reason applicability covered_block_ids disciplines stage group topics parent_key numbering rules target_scope target reviewed_unit_key findings severity subject description').split(' '));
 const validationCodes = {
+  documentary: ['source_reference_mismatch', 'source_excerpt_mismatch', 'value_not_supported_by_excerpt', 'classification_outside_unit', 'reversed_section_range', 'inventory_coverage_mismatch', 'role_identity_missing', 'documentary_rejected'],
   json_decode: ['invalid_json', 'markdown_fence'],
   json_schema: ['required', 'type', 'enum', 'const', 'additionalProperties', 'minItems', 'maxItems', 'minLength', 'maxLength', 'pattern', 'format', 'minimum', 'maximum', 'anyOf', 'oneOf', 'allOf', 'schema_rejected'],
   pydantic: ['value_error', 'missing', 'extra_forbidden', 'string_type', 'string_too_short', 'string_too_long', 'string_pattern_mismatch', 'int_type', 'int_parsing', 'float_type', 'float_parsing', 'finite_number', 'bool_type', 'bool_parsing', 'list_type', 'dict_type', 'model_type', 'model_attributes_type', 'literal_error', 'too_short', 'too_long', 'greater_than', 'greater_than_equal', 'less_than', 'less_than_equal', 'contract_rejected'],
 };
-export const validationStages = { json_decode: 'Leitura do JSON', json_schema: 'Contrato JSON Schema', pydantic: 'Contrato Pydantic' };
+export const validationStages = { documentary: 'Conferência das fontes documentais', json_decode: 'Leitura do JSON', json_schema: 'Contrato JSON Schema', pydantic: 'Contrato Pydantic' };
 export const validationRules = {
   fact_missing_inconsistent: 'Campo marcado como ausente contém valor ou fonte',
   fact_evidence_missing: 'Valor proposto sem evidência documental',

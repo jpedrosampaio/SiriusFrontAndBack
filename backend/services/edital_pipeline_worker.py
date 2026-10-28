@@ -5,6 +5,7 @@ import logging
 from hashlib import sha256
 from pydantic import ValidationError
 from ai.types import AIError
+from ai.validation_diagnostics import documentary_failure, pydantic_failure
 from ai.config import MODELS
 from edital_pipeline_contracts import UNIT_OUTPUT_TOKENS, VERIFICATION_OUTPUT_TOKENS
 from edital_transport_contracts import InventoryTransport
@@ -163,8 +164,9 @@ class IncrementalHandler:
         except AIError as error:
             try: await units.fail(claim, error.kind, error.retry_after, error=error)
             except units.LeaseLost: pass
-        except (EvidenceError, ValidationError):
-            try: await units.fail(claim, 'evidence_invalid')
+        except (EvidenceError, ValidationError) as error:
+            validation = documentary_failure(error) if isinstance(error, EvidenceError) else pydantic_failure(error)
+            try: await units.fail(claim, 'evidence_invalid', validation=validation)
             except units.LeaseLost: pass
         except asyncio.CancelledError:
             # Leave the running checkpoint to its durable lease. A new process

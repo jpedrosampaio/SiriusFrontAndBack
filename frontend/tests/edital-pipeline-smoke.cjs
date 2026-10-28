@@ -147,6 +147,17 @@ const program=()=>({disciplines:[{id:'discipline-a',name:fact('Português'),stag
     const copied=JSON.parse(await page.evaluate(()=>window.__safeDiagnosticCopy));
     assert.equal(copied.provider_status,'INVALID_ARGUMENT');assert.equal(copied.unit_reserved_calls,8);assert.equal(copied.schema_bytes,2315);
     assert.equal(JSON.stringify(copied).includes('PRIVATE-MOCK-PROMPT'),false);assert.equal(writes.length,writesBeforeCopy);
+    const previousError=data.manifest.error_kind,previousDiagnostics=data.diagnostics;
+    data.manifest.error_kind='evidence_invalid';
+    data.diagnostics=[{...previousDiagnostics[0],error_kind:'evidence_invalid',failure:{response_validation:{stage:'documentary',code:'source_excerpt_mismatch',path:'$',quote:'PRIVATE-MOCK-PROMPT'}}}];
+    await page.reload();
+    await page.getByRole('heading',{name:'Resposta rejeitada na conferência documental',exact:true}).waitFor();
+    await diagnosis.getByRole('heading',{name:'A resposta não passou na conferência documental',exact:true}).waitFor();
+    await diagnosis.getByText('Ver detalhes técnicos',{exact:true}).click();
+    await diagnosis.getByText('Conferência das fontes documentais · source_excerpt_mismatch',{exact:true}).waitFor();
+    assert.equal(writes.length,writesBeforeCopy);
+    data.manifest.error_kind=previousError;data.diagnostics=previousDiagnostics;
+    await page.reload();await diagnosis.getByText('Ver detalhes técnicos',{exact:true}).click();
     await diagnosis.getByText('Ver detalhes técnicos',{exact:true}).click();
     await page.getByRole('navigation',{name:'Navegação da análise'}).getByRole('link',{name:'Cargos e informações',exact:true}).click();
     await page.getByText('Os cargos aparecerão aqui após a descoberta validada.',{exact:true}).waitFor();

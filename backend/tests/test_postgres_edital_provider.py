@@ -55,6 +55,31 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         revision,_,_=await self.state()
         return await controls.resume(owner or self.uid,self.identity,key or str(uuid4()),controls.Resume(revision=revision,**values))
 
+    async def test_documentary_failure_preserves_sources_budget_and_owned_safe_diagnostic(self):
+        await self.create();await self.resume(mode='pilot');claim=await units.claim_next()
+        await units.provider_attempt(claim,MODELS['vision'])
+        validation={'stage':'documentary','code':'source_excerpt_mismatch','path':'$','quote':'PRIVATE-OUTPUT'}
+        await units.fail(claim,'evidence_invalid',validation=validation)
+        self.assertIsNone(await units.claim_next())
+        _,state,_=await self.state()
+        self.assertEqual(state.budget.reserved_attempts,1);self.assertEqual(state.budget.provider_limit,120)
+        self.assertFalse(state.provider_approval.pilot_validated);self.assertEqual(state.inventory.roles,[])
+        from services import edital_pipeline_routes as routes
+        request=Request({'type':'http','method':'GET','path':'/','headers':[]})
+        with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.uid)})):
+            response=await routes.get_state(request,self.identity)
+        failure=json.loads(response.body)['diagnostics'][0]['failure']
+        self.assertEqual(failure['response_validation'],{'stage':'documentary','code':'source_excerpt_mismatch','path':'$'})
+        self.assertIsNone(failure['http_status']);self.assertNotIn('PRIVATE-OUTPUT',response.body.decode())
+        with patch.object(routes,'account',AsyncMock(return_value={'user_id':str(self.other)})):
+            with self.assertRaises(HTTPException) as denied:await routes.get_state(request,self.identity)
+        self.assertEqual(denied.exception.status_code,404)
+        async with unit_of_work() as session:
+            row=await session.get(EditalUnit,claim.unit_id)
+            self.assertIsNone(row.result);self.assertNotIn('PRIVATE-OUTPUT',json.dumps(row.diagnostics))
+            analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
+            self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
+
     async def test_legacy_is_paused_before_io_and_budget_includes_future_checks(self):
         await self.create(legacy=True)
         self.assertIsNone(await units.claim_next())

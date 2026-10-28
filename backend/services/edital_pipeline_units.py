@@ -1,6 +1,7 @@
 """Short transactions for leased semantic checkpoints; never provider IO."""
 from dataclasses import dataclass
 import json
+import logging
 from datetime import timedelta
 from uuid import UUID, uuid4
 from fastapi import HTTPException
@@ -359,7 +360,7 @@ async def complete_diagnostic(claim,result):
         job.status='completed';job.phase='Diagnóstico técnico aceito · aguardando decisão';job.lease_token=job.lease_until=None;job.finished_at=now
 
 
-async def fail(claim, kind, retry_after=30, *, error=None):
+async def fail(claim, kind, retry_after=30, *, error=None, validation=None):
     """Safe categories only: no provider body, prompt or exception string."""
     from ai.errors import FAILURES
     known = set(FAILURES) | {'input_limit','evidence_invalid','internal_error','pilot_limit'}
@@ -371,12 +372,18 @@ async def fail(claim, kind, retry_after=30, *, error=None):
             'provider_attempted':error.attempted,'request_format':error.request_format,
             'schema_sha256':error.schema_sha256,'schema_bytes':error.schema_bytes,
             'provider_rejection':error.provider_rejection,'response_validation':safe_validation(error.response_validation)} if error else {}
+        if kind == 'evidence_invalid':
+            failure['response_validation'] = safe_validation(validation)
         retry_failures=unit.diagnostics.get('retry_failures',max(0,unit.attempts-1))+(1 if error is None or error.attempted else 0)
         unit.diagnostics = {**unit.diagnostics, 'last_error': kind, 'reference': error.reference if error else str(uuid4()),
             'failed_at': now.isoformat(),'last_failure':failure,'retry_failures':retry_failures}
         if state.provider_approval and state.provider_approval.diagnostic_case and error is not None and error.attempted:
             unit.diagnostics={**unit.diagnostics,'provider_probes':[*unit.diagnostics.get('provider_probes',[]),
                 {'case':state.provider_approval.diagnostic_case,'outcome':kind,'http_status':error.http_status,'at':now.isoformat()}]}
+        if kind == 'evidence_invalid' and failure.get('response_validation'):
+            logging.info('edital_validation stage=%s unit=%s reference=%s validation_stage=%s code=%s',
+                unit.kind, unit.id, unit.diagnostics['reference'],
+                failure['response_validation']['stage'], failure['response_validation']['code'])
         state.error_kind = kind
         if unit.provider_calls: state.budget.usage_incomplete = True
         if state.provider_approval and state.provider_approval.diagnostic_case:
