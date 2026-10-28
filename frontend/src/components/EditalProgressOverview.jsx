@@ -6,7 +6,7 @@ import EditalProviderDiagnostic from '@/components/EditalProviderDiagnostic';
 
 export default function EditalProgressOverview({ data, pending, fetching, onRefresh }) {
   const state = data.manifest;
-  const title = state.error_kind === 'provider_probe_accepted' ? 'Diagnóstico técnico aceito · análise pausada' : state.error_kind === 'pilot_review_required' ? 'Piloto validado · aguardando sua autorização' : state.error_kind === 'provider_approval_required' ? 'Aguardando autorização para homologar a IA' : EDITAL_PIPELINE_STATUSES[state.status];
+  const title = state.error_kind === 'evidence_invalid' ? 'Resposta rejeitada na conferência documental' : state.error_kind === 'provider_probe_accepted' ? 'Diagnóstico técnico aceito · análise pausada' : state.error_kind === 'pilot_review_required' ? 'Piloto validado · aguardando sua autorização' : state.error_kind === 'provider_approval_required' ? 'Aguardando autorização para homologar a IA' : EDITAL_PIPELINE_STATUSES[state.status];
   const paused = ['waiting_provider', 'quota_paused', 'recoverable_failure', 'cancelled'].includes(state.status);
   const failure = paused && state.error_kind && !['pilot_review_required', 'provider_approval_required', 'pilot_limit'].includes(state.error_kind)
     && data.diagnostics?.find(item => item.error_kind === state.error_kind && item.status !== 'completed');

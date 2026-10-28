@@ -6,6 +6,7 @@ FIELDS = set(('roles name code vacancies salary requirements value state sources
     'bindings section_key decision reason applicability covered_block_ids disciplines stage group topics '
     'parent_key numbering rules target_scope target reviewed_unit_key findings severity subject description').split())
 CODES = {
+    'documentary': {'value_not_supported_by_excerpt', 'source_excerpt_mismatch', 'documentary_rejected', 'role_identity_missing', 'source_reference_mismatch', 'classification_outside_unit', 'reversed_section_range', 'inventory_coverage_mismatch'},
     'json_decode': {'invalid_json', 'markdown_fence'},
     'json_schema': {'required', 'type', 'enum', 'const', 'additionalProperties', 'minItems', 'maxItems',
         'minLength', 'maxLength', 'pattern', 'format', 'minimum', 'maximum', 'anyOf', 'oneOf', 'allOf', 'schema_rejected'},
@@ -84,3 +85,9 @@ def pydantic_failure(error):
     rule = INVARIANTS.get(str(first.get('ctx', {}).get('error', ''))[:200])
     if rule: result['rule'] = rule
     return result
+
+
+def documentary_failure(error):
+    """Only finite rule names, never citations, IDs, exception text or output."""
+    code = getattr(error, 'code', None)
+    return {'stage': 'documentary', 'code': code if isinstance(code, str) and code in CODES['documentary'] else 'documentary_rejected', 'path': '$'}

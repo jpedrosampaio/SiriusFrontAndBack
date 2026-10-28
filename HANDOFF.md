@@ -1,63 +1,46 @@
 # Sirius — current handoff
 
-## Published state and active P0 — 2026-10-27
+## Published state — 2026-10-27
 
-Published functional base: PR74 merge `d6b50ff4a0af75c230f4f42d482a4859c227837b`,
-reviewed head `670423b5320111161d81b99f403285fd86c1d659`. Four PR-head workflows,
-independent final-SHA Codex CLI review accepted by the owner, exact Northflank
-and Vercel deploys and production read-only checks passed. The subsequent merge
-frontend workflow failed at Escape dismissal of the pilot dialog (390px); the
-other three merge workflows passed. Do not describe merge CI as fully green.
-[Publication, checks and real-pilot evidence](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/74#issuecomment-6439237509).
+PR75 merged as `4b0ac0963576708c2f573881db1bafdcb1f98bde`, reviewed head
+`d9d23cf4f2694518a6403b2d9b64ebb318106c45`. All four head and merge workflows
+passed, independent Codex CLI review clean, Northflank deployment7368367874 and
+Vercel Production7368392059 succeeded. GET health/live, health/ready and frontend
+returned200;20 anonymous protected reads returned401. Public frontend/PWA passed
+all five widths. An initial health503 during rollout recovered; retain its log.
+[PR75](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/75).
 
-Issue65 is **not resolved**. Last verified real analysis: **17/120** attempts,
-**0/70** active inventory leaves completed, zero validated roles, minimum **157**
-calls. The one-call pilot returned400 `json_validate_failed`, reference
-`18e6a815-f371-46a3-bdff-14cdf89235d2`, Groq `qwen/qwen3.8-27b`, strict schema3609
-bytes, SHA256 `900a42b87a50fce0e762b191342c9d7f7fe44b40b3e1a062eeee36d7d73636e9`.
-The existing Groq log reports missing root roles/classifications/facts/warnings,
-1012 input and487 output tokens,1.198401s. No additional inference was used to
-inspect it. The earlier discriminator compiler rejection did not recur, but no
-documentary proposal is validated. The private generated response was not retained;
-its exact shape and the historical Gemini400 cause remain unproven.
-Saved IR/checkpoints/history and120 budget remain intact.
+## Active Issue65: real extraction is still not validated
 
-## Current correction and next action
+Saved PDF remains intact. Exactly one controlled PR75 pilot moved17→18/120 attempts;
+zero of70 inventory leaves and zero roles validated. Groq Qwen3.8-27b now returned
+HTTP200 at2026-10-27 16:37:46 São Paulo,1115 input/628 output tokens,1.602s.
+The documentary gate rejected the proposal (`evidence_invalid`), reference
+`5c0f2d9e-1174-4ccb-84ac-8fb091e089ab`. This proves request acceptance only,
+not semantic correctness. The exact documentary rule was discarded by the old
+worker; private model output was not retained. Do not guess which rule failed.
+Queue remains paused, budget120, minimum forecast158. No new upload or queue release.
 
-Branch `codex/edital-response-envelope-65` starts at the published base. Transport/6
-adds explicit root-field instructions derived from the actual output model, without
-changing the wire/canonical schemas or repairing/unwrapping model responses. Scope
-transport remains lossless; original Pydantic/documentary/coverage and ownership/import
-gates remain mandatory. The keyboard smoke focuses the cancel control before Escape,
-preserving the close/no-write assertions and timeout. No migration or paid service.
+## Current work and next action
 
-Local287 backend regressions (4 Windows skips),5 security,24 disposable PostgreSQL
-tests and edital smoke at all five widths passed. Obtain all four full CI workflows
-and final independent Codex review. The observed provider rejection is covered by a public-message fixture
-and synthetic responses; mocks do not prove that the new instruction fixes real
-generation. Merge only reviewed
-head, validate both exact deploys and safe production reads, then inspect saved
-state and run one controlled pilot under the owner's standing authorization.
-Require actual validated/consolidated data before claiming semantic success.
-No queue release, new upload or automatic budget extension. The owner updated
-the Chrome extension. The last live analysis observation remains paused17/120.
-Current delivery evidence belongs in the
+Branch `codex/edital-evidence-diagnostics-65`: preserve a finite documentary-rule
+code through existing diagnostics and distinguish local evidence rejection from
+provider outage in the UI. No schema weakening, output repair, migration, paid
+service, budget change or retry-policy change. Tests and final-SHA CI/review are
+required before merge; exact deploys and production reads before another controlled
+pilot. Only one real pilot at a time is authorized; do not release all pending
+units or extend budget without owner confirmation.
+
+## Continuity
+
+Phases1–14 and unrelated modules remain preserved. Do not reimplement notifications
+PR55/56, deletionPR64 or PDF extractionPR62. Layout improvements are already published.
+Backlog only: OCR, rectifications, heterogeneous homologation and workout generation.
+Owner authorized safe dev-cache cleanup, but automatic approval blocked recursive
+Babel-cache deletion without a specific reason. Nothing deleted; do not bypass.
+
+Previous handoff preserved in
+[history](docs/history/HANDOFF_BEFORE_EDITAL_EVIDENCE_DIAGNOSTICS.md), including links
+to older intact records. Current detailed evidence stays in
 [Issue65 ledger](https://github.com/jpedrosampaio/SiriusFrontAndBack/issues/65#issuecomment-6319387161).
-
-## Continuity and remaining authorization
-
-Phases1–14 remain published within their recorded contract-validation scope;
-no new phase is authorized. PDF extraction PR62 works for the real70-page PDF;
-notification PR55/56 and deletion PR64 are published and must not be reimplemented.
-After the edital work, the owner authorized safe cleanup of disposable development
-caches/temporaries. Preserve source, valid work, credentials and historical evidence.
-Automatic approval review blocked recursive Babel-cache deletion without a specific
-reason; no cache files were deleted. Do not bypass that block through another tool.
-Backlog only: operational OCR, rectification reconciliation, heterogeneous real
-provider homologation, workout_generation_invalid_sessions and other real UAT gaps.
-
-The full previous HANDOFF is preserved, byte-for-byte, in
-[the historical snapshot](docs/history/HANDOFF_BEFORE_EDITAL_DISCRIMINATOR.md),
-from Git blob `619efcc7464be8a07c6f9a1f0bf9b62d7998fca3:HANDOFF.md`, SHA256 `115df7f7bf87db887609dc94372802dfb6565eddf931a5dd682024650af18483`.
-It contains superseded statuses/consents and is not an instruction to repeat them.
-Use AGENTS.md and docs/DEVELOPMENT_CONTEXT.md for permanent gates and targeted reads.
+Use AGENTS.md and docs/DEVELOPMENT_CONTEXT.md for permanent gates and targeted context.

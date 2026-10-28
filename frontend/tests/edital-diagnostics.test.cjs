@@ -65,3 +65,12 @@ test('local validation copy includes finite stage and canonical field but no pri
     assert.equal(sanitized.path,'$');assert.equal(sanitized.rule,undefined);
   }
 });
+
+
+test('documentary rule codes are finite and never expose private citations',()=>{
+  const c=helpers(), privateText='PRIVATE-PDF-PROMPT-KEY';
+  const result=c.publicDiagnostic({failure:{response_validation:{stage:'documentary',code:'source_excerpt_mismatch',path:'$',quote:privateText}}});
+  assert.equal(result.response_validation.code,'source_excerpt_mismatch');
+  assert.equal(JSON.stringify(result).includes(privateText),false);
+  assert.equal(c.publicValidation({stage:'documentary',code:privateText}),null);
+});
