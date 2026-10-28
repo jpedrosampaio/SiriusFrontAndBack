@@ -69,7 +69,13 @@ def validate_fact(fact,source):
     value=normalized(fact.value)
     quotes=normalized(' '.join(c.quote for c in fact.sources))
     # A question count "2" is not supported by a source that only says "12".
-    if not re.search(r'(?<!\w)'+re.escape(value)+r'(?!\w)',quotes):
+    # Decimal/grouping punctuation is part of a numeric token. A standalone
+    # value '1' must not be justified by the leading group of '1.000'. A period
+    # followed by whitespace remains ordinary sentence/list punctuation.
+    numeric = any(character.isdigit() for character in value)
+    pattern = (r'(?<!\w)' + (r'(?<!\d[.,])' if numeric else '') + re.escape(value)
+        + r'(?!\w)' + (r'(?![.,]\d)' if numeric else ''))
+    if not re.search(pattern,quotes):
         raise EvidenceError('value_not_supported_by_excerpt')
 
 

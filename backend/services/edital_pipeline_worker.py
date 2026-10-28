@@ -27,7 +27,22 @@ Em cada fato proposto, use value, state e sources coerentes. Se state=missing,
 value deve ser null e sources=[]. Se state=extracted ou ambiguous, o valor precisa
 de fonte literal em sources. Não use o estado padrão missing com valor ou fonte.
 Cada fonte contém page, block_id e quote copiado literalmente dos blocos recebidos.
-Não invente uma citação para preencher um campo obrigatório.'''
+Não invente uma citação para preencher um campo obrigatório.
+EXTRAÇÃO LITERAL: cada value não nulo deve ser uma sequência de palavras copiada
+integralmente de pelo menos um quote desse mesmo fato. O quote também deve ser
+copiado de um bloco fornecido, mantendo page e block_id desse bloco. Não use
+paráfrases, traduções, abreviações novas ou rótulos explicativos em value.
+Não converta salário, número, data ou unidade: preserve pontuação, separadores,
+símbolos e ordem das palavras exatamente como aparecem na fonte. Normalização e
+apresentação pertencem ao sistema depois da conferência, nunca à extração.
+Exemplo sintético, não é fonte: se o bloco diz "Curso superior completo",
+value="Curso superior completo" é sustentado; value="Graduação concluída" não é.
+Se a fonte diz "1.000 vagas", não retorne value="1000" nem value="1".
+Confira todos os value contra seus próprios quotes antes de responder, inclusive
+name, code, salary, requirements, title, fatos gerais e referências de cargo.
+Se o dado não aparece nos blocos fornecidos, mantenha value=null, state=missing e
+sources=[]. Se aparece, transcreva-o fielmente; não apague evidência disponível
+para contornar a regra. Não copie os exemplos sintéticos para a resposta.'''
 
 INSTRUCTIONS = {
     'verify': '''Compare os blocos PRIMÁRIOS com a proposta daquele lote já

@@ -9,7 +9,7 @@ from copy import deepcopy
 import json
 from ai.types import AIError
 
-TRANSPORT_VERSION = 'structured-transport/6'
+TRANSPORT_VERSION = 'structured-transport/7'
 PROFILES = {'gemini_json_v2', 'groq_json_v2'}
 IGNORED = {'title','description','default','examples','minLength','maxLength','pattern',
     'minProperties','maxProperties','$schema','$id'}
