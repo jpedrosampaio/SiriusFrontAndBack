@@ -167,7 +167,7 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         from ai.providers.groq import GroqProvider
         from edital_pipeline_contracts import DocumentIR,SourcePage,SourceBlock
         from services.edital_pipeline_worker import IncrementalHandler
-        text='Perfil A: Analista de Sistemas. Estas regras aplicam-se a todos os cargos.'
+        text='Perfil A: Analista de Sistemas. Estas regras aplicam-se a todos os cargos. Requisito: Curso superior completo. Remuneração: R$ 8.829,24.'
         doc=DocumentIR(sha256=hashlib.sha256(text.encode()).hexdigest(),size_bytes=len(text.encode()),
             pages=[SourcePage(page=1,width=600,height=800,quality='text',characters=len(text),
                 blocks=[SourceBlock(id='p0001-b0001',page=1,text=text,bbox=(50,50,550,70))])])
@@ -176,7 +176,9 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         self.identity=accepted['analysis_id']
         await self.resume(mode='pilot');claim=await units.claim_next();calls=[]
         citation={'page':1,'block_id':'p0001-b0001','quote':text}
-        payload={'roles':[{'name':{'value':'Analista de Sistemas','state':'extracted','sources':[citation]}}],
+        payload={'roles':[{'name':{'value':'Analista de Sistemas','state':'extracted','sources':[citation]},
+            'requirements':{'value':'Curso superior completo','state':'extracted','sources':[citation]},
+            'salary':{'value':'R$ 8.829,24','state':'extracted','sources':[citation]}}],
             'classifications':[{'block_id':'p0001-b0001','kind':'roles','scope':'all_roles','scope_sources':[citation]}]}
         from edital_wire_fixtures import inventory_wire
         payload=inventory_wire(payload)
@@ -185,6 +187,7 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             self.assertIs(body['response_format']['json_schema']['strict'],True)
             self.assertEqual(len(body['response_format']['json_schema']['schema']['$defs']['ScopeEvidenceTransport']['anyOf']),3)
             self.assertIn('scope_sources',body['messages'][-1]['content'])
+            self.assertIn('EXTRAÇÃO LITERAL',body['messages'][-1]['content'])
             return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(payload)}}]})
         async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
             router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['vision']]),providers={'groq':GroqProvider(client)})
@@ -196,6 +199,8 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(state.provider_approval.pilot_validated);self.assertEqual(state.provider_approval.mode,'paused')
         self.assertEqual(state.error_kind,'pilot_review_required')
         self.assertEqual(len(state.inventory.roles),1);self.assertEqual(state.inventory.roles[0].name.value,'Analista de Sistemas')
+        self.assertEqual(state.inventory.roles[0].requirements.value,'Curso superior completo')
+        self.assertEqual(state.inventory.roles[0].salary.value,'R$ 8.829,24')
         async with unit_of_work() as session:
             row=await session.get(EditalUnit,claim.unit_id)
             self.assertEqual(row.status,'completed');self.assertEqual(row.provider_calls,1)
