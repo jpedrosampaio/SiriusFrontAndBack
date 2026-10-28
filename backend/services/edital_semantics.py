@@ -9,8 +9,9 @@ from edital_pipeline_contracts import (Citation, ProposedFact, InventoryUnit, Sc
 
 
 class EvidenceError(Exception):
-    def __init__(self,code):
+    def __init__(self,code,location=()):
         self.code=code
+        self.location=tuple(location)
         super().__init__(code)  # Never include document/model contents in logs.
 
 
@@ -47,24 +48,29 @@ def unit_key(kind,scope,source_blocks,context_blocks=(),semantic_context=None):
     return sha256(value.encode('utf-8')).hexdigest()
 
 
-def walk(value):
+def walk(value, location=()):
     if isinstance(value,BaseModel):
-        yield value
-        for name in type(value).model_fields:yield from walk(getattr(value,name))
+        yield value, location
+        for name in type(value).model_fields:yield from walk(getattr(value,name),(*location,name))
     elif isinstance(value,dict):
-        for entry in value.values():yield from walk(entry)
+        for key,entry in value.items():yield from walk(entry,(*location,key))
     elif isinstance(value,(list,tuple)):
-        for entry in value:yield from walk(entry)
+        for index,entry in enumerate(value):yield from walk(entry,(*location,index))
 
 
 def validate_citation(citation,source):
     block=source.get(citation.block_id)
-    if block is None or block['page']!=citation.page:raise EvidenceError('source_reference_mismatch')
-    if normalized(citation.quote) not in normalized(block['text']):raise EvidenceError('source_excerpt_mismatch')
+    if block is None:raise EvidenceError('source_reference_mismatch',('block_id',))
+    if block['page']!=citation.page:raise EvidenceError('source_reference_mismatch',('page',))
+    if normalized(citation.quote) not in normalized(block['text']):raise EvidenceError('source_excerpt_mismatch',('quote',))
 
 
 def validate_fact(fact,source):
-    for citation in fact.sources:validate_citation(citation,source)
+    for index,citation in enumerate(fact.sources):
+        try:validate_citation(citation,source)
+        except EvidenceError as error:
+            error.location=('sources',index,*error.location)
+            raise
     if fact.value is None:return
     value=normalized(fact.value)
     quotes=normalized(' '.join(c.quote for c in fact.sources))
@@ -76,7 +82,7 @@ def validate_fact(fact,source):
     pattern = (r'(?<!\w)' + (r'(?<!\d[.,])' if numeric else '') + re.escape(value)
         + r'(?!\w)' + (r'(?![.,]\d)' if numeric else ''))
     if not re.search(pattern,quotes):
-        raise EvidenceError('value_not_supported_by_excerpt')
+        raise EvidenceError('value_not_supported_by_excerpt',('value',))
 
 
 def discipline_key(discipline):
@@ -89,9 +95,13 @@ def validate_unit(result,primary,context=(),known_topic_owners=None,container_ti
     source={b['id']:b for b in [*primary,*context]}
     ids=[b['id'] for b in primary]
     if len(set(ids))!=len(ids):raise EvidenceError('duplicate_source_input')
-    for item in walk(result):
-        if isinstance(item,ProposedFact):validate_fact(item,source)
-        elif isinstance(item,Citation):validate_citation(item,source)
+    for item,location in walk(result):
+        try:
+            if isinstance(item,ProposedFact):validate_fact(item,source)
+            elif isinstance(item,Citation):validate_citation(item,source)
+        except EvidenceError as error:
+            error.location=(*location,*error.location)
+            raise
     if isinstance(result,InventoryUnit):
         coverage=[]
         for span in result.classifications:

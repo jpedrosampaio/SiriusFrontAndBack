@@ -15,7 +15,7 @@ class DocumentaryDiagnostics(unittest.IsolatedAsyncioTestCase):
         source={'p0001-b0001':{'page':1,'text':'Documento sintético'}}
         with self.assertRaises(EvidenceError) as failed:
             validate_citation(Citation(page=1,block_id='p0001-b0001',quote='PRIVATE-UNSUPPORTED-QUOTE'),source)
-        self.assertEqual(documentary_failure(failed.exception),{'stage':'documentary','code':'source_excerpt_mismatch','path':'$'})
+        self.assertEqual(documentary_failure(failed.exception),{'stage':'documentary','code':'source_excerpt_mismatch','path':'$.quote'})
         self.assertEqual(documentary_failure(EvidenceError('PRIVATE-KEY'))['code'],'documentary_rejected')
         self.assertIsNone(safe_validation({'stage':'documentary','code':'PRIVATE-KEY'}))
 

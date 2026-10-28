@@ -381,9 +381,9 @@ async def fail(claim, kind, retry_after=30, *, error=None, validation=None):
             unit.diagnostics={**unit.diagnostics,'provider_probes':[*unit.diagnostics.get('provider_probes',[]),
                 {'case':state.provider_approval.diagnostic_case,'outcome':kind,'http_status':error.http_status,'at':now.isoformat()}]}
         if kind == 'evidence_invalid' and failure.get('response_validation'):
-            logging.info('edital_validation stage=%s unit=%s reference=%s validation_stage=%s code=%s',
+            logging.info('edital_validation stage=%s unit=%s reference=%s validation_stage=%s code=%s path=%s',
                 unit.kind, unit.id, unit.diagnostics['reference'],
-                failure['response_validation']['stage'], failure['response_validation']['code'])
+                failure['response_validation']['stage'], failure['response_validation']['code'], failure['response_validation']['path'])
         state.error_kind = kind
         if unit.provider_calls: state.budget.usage_incomplete = True
         if state.provider_approval and state.provider_approval.diagnostic_case:

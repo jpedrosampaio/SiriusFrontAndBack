@@ -41,11 +41,18 @@ class AIRouter:
         self.reserve = reserve
         self.rejections=OrderedDict()
 
-    async def generate(self, *, task, keys, user_id='', prompt='', system='', schema=None, output_type=None, on_attempt=None, diagnostic_context=None, **kwargs):
+    async def generate(self, *, task, keys, user_id='', prompt='', system='', schema=None, output_type=None, transport_contract=None, on_attempt=None, diagnostic_context=None, **kwargs):
         schema = normalize_schema(output_type.model_json_schema() if output_type else schema)
+        # A caller may constrain transport instances to its owned source set.
+        # Original schema and Pydantic remain mandatory, even if the additional
+        # transport contract is accidentally broader than the original.
+        if transport_contract is not None and (not schema or not isinstance(transport_contract,dict) or not transport_contract):
+            raise AIError('invalid_request')
+        bounded = normalize_schema(transport_contract) if transport_contract is not None else schema
         if schema:
             try:
                 Draft202012Validator.check_schema(schema)
+                if transport_contract is not None:Draft202012Validator.check_schema(bounded)
             except SchemaError as exc:
                 raise AIError('invalid_request') from exc
         request = AIRequest(task=task, prompt=prompt, system=system, schema=schema, **kwargs)
@@ -85,7 +92,7 @@ class AIRouter:
                 if strict and not model.strict_structured:
                     last=AIError('invalid_request',incompatibility='model_capability');continue
                 try:adapted=replace(request,strict_schema=strict,
-                    transport_schema=transport_schema(schema,model.structured_profile,strict=strict))
+                    transport_schema=transport_schema(bounded,model.structured_profile,strict=strict))
                 except AIError as error:
                     if error.incompatibility=='model_capability':last=error;continue
                     raise
@@ -128,6 +135,7 @@ class AIRouter:
                         raise AIError('malformed_output', response_validation=json_failure(result.text)) from exc
                     try:
                         if adapted.strict_schema:Draft202012Validator(adapted.transport_schema).validate(parsed)
+                        if transport_contract is not None:Draft202012Validator(bounded).validate(parsed)
                         Draft202012Validator(schema).validate(parsed)
                     except ValidationError as exc:
                         raise AIError('malformed_output', response_validation=schema_failure(exc)) from exc
