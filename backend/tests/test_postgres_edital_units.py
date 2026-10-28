@@ -174,6 +174,35 @@ class DurableUnits(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(completed.diagnostics['completed_model']['model'],'synthetic-no-network')
             self.assertRegex(completed.diagnostics['attempts'][0]['input_hash'],r'^[0-9a-f]{64}$')
 
+    async def test_legacy_inventory_preflight_splits_without_provider_io_or_source_loss(self):
+        from unittest.mock import AsyncMock
+        from services.edital_pipeline_worker import IncrementalHandler
+        from services.edital_semantics import unit_key
+        result=await self.intake(count=61);ids=[f'p0001-b{index:04d}' for index in range(1,62)]
+        async with unit_of_work() as session:
+            rows=(await session.execute(select(EditalUnit).where(EditalUnit.user_id==self.uid,EditalUnit.analysis_id==store.uuid(result['analysis_id']))
+                .order_by(EditalUnit.source_blocks[0].astext))).scalars().all()
+            legacy=rows[0];legacy.source_blocks=ids;legacy.unit_key=unit_key('inventory','inventory',ids,legacy.context_blocks)
+            legacy_id=legacy.id
+            for extra in rows[1:]:extra.status='cancelled';extra.generation=uuid4()
+        router=SimpleNamespace(generate=AsyncMock());credentials=SimpleNamespace(get=AsyncMock())
+        from services.edital_pipeline_budget import forecast
+        async with unit_of_work() as session:
+            analysis=await store.owned_analysis(session,self.uid,result['analysis_id'])
+            plan=await forecast(session,analysis,store.manifest(analysis))
+            self.assertEqual(plan['stages']['inventory'],2);self.assertEqual(plan['stages']['verify'],2)
+            self.assertEqual(plan['minimum_total_attempts'],4);self.assertTrue(plan['includes_preflight_splits'])
+        self.assertTrue(await IncrementalHandler(router,credentials,None).run_one())
+        router.generate.assert_not_awaited();credentials.get.assert_not_awaited()
+        async with unit_of_work() as session:
+            parent=await session.get(EditalUnit,legacy_id);self.assertEqual(parent.status,'split');self.assertEqual(parent.provider_calls,0)
+            children=(await session.execute(select(EditalUnit).where(EditalUnit.user_id==self.uid,EditalUnit.diagnostics['split_from'].astext==str(legacy_id))
+                .order_by(EditalUnit.source_blocks[0].astext))).scalars().all()
+            self.assertEqual(len(children),2);self.assertEqual([identity for child in children for identity in child.source_blocks],ids)
+            self.assertTrue(all(len(child.source_blocks)<=60 for child in children))
+            analysis=await store.owned_analysis(session,self.uid,result['analysis_id'],source=True)
+            self.assertEqual(store.manifest(analysis).budget.reserved_attempts,0);self.assertEqual(len(analysis.pages[0]['blocks']),61)
+
     async def test_worker_truncation_splits_without_saving_unvalidated_partial_json(self):
         from services.edital_pipeline_worker import IncrementalHandler
         await self.intake(count=4)

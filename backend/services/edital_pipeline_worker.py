@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from ai.types import AIError
 from ai.validation_diagnostics import documentary_failure, pydantic_failure
 from ai.config import MODELS
-from edital_pipeline_contracts import UNIT_OUTPUT_TOKENS, VERIFICATION_OUTPUT_TOKENS
+from edital_pipeline_contracts import UNIT_OUTPUT_TOKENS, VERIFICATION_OUTPUT_TOKENS, INVENTORY_PRIMARY_BLOCKS
 from edital_transport_contracts import InventoryTransport
 from edital_partition_contract import InventoryPartitionTransport,partition_contract
 from services import edital_pipeline_units as units
@@ -168,6 +168,8 @@ class IncrementalHandler:
         try:
             snapshot = await units.snapshot(claim)
             probe=snapshot['manifest'].provider_approval.diagnostic_case
+            if not probe and claim.kind=='inventory' and len(snapshot['primary'])>INVENTORY_PRIMARY_BLOCKS:
+                raise AIError('input_limit')  # Reuse durable lossless splitting before credentials/provider IO.
             contract=partition_contract([block['id'] for block in snapshot['primary']]) if claim.kind=='inventory' and not probe else output_contract(claim.kind)
             request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot,contract),
                 'output_type':contract,'strict_schema':True,

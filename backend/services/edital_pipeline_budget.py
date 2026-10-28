@@ -1,19 +1,33 @@
 """Owned read-only lower-bound planning. No prices, retries or unknown work invented."""
-from sqlalchemy import select
+from functools import lru_cache
+from sqlalchemy import select,func
 from db.models.edital_units import EditalUnit
-from edital_pipeline_contracts import MAX_PROVIDER_ATTEMPTS
+from edital_pipeline_contracts import MAX_PROVIDER_ATTEMPTS,INVENTORY_PRIMARY_BLOCKS
 from ai.schemas import TRANSPORT_VERSION
 from ai.config import MODELS, Settings
+
+FORECAST_VERSION = 2
+
+
+@lru_cache(maxsize=128)
+def inventory_parts(count):
+    if not isinstance(count,int) or isinstance(count,bool) or count<=INVENTORY_PRIMARY_BLOCKS:return 1
+    middle=count//2
+    return inventory_parts(middle)+inventory_parts(count-middle)
+
+
+def weight(row):
+    return inventory_parts(row.get('source_count',0)) if row['kind']=='inventory' and row['status']!='completed' else 1
 
 
 def estimate(state,rows):
     generations={str(state.inventory.generation)}
     if state.selected_role_id in state.scopes:generations.add(str(state.scopes[state.selected_role_id].generation))
     active=[row for row in rows if str(row['generation']) in generations and row['status']!='split']
-    remaining={kind:sum(row['kind']==kind and row['status']!='completed' for row in active)
+    remaining={kind:sum(weight(row) for row in active if row['kind']==kind and row['status']!='completed')
         for kind in ('inventory','scope','detail','verify')}
     checked={row.get('reviewed_unit_key') for row in active if row['kind']=='verify'}
-    missing=sum(row['kind'] in ('inventory','detail') and row['unit_key'] not in checked for row in active)
+    missing=sum(weight(row) for row in active if row['kind'] in ('inventory','detail') and row['unit_key'] not in checked)
     remaining['verify']+=missing
     minimum=sum(remaining.values());required=state.budget.reserved_attempts+minimum
     unknown=[]
@@ -28,12 +42,13 @@ def estimate(state,rows):
         'remaining_budget':max(0,state.budget.provider_limit-state.budget.reserved_attempts),
         'extension_required':required>state.budget.provider_limit,'maximum_limit':MAX_PROVIDER_ATTEMPTS,
         'unknown_stages':unknown,'includes_retries':False,'live_provider_validated':validated,
+        'includes_preflight_splits':any(weight(row)>1 for row in active),
         'extraction_route':[{'provider':model.provider,'model':model.name} for model in route],
         'diagnostic_cases':['text','json','inventory'] if diagnostic_route and state.phase=='inventory' and not state.selected_role_id and remaining['inventory'] and not validated else []}
 
 
 async def forecast(session,analysis,state):
     records=(await session.execute(select(EditalUnit.generation,EditalUnit.kind,EditalUnit.status,
-        EditalUnit.unit_key,EditalUnit.diagnostics['validation']['expected_reviewed_unit_key'].astext).where(
+        EditalUnit.unit_key,func.jsonb_array_length(EditalUnit.source_blocks),EditalUnit.diagnostics['validation']['expected_reviewed_unit_key'].astext).where(
         EditalUnit.user_id==analysis.user_id,EditalUnit.analysis_id==analysis.id))).all()
-    return estimate(state,[dict(zip(('generation','kind','status','unit_key','reviewed_unit_key'),row)) for row in records])
+    return estimate(state,[dict(zip(('generation','kind','status','unit_key','source_count','reviewed_unit_key'),row)) for row in records])
