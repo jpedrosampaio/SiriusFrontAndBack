@@ -3,7 +3,7 @@ from copy import deepcopy
 from itertools import groupby
 from pydantic import Field, model_validator
 from jsonschema import Draft202012Validator, ValidationError as SchemaValidationError
-from edital_pipeline_contracts import Contract,InventoryUnit,RolePart,NamedFact,SemanticKind,SemanticLevel,ProposedFact,BlockClassification
+from edital_pipeline_contracts import Contract,InventoryUnit,RolePart,NamedFact,SemanticKind,SemanticLevel,ProposedFact,BlockClassification,INVENTORY_PRIMARY_BLOCKS
 from edital_transport_contracts import ScopeEvidenceTransport,field
 
 
@@ -16,8 +16,8 @@ class ClassificationTemplate(Contract):
 
 class InventoryPartitionTransport(Contract):
     roles: list[RolePart] = field(InventoryUnit,'roles')
-    classes: list[ClassificationTemplate] = Field(min_length=1,max_length=60)
-    coverage: dict[str,int] = Field(min_length=1,max_length=60)
+    classes: list[ClassificationTemplate] = Field(min_length=1,max_length=INVENTORY_PRIMARY_BLOCKS)
+    coverage: dict[str,int] = Field(min_length=1,max_length=INVENTORY_PRIMARY_BLOCKS)
     facts: list[NamedFact] = field(InventoryUnit,'facts')
     warnings: list[str] = field(InventoryUnit,'warnings')
 
@@ -40,7 +40,7 @@ class InventoryPartitionTransport(Contract):
 
 def partition_contract(primary_ids):
     ids=tuple(primary_ids)
-    if not ids or len(ids)>60 or len(ids)!=len(set(ids)):raise ValueError('Invalid primary source set')
+    if not ids or len(ids)>INVENTORY_PRIMARY_BLOCKS or len(ids)!=len(set(ids)):raise ValueError('Invalid primary source set')
     class UnitInventoryPartition(InventoryPartitionTransport):
         def as_canonical(self):return self.canonical_for(ids)
 

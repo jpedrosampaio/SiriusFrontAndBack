@@ -17,13 +17,19 @@ from services import edital_pipeline_store as store
 from services import edital_pipeline_controls as controls,edital_pipeline_compile as compiler
 from services.edital_pdf import extract_pdf, PDFInputError, ExtractionMetrics, MAX_BYTES
 from services.edital_pipeline_diagnostics import message as diagnostic_message
-from services.edital_pipeline_budget import forecast
+from services.edital_pipeline_budget import forecast,FORECAST_VERSION
+from ai.schemas import TRANSPORT_VERSION
 from ai.provider_diagnostics import safe_rejection
 from ai.validation_diagnostics import safe_validation
 
 router=APIRouter(prefix='/study/edital-pipeline')
 _wake=None
 _input_gate=asyncio.Semaphore(1)
+
+def progress_etag(identity,revision):
+    # A deployment may change the forecast without writing the saved analysis.
+    return f'"edital-v6-plan{FORECAST_VERSION}-{TRANSPORT_VERSION}-{identity}-{revision}"'
+
 PDF_ERRORS={
     'invalid_pdf':'Selecione um arquivo PDF íntegro.',
     'encrypted_pdf':'O PDF está protegido por senha. Envie uma cópia desbloqueada.',
@@ -135,11 +141,11 @@ async def get_state(request:Request,analysis_id:str):
         revision=await session.scalar(select(EditalAnalysis.revision).where(EditalAnalysis.user_id==uid,
             EditalAnalysis.id==identity,EditalAnalysis.analysis_version=='6'))
         if revision is None:raise HTTPException(404,'Análise incremental não encontrada.')
-        etag=f'"edital-v6-{identity}-{revision}"'
+        etag=progress_etag(identity,revision)
         headers={'ETag':etag,'Cache-Control':'private, no-store'}
         if request.headers.get('If-None-Match')==etag:return Response(status_code=304,headers=headers)
         row=await store.owned_analysis(session,uid,identity);state=store.manifest(row)
-        etag=f'"edital-v6-{identity}-{row.revision}"';headers['ETag']=etag
+        etag=progress_etag(identity,row.revision);headers['ETag']=etag
         filters=(EditalUnit.user_id==uid,EditalUnit.analysis_id==identity,EditalUnit.generation.in_(active_generations(state)))
         groups=(await session.execute(select(EditalUnit.kind,EditalUnit.status,func.count()).where(*filters)
             .group_by(EditalUnit.kind,EditalUnit.status))).all()

@@ -94,6 +94,12 @@ class PipelineHTTP(unittest.IsolatedAsyncioTestCase):
     async def test_etag_is_owned_lightweight_and_changes_on_claim_and_failure(self):
         result=(await self.submit()).json();url='/api/study/edital-pipeline/'+result['analysis_id']
         first=await self.http.get(url);self.assertEqual(first.status_code,200,first.text);tag=first.headers['etag']
+        old=f'"edital-v6-{result["analysis_id"]}-{first.json()["revision"]}"'
+        refreshed=await self.http.get(url,headers={'If-None-Match':old})
+        self.assertEqual(refreshed.status_code,200);self.assertEqual(refreshed.headers['etag'],tag)
+        with patch.object(routes,'FORECAST_VERSION',routes.FORECAST_VERSION+1):
+            deployed=await self.http.get(url,headers={'If-None-Match':tag})
+        self.assertEqual(deployed.status_code,200);self.assertNotEqual(deployed.headers['etag'],tag)
         statements=[];engine=get_engine().sync_engine
         def record(conn,cursor,statement,parameters,context,executemany):statements.append(statement)
         event.listen(engine,'before_cursor_execute',record)
