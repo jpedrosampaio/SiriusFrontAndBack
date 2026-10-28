@@ -11,7 +11,7 @@ const publicCategories = new Set(['unknown_field', 'invalid_value', 'missing_fie
 const publicProviderCodes = new Set(['json_validate_failed', 'model_decommissioned', 'model_not_found', 'context_length_exceeded', 'invalid_api_key', 'rate_limit_exceeded', 'tool_use_failed']);
 const publicProviderTypes = new Set(['invalid_request_error', 'authentication_error', 'permission_error', 'rate_limit_error', 'server_error']);
 const publicModels = new Set(['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']);
-const validationFields = new Set(('roles name code vacancies salary requirements value state sources page block_id quote classifications end_block_id kind level title scope role_references scope_sources facts key fact warnings bindings section_key decision reason applicability covered_block_ids disciplines stage group topics parent_key numbering rules target_scope target reviewed_unit_key findings severity subject description').split(' '));
+const validationFields = new Set(('roles name code vacancies salary requirements value state sources page block_id quote classifications end_block_id kind level title scope role_references scope_sources facts key fact warnings classes coverage bindings section_key decision reason applicability covered_block_ids disciplines stage group topics parent_key numbering rules target_scope target reviewed_unit_key findings severity subject description').split(' '));
 const validationCodes = {
   documentary: ['source_reference_mismatch', 'source_excerpt_mismatch', 'value_not_supported_by_excerpt', 'classification_outside_unit', 'reversed_section_range', 'inventory_coverage_mismatch', 'role_identity_missing', 'documentary_rejected'],
   json_decode: ['invalid_json', 'markdown_fence'],
@@ -20,6 +20,8 @@ const validationCodes = {
 };
 export const validationStages = { documentary: 'Conferência das fontes documentais', json_decode: 'Leitura do JSON', json_schema: 'Contrato JSON Schema', pydantic: 'Contrato Pydantic' };
 export const validationRules = {
+  inventory_coverage_missing: 'A classificação não cobre exatamente os blocos exigidos',
+  inventory_assignment_invalid: 'A cobertura aponta para uma classificação inexistente ou sem uso',
   fact_missing_inconsistent: 'Campo marcado como ausente contém valor ou fonte',
   fact_evidence_missing: 'Valor proposto sem evidência documental',
   heading_title_missing: 'Título de seção sem valor documentado',

@@ -32,6 +32,14 @@ def normalize_schema(value):
     return result
 
 
+def unique_object(pairs):
+    value={}
+    for key,item in pairs:
+        if key in value:raise ValueError('Duplicate structured field')
+        value[key]=item
+    return value
+
+
 class AIRouter:
     def __init__(self, settings=None, providers=None, reserve=None):
         self.settings = settings or Settings()
@@ -130,7 +138,7 @@ class AIRouter:
                 result = await getattr(provider, method)(model, key, adapted)
                 if schema:
                     try:
-                        parsed = json.loads(result.text)
+                        parsed = json.loads(result.text,object_pairs_hook=unique_object) if transport_contract is not None else json.loads(result.text)
                     except ValueError as exc:
                         raise AIError('malformed_output', response_validation=json_failure(result.text)) from exc
                     try:

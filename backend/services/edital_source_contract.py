@@ -13,6 +13,10 @@ def source_contract(output_type, primary, context=()):
     # Coverage spans may refer only to primary blocks, never context-only IDs.
     ids = list(dict.fromkeys(block['id'] for block in primary))
     if ids:
+        if 'coverage' in schema.get('properties', {}):
+            schema['properties']['coverage']={'type':'object','properties':{identity:{'type':'integer','minimum':0,'maximum':len(ids)-1} for identity in ids},
+                'required':ids,'additionalProperties':False}
+            schema['properties']['classes']['maxItems']=len(ids)
         classification = schema.get('$defs', {}).get('ClassificationTransport', {}).get('properties', {})
         if classification:
             classification['block_id']['enum'] = ids

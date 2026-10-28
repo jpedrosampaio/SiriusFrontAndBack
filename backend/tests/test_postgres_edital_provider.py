@@ -100,7 +100,9 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             calls.append(request)
             fields=json.loads(request.content)['response_format']['json_schema']['schema']['$defs']['Citation']['properties']
             self.assertEqual(fields['page']['enum'],[1,2]);self.assertEqual(fields['block_id']['enum'],['p0001-b0001','p0002-b0001'])
-            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(response)}}]})
+            from edital_wire_fixtures import partition_wire
+            schema=json.loads(request.content)['response_format']['json_schema']['schema']
+            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(partition_wire(response,list(schema['properties']['coverage']['properties'])))}}]})
         async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
             router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['reasoning']]),providers={'groq':GroqProvider(client)})
             await IncrementalHandler(router,SimpleNamespace(get=AsyncMock(return_value={'groq':'synthetic'})),progress.consolidate).execute(claim)
@@ -112,6 +114,45 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             diagnostic=row.diagnostics['last_failure']['response_validation']
             self.assertEqual(diagnostic['path'],'$.roles[].name.sources[].page')
             self.assertEqual(diagnostic['code'],'source_reference_mismatch')
+
+    async def test_partition_wire_consolidates_multiblock_role_and_preserves_explicit_ranges(self):
+        import hashlib
+        from ai.router import AIRouter
+        from ai.providers.groq import GroqProvider
+        from edital_pipeline_contracts import DocumentIR,SourcePage,SourceBlock
+        from services.edital_pipeline_worker import IncrementalHandler
+        from edital_wire_fixtures import partition_wire
+        texts=['EDITAL','Cargo: Analista de Sistemas.','Curso superior completo.']
+        ids=[f'p0001-b{index:04d}' for index in (1,2,3)]
+        doc=DocumentIR(sha256=hashlib.sha256(''.join(texts).encode()).hexdigest(),size_bytes=100,
+            pages=[SourcePage(page=1,width=600,height=800,quality='text',characters=sum(map(len,texts)),
+                blocks=[SourceBlock(id=identity,page=1,text=text,bbox=(50,50,550,70)) for identity,text in zip(ids,texts)])])
+        reserved=await store.reserve_intake(self.uid,doc.sha256,'synthetic.pdf',False,str(uuid4()))
+        accepted=await store.persist_input(self.uid,reserved['job_id'],reserved['token'],doc);self.identity=accepted['analysis_id']
+        await self.resume(mode='pilot');claim=await units.claim_next();calls=[]
+        fact=lambda value,index:{'value':value,'state':'extracted','sources':[{'page':1,'block_id':ids[index],'quote':texts[index]}]}
+        proposal={'roles':[{'name':fact('Analista de Sistemas',1),'requirements':fact('Curso superior completo',2)}],
+            'classifications':[{'block_id':ids[0],'kind':'general'},{'block_id':ids[1],'end_block_id':ids[2],'kind':'roles'}]}
+        response=partition_wire(proposal,ids)
+        def answer(request):
+            calls.append(request);schema=json.loads(request.content)['response_format']['json_schema']['schema']
+            self.assertEqual(schema['properties']['coverage']['required'],ids)
+            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(response)}}]})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['reasoning']]),providers={'groq':GroqProvider(client)})
+            await IncrementalHandler(router,SimpleNamespace(get=AsyncMock(return_value={'groq':'synthetic'})),progress.consolidate).execute(claim)
+        self.assertEqual(len(calls),1);self.assertIsNone(await units.claim_next())
+        _,state,_=await self.state();self.assertEqual(state.budget.reserved_attempts,1);self.assertEqual(state.budget.provider_limit,120)
+        self.assertTrue(state.provider_approval.pilot_validated);self.assertEqual(state.provider_approval.mode,'paused')
+        self.assertEqual(state.inventory.roles[0].name.value,'Analista de Sistemas')
+        self.assertEqual(state.inventory.roles[0].requirements.value,'Curso superior completo')
+        async with unit_of_work() as session:
+            row=await session.get(EditalUnit,claim.unit_id)
+            self.assertEqual(row.status,'completed');self.assertNotIn('coverage',row.result)
+            self.assertEqual(row.result['classifications'][1]['end_block_id'],ids[2])
+            self.assertEqual(row.result['classifications'][1]['kind'],'roles')
+            analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
+            self.assertEqual([block['text'] for block in analysis.pages[0]['blocks']],texts)
 
     async def test_legacy_is_paused_before_io_and_budget_includes_future_checks(self):
         await self.create(legacy=True)
@@ -224,7 +265,9 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             fields=body['response_format']['json_schema']['schema']['$defs']['Citation']['properties']
             self.assertEqual(fields['block_id']['enum'],['p0001-b0001'])
             self.assertEqual(fields['page']['enum'],[1])
-            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(payload)}}]})
+            from edital_wire_fixtures import partition_wire
+            schema=body['response_format']['json_schema']['schema']
+            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(partition_wire(payload,list(schema['properties']['coverage']['properties'])))}}]})
         async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
             router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['vision']]),providers={'groq':GroqProvider(client)})
             credentials=SimpleNamespace(get=AsyncMock(return_value={'groq':'synthetic-key'}))
@@ -355,7 +398,9 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
         def transport(request):
             body=json.loads(request.content);published_contract(body);calls.append(body)
             self.assertEqual(body['generationConfig']['responseFormat']['text']['mimeType'],'APPLICATION_JSON')
-            return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':json.dumps(payload)}]}}],
+            from edital_wire_fixtures import partition_wire
+            schema=body['generationConfig']['responseFormat']['text']['schema']
+            return httpx.Response(200,json={'candidates':[{'content':{'parts':[{'text':json.dumps(partition_wire(payload,list(schema['properties']['coverage']['properties'])))}]}}],
                 'usageMetadata':{'totalTokenCount':20}})
         async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
             handler=IncrementalHandler(AIRouter(providers={'gemini':GeminiProvider(client)}),
