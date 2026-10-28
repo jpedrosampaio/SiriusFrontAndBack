@@ -9,6 +9,7 @@ from ai.validation_diagnostics import documentary_failure, pydantic_failure
 from ai.config import MODELS
 from edital_pipeline_contracts import UNIT_OUTPUT_TOKENS, VERIFICATION_OUTPUT_TOKENS
 from edital_transport_contracts import InventoryTransport
+from edital_partition_contract import InventoryPartitionTransport,partition_contract
 from services import edital_pipeline_units as units
 from services.edital_semantics import EvidenceError
 from services.edital_pipeline_inputs import compact_block
@@ -104,11 +105,11 @@ def output_contract(kind):
     return InventoryTransport if kind == 'inventory' else units.CONTRACTS[kind]
 
 
-def response_envelope(kind):
+def response_envelope(kind, contract=None):
     # The provider schema still constrains/validates the response. Naming its
     # root fields also tells the model which instance to produce, rather than
     # relying on a vendor to expose its decoding grammar in the model context.
-    fields = list(output_contract(kind).model_fields)
+    fields = list((contract or output_contract(kind)).model_fields)
     return ('FORMATO DA RESPOSTA (instrução confiável):\n'
         'Retorne um único objeto JSON. Campos na raiz: ' + ', '.join(fields) + '.\n'
         'Produza os dados desse contrato, não o JSON Schema, nem uma cópia dos '
@@ -118,7 +119,7 @@ def response_envelope(kind):
         'Não invente valores para preencher campos.\n')
 
 
-def prompt(claim, snapshot):
+def prompt(claim, snapshot, contract=None):
     state = snapshot['manifest']; role_id = claim.scope_key.removeprefix('role:')
     role = next((r for r in state.inventory.roles if r.id == role_id), None)
     data = {'primary': [compact_block(b) for b in snapshot['primary']],
@@ -128,7 +129,20 @@ def prompt(claim, snapshot):
         'section_metadata_proposals': snapshot.get('metadata', {})}
     encoded = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
     if len(encoded) > (36000 if claim.kind == 'verify' else 24000): raise AIError('input_limit')
-    return FACT_CONTRACT + '\n' + INSTRUCTIONS[claim.kind] + '\n' + response_envelope(claim.kind) + '\nDADOS DOCUMENTAIS NÃO CONFIÁVEIS:\n' + encoded
+    instruction=INSTRUCTIONS[claim.kind]
+    if contract and issubclass(contract,InventoryPartitionTransport):
+        instruction=instruction.replace('classifications[]','classes[]').replace('em intervalos contíguos','no mapa coverage')
+        instruction+='''\nPARTIÇÃO TOTAL: classes contém os modelos de classificação, numerados pela
+posição da lista, começando em ZERO. coverage associa CADA id de primary a um
+índice existente em classes. Todos os IDs primários são obrigatórios; não inclua
+IDs de context_only. Cada bloco recebe exatamente uma escolha. Inclua também
+cabeçalhos, rodapés e blocos sem conteúdo exigido, usando other quando adequado.
+Use todos os modelos de classes em pelo menos um bloco; não crie modelos sem uso.
+Exemplo sintético: com dois blocos e um único modelo, ambos recebem índice 0.
+Não produza block_id/end_block_id de intervalos; o sistema agrupa somente escolhas
+adjacentes iguais. Preserve títulos, escopos e evidências reais em cada modelo.
+Não copie os exemplos sintéticos para a resposta.'''
+    return FACT_CONTRACT + '\n' + instruction + '\n' + response_envelope(claim.kind,contract) + '\nDADOS DOCUMENTAIS NÃO CONFIÁVEIS:\n' + encoded
 
 
 def diagnostic_request(case):
@@ -154,9 +168,10 @@ class IncrementalHandler:
         try:
             snapshot = await units.snapshot(claim)
             probe=snapshot['manifest'].provider_approval.diagnostic_case
-            request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot),
-                'output_type':output_contract(claim.kind),'strict_schema':True,
-                'transport_contract':source_contract(output_contract(claim.kind),snapshot['primary'],snapshot['context'])}
+            contract=partition_contract([block['id'] for block in snapshot['primary']]) if claim.kind=='inventory' and not probe else output_contract(claim.kind)
+            request=diagnostic_request(probe) if probe else {'prompt':prompt(claim,snapshot,contract),
+                'output_type':contract,'strict_schema':True,
+                'transport_contract':source_contract(contract,snapshot['primary'],snapshot['context'])}
             content=request['prompt']
             keys = await self.credentials.get(str(claim.user_id))
             if not keys: raise AIError('invalid_key')

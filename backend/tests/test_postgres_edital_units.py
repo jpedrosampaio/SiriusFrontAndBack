@@ -148,8 +148,9 @@ class DurableUnits(unittest.IsolatedAsyncioTestCase):
             calls.append(kwargs)
             await kwargs['on_attempt'](SimpleNamespace(provider='mock', name='synthetic-no-network'))
             entered.set(); await release.wait()
-            from edital_wire_fixtures import inventory_wire
-            proposal=kwargs['output_type'].model_validate(inventory_wire(self.proposal(['p0001-b0001'])))
+            from edital_wire_fixtures import partition_wire
+            ids=list(kwargs['transport_contract']['properties']['coverage']['properties'])
+            proposal=kwargs['output_type'].model_validate(partition_wire(self.proposal(['p0001-b0001']),ids))
             return AIResult(provider='mock',model='synthetic-no-network',data=proposal, usage={'total_tokens': 30})
         async def credentials(uid):
             self.assertEqual(uid, str(self.uid)); return {'mock': 'synthetic-not-a-real-credential'}

@@ -56,7 +56,7 @@ class StrictContracts(unittest.IsolatedAsyncioTestCase):
                     strict_schema=True, max_tokens=3072)
             self.assertEqual(result.data, contract.model_validate(minimal))
             self.assertEqual(len(calls), 1); self.assertEqual(canonical, original)
-        self.assertEqual(TRANSPORT_VERSION, 'structured-transport/8')
+        self.assertEqual(TRANSPORT_VERSION, 'structured-transport/9')
 
     def test_evidence_conditions_are_equivalent_to_the_original_validators(self):
         cases = []

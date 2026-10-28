@@ -74,3 +74,11 @@ test('documentary rule codes are finite and never expose private citations',()=>
   assert.equal(JSON.stringify(result).includes(privateText),false);
   assert.equal(c.publicValidation({stage:'documentary',code:privateText}),null);
 });
+
+
+test('partition diagnostics retain finite paths and rules without exposing source keys',()=>{
+  const c=helpers(),response_validation={stage:'pydantic',code:'value_error',path:'$.coverage.*',rule:'inventory_assignment_invalid'};
+  const result=c.publicDiagnostic({failure:{response_validation}});
+  assert.equal(result.response_validation.path,'$.coverage.*');assert.equal(result.response_validation.rule,'inventory_assignment_invalid');
+  assert.equal(c.publicValidation({...response_validation,path:'$.coverage.PRIVATE_SOURCE_KEY'}).path,'$');
+});

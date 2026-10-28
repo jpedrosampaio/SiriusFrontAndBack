@@ -3,7 +3,7 @@ import re
 
 FIELDS = set(('roles name code vacancies salary requirements value state sources page block_id quote '
     'classifications end_block_id kind level title scope role_references scope_sources facts key fact warnings '
-    'bindings section_key decision reason applicability covered_block_ids disciplines stage group topics '
+    'classes coverage bindings section_key decision reason applicability covered_block_ids disciplines stage group topics '
     'parent_key numbering rules target_scope target reviewed_unit_key findings severity subject description').split())
 CODES = {
     'documentary': {'value_not_supported_by_excerpt', 'source_excerpt_mismatch', 'documentary_rejected', 'role_identity_missing', 'source_reference_mismatch', 'classification_outside_unit', 'reversed_section_range', 'inventory_coverage_mismatch'},
@@ -17,6 +17,8 @@ CODES = {
 }
 # Compare in memory to constants only. Unknown validator messages never escape.
 INVARIANTS = {
+    'Coverage must match every primary block': 'inventory_coverage_missing',
+    'Coverage must use exactly the supplied class indexes': 'inventory_assignment_invalid',
     'Missing information is not zero or a sourced value': 'fact_missing_inconsistent',
     'A proposed value requires documentary evidence': 'fact_evidence_missing',
     'A semantic heading requires its sourced title': 'heading_title_missing',
