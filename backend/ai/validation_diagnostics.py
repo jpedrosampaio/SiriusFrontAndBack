@@ -90,4 +90,4 @@ def pydantic_failure(error):
 def documentary_failure(error):
     """Only finite rule names, never citations, IDs, exception text or output."""
     code = getattr(error, 'code', None)
-    return {'stage': 'documentary', 'code': code if isinstance(code, str) and code in CODES['documentary'] else 'documentary_rejected', 'path': '$'}
+    return {'stage': 'documentary', 'code': code if isinstance(code, str) and code in CODES['documentary'] else 'documentary_rejected', 'path': location_path(getattr(error,'location',()))}

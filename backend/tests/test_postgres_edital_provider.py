@@ -80,6 +80,39 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             analysis=await store.owned_analysis(session,self.uid,self.identity,source=True)
             self.assertEqual(analysis.pages[0]['blocks'][0]['text'],self.document().pages[0].blocks[0].text)
 
+    async def test_source_bound_response_still_rejects_wrong_block_page_pair_without_saving_output(self):
+        import hashlib
+        from ai.router import AIRouter
+        from ai.providers.groq import GroqProvider
+        from edital_pipeline_contracts import DocumentIR,SourcePage,SourceBlock
+        from services.edital_pipeline_worker import IncrementalHandler
+        text='Cargo: Analista.'
+        doc=DocumentIR(sha256=hashlib.sha256(text.encode()).hexdigest(),size_bytes=100,
+            pages=[SourcePage(page=page,width=600,height=800,quality='text',characters=len(text),
+                blocks=[SourceBlock(id=f'p{page:04d}-b0001',page=page,text=text,bbox=(50,50,550,70))]) for page in (1,2)])
+        reserved=await store.reserve_intake(self.uid,doc.sha256,'synthetic.pdf',False,str(uuid4()))
+        accepted=await store.persist_input(self.uid,reserved['job_id'],reserved['token'],doc);self.identity=accepted['analysis_id']
+        await self.resume(mode='pilot');claim=await units.claim_next();calls=[]
+        from edital_wire_fixtures import inventory_wire
+        response=inventory_wire({'roles':[{'name':{'value':'Analista','state':'extracted','sources':[{'page':2,'block_id':'p0001-b0001','quote':text}]}}],
+            'classifications':[{'block_id':'p0001-b0001','end_block_id':'p0002-b0001','kind':'roles'}]})
+        def answer(request):
+            calls.append(request)
+            fields=json.loads(request.content)['response_format']['json_schema']['schema']['$defs']['Citation']['properties']
+            self.assertEqual(fields['page']['enum'],[1,2]);self.assertEqual(fields['block_id']['enum'],['p0001-b0001','p0002-b0001'])
+            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(response)}}]})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['reasoning']]),providers={'groq':GroqProvider(client)})
+            await IncrementalHandler(router,SimpleNamespace(get=AsyncMock(return_value={'groq':'synthetic'})),progress.consolidate).execute(claim)
+        self.assertEqual(len(calls),1);self.assertIsNone(await units.claim_next())
+        _,state,_=await self.state();self.assertEqual(state.budget.reserved_attempts,1);self.assertEqual(state.budget.provider_limit,120)
+        self.assertEqual(state.inventory.roles,[]);self.assertFalse(state.provider_approval.pilot_validated)
+        async with unit_of_work() as session:
+            row=await session.get(EditalUnit,claim.unit_id);self.assertIsNone(row.result)
+            diagnostic=row.diagnostics['last_failure']['response_validation']
+            self.assertEqual(diagnostic['path'],'$.roles[].name.sources[].page')
+            self.assertEqual(diagnostic['code'],'source_reference_mismatch')
+
     async def test_legacy_is_paused_before_io_and_budget_includes_future_checks(self):
         await self.create(legacy=True)
         self.assertIsNone(await units.claim_next())
@@ -188,6 +221,9 @@ class ProviderRecovery(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(body['response_format']['json_schema']['schema']['$defs']['ScopeEvidenceTransport']['anyOf']),3)
             self.assertIn('scope_sources',body['messages'][-1]['content'])
             self.assertIn('EXTRAÇÃO LITERAL',body['messages'][-1]['content'])
+            fields=body['response_format']['json_schema']['schema']['$defs']['Citation']['properties']
+            self.assertEqual(fields['block_id']['enum'],['p0001-b0001'])
+            self.assertEqual(fields['page']['enum'],[1])
             return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(payload)}}]})
         async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
             router=AIRouter(settings=SimpleNamespace(route=lambda task:[MODELS['vision']]),providers={'groq':GroqProvider(client)})
