@@ -34,6 +34,16 @@ class GroqProvider(Provider):
         try:
             data = await self.request('post', f'{BASE}/chat/completions', headers={'Authorization': f'Bearer {key}'}, json=payload, timeout=request.timeout)
         except AIError as error:
+            # This public Groq code describes a rejected generated response,
+            # not an incompatible request. Let the edital worker apply its
+            # bounded, lossless split policy; never accept failed_generation.
+            if (request.task in ('edital_extract', 'edital_audit') and request.schema
+                    and error.kind == 'invalid_request' and error.http_status == 400
+                    and (error.provider_rejection or {}).get('provider_code') == 'json_validate_failed'):
+                error.kind = 'malformed_output'
+                error.args = ('malformed_output',)
+                error.incompatibility = None
+                error.reason = None
             if request.schema:
                 encoded=json.dumps(wire,sort_keys=True,separators=(',',':')).encode()
                 error.request_format='groq_json_schema_strict' if request.strict_schema else 'groq_json_schema'

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ai.config import MODELS
 from ai.providers.groq import GroqProvider
 from ai.router import AIRouter
-from ai.types import AIError
+from ai.types import AIError, AIRequest
 from edital_transport_contracts import InventoryTransport
 from edital_wire_fixtures import inventory_wire
 from services.edital_pipeline_worker import output_contract, prompt, response_envelope
@@ -19,6 +19,26 @@ REJECTION = json.loads((Path(__file__).parent / 'fixtures/groq_inventory_root_re
 
 
 class ResponseEnvelope(unittest.IsolatedAsyncioTestCase):
+    async def test_output_recovery_requires_exact_groq_code_http_status_task_and_schema(self):
+        for task, schema, status, code, expected in (
+            ('edital_extract', True, 400, 'json_validate_failed', 'malformed_output'),
+            ('edital_audit', True, 400, 'json_validate_failed', 'malformed_output'),
+            ('workout_generation', True, 400, 'json_validate_failed', 'invalid_request'),
+            ('edital_extract', False, 400, 'json_validate_failed', 'invalid_request'),
+            ('edital_extract', True, 400, 'unknown', 'invalid_request'),
+            ('edital_extract', True, 429, 'json_validate_failed', 'rate_limit'),
+        ):
+            with self.subTest(task=task, schema=schema, status=status, code=code):
+                def respond(request):
+                    return httpx.Response(status, json={'error': {'code': code,
+                        'message': 'PRIVATE', 'failed_generation': 'PRIVATE'}})
+                async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+                    with self.assertRaises(AIError) as failed:
+                        await GroqProvider(client).generate(MODELS['reasoning'], 'synthetic',
+                            AIRequest(task=task, prompt='synthetic', schema=InventoryTransport.model_json_schema() if schema else None))
+                self.assertEqual(failed.exception.kind, expected)
+                self.assertNotIn('PRIVATE', str(failed.exception.__dict__))
+
     def message(self, kind='inventory'):
         claim = SimpleNamespace(kind=kind, scope_key='inventory')
         snapshot = {'manifest': SimpleNamespace(inventory=SimpleNamespace(roles=[])),
@@ -39,7 +59,7 @@ class ResponseEnvelope(unittest.IsolatedAsyncioTestCase):
                 await router.generate(task='edital_extract', keys={'groq':'synthetic'},
                     output_type=InventoryTransport, strict_schema=True, prompt=self.message())
         self.assertEqual(len(calls), 1)
-        self.assertEqual(failed.exception.kind, 'invalid_request')
+        self.assertEqual(failed.exception.kind, 'malformed_output')
         self.assertEqual(failed.exception.provider_rejection['category'], 'output_validation')
         self.assertNotIn('PRIVATE-OUTPUT', str(failed.exception.__dict__))
 

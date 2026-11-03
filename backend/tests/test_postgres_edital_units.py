@@ -19,6 +19,41 @@ from edital_test_helpers import persist_approved
 
 @unittest.skipUnless(os.getenv('RUN_POSTGRES_TESTS') == 'true', 'Disposable PostgreSQL required')
 class DurableUnits(unittest.IsolatedAsyncioTestCase):
+    async def test_real_groq_error_code_splits_owned_sources_once_without_hidden_fallback(self):
+        import httpx
+        from ai.config import MODELS
+        from ai.router import AIRouter
+        from ai.providers.groq import GroqProvider
+        from services.edital_pipeline_worker import IncrementalHandler
+        result = await self.intake(count=4)
+        calls = []
+        def respond(request):
+            calls.append(request)
+            return httpx.Response(400, json={'error': {'code': 'json_validate_failed',
+                'message': 'Generated JSON does not match schema', 'failed_generation': 'PRIVATE'}})
+        async def credentials(uid): return {'groq': 'synthetic'}
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            router = AIRouter(settings=SimpleNamespace(route=lambda task: [MODELS['reasoning'], MODELS['vision']]),
+                providers={'groq': GroqProvider(client)})
+            handler = IncrementalHandler(router, SimpleNamespace(get=credentials), None)
+            self.assertTrue(await handler.run_one())
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(router.rejections)
+        async with unit_of_work() as session:
+            rows = (await session.scalars(select(EditalUnit).where(EditalUnit.user_id == self.uid))).all()
+            self.assertEqual(sorted(r.status for r in rows), ['pending', 'pending', 'split'])
+            parent = next(r for r in rows if r.status == 'split')
+            children = [r for r in rows if r.status == 'pending']
+            self.assertEqual(sorted(b for r in children for b in r.source_blocks), sorted(parent.source_blocks))
+            self.assertEqual(sum(r.provider_calls for r in rows), 1)
+            self.assertTrue(all(r.result is None for r in rows))
+            self.assertNotIn('PRIVATE', str(parent.diagnostics))
+            analysis = await store.owned_analysis(session, self.uid, result['analysis_id'])
+            state = store.manifest(analysis)
+            self.assertEqual(state.budget.reserved_attempts, 1)
+            self.assertEqual(state.budget.provider_limit, 120)
+            self.assertEqual(state.inventory.roles, [])
+
     asyncSetUp = setup.PostgresAgent.asyncSetUp
     document = intake_setup.DurableEditalIntake.document
 
