@@ -62,7 +62,7 @@ class RejectionMetadata(unittest.TestCase):
 
 
 class RejectionTransport(unittest.IsolatedAsyncioTestCase):
-    async def test_groq_failure_keeps_public_code_and_schema_at_cache_and_log_boundaries(self):
+    async def test_groq_output_failure_keeps_safe_metadata_without_poisoning_payload_cache(self):
         from ai.providers.groq import GroqProvider
         from ai.config import MODELS
         from types import SimpleNamespace
@@ -77,15 +77,17 @@ class RejectionTransport(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(AIError) as failure:
                     await router.generate(task='edital_extract',keys={'groq':private},prompt=private,output_type=InventoryUnit)
             error=failure.exception
-            self.assertEqual(error.kind,'invalid_request');self.assertEqual(error.http_status,400)
+            self.assertEqual(error.kind,'malformed_output');self.assertEqual(error.http_status,400)
+            self.assertIsNone(error.reason);self.assertIsNone(error.incompatibility)
+            self.assertFalse(router.rejections)
             self.assertEqual(error.provider_rejection['provider_code'],'json_validate_failed')
             self.assertEqual(error.request_format,'groq_json_schema');self.assertEqual(len(error.schema_sha256),64)
             self.assertGreater(error.schema_bytes,0)
             self.assertIn('json_validate_failed',' '.join(logs.output));self.assertNotIn(private,' '.join(logs.output))
             with self.assertRaises(AIError) as cached:
                 await router.generate(task='edital_extract',keys={'groq':private},prompt=private,output_type=InventoryUnit)
-            self.assertFalse(cached.exception.attempted);self.assertEqual(cached.exception.provider_rejection,error.provider_rejection)
-            self.assertEqual(cached.exception.schema_sha256,error.schema_sha256);self.assertEqual(len(calls),1)
+            self.assertTrue(cached.exception.attempted);self.assertEqual(cached.exception.provider_rejection,error.provider_rejection)
+            self.assertEqual(cached.exception.schema_sha256,error.schema_sha256);self.assertEqual(len(calls),2)
 
     async def test_metadata_reaches_logs_and_rejection_cache_without_retries_or_private_text(self):
         calls = []

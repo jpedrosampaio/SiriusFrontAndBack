@@ -161,6 +161,11 @@ class AIRouter:
                 exc.attempted=True;exc.reference=reference;failure=exc
                 last_actual=exc
                 last, status = exc, exc.kind
+                if (task in ('edital_extract', 'edital_audit') and exc.kind == 'malformed_output'
+                        and (exc.provider_rejection or {}).get('provider_code') == 'json_validate_failed'):
+                    # Recovery belongs to the durable unit worker, not a hidden
+                    # second provider attempt or a permanent payload cache.
+                    raise
                 if exc.kind in ('invalid_key', 'permission_denied'):
                     excluded.add(model.provider)
                 if exc.kind == 'invalid_request':
