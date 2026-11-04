@@ -1,13 +1,15 @@
 # Sirius — current handoff
 
-## Current correction — 2026-11-04, backend deployment unconfirmed
+## Current correction — 2026-11-04, backend deployment blocked
 
 PR82 merged as `0fc1a43c6530110e1912139a452ec86771dad6e2`, reviewed head
 `7e30dd3ccbb171016a2fe20ed75e382630015758`, identical trees. Four workflows
 passed on head and merge; independent read-only Codex CLI review clean.
-Vercel Production7515982242 succeeded. Northflank has no matching deployment
-record; its dashboard session expired and browser account selection timed out.
-Owner was asked to finish login in the open tab. Health live/ready and frontend
+Vercel Production7515982242 succeeded. Northflank dashboard access restored:
+backend still Running at d1d3d74 (PR81), Free/0.2vCPU/512MB. One manual build
+request for0fc1a43 was rejected: "Your default payment method has expired."
+Owner must resolve billing eligibility or obtain a free-plan unblock from support;
+no upgrade/payment/configuration change was made. Health live/ready and frontend
 passed read-only checks, plus20 anonymous protected reads401; this does not prove
 the running backend SHA. No post-merge real AI attempt has been initiated.
 [Merge, review, CI and deployment checkpoint](https://github.com/jpedrosampaio/SiriusFrontAndBack/pull/82#issuecomment-6630371017).
@@ -33,6 +35,10 @@ Next: verify/deploy this exact merge in Northflank, then controlled recovery of
 the existing analysis within the approved200 ceiling. Do not repeat a pilot
 while the backend release is unknown. Current documentation checkpoint branch:
 `codex/edital82-deployment-checkpoint`.
+Northflank also reports a security incident and recommends rotating secrets and
+reconnecting revoked integrations: https://status.northflank.com/cmvv0rn5a092f14rutwccodpp .
+No Sirius-specific compromise was established. Owner handles credentials; never
+blindly replace the data-encryption key and lose access to existing encrypted keys.
 Do not claim Issue65 resolved until actual validated/consolidated discovery succeeds.
 Pre-correction handoff is preserved in
 [history](docs/history/HANDOFF_BEFORE_EDITAL_OUTPUT_RECOVERY.md).
