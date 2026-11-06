@@ -53,6 +53,6 @@ credential rotation is separate and must preserve decryption of stored AI keys.
 
 ## History
 
-[Pre-publication snapshot](history/HANDOFF_BEFORE_WORKOUT83_PUBLICATION.md).
-[Pre-workout snapshot](history/HANDOFF_BEFORE_WORKOUT_QUICK_SETUP.md).
-[Earlier output-recovery history](history/HANDOFF_BEFORE_EDITAL_OUTPUT_RECOVERY.md).
+[Pre-publication snapshot](docs/history/HANDOFF_BEFORE_WORKOUT83_PUBLICATION.md).
+[Pre-workout snapshot](docs/history/HANDOFF_BEFORE_WORKOUT_QUICK_SETUP.md).
+[Earlier output-recovery history](docs/history/HANDOFF_BEFORE_EDITAL_OUTPUT_RECOVERY.md).
