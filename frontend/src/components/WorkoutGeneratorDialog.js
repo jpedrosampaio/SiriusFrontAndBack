@@ -3,7 +3,7 @@ import { Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { EQUIPMENT, MUSCLES, muscleLabel, SPLITS, splitConfig, initialGenerationForm, generationPayload, generationCount, createGenerationRequest } from '@/lib/workout-generation';
+import { EQUIPMENT, MUSCLES, muscleLabel, SPLITS, splitConfig, initialGenerationForm, quickGenerationSetup, generationPayload, generationCount, createGenerationRequest } from '@/lib/workout-generation';
 import { getApiErrorMessage } from '@/lib/api-errors';
 
 const fieldClass = 'w-full min-w-0 min-h-[44px] rounded-xl border border-border bg-background px-3 py-2 text-sm';
@@ -12,6 +12,7 @@ function Choice({ label, value, onChange, choices }) {
 }
 export default function WorkoutGeneratorDialog({ generate, onSaved }) {
   const [open, setOpen] = useState(false), [form, setForm] = useState(initialGenerationForm);
+  const [customize, setCustomize] = useState(false);
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState('');
   const requests = useRef(createGenerationRequest()), mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -27,7 +28,7 @@ export default function WorkoutGeneratorDialog({ generate, onSaved }) {
   async function submit(e) {
     e.preventDefault();
     let payload;
-    try { payload = generationPayload(form); } catch (failure) { setError(failure.message); return; }
+    try { payload = generationPayload(form); } catch (failure) { setCustomize(true); setError(failure.message); return; }
     const attempt = requests.current.begin(payload);
     if (!attempt) return;
     setBusy(true); setError('');
@@ -47,9 +48,17 @@ export default function WorkoutGeneratorDialog({ generate, onSaved }) {
   return <Dialog open={open} onOpenChange={setOpen}>
     <DialogTrigger asChild><Button data-testid="open-ai-generate-btn" className="bg-gradient-to-r from-violet-600 to-cyan-600 text-white"><Sparkles className="mr-2 h-4 w-4" />Gerar com IA</Button></DialogTrigger>
     <DialogContent className="max-w-2xl max-h-[90dvh] overflow-y-auto">
-      <DialogHeader className="pr-10"><DialogTitle>Planejar meus treinos</DialogTitle><DialogDescription>Declare sua rotina e seus equipamentos. A IA propõe sessões; o Sirius organiza o calendário completo.</DialogDescription></DialogHeader>
+      <DialogHeader className="pr-10"><DialogTitle>Seu próximo treino começa aqui</DialogTitle><DialogDescription>Escolha um ponto de partida, ajuste sua rotina e gere seu plano.</DialogDescription></DialogHeader>
       <form onSubmit={submit} className="min-w-0 space-y-5">
         <fieldset disabled={busy || uncertain} className="min-w-0 space-y-5 disabled:opacity-70">
+          <section aria-label="Configuração rápida" className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Comece com um toque</p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {[['academia','Academia','Musculação · halteres, barra, banco, máquinas e polias'],['casa','Em casa','Calistenia · corpo todo, sem equipamentos'],['corrida','Corrida ao ar livre','Condicionamento · asfalto, sem equipamentos']].map(([preset,title,description]) => <button key={preset} type="button" data-testid={`quick-workout-${preset}`} onClick={() => { setForm(p => quickGenerationSetup(p,preset)); setError(''); }} className="min-h-20 rounded-2xl border border-border bg-muted/30 p-3 text-left transition hover:border-primary hover:bg-primary/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"><span className="block font-semibold">{title}</span><span className="mt-1 block text-xs leading-relaxed text-muted-foreground">{description}</span></button>)}
+            </div>
+            <p className="text-xs text-muted-foreground">Os atalhos selecionam os equipamentos descritos. Confira e ajuste abaixo.</p>
+          </section>
+          <details open={customize} onToggle={e => setCustomize(e.currentTarget.open)} className="rounded-2xl border border-border p-3"><summary className="min-h-11 cursor-pointer py-2 font-medium">Ajustar objetivo, rotina e equipamentos</summary><div className="space-y-5 pt-3">
           <div className="grid min-w-0 gap-4 sm:grid-cols-2">
             <Choice label="Modalidade" value={form.workout_type} onChange={v => patch('workout_type', v)} choices={ [['musculacao','Musculação'],['calistenia','Calistenia'],['corrida','Corrida'],['hibrido','Híbrido']] } />
             <Choice label="Onde você pretende treinar?" value={form.training_location} onChange={v => patch('training_location', v)} choices={ [['','Selecione o local'],['casa','Em casa'],['academia','Em academia'],['ar_livre','Ao ar livre']] } />
@@ -73,6 +82,7 @@ export default function WorkoutGeneratorDialog({ generate, onSaved }) {
           </div>
           {strength && form.generation_mode === 'tipo_treino' && !form.single ? <section className="space-y-3"><Choice label="Divisão" value={form.split_type} onChange={v => setForm(p => ({ ...p, split_type: v, split_config: splitConfig(v) }))} choices={ Object.keys(SPLITS).map(v => [v, v === 'AB' ? 'AB · superior / inferior' : v]) } />{form.split_config.map((split, i) => <details key={split.label} className="rounded-xl border p-3"><summary className="cursor-pointer break-words">{split.label} · {split.name || 'Escolha os grupos'}</summary><div className="grid sm:grid-cols-2">{MUSCLES.map(m => <label key={m} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={split.muscle_groups.includes(m)} onChange={() => setForm(p => ({ ...p, split_config: p.split_config.map((s, j) => { if (i !== j) return s; const groups = s.muscle_groups.includes(m) ? s.muscle_groups.filter(g => g !== m) : [...s.muscle_groups, m]; return { ...s, muscle_groups: groups, name: groups.map(muscleLabel).join(', ') }; }) }))} />{muscleLabel(m)}</label>)}</div></details>)}</section> : strength && <details><summary className="min-h-11 cursor-pointer py-2">Foco muscular (opcional; vazio indica corpo todo)</summary><div className="grid sm:grid-cols-2">{MUSCLES.map(m => <label key={m} className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={form.muscle_groups.includes(m)} onChange={() => toggle('muscle_groups', m)} />{muscleLabel(m)}</label>)}</div></details>}
           {strength && <section className="space-y-3">{form.workout_type === 'musculacao' && <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={form.include_cardio} onChange={e => patch('include_cardio', e.target.checked)} />Incluir condicionamento</label>}{(form.include_cardio || form.workout_type === 'hibrido') && <div className="grid gap-4 sm:grid-cols-2"><Choice label="Condicionamento" value={form.cardio_type} onChange={v => patch('cardio_type', v)} choices={ [['corrida','Corrida'],['bike','Bike/ciclismo'],['HIIT','HIIT'],['caminhada','Caminhada'],['natacao','Natação'],['pular_corda','Pular corda'],['eliptico','Elíptico'],['remo','Remo']] } /><Choice label="Combinação" value={form.cardio_mode} onChange={v => patch('cardio_mode', v)} choices={ [['hibrido','Força e condicionamento na sessão'],['hibrido_alternado','Alternar sessões de força e condicionamento']] } /></div>}</section>}
+          </div></details>
           <details className="rounded-xl border p-3"><summary className="min-h-11 cursor-pointer py-2">Limitações e exercícios a evitar (opcional)</summary><p className="mb-3 text-sm text-muted-foreground">Relatos pessoais não são diagnósticos. A proposta não substitui avaliação profissional. Esses campos ficam neste plano, sem copiar para o perfil.</p><label className="block space-y-2 text-sm">Condições físicas relatadas<textarea aria-label="Condições físicas relatadas" className={fieldClass} maxLength={5000} value={form.health_condition} onChange={e => patch('health_condition', e.target.value)} /></label><label className="mt-3 block space-y-2 text-sm">Exercícios a evitar, um por linha<textarea aria-label="Exercícios a evitar, um por linha" className={fieldClass} value={form.avoid_text} onChange={e => patch('avoid_text', e.target.value)} /></label></details>
         </fieldset>
         <section data-testid="generation-summary" aria-label="Resumo antes de gerar" className="space-y-2 rounded-2xl border border-primary/30 bg-primary/5 p-4 text-sm">
@@ -84,7 +94,7 @@ export default function WorkoutGeneratorDialog({ generate, onSaved }) {
         {error && <p role="alert" className="break-words text-sm text-destructive">{error}</p>}
         {uncertain && <p role="status" className="text-sm">O resultado ainda não foi confirmado. Consulte suas fichas ou tente recuperar o mesmo pedido. A repetição usa a mesma chave e não duplica plano ou XP.</p>}
         {busy && <p role="status" className="text-sm text-muted-foreground">Gerando e validando sessões-base. Você pode fechar esta janela; os campos serão preservados.</p>}
-        <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Fechar</Button><Button type="submit" data-testid="generate-ai-workout-btn" disabled={busy} className="h-auto min-h-11 flex-1 whitespace-normal">{busy && <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />}{busy ? 'Gerando treino…' : uncertain ? 'Recuperar mesmo pedido' : 'Gerar treino'}</Button></div>
+        <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap gap-2 border-t border-border bg-background px-1 pb-1 pt-3"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Fechar</Button><Button type="submit" data-testid="generate-ai-workout-btn" disabled={busy} className="h-auto min-h-11 flex-1 whitespace-normal">{busy && <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />}{busy ? 'Gerando treino…' : uncertain ? 'Recuperar mesmo pedido' : 'Gerar treino'}</Button></div>
       </form>
     </DialogContent>
   </Dialog>;
