@@ -76,7 +76,7 @@ async def generate_workout_plan(request: Request, gen_data: WorkoutPlanGenerate,
 
 
 async def _generated_document(gen_data,uid,revision_context=None):
-    from workout_generation_contract import (GenerationInvalid, MESSAGES, validate_request,
+    from workout_generation_contract import (BasePlan, GenerationInvalid, MESSAGES, validate_request,
         generation_prompt, base_labels, validate_bases, compose_calendar, equipment_for, hybrid_request)
     from workout_calendar import calendar_shape, normalize_days
     from ai.types import AIError
@@ -100,7 +100,7 @@ async def _generated_document(gen_data,uid,revision_context=None):
             for attempt in range(2):
                 try:
                     response=await call_llm(prompt+correction,f'workout_{uid}',system,
-                        user_id=uid,task='workout_generation',raise_ai_errors=True)
+                        user_id=uid,task='workout_generation',raise_ai_errors=True,output_type=BasePlan)
                     text=(response or '').strip()
                     if text.startswith('```'):
                         text=text.split('\n',1)[-1].removesuffix('```').strip()

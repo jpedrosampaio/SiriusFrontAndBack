@@ -1,6 +1,20 @@
 const { test } = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm'), path = require('node:path');
 const c = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/lib/workout-generation.js'), 'utf8').replaceAll('export ', ''), c);
+test('Quick setup uses explicit inventory and preserves personal constraints and routine', () => {
+  const initial = { ...c.initialGenerationForm(), weeks: 8, training_days_per_week: 4, session_minutes: 30,
+    health_condition: 'Relato privado', avoid_text: 'Paralelas', level: 'iniciante' };
+  for (const preset of ['academia', 'casa', 'corrida']) {
+    const form = c.quickGenerationSetup(initial, preset), payload = c.generationPayload(form);
+    assert.equal(payload.cycle_weeks, 8); assert.equal(payload.training_days_per_week, 4);
+    assert.equal(payload.session_minutes, 30); assert.equal(payload.health_condition, 'Relato privado');
+    assert.equal(payload.avoid_exercises[0], 'Paralelas'); assert.equal(payload.level, 'iniciante');
+    assert.equal(payload.available_equipment.length, preset === 'academia' ? 5 : 0);
+    assert.equal(payload.workout_type, {academia:'musculacao', casa:'calistenia', corrida:'corrida'}[preset]);
+  }
+  assert.equal(initial.available_equipment, null);
+  assert.equal(c.generationPayload(c.quickGenerationSetup({ ...initial, single: true }, 'casa')).duration, 'dia');
+});
 test('Every modality uses explicit frequency, duration and inventory with exact session count', () => {
   for (const type of ['musculacao','calistenia','corrida','hibrido']) for (const weeks of [1,4,8,12]) for (const frequency of [2,3,5,7]) {
     const form = { ...c.initialGenerationForm(), workout_type: type, weeks, training_days_per_week: frequency, training_location: 'casa', available_equipment: [] };

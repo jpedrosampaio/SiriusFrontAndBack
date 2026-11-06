@@ -25,6 +25,17 @@ export function initialGenerationForm() {
     cardio_type: 'corrida', cardio_mode: 'hibrido', running_goal: '5km',
     preferred_terrain: 'asfalto', calisthenics_focus: 'full_body', health_condition: '', avoid_text: '' };
 }
+export function quickGenerationSetup(form, preset) {
+  const shared = { ...form, generation_mode: 'periodo', muscle_groups: [], include_cardio: false,
+    cardio_mode: 'hibrido' };
+  if (preset === 'academia') return { ...shared, workout_type: 'musculacao', training_location: 'academia',
+    available_equipment: ['halteres', 'barra_anilhas', 'banco', 'maquinas', 'polias'] };
+  if (preset === 'casa') return { ...shared, workout_type: 'calistenia', training_location: 'casa',
+    objective: 'condicionamento', calisthenics_focus: 'full_body', available_equipment: [] };
+  if (preset === 'corrida') return { ...shared, workout_type: 'corrida', training_location: 'ar_livre',
+    objective: 'condicionamento', running_goal: 'condicionamento', preferred_terrain: 'asfalto', available_equipment: [] };
+  return form;
+}
 export function generationPayload(form) {
   if (!form.training_location) throw new Error('Informe onde pretende treinar.');
   if (form.available_equipment === null) throw new Error('Declare os equipamentos ou selecione “Nenhum equipamento”.');

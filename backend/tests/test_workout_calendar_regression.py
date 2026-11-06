@@ -65,6 +65,8 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_four_weeks_month(self):
         result = await self.generate([bases()])
+        from workout_generation_contract import BasePlan
+        self.assertIs(self.ns['call_llm'].call_args.kwargs['output_type'], BasePlan)
         plan = result['plan']
         self.assertEqual(len(plan['days']), 20)
         self.assertEqual(plan['cycle_weeks'], 4)
@@ -76,6 +78,26 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result['plan']['days']), 20)
         self.assertEqual(self.ns['call_llm'].await_count, 2)
         self.ns['db'].workout_plans.insert_one.assert_awaited_once()
+
+    async def test_structured_rejection_has_bounded_retry_and_no_partial_write(self):
+        from ai.types import AIError
+        for recover in (True, False):
+            with self.subTest(recover=recover):
+                ns = route_context()
+                ns['call_llm'] = AsyncMock(side_effect=[AIError('malformed_output'),
+                    json.dumps(bases()) if recover else AIError('malformed_output')])
+                request = ns['WorkoutPlanGenerate'](objective='hipertrofia', level='intermediario',
+                    duration='mes', available_equipment=['halteres'])
+                if recover:
+                    result = await ns['generate_workout_plan'](SimpleNamespace(headers={}), request, None)
+                    self.assertEqual(len(result['plan']['days']), 20)
+                    ns['db'].workout_plans.insert_one.assert_awaited_once()
+                else:
+                    with self.assertRaises(HTTPException):
+                        await ns['generate_workout_plan'](SimpleNamespace(headers={}), request, None)
+                    ns['db'].workout_plans.insert_one.assert_not_awaited()
+                    ns['award_xp'].assert_not_awaited()
+                self.assertEqual(ns['call_llm'].await_count, 2)
 
     async def test_repeated_partial_response_never_saved_or_rewarded(self):
         with self.assertRaises(HTTPException) as error:
