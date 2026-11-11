@@ -24,12 +24,14 @@ def scheduled_plan_index(day_count, parameters, elapsed_days):
 
 
 def calendar_shape(request):
+    frequency = (getattr(request,'training_days_per_week',None)
+        or getattr(request,'weekly_frequency',None)
+        or (4 if request.workout_type == 'corrida' else 5))
     if request.generation_mode == "tipo_treino" and request.workout_type != "corrida":
-        return request.cycle_weeks or 4, request.training_days_per_week or 5
+        return request.cycle_weeks or 4, frequency
     weeks = getattr(request,'cycle_weeks',None) or {"dia": 1, "semana": 1, "mes": 4, "ciclo": 10}.get(request.duration)
     if weeks is None:
         raise ValueError("Duração de treino inválida.")
-    frequency = getattr(request,'training_days_per_week',None) or ((getattr(request,'weekly_frequency',None) or 4) if request.workout_type == "corrida" else 5)
     return weeks, 1 if request.duration == "dia" else frequency
 
 

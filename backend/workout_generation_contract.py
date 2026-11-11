@@ -58,6 +58,7 @@ class GenerationInvalid(ValueError):
 
 
 class GeneratedExercise(Exercise):
+    model_config = ConfigDict(extra='forbid')
     sets: int = Field(ge=1,le=8)
     required_equipment: list[Equipment] = Field(max_length=18)
     difficulty: Literal['iniciante','intermediario','avancado']

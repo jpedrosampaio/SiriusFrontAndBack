@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { EQUIPMENT, MUSCLES, muscleLabel, SPLITS, splitConfig, initialGenerationForm, quickGenerationSetup, generationPayload, generationCount, createGenerationRequest } from '@/lib/workout-generation';
-import { getApiErrorMessage } from '@/lib/api-errors';
+import { getApiErrorMessage, getApiErrorReference } from '@/lib/api-errors';
 
 const fieldClass = 'w-full min-w-0 min-h-[44px] rounded-xl border border-border bg-background px-3 py-2 text-sm';
 function Choice({ label, value, onChange, choices }) {
@@ -42,7 +42,8 @@ export default function WorkoutGeneratorDialog({ generate, onSaved }) {
     } catch (failure) {
       if (!mounted.current || failure.code === 'ERR_CANCELED') return;
       setUncertain(requests.current.finish(failure));
-      setError(getApiErrorMessage(failure, 'Não foi possível confirmar o resultado. Seus campos foram preservados.'));
+      const reference = getApiErrorReference(failure);
+      setError(getApiErrorMessage(failure, 'Não foi possível confirmar o resultado. Seus campos foram preservados.') + (reference ? ` Referência: ${reference}.` : ''));
     } finally { if (mounted.current) setBusy(false); }
   }
   return <Dialog open={open} onOpenChange={setOpen}>

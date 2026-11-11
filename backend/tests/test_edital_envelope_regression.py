@@ -23,7 +23,8 @@ class ResponseEnvelope(unittest.IsolatedAsyncioTestCase):
         for task, schema, status, code, expected in (
             ('edital_extract', True, 400, 'json_validate_failed', 'malformed_output'),
             ('edital_audit', True, 400, 'json_validate_failed', 'malformed_output'),
-            ('workout_generation', True, 400, 'json_validate_failed', 'invalid_request'),
+            ('workout_generation', True, 400, 'json_validate_failed', 'malformed_output'),
+            ('assistant_chat', True, 400, 'json_validate_failed', 'invalid_request'),
             ('edital_extract', False, 400, 'json_validate_failed', 'invalid_request'),
             ('edital_extract', True, 400, 'unknown', 'invalid_request'),
             ('edital_extract', True, 429, 'json_validate_failed', 'rate_limit'),

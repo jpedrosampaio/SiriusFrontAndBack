@@ -1,5 +1,10 @@
 // FastAPI validation errors use an array; HTTPException details may be any JSON.
 // Return display text without mutating the error or exposing validation input.
+export function getApiErrorReference(error) {
+  const reference = error?.response?.data?.detail?.reference;
+  return typeof reference === 'string' && reference.trim() === reference && /^(?:[a-f0-9]{12}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(reference) ? reference : '';
+}
+
 export function getApiErrorMessage(error, fallback = "Não foi possível concluir a operação.") {
   const detail = error?.response?.data?.detail;
   if (typeof detail === "string") return detail.trim() || fallback;

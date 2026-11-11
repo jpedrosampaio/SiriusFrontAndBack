@@ -67,6 +67,7 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
         result = await self.generate([bases()])
         from workout_generation_contract import BasePlan
         self.assertIs(self.ns['call_llm'].call_args.kwargs['output_type'], BasePlan)
+        self.assertTrue(self.ns['call_llm'].call_args.kwargs['strict_schema'])
         plan = result['plan']
         self.assertEqual(len(plan['days']), 20)
         self.assertEqual(plan['cycle_weeks'], 4)
@@ -78,6 +79,19 @@ class CalendarTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result['plan']['days']), 20)
         self.assertEqual(self.ns['call_llm'].await_count, 2)
         self.ns['db'].workout_plans.insert_one.assert_awaited_once()
+
+    async def test_requested_gym_routine_has_twelve_sessions_in_four_distinct_weeks(self):
+        result = await self.generate([bases()], training_days_per_week=3, cycle_weeks=4,
+            session_minutes=45, training_location='academia',
+            available_equipment=['halteres','barra_anilhas','banco','maquinas','polias'])
+        days=result['plan']['days']
+        self.assertEqual(len(days),12)
+        self.assertEqual([sum(day['week']==week for day in days) for week in range(1,5)],[3,3,3,3])
+        self.ns['db'].workout_plans.insert_one.assert_awaited_once()
+
+    async def test_weekly_frequency_alias_is_not_silently_ignored_for_strength(self):
+        result=await self.generate([bases()],weekly_frequency=3,cycle_weeks=4)
+        self.assertEqual(len(result['plan']['days']),12)
 
     async def test_structured_rejection_has_bounded_retry_and_no_partial_write(self):
         from ai.types import AIError

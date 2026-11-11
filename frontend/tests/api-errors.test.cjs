@@ -8,6 +8,16 @@ const helperSource = fs.readFileSync(path.join(__dirname, "../src/lib/api-errors
 const helper = import("data:text/javascript;base64," + Buffer.from(helperSource).toString("base64"));
 const apiSource = fs.readFileSync(path.join(__dirname, "../src/lib/api.js"), "utf8");
 
+test('diagnostic references accept only public opaque identifiers', async () => {
+  const { getApiErrorReference } = await helper;
+  for (const reference of ['a462a9923f08', 'c91228c2-19aa-4e81-b296-1203fe713c65']) {
+    assert.equal(getApiErrorReference({ response: { data: { detail: { reference } } } }), reference);
+  }
+  for (const reference of [null, {}, 123, 'secret prompt', 'https://private.example', 'a462a9923f08\n']) {
+    assert.equal(getApiErrorReference({ response: { data: { detail: { reference } } } }), '');
+  }
+});
+
 async function loadClient({ offline = false, pathname = "/studies" } = {}) {
   const { getApiErrorMessage } = await helper;
   const handlers = {};

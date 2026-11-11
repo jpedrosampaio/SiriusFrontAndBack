@@ -43,7 +43,7 @@ TASKS = {
     'study_explanation': ('reasoning', 'flash', 'lite'),
     'study_question_generation': ('flash', 'reasoning', 'lite'),
     'study_question_validation': ('flash', 'reasoning', 'lite'),
-    'workout_generation': ('flash', 'reasoning', 'lite'),
+    'workout_generation': ('reasoning', 'fast', 'flash', 'lite'),
     'nutrition_generation': ('flash', 'reasoning', 'lite'),
     'mindmap_generation': ('flash', 'reasoning', 'lite'),
     'embedding': ('embedding',),
