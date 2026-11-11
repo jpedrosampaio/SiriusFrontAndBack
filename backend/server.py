@@ -196,13 +196,15 @@ async def get_freellm_api_key(user_id: str) -> Optional[str]:
 
 # ========== LLM CALLS ==========
 
-async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None, timeout_override: Optional[int] = None, task: str = 'assistant_chat', raise_ai_errors: bool = False, output_type=None) -> str:
+async def call_llm(prompt: str, session_id: str = "default", system_message: str = "Você é um assistente útil.", user_id: Optional[str] = None, timeout_override: Optional[int] = None, task: str = 'assistant_chat', raise_ai_errors: bool = False, output_type=None, strict_schema: bool = False) -> str:
     from ai.types import AIError
     if not user_id:
         return '⚠️ Faça login para usar IA.'
     keys = await agent_runtime.credentials.get(user_id)
     try:
         structured = {'output_type': output_type} if output_type is not None else {}
+        if strict_schema and output_type is not None:
+            structured['strict_schema'] = True
         result = await agent_runtime.router.generate(task=task, keys=keys, user_id=user_id, prompt=prompt, system=system_message, timeout=timeout_override or 90, max_tokens=8192, **structured)
         await track_gemini_usage(user_id, result.model, usage=result.usage, feature=task)
         return result.text

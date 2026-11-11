@@ -100,7 +100,7 @@ async def _generated_document(gen_data,uid,revision_context=None):
             for attempt in range(2):
                 try:
                     response=await call_llm(prompt+correction,f'workout_{uid}',system,
-                        user_id=uid,task='workout_generation',raise_ai_errors=True,output_type=BasePlan)
+                        user_id=uid,task='workout_generation',raise_ai_errors=True,output_type=BasePlan,strict_schema=True)
                     text=(response or '').strip()
                     if text.startswith('```'):
                         text=text.split('\n',1)[-1].removesuffix('```').strip()

@@ -35,9 +35,9 @@ class GroqProvider(Provider):
             data = await self.request('post', f'{BASE}/chat/completions', headers={'Authorization': f'Bearer {key}'}, json=payload, timeout=request.timeout)
         except AIError as error:
             # This public Groq code describes a rejected generated response,
-            # not an incompatible request. Let the edital worker apply its
-            # bounded, lossless split policy; never accept failed_generation.
-            if (request.task in ('edital_extract', 'edital_audit') and request.schema
+            # not an incompatible request. Let the caller apply its bounded
+            # recovery policy; never accept failed_generation.
+            if (request.task in ('edital_extract', 'edital_audit', 'workout_generation') and request.schema
                     and error.kind == 'invalid_request' and error.http_status == 400
                     and (error.provider_rejection or {}).get('provider_code') == 'json_validate_failed'):
                 error.kind = 'malformed_output'
